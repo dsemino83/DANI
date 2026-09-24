@@ -117,6 +117,7 @@
 
     <!-- ================= INICIO ================= -->
     <section id="p-inicio" class="pantalla noche activa">
+      <video class="video-escena" id="video-inicio" muted loop playsinline preload="auto"></video>
       <svg id="svg-inicio" viewBox="0 0 1200 900" width="1200" height="900"></svg>
       <div class="titulo"><span class="t1">Misión:</span><span class="t2">Dientes</span><span class="t3">Limpios</span></div>
       <div class="lema">¡Vamos a cepillarnos<br>paso a paso!</div>
@@ -712,9 +713,9 @@
   var ENCUADRE_INICIO = 'translate(-340 90) scale(.9)';
 
   $('svg-inicio').innerHTML =
-    fotoFondo(FONDO_NOCHE) +
+    '<g class="fondo">' + fotoFondo(FONDO_NOCHE) + '</g>' +
     '<g>' + estrellas(18, 7) + '</g>' +
-    '<g transform="' + ENCUADRE_INICIO + '">' + nino('inicio') + '</g>' +
+    '<g class="nino-inicio" transform="' + ENCUADRE_INICIO + '">' + nino('inicio') + '</g>' +
     superDiente('sd-inicio', 530, 170, .4, 'varita');
   $('svg-paso').innerHTML = fondoBano('-paso', 3) + '<g transform="' + ENCUADRE_PASO + '">' + nino('paso') + '</g>';
   $('svg-final').innerHTML =
@@ -747,7 +748,7 @@
      debajo de la interfaz; si no existe, queda el dibujo animado de siempre. */
   var CARPETA_VIDEOS = 'recursos/videos/';
   // Videos que ya traen su propia interfaz dibujada: con ellos se oculta la del juego.
-  var VIDEOS_CON_INTERFAZ = { mision: true };
+  var VIDEOS_CON_INTERFAZ = {};
 
   function ponerVideo(video, nombre, svg, selectorOcultar, alCambiar) {
     var piezas = Array.prototype.slice.call(svg.querySelectorAll(selectorOcultar));
@@ -775,6 +776,7 @@
 
   function mostrar(nombre) {
     estado.pantalla = nombre;
+    if (nombre === 'inicio') ponerVideo($('video-inicio'), 'inicio', $('svg-inicio'), '.fondo, .nino-inicio, #sd-inicio');
     ['inicio', 'mision', 'paso', 'final'].forEach(function (p) { $('p-' + p).classList.toggle('activa', p === nombre); });
     Array.prototype.forEach.call($('p-' + nombre).querySelectorAll('.superdiente'), function (g) {
       g.setAttribute('data-t0', tReloj());
@@ -813,7 +815,10 @@
     dibujarSarro(svg, p);
     dibujarGuias(svg, p);
     svg.querySelector('#destellos').innerHTML = '';
-    hablar(p.l1 + ' ' + p.l2);
+    // El paso se activa con la voz: el reloj empieza cuando termina la consigna.
+    estado.esperandoVoz = true;
+    var pasoQueHabla = i;
+    hablar(p.l1 + ' ' + p.l2, p.id).then(function () { if (estado.paso === pasoQueHabla) estado.esperandoVoz = false; });
   }
 
   // Manchitas de sarro que se van limpiando con el tiempo del paso.
@@ -964,7 +969,7 @@
   /* ---------- Misión: agarrar el cepillo ---------- */
   var agarre = null; // instante en que se tocó el cepillo
   function empezarMision() {
-    ponerVideo($('video-mision'), 'mision', $('svg-mision'), '.fondo, #sd-mision, #premio');
+    ponerVideo($('video-mision'), 'mision', $('svg-mision'), '.fondo, #sd-mision');
     agarre = null;
     $('mision-1').textContent = '¡Hola! Soy Superdiente.';
     $('mision-2').textContent = '¡Agarrá tu cepillo de dientes para empezar!';
@@ -972,7 +977,7 @@
     $('svg-mision').querySelector('#sd-mision').removeAttribute('data-feliz');
     $('svg-mision').querySelector('#sd-mision').removeAttribute('data-fiesta');
     mostrar('mision');
-    hablar('¡Hola! Soy Superdiente. ¡Agarrá tu cepillo de dientes para empezar!');
+    hablar('¡Hola! Soy Superdiente. ¡Agarrá tu cepillo de dientes para empezar!', 'mision-hola');
   }
   function agarrarCepillo() {
     if (agarre !== null) return;
@@ -982,7 +987,7 @@
     $('mision-2').textContent = '¡Vamos a cepillarnos paso a paso!';
     $('svg-mision').querySelector('#sd-mision').setAttribute('data-feliz', '1');
     $('svg-mision').querySelector('#sd-mision').setAttribute('data-fiesta', agarre);
-    hablar('¡Muy bien, ya lo tenés! ¡Vamos a cepillarnos!');
+    hablar('¡Muy bien, ya lo tenés! ¡Vamos a cepillarnos!', 'mision-agarrado');
     if (estado.auto) setTimeout(function () {
       if (estado.pantalla === 'mision') { mostrar('paso'); irAPaso(0); }
     }, 1800);
@@ -1037,7 +1042,7 @@
   function terminar() {
     $('racha-num').textContent = actualizarRacha();
     mostrar('final');
-    hablar('¡Lo hiciste! ¡Dientes limpios y una gran sonrisa!');
+    hablar('¡Lo hiciste! ¡Dientes limpios y una gran sonrisa!', 'final');
   }
 
   function actualizarRacha() {
@@ -1054,16 +1059,36 @@
   /* ---------- Voz ---------- */
   var vozActiva = true;
   var hablandoHasta = -1; // hasta cuándo mueve la boca Superdiente
-  function hablar(texto) {
+  /* Cada frase tiene un archivo en recursos/audio/<clave>.mp3 (voz grabada).
+     Si no existe, se usa la voz del navegador. Devuelve una promesa que se
+     cumple cuando termina de hablar (o a los 12 s como máximo). */
+  var CARPETA_AUDIO = 'recursos/audio/';
+  var audioActual = null;
+  function hablar(texto, clave) {
     hablandoHasta = tReloj() + 0.8 + texto.length * 0.065;
-    if (!vozActiva || !('speechSynthesis' in window)) return;
-    try {
-      speechSynthesis.cancel();
-      var u = new SpeechSynthesisUtterance(texto);
-      u.lang = 'es-AR'; u.rate = 0.95; u.pitch = 1.15;
-      u.onend = function () { hablandoHasta = tReloj(); };
-      speechSynthesis.speak(u);
-    } catch (e) { /* sin voz disponible */ }
+    if (!vozActiva) return Promise.resolve();
+    if (audioActual) { try { audioActual.pause(); } catch (e) {} audioActual = null; }
+    try { if ('speechSynthesis' in window) speechSynthesis.cancel(); } catch (e) {}
+    return new Promise(function (listo) {
+      var terminado = false;
+      function fin() { if (!terminado) { terminado = true; hablandoHasta = tReloj(); listo(); } }
+      setTimeout(fin, 12000);
+      function vozNavegador() {
+        if (!('speechSynthesis' in window)) { setTimeout(fin, texto.length * 65); return; }
+        try {
+          var u = new SpeechSynthesisUtterance(texto);
+          u.lang = 'es-AR'; u.rate = 0.95; u.pitch = 1.15;
+          u.onend = fin; u.onerror = fin;
+          speechSynthesis.speak(u);
+        } catch (e) { fin(); }
+      }
+      if (!clave) { vozNavegador(); return; }
+      var a = new Audio(CARPETA_AUDIO + clave + '.mp3');
+      audioActual = a;
+      a.onended = fin;
+      a.onerror = function () { if (audioActual === a) vozNavegador(); };
+      a.play().catch(function () { if (audioActual === a) vozNavegador(); });
+    });
   }
 
   /* ---------- Controles ---------- */
@@ -1072,10 +1097,10 @@
   $('btn-mision-seguir').onclick = agarrarCepillo;
   // Con el video de Superdiente no hay cepillo dibujado: tocar cualquier parte lo agarra.
   $('p-mision').addEventListener('click', function () { if ($('p-mision').classList.contains('con-video')) agarrarCepillo(); });
-  $('btn-voz-mision').onclick = function () { hablar($('mision-1').textContent + ' ' + $('mision-2').textContent); };
+  $('btn-voz-mision').onclick = function () { hablar($('mision-1').textContent + ' ' + $('mision-2').textContent, agarre === null ? 'mision-hola' : 'mision-agarrado'); };
   $('btn-siguiente').onclick = siguiente;
   $('btn-anterior').onclick = function () { if (estado.paso > 0) irAPaso(estado.paso - 1); };
-  $('btn-voz').onclick = function () { var p = PASOS[estado.paso]; hablar(p.l1 + ' ' + p.l2); };
+  $('btn-voz').onclick = function () { var p = PASOS[estado.paso]; hablar(p.l1 + ' ' + p.l2, p.id); };
   $('btn-volver').onclick = function () { mostrar('inicio'); };
 
   /* ---------- Escalado del escenario ---------- */
@@ -1085,6 +1110,7 @@
   }
   window.addEventListener('resize', ajustar);
   ajustar();
+  ponerVideo($('video-inicio'), 'inicio', $('svg-inicio'), '.fondo, .nino-inicio, #sd-inicio');
 
   var ultimo = null, t = 0, congelado = false;
   function tReloj() { return t; }
@@ -1092,7 +1118,7 @@
     if (!congelado) {
       var dt = ultimo === null ? 0 : Math.min(0.1, (ahora - ultimo) / 1000);
       t += dt;
-      if (estado.pantalla === 'paso' && !estado.completado) {
+      if (estado.pantalla === 'paso' && !estado.completado && !estado.esperandoVoz) {
         estado.tiempo += dt;
         if (estado.tiempo >= SEGUNDOS_POR_PASO) { estado.tiempo = SEGUNDOS_POR_PASO; completarPaso(); }
       }

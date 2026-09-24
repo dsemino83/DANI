@@ -44,3 +44,16 @@ Los 9 videos están en `recursos/videos/<id>.mp4|webm`. Se rehicieron las imáge
 (salían con los brazos cruzados o copiaban el texto «PixVerse.ai» de la referencia): para los pasos
 «del otro lado» conviene pedir que sostenga el cepillo con UNA sola mano, la del lado correspondiente.
 Costo aproximado: 12 imágenes × 15 + 9 videos × 70 ≈ 810 créditos.
+
+### Actualización (menú, misión y paso 7)
+
+- `bolsillos-otro-lado`: se rehizo la imagen (salía una manga suelta) y el video.
+- `mision`: Superdiente limpio, sin interfaz dentro del video (el cepillo y los textos los pone el juego).
+  Se recortó 1,3 s del comienzo porque el fondo se oscurece al empezar.
+- `inicio`: el niño de PixVerse levanta el cepillo bajo el cielo estrellado (reemplaza la cara dibujada).
+- Costo: 3 imágenes × 15 + 3 videos × 70 ≈ 255 créditos.
+
+## Voz
+
+Las consignas usan `recursos/audio/<clave>.mp3` si existe (frases en `herramientas/frases_voz.json`);
+si no, la voz del navegador (es-AR). El reloj de cada paso arranca cuando termina la consigna.
