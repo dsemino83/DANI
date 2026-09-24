@@ -52,6 +52,7 @@
       b.onclick = () => empezarMision(id);
       cont.appendChild(b);
     }
+    if (window.Escenarios) Escenarios.mostrar();
     const g = az.elegir(Motor.GUIAS);
     $('#saludo').textContent = az.elegir([
       `¡Hola! Soy ${g.nombre}. ¿Qué misión jugamos hoy?`,
@@ -84,6 +85,8 @@
     act = motor.siguienteActividad(mision);
     if (!act) return terminar();
     estado = { errores: 0, pistas: 0, terminado: false, pistaVista: false };
+    // Cada pregunta, un escenario animado distinto de los dos anteriores.
+    if (window.Escenarios) Escenarios.mostrar();
     pintarProgreso();
     $('#nivel').textContent = `${Motor.TEMAS[act.tema].emoji} Nivel ${act.nivel}`;
     $('#cartel-repaso').innerHTML = act.esRepaso ? '<span class="repaso-cartel mayusculable">🔁 Repasamos lo mismo de otra forma</span>' : '';

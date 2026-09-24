@@ -6,6 +6,23 @@ Abrí `index.html` en el navegador. Hay seis misiones (Números, Sumas y Restas,
 
 ![Inicio](capturas/00-inicio.png)
 
+## Escenarios animados (`escenarios.js`)
+
+Cada pregunta aparece sobre un paisaje animado distinto de los dos anteriores, con el estilo de películas animadas pero **sin personajes ni imágenes de las películas**: todo está dibujado en SVG con animaciones CSS, sin archivos externos.
+
+| Escenario | Inspirado en | Movimiento |
+|---|---|---|
+| Cielo de juguetes | Toy Story | nubes que pasan en dos capas y un avión de papel |
+| Isla del océano | Moana | olas en tres capas, canoa que se mece, palmeras al viento, humo del volcán y destellos en el agua |
+| Reino de los hongos | Mario Bros | monedas que giran, bloques que saltan, estrella flotante, nubes |
+| Ruta del desierto | Cars | línea de la ruta que avanza, planta rodadora, sol que late |
+| Lago de los faroles | Enredados | faroles que suben con brillo, estrellas que titilan, reflejo en el lago |
+| Patio de verano | Phineas y Ferb | carrito que recorre la montaña rusa, sol que gira, árbol y mariposas |
+
+Las preguntas van sobre un panel translúcido para que siempre se lean bien. En modo oscuro el fondo se oscurece y, si el sistema pide menos movimiento, las animaciones se detienen.
+
+![Escenarios](capturas/escenarios.png)
+
 ## Cómo funciona el motor (`motor.js`)
 
 | Requisito | Dónde está |

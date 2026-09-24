@@ -196,6 +196,11 @@
     .opciones.largas { grid-template-columns: 1fr; }
     .teclado { grid-template-columns: repeat(3, 64px); }
   }
+  /* Panel translúcido sobre los escenarios animados */
+  .panel-juego { background: color-mix(in srgb, var(--fondo) 80%, transparent); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); border-radius: 24px; padding: 14px 12px 16px; box-shadow: 0 8px 30px rgba(20, 20, 60, .18); }
+  .barra h1, #titulo-mision, .saludo { text-shadow: 0 1px 0 var(--fondo), 0 0 12px var(--fondo); }
+  .saludo { color: var(--tinta); font-weight: 700; }
+  #inicio .barra, #actividad .barra, #fin .barra, #adultos .barra { background: color-mix(in srgb, var(--fondo) 75%, transparent); border-radius: 18px; padding: 6px 10px; margin-bottom: 8px; -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); }
   @media (prefers-reduced-motion: reduce) { * { animation: none !important; } }
 </style>
 </head>
@@ -231,6 +236,7 @@
       <span class="guia" id="guia">🧒</span>
       <div class="globo"><span id="consigna" class="mayusculable"></span><button class="parlante" id="btn-leer" title="Escuchar la consigna">🔊</button></div>
     </div>
+    <div class="panel-juego">
     <div class="escena" id="escena"></div>
     <div class="zona" id="zona"></div>
     <div class="aviso" id="aviso"></div>
@@ -238,9 +244,11 @@
       <button class="boton sec" id="btn-pista">💡 Pista</button>
       <button class="boton" id="btn-seguir" hidden>Seguir ▶</button>
     </div>
+    </div>
   </section>
 
   <section id="fin" class="pantalla final">
+    <div class="panel-juego">
     <div class="barra"><h1 class="mayusculable" id="fin-titulo">¡Misión cumplida!</h1></div>
     <div class="emoji-grande" id="fin-guia">🤖</div>
     <div class="estrellas" id="fin-estrellas"></div>
@@ -249,9 +257,11 @@
       <button class="boton" id="btn-otra">Jugar otra vez</button>
       <button class="boton sec" id="btn-volver">Elegir otra misión</button>
     </div>
+    </div>
   </section>
 
   <section id="adultos" class="pantalla">
+    <div class="panel-juego">
     <div class="barra">
       <button class="icono-btn" id="btn-adultos-volver" title="Volver">🏠</button>
       <h1>Progreso y motor de actividades</h1>
@@ -266,8 +276,10 @@
     </div>
     <ol class="muestras" id="muestras"></ol>
     <div class="acciones"><button class="boton sec" id="btn-reiniciar">Borrar el progreso guardado</button></div>
+    </div>
   </section>
 </div>
+<script src="escenarios.js"></script>
 <script src="motor.js"></script>
 <script src="app.js"></script>
 </body>
