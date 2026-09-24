@@ -219,22 +219,22 @@
      boca:    'abierta' | 'dientes' (mordida, cara de adelante) | 'enjuague'
      ===================================================================== */
   var PASOS = [
-    { nombre: 'Dientes de arriba', icono: 'arriba', boca: 'abierta', cabezal: [770, 566], angulo: -10, abajo: false, mov: 'lado',
-      l1: '¡Cepillá los dientes de arriba!', l2: 'Con movimientos de lado a lado.' },
-    { nombre: 'Dientes de abajo', icono: 'abajo', boca: 'abierta', cabezal: [770, 604], angulo: -12, abajo: true, mov: 'lado',
-      l1: '¡Ahora los dientes de abajo!', l2: 'Mové el cepillo de un lado al otro.' },
-    { nombre: 'Parte de adelante', icono: 'adelante', boca: 'dientes', cabezal: [770, 590], angulo: -8, abajo: false, mov: 'vertical',
-      l1: '¡La parte de adelante!', l2: 'Mové el cepillo de arriba hacia abajo.' },
-    { nombre: 'Parte de atrás (arriba)', icono: 'arriba', boca: 'abierta', cabezal: [830, 570], angulo: -18, abajo: false, mov: 'eje',
-      l1: '¡Los dientes de atrás de arriba!', l2: 'Mové el cepillo de adelante hacia atrás.' },
-    { nombre: 'Parte de atrás (abajo)', icono: 'abajo', boca: 'abierta', cabezal: [830, 602], angulo: -20, abajo: true, mov: 'eje',
-      l1: '¡Ahora los dientes de atrás de abajo!', l2: 'Mové el cepillo de adelante hacia atrás.' },
-    { nombre: 'Molares (arriba)', icono: 'arriba', boca: 'abierta', cabezal: [856, 566], angulo: -6, abajo: false, mov: 'circulo',
-      l1: '¡Los molares de arriba!', l2: 'Hacé movimientos circulares.' },
-    { nombre: 'Molares (abajo)', icono: 'abajo', boca: 'abierta', cabezal: [856, 604], angulo: -8, abajo: true, mov: 'circulo',
-      l1: '¡Los molares de abajo!', l2: 'Hacé movimientos circulares.' },
-    { nombre: '¡Enjuagá!', icono: 'agua', boca: 'enjuague', mov: 'ninguno',
-      l1: '¡Genial! Ahora enjuagá tu boca', l2: 'con agua.' }
+    { id: 'dientes-adelante', nombre: 'Dientes de adelante', icono: 'adelante', boca: 'dientes', cabezal: [770, 590], angulo: -8, abajo: false, mov: 'vertical', sarro: 'adelante',
+      l1: '¡Primero, los dientes de adelante!', l2: 'Mové el cepillo de arriba hacia abajo.' },
+    { id: 'muelas-arriba', nombre: 'Muelas de arriba', icono: 'arriba', boca: 'abierta', cabezal: [856, 566], angulo: -6, abajo: false, mov: 'circulo', sarro: 'muelasArribaDer',
+      l1: '¡Ahora las muelas de arriba!', l2: 'Hacé circulitos en las muelas de este lado.' },
+    { id: 'muelas-arriba-otro-lado', nombre: 'Muelas de arriba (otro lado)', icono: 'arriba', boca: 'abierta', cabezal: [742, 566], angulo: -12, abajo: false, mov: 'circulo', sarro: 'muelasArribaIzq',
+      l1: '¡Las muelas de arriba del otro lado!', l2: 'Pasá el cepillo al otro lado y hacé circulitos.' },
+    { id: 'muelas-abajo', nombre: 'Muelas de abajo', icono: 'abajo', boca: 'abierta', cabezal: [856, 604], angulo: -8, abajo: true, mov: 'circulo', sarro: 'muelasAbajoDer',
+      l1: '¡Ahora las muelas de abajo!', l2: 'Hacé circulitos en las muelas de este lado.' },
+    { id: 'muelas-abajo-otro-lado', nombre: 'Muelas de abajo (otro lado)', icono: 'abajo', boca: 'abierta', cabezal: [742, 604], angulo: -14, abajo: true, mov: 'circulo', sarro: 'muelasAbajoIzq',
+      l1: '¡Las muelas de abajo del otro lado!', l2: 'Pasá el cepillo al otro lado y hacé circulitos.' },
+    { id: 'bolsillos', nombre: 'Bolsillos', icono: 'adelante', boca: 'dientes', cabezal: [872, 590], angulo: -4, abajo: false, mov: 'circulo', sarro: 'bolsilloDer',
+      l1: '¡Los bolsillos! Los dientes del costado.', l2: 'Cepillá pegado al cachete, con circulitos.' },
+    { id: 'bolsillos-otro-lado', nombre: 'Bolsillos (otro lado)', icono: 'adelante', boca: 'dientes', cabezal: [724, 590], angulo: -10, abajo: false, mov: 'circulo', sarro: 'bolsilloIzq',
+      l1: '¡Los bolsillos del otro lado!', l2: 'Ahora pegado al otro cachete, con circulitos.' },
+    { id: 'dientes-abajo', nombre: 'Dientes de abajo', icono: 'abajo', boca: 'abierta', cabezal: [770, 604], angulo: -12, abajo: true, mov: 'lado', sarro: 'abajo',
+      l1: '¡Y por último, los dientes de abajo!', l2: 'Mové el cepillo de un lado al otro.' }
   ];
   var SEGUNDOS_POR_PASO = 20;
   var HZ_CEPILLADO = 2;
@@ -777,7 +777,7 @@
   }
 
   function irAPaso(i) {
-    ponerVideo($('video-paso'), 'paso' + (i + 1), $('svg-paso'), '.fondo, #nino');
+    ponerVideo($('video-paso'), PASOS[i].id, $('svg-paso'), '.fondo, #nino');
     estado.paso = i; estado.tiempo = 0; estado.completado = false;
     var p = PASOS[i], svg = $('svg-paso');
     $('paso-contador').textContent = (i + 1) + '/' + PASOS.length;
@@ -811,20 +811,20 @@
 
   // Manchitas de sarro que se van limpiando con el tiempo del paso.
   var ZONAS_SARRO = {
-    arriba: [[712, 552], [748, 558], [790, 560], [834, 558], [876, 552], [770, 546]],
     abajo: [[726, 626], [764, 628], [806, 630], [848, 626], [880, 622]],
     adelante: [[716, 574], [770, 580], [834, 578], [884, 572], [746, 614], [812, 618], [866, 612]],
-    atrasArriba: [[840, 556], [872, 552], [898, 546], [856, 566]],
-    atrasAbajo: [[842, 630], [870, 628], [892, 624], [858, 622]],
-    molaresArriba: [[870, 552], [894, 548], [908, 556], [882, 562]],
-    molaresAbajo: [[868, 628], [888, 624], [904, 620], [880, 634]]
+    muelasArribaDer: [[870, 552], [894, 548], [908, 556], [882, 562]],
+    muelasArribaIzq: [[730, 552], [706, 548], [692, 556], [718, 562]],
+    muelasAbajoDer: [[868, 628], [888, 624], [904, 620], [880, 634]],
+    muelasAbajoIzq: [[732, 628], [712, 624], [696, 620], [720, 634]],
+    bolsilloDer: [[884, 566], [904, 578], [880, 610], [900, 606]],
+    bolsilloIzq: [[716, 566], [696, 578], [720, 610], [700, 606]]
   };
-  var SARRO_POR_PASO = ['arriba', 'abajo', 'adelante', 'atrasArriba', 'atrasAbajo', 'molaresArriba', 'molaresAbajo', null];
 
   function dibujarSarro(svg, p) {
     svg.querySelector('#sarro-abierta').innerHTML = '';
     svg.querySelector('#sarro-dientes').innerHTML = '';
-    var zona = SARRO_POR_PASO[estado.paso];
+    var zona = p.sarro;
     if (!zona) return;
     var destino = svg.querySelector(p.boca === 'dientes' ? '#sarro-dientes' : '#sarro-abierta');
     destino.innerHTML = ZONAS_SARRO[zona].map(function (m, i) {
@@ -867,7 +867,7 @@
       var cx = p.cabezal[0] + 20, cy = p.abajo ? 722 : 506;
       s = flechaCurva(cx - 80 * ca, cy - 80 * sa, cx + 80 * ca, cy + 80 * sa, p.abajo ? 16 : -16);
     } else if (p.mov === 'circulo') {
-      s = flechaCircular(p.cabezal[0] + 66, p.cabezal[1] + (p.abajo ? 30 : -16), 58);
+      s = flechaCircular(p.cabezal[0] + (p.cabezal[0] < 800 ? -46 : 66), p.cabezal[1] + (p.abajo ? 30 : -16), 58);
     }
     svg.querySelector('#guias').innerHTML = s;
   }
