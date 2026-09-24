@@ -1,0 +1,763 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Misión: Dientes Limpios</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --azul: #1F6FE5;
+    --azul-osc: #0F2A66;
+    --azul-noche: #0B1D4D;
+    --celeste: #7FD0FF;
+    --verde: #2DB86A;
+    --amarillo: #FFD23F;
+    --texto: #16305E;
+    --blanco: #FFFFFF;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #081636;
+    font-family: 'Baloo 2', 'Trebuchet MS', 'DejaVu Sans', sans-serif; color: var(--texto); }
+  #marco { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; }
+  /* Escenario fijo de 1600×900 que se escala para entrar en cualquier pantalla. */
+  #escenario { position: relative; width: 1600px; height: 900px; flex: none; overflow: hidden;
+    transform-origin: center center; border-radius: 28px; background: #BFE3FA; }
+  .pantalla { position: absolute; inset: 0; display: none; }
+  .pantalla.activa { display: block; }
+  svg { display: block; }
+  button { font: inherit; border: 0; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+
+  /* ---------- Inicio y final ---------- */
+  .noche { background: radial-gradient(ellipse at 70% 30%, #1E4AA8 0%, #0F2A66 45%, #0B1D4D 100%); }
+  .titulo { position: absolute; left: 780px; top: 100px; width: 780px; text-align: center; line-height: .86; }
+  .titulo .t1 { font-size: 104px; font-weight: 800; color: #fff;
+    -webkit-text-stroke: 10px #1753C9; paint-order: stroke fill; }
+  .titulo .t2 { font-size: 170px; font-weight: 800; color: #FFD23F; display: block;
+    -webkit-text-stroke: 14px #1753C9; paint-order: stroke fill; text-shadow: 0 10px 0 #0B3A99; }
+  .titulo .t3 { font-size: 170px; font-weight: 800; color: #9BE3FF; display: block;
+    -webkit-text-stroke: 14px #1753C9; paint-order: stroke fill; text-shadow: 0 10px 0 #0B3A99; }
+  .lema { position: absolute; left: 780px; top: 560px; width: 780px; text-align: center;
+    color: #fff; font-size: 46px; font-weight: 700; line-height: 1.15; }
+  .boton-amarillo { position: absolute; background: linear-gradient(#FFE36A, #FFC21A);
+    color: #1753C9; font-size: 54px; font-weight: 800; border-radius: 999px;
+    box-shadow: 0 8px 0 #D99A00, 0 14px 30px rgba(0,0,0,.35);
+    display: flex; align-items: center; justify-content: center; gap: 22px; }
+  .boton-amarillo:active { transform: translateY(6px); box-shadow: 0 2px 0 #D99A00; }
+  #btn-comenzar { left: 920px; top: 730px; width: 500px; height: 116px; }
+  .fin-titulo { position: absolute; left: 0; right: 0; top: 330px; text-align: center; font-size: 130px;
+    font-weight: 800; color: #FFD23F; -webkit-text-stroke: 12px #1753C9; paint-order: stroke fill; }
+  .fin-texto { position: absolute; left: 0; right: 0; top: 490px; text-align: center; color: #fff;
+    font-size: 54px; font-weight: 700; line-height: 1.15; }
+  .racha { position: absolute; left: 510px; top: 640px; width: 580px; white-space: nowrap; height: 92px; border-radius: 999px;
+    background: #1B3C8C; border: 5px solid #6FA8FF; color: #fff; font-size: 42px; font-weight: 700;
+    display: flex; align-items: center; padding: 0 18px 0 30px; gap: 18px; }
+  .racha .num { margin-left: auto; width: 66px; height: 66px; border-radius: 50%; background: #FFD23F;
+    color: #1753C9; font-size: 44px; font-weight: 800; display: flex; align-items: center; justify-content: center; }
+  #btn-volver { left: 550px; top: 770px; width: 500px; height: 100px; font-size: 46px; }
+
+  /* ---------- Pasos ---------- */
+  .ui-reloj { position: absolute; left: 34px; top: 30px; width: 170px; height: 170px; }
+  .ui-reloj .cifra { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center;
+    justify-content: center; color: #fff; font-weight: 800; font-size: 42px; line-height: .9; padding-top: 6px; }
+  .ui-paso { position: absolute; left: 50%; top: 34px; transform: translateX(-50%); height: 104px;
+    background: #fff; border-radius: 999px; box-shadow: 0 8px 24px rgba(15,42,102,.25);
+    display: flex; align-items: center; gap: 18px; padding: 0 44px 0 16px; white-space: nowrap; }
+  .ui-paso .icono { width: 76px; height: 76px; flex: none; }
+  .ui-paso .nombre { font-size: 46px; font-weight: 700; color: var(--texto); }
+  .ui-paso .contador { position: absolute; left: 50%; top: -20px; transform: translateX(-50%);
+    background: var(--azul); color: #fff; font-size: 28px; font-weight: 800; padding: 0 18px; border-radius: 999px; line-height: 40px; }
+  .ui-lista { position: absolute; right: 36px; top: 90px; width: 92px; padding: 16px 0; border-radius: 999px;
+    background: rgba(255,255,255,.8); display: flex; flex-direction: column; align-items: center; gap: 12px;
+    box-shadow: 0 8px 24px rgba(15,42,102,.18); }
+  .ui-lista span { width: 58px; height: 58px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+    font-size: 30px; font-weight: 800; color: #9AAECB; border: 4px solid #D5E2F3; background: #fff; transition: transform .3s; }
+  .ui-lista span.hecho { color: #fff; background: #8FD9AE; border-color: #8FD9AE; }
+  .ui-lista span.actual { color: #fff; background: var(--verde); border-color: #fff; transform: scale(1.18);
+    box-shadow: 0 0 0 5px var(--verde); }
+  .flecha { position: absolute; bottom: 44px; width: 116px; height: 116px; border-radius: 50%;
+    background: var(--azul); border: 7px solid #fff; box-shadow: 0 8px 20px rgba(15,42,102,.35);
+    display: flex; align-items: center; justify-content: center; }
+  .flecha:active { transform: scale(.94); }
+  .flecha:disabled { opacity: .35; cursor: default; }
+  #btn-anterior { left: 44px; }
+  #btn-siguiente { right: 44px; }
+  .ui-consejo { position: absolute; left: 50%; bottom: 40px; transform: translateX(-50%); width: 1060px; min-height: 130px;
+    background: #fff; border-radius: 40px; box-shadow: 0 10px 28px rgba(15,42,102,.28);
+    display: flex; align-items: center; gap: 24px; padding: 16px 36px 16px 20px; }
+  .ui-consejo button { width: 92px; height: 92px; border-radius: 50%; background: #E3F0FF; flex: none;
+    display: flex; align-items: center; justify-content: center; }
+  .ui-consejo .l1 { font-size: 38px; font-weight: 800; line-height: 1.1; color: var(--texto); }
+  .ui-consejo .l2 { font-size: 34px; font-weight: 600; line-height: 1.15; color: #37558C; }
+  #bien { position: absolute; left: 50%; top: 250px; transform: translateX(-50%) scale(0); font-size: 120px;
+    font-weight: 800; color: #FFD23F; -webkit-text-stroke: 12px #1753C9; paint-order: stroke fill;
+    transition: transform .35s cubic-bezier(.3,1.6,.5,1); pointer-events: none; white-space: nowrap; }
+  #bien.ver { transform: translateX(-50%) scale(1); }
+</style>
+</head>
+<body>
+<div id="marco">
+  <div id="escenario">
+
+    <!-- ================= INICIO ================= -->
+    <section id="p-inicio" class="pantalla noche activa">
+      <svg id="svg-inicio" viewBox="0 0 1600 900" width="1600" height="900" style="position:absolute;inset:0"></svg>
+      <div class="titulo"><span class="t1">Misión:</span><span class="t2">Dientes</span><span class="t3">Limpios</span></div>
+      <div class="lema">¡Vamos a cepillarnos<br>paso a paso!</div>
+      <button id="btn-comenzar" class="boton-amarillo">
+        <svg width="64" height="64" viewBox="0 0 64 64"><circle cx="32" cy="32" r="30" fill="#1753C9"/><path d="M25 18L47 32L25 46Z" fill="#fff"/></svg>
+        Comenzar
+      </button>
+    </section>
+
+    <!-- ================= PASOS ================= -->
+    <section id="p-paso" class="pantalla">
+      <svg id="svg-paso" viewBox="0 0 1600 900" width="1600" height="900" style="position:absolute;inset:0"></svg>
+
+      <div class="ui-reloj">
+        <svg viewBox="0 0 170 170" width="170" height="170">
+          <circle cx="85" cy="85" r="80" fill="#fff"/>
+          <circle cx="85" cy="85" r="68" fill="#1F6FE5"/>
+          <circle id="reloj-anillo" cx="85" cy="85" r="74" fill="none" stroke="#2DB86A" stroke-width="10"
+                  stroke-linecap="round" transform="rotate(-90 85 85)" stroke-dasharray="465 465"/>
+        </svg>
+        <div class="cifra">
+          <svg width="34" height="34" viewBox="0 0 34 34"><circle cx="17" cy="19" r="12" fill="none" stroke="#fff" stroke-width="4"/><path d="M17 12v7l5 3M12 3h10" stroke="#fff" stroke-width="4" stroke-linecap="round" fill="none"/></svg>
+          <span id="reloj-texto">0:20</span>
+        </div>
+      </div>
+
+      <div class="ui-paso">
+        <span class="contador" id="paso-contador">1/8</span>
+        <svg class="icono" id="paso-icono" viewBox="0 0 76 76"></svg>
+        <span class="nombre" id="paso-nombre">Dientes de arriba</span>
+      </div>
+
+      <div class="ui-lista" id="lista"></div>
+
+      <div id="bien">¡Muy bien!</div>
+
+      <button class="flecha" id="btn-anterior" aria-label="Paso anterior">
+        <svg width="54" height="54" viewBox="0 0 54 54"><path d="M33 10L16 27L33 44" stroke="#fff" stroke-width="9" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>
+      </button>
+      <div class="ui-consejo">
+        <button id="btn-voz" aria-label="Escuchar la consigna">
+          <svg width="54" height="54" viewBox="0 0 54 54"><path d="M8 20h9l12-10v34L17 34H8z" fill="#1F6FE5"/><path d="M36 18q6 9 0 18M42 12q11 15 0 30" stroke="#1F6FE5" stroke-width="5" stroke-linecap="round" fill="none"/></svg>
+        </button>
+        <div><div class="l1" id="consejo-1"></div><div class="l2" id="consejo-2"></div></div>
+      </div>
+      <button class="flecha" id="btn-siguiente" aria-label="Paso siguiente">
+        <svg width="54" height="54" viewBox="0 0 54 54"><path d="M21 10L38 27L21 44" stroke="#fff" stroke-width="9" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>
+      </button>
+    </section>
+
+    <!-- ================= FINAL ================= -->
+    <section id="p-final" class="pantalla noche">
+      <svg id="svg-final" viewBox="0 0 1600 900" width="1600" height="900" style="position:absolute;inset:0"></svg>
+      <div class="fin-titulo">¡Lo hiciste!</div>
+      <div class="fin-texto">¡Dientes limpios<br>y una gran sonrisa!</div>
+      <div class="racha">
+        <svg width="50" height="50" viewBox="0 0 50 50"><path d="M25 4C29 14 40 18 40 31A15 15 0 0 1 10 31C10 23 15 19 18 14C19 20 22 22 24 22C22 15 23 9 25 4Z" fill="#FF7A2F"/><path d="M25 24C28 29 32 31 32 36A7 7 0 0 1 18 36C18 31 22 29 25 24Z" fill="#FFD23F"/></svg>
+        Racha de días <span class="num" id="racha-num">1</span>
+      </div>
+      <button id="btn-volver" class="boton-amarillo">
+        <svg width="54" height="54" viewBox="0 0 54 54"><path d="M8 26L27 9L46 26M14 22V45H24V33H30V45H40V22" stroke="#1753C9" stroke-width="6" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>
+        Volver al inicio
+      </button>
+    </section>
+  </div>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  /* =====================================================================
+     DATOS DE LOS 8 PASOS
+     cabezal: posición del cabezal del cepillo en la boca (px del escenario)
+     angulo:  inclinación del cepillo (el mango baja hacia la izquierda)
+     abajo:   cerdas hacia abajo (dientes inferiores)
+     mov:     'lado' | 'vertical' | 'eje' (adelante-atrás) | 'circulo'
+     boca:    'abierta' | 'dientes' (mordida, para la cara de adelante) | 'enjuague'
+     ===================================================================== */
+  var PASOS = [
+    { nombre: 'Dientes de arriba', icono: 'arriba', boca: 'abierta', cabezal: [800, 553], angulo: -8, abajo: false, mov: 'lado',
+      l1: '¡Cepillá los dientes de arriba!', l2: 'Con movimientos de lado a lado.' },
+    { nombre: 'Dientes de abajo', icono: 'abajo', boca: 'abierta', cabezal: [800, 575], angulo: -8, abajo: true, mov: 'lado',
+      l1: '¡Ahora los dientes de abajo!', l2: 'Mové el cepillo de un lado al otro.' },
+    { nombre: 'Parte de adelante', icono: 'adelante', boca: 'dientes', cabezal: [792, 566], angulo: -6, abajo: false, mov: 'vertical',
+      l1: '¡La parte de adelante!', l2: 'Mové el cepillo de arriba hacia abajo.' },
+    { nombre: 'Parte de atrás (arriba)', icono: 'arriba', boca: 'abierta', cabezal: [838, 556], angulo: -18, abajo: false, mov: 'eje',
+      l1: '¡Los dientes de atrás de arriba!', l2: 'Mové el cepillo de adelante hacia atrás.' },
+    { nombre: 'Parte de atrás (abajo)', icono: 'abajo', boca: 'abierta', cabezal: [838, 572], angulo: -18, abajo: true, mov: 'eje',
+      l1: '¡Ahora los dientes de atrás de abajo!', l2: 'Mové el cepillo de adelante hacia atrás.' },
+    { nombre: 'Molares (arriba)', icono: 'arriba', boca: 'abierta', cabezal: [858, 552], angulo: -4, abajo: false, mov: 'circulo',
+      l1: '¡Los molares de arriba!', l2: 'Hacé movimientos circulares.' },
+    { nombre: 'Molares (abajo)', icono: 'abajo', boca: 'abierta', cabezal: [858, 576], angulo: -4, abajo: true, mov: 'circulo',
+      l1: '¡Los molares de abajo!', l2: 'Hacé movimientos circulares.' },
+    { nombre: '¡Enjuagá!', icono: 'agua', boca: 'enjuague', mov: 'ninguno',
+      l1: '¡Genial! Ahora enjuagá tu boca', l2: 'con agua.' }
+  ];
+  var SEGUNDOS_POR_PASO = 20;
+  var HZ_CEPILLADO = 2;
+
+  var C = {
+    piel: '#F7C6A0', pielSombra: '#E9A67E', pielLinea: '#D98E68',
+    pelo: '#6A3B22', peloLuz: '#8E5634',
+    remera: '#2F6FD6', remeraOsc: '#1F55B0',
+    cepillo: '#1F6FE5', cepilloLuz: '#6FB6FF', boca: '#7A1F2B', lengua: '#F07C8A', labio: '#C45A52'
+  };
+
+  /* =====================================================================
+     DIBUJO (SVG como texto)
+     ===================================================================== */
+  function fondoBano(desenfoque) {
+    return '' +
+      '<defs>' +
+        '<filter id="desenfoque" x="-5%" y="-5%" width="110%" height="110%"><feGaussianBlur stdDeviation="' + desenfoque + '"/></filter>' +
+        '<linearGradient id="gPared" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#D8EEFC"/><stop offset="1" stop-color="#A8D6F5"/></linearGradient>' +
+        '<radialGradient id="gLuz" cx="0.8" cy="0.25" r="0.6"><stop offset="0" stop-color="#FFFFFF" stop-opacity=".9"/><stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/></radialGradient>' +
+        '<pattern id="pAzulejos" width="90" height="90" patternUnits="userSpaceOnUse"><rect width="90" height="90" fill="none"/><path d="M0 1H90M1 0V90" stroke="#FFFFFF" stroke-opacity=".5" stroke-width="3"/></pattern>' +
+      '</defs>' +
+      '<g filter="url(#desenfoque)">' +
+        '<rect width="1600" height="900" fill="url(#gPared)"/>' +
+        '<rect y="330" width="1600" height="570" fill="url(#pAzulejos)"/>' +
+        // ventana con luz
+        '<rect x="1160" y="70" width="330" height="470" rx="18" fill="#FFFFFF"/>' +
+        '<rect x="1180" y="90" width="290" height="430" rx="10" fill="#EAF7FF"/>' +
+        '<path d="M1325 90V520M1180 300H1470" stroke="#FFFFFF" stroke-width="16"/>' +
+        '<rect x="1150" y="530" width="350" height="26" rx="12" fill="#FFFFFF"/>' +
+        '<path d="M1230 520q10-60 40-80q-6 50 10 80z" fill="#8FD6A0"/>' +
+        // estante con planta
+        '<rect x="70" y="300" width="270" height="22" rx="10" fill="#E9C9A6"/>' +
+        '<path d="M150 300l10-70h70l10 70z" fill="#FFFFFF"/>' +
+        '<path d="M195 232q-50-40-40-110q40 30 40 110zM195 232q10-80 60-100q0 70-60 100zM195 232q-10-60 5-120q25 55-5 120z" fill="#3FAE6A"/>' +
+        // toallero y toalla con estrella
+        '<rect x="50" y="430" width="300" height="16" rx="8" fill="#C9D6E2"/>' +
+        '<path d="M80 438h230v330q0 16-16 16H96q-16 0-16-16z" fill="#2D63C8"/>' +
+        '<path d="M80 438h230v40H80z" fill="#244FA3"/>' +
+        '<path d="M195 560l18 36 40 6-29 28 7 40-36-19-36 19 7-40-29-28 40-6z" fill="#8CC2FF"/>' +
+        '<rect x="1460" y="620" width="140" height="280" fill="#FFFFFF" opacity=".35"/>' +
+      '</g>' +
+      '<rect width="1600" height="900" fill="url(#gLuz)"/>';
+  }
+
+  // Mano cerrada alrededor de un mango horizontal, en coordenadas locales.
+  function manoAtras(x, y) { return '<ellipse cx="' + x + '" cy="' + y + '" rx="50" ry="46" fill="' + C.piel + '"/>'; }
+  function manoDedos(x, y) {
+    var s = '';
+    for (var i = 0; i < 4; i++) {
+      var fx = x - 38 + i * 21;
+      s += '<rect x="' + fx + '" y="' + (y - 10) + '" width="23" height="' + (54 - Math.abs(i - 1.5) * 6) + '" rx="11" fill="' + C.piel + '" stroke="' + C.pielLinea + '" stroke-width="3"/>';
+    }
+    // pulgar apoyado sobre el mango
+    s += '<path d="M' + (x - 34) + ' ' + (y - 20) + 'q34-22 70-8q6 10-4 16q-30-2-60 8z" fill="' + C.piel + '" stroke="' + C.pielLinea + '" stroke-width="3"/>';
+    return s;
+  }
+
+  // Cepillo: origen (0,0) en el centro del cabezal, eje del mango en y=0, mango hacia -x.
+  function cepillo() {
+    var cerdas = '';
+    for (var i = 0; i < 9; i++) {
+      cerdas += '<rect x="' + (-44 + i * 10) + '" y="-34" width="8" height="26" rx="3" fill="' + (i % 2 ? '#CFEFFF' : '#FFFFFF') + '"/>';
+    }
+    return '' +
+      '<g id="cep-cabezal">' +
+        '<rect x="-50" y="-12" width="100" height="24" rx="12" fill="' + C.cepillo + '"/>' +
+        '<g id="cep-cerdas">' + cerdas + '</g>' +
+      '</g>' +
+      '<path d="M-48-9L-110-12V12L-48 9Z" fill="' + C.cepillo + '"/>' +
+      manoAtras(-240, 0) +
+      '<rect x="-340" y="-17" width="240" height="34" rx="17" fill="' + C.cepillo + '"/>' +
+      '<rect x="-330" y="-11" width="220" height="10" rx="5" fill="' + C.cepilloLuz + '" opacity=".7"/>' +
+      manoDedos(-240, 0);
+  }
+
+  function espuma() {
+    var p = [[-58, -4, 11], [-46, 14, 8], [54, -8, 10], [60, 10, 13], [30, 22, 7], [-20, 24, 9], [0, -30, 6], [72, -24, 7]];
+    return p.map(function (b, i) {
+      return '<circle class="burbuja" data-i="' + i + '" cx="' + b[0] + '" cy="' + b[1] + '" r="' + b[2] + '" fill="#FFFFFF" stroke="#CDEBFA" stroke-width="2"/>';
+    }).join('');
+  }
+
+  function dientesFila(x0, x1, yTop, alto, n, bordeAbajo) {
+    var s = '', w = (x1 - x0) / n;
+    for (var i = 0; i < n; i++) {
+      var r = 9;
+      s += '<rect x="' + (x0 + i * w + 1.5).toFixed(1) + '" y="' + yTop + '" width="' + (w - 3).toFixed(1) + '" height="' + alto + '" rx="' + r + '" fill="#FFFFFF"/>';
+    }
+    s += '<rect x="' + x0 + '" y="' + (bordeAbajo ? yTop + alto - 8 : yTop) + '" width="' + (x1 - x0) + '" height="8" fill="#E8F2FA" opacity=".7"/>';
+    return s;
+  }
+
+  function nino(modo) {
+    var u = '-' + modo; // ids únicos por instancia: un gradiente dentro de una pantalla oculta no se pinta
+    var cara = 'M555 410C555 260 665 175 800 175C935 175 1045 260 1045 410C1045 570 940 685 800 685C660 685 555 570 555 410Z';
+    var bocaAbierta = 'M688 532Q800 508 912 532Q918 628 800 642Q682 628 688 532Z';
+    var bocaDientes = 'M688 540Q800 522 912 540Q902 618 800 628Q698 618 688 540Z';
+    var bocaSonrisa = 'M690 540Q800 548 910 540Q890 630 800 634Q710 630 690 540Z';
+    return '' +
+      '<defs>' +
+        '<clipPath id="clipAbierta' + u + '"><path d="' + bocaAbierta + '"/></clipPath>' +
+        '<clipPath id="clipDientes' + u + '"><path d="' + bocaDientes + '"/></clipPath>' +
+        '<clipPath id="clipSonrisa' + u + '"><path d="' + bocaSonrisa + '"/></clipPath>' +
+        '<radialGradient id="gCara' + u + '" cx=".45" cy=".4" r=".7"><stop offset=".6" stop-color="' + C.piel + '"/><stop offset="1" stop-color="' + C.pielSombra + '"/></radialGradient>' +
+      '</defs>' +
+      '<g id="nino">' +
+        // remera con dinosaurio
+        '<path d="M360 900C372 770 500 705 640 690H960C1100 705 1228 770 1240 900Z" fill="' + C.remera + '"/>' +
+        '<rect x="738" y="610" width="124" height="96" rx="30" fill="' + C.pielSombra + '"/>' +
+        '<path d="M712 690Q800 760 888 690" fill="none" stroke="' + C.remeraOsc + '" stroke-width="18" stroke-linecap="round"/>' +
+        '<g transform="translate(990 800)"><path d="M-60 40q0-50 50-54q20-40 60-26q24 10 10 30q-14 8-26 4q-2 26-10 46z" fill="#56C271"/>' +
+          '<circle cx="42" cy="-40" r="5" fill="#1E3A2A"/><path d="M-30 -14l8-16 8 14M-10-16l8-16 8 14" fill="#3FA85A"/></g>' +
+        // cabeza (grupo con pivote en el cuello para balanceo)
+        '<g id="cabeza">' +
+          '<ellipse cx="560" cy="430" rx="38" ry="52" fill="' + C.piel + '"/><path d="M566 412q-14 16 0 34" stroke="' + C.pielLinea + '" stroke-width="5" fill="none" stroke-linecap="round"/>' +
+          '<ellipse cx="1040" cy="430" rx="38" ry="52" fill="' + C.piel + '"/><path d="M1034 412q14 16 0 34" stroke="' + C.pielLinea + '" stroke-width="5" fill="none" stroke-linecap="round"/>' +
+          '<path d="' + cara + '" fill="url(#gCara' + u + ')"/>' +
+          // pelo despeinado
+          '<path d="M546 430C520 300 560 190 650 150C672 112 740 96 790 110C830 84 900 96 930 126C1010 140 1066 220 1058 330C1056 370 1052 400 1050 430C1036 372 1016 330 990 306L968 336L944 286L906 322L878 268L842 312L806 258L774 308L738 268L706 318L680 282L652 330L626 300C596 332 566 380 546 430Z" fill="' + C.pelo + '"/>' +
+          '<path d="M650 150L640 96L700 132ZM790 110L800 58L840 104ZM930 126L972 80L966 140Z" fill="' + C.pelo + '"/>' +
+          '<path d="M700 170q60-40 140-30M880 160q50 10 80 50" stroke="' + C.peloLuz + '" stroke-width="12" fill="none" stroke-linecap="round"/>' +
+          // cejas
+          '<path d="M640 318q52-30 110-8" stroke="' + C.pelo + '" stroke-width="18" fill="none" stroke-linecap="round"/>' +
+          '<path d="M850 310q58-22 110 8" stroke="' + C.pelo + '" stroke-width="18" fill="none" stroke-linecap="round"/>' +
+          // ojos abiertos
+          '<g id="ojos" style="' + (modo === 'enjuague' ? 'display:none' : '') + '">' +
+            ojo(698) + ojo(902) +
+          '</g>' +
+          // ojos cerrados felices (enjuague)
+          '<g id="ojos-felices" style="' + (modo === 'enjuague' ? '' : 'display:none') + '">' +
+            '<path d="M650 410q48-44 96 0M854 410q48-44 96 0" stroke="#3A2414" stroke-width="12" fill="none" stroke-linecap="round"/>' +
+          '</g>' +
+          // nariz y mejillas
+          '<path d="M780 468q20 18 40 0" stroke="' + C.pielLinea + '" stroke-width="7" fill="none" stroke-linecap="round"/>' +
+          '<ellipse id="cachete-i" cx="628" cy="505" rx="44" ry="26" fill="#FF8F8F" opacity=".45"/>' +
+          '<ellipse id="cachete-d" cx="972" cy="505" rx="44" ry="26" fill="#FF8F8F" opacity=".45"/>' +
+
+          // BOCA ABIERTA
+          '<g id="boca-abierta" class="boca" style="display:none">' +
+            '<path d="' + bocaAbierta + '" fill="' + C.boca + '"/>' +
+            '<g clip-path="url(#clipAbierta' + u + ')">' +
+              '<ellipse cx="800" cy="632" rx="78" ry="30" fill="' + C.lengua + '"/>' +
+              dientesFila(700, 900, 520, 44, 8, true) +
+              dientesFila(716, 884, 604, 40, 7, false) +
+              '<g id="sarro-abierta"></g>' +
+            '</g>' +
+            '<path d="' + bocaAbierta + '" fill="none" stroke="' + C.labio + '" stroke-width="6"/>' +
+          '</g>' +
+          // BOCA MOSTRANDO LOS DIENTES (mordida)
+          '<g id="boca-dientes" class="boca" style="display:none">' +
+            '<path d="' + bocaDientes + '" fill="' + C.boca + '"/>' +
+            '<g clip-path="url(#clipDientes' + u + ')">' +
+              dientesFila(690, 910, 526, 50, 8, true) +
+              dientesFila(704, 896, 578, 48, 7, false) +
+              '<g id="sarro-dientes"></g>' +
+            '</g>' +
+            '<path d="' + bocaDientes + '" fill="none" stroke="' + C.labio + '" stroke-width="6"/>' +
+          '</g>' +
+          // SONRISA (inicio)
+          '<g id="boca-sonrisa" class="boca" style="display:none">' +
+            '<path d="' + bocaSonrisa + '" fill="' + C.boca + '"/>' +
+            '<g clip-path="url(#clipSonrisa' + u + ')">' +
+              '<ellipse cx="800" cy="632" rx="70" ry="34" fill="' + C.lengua + '"/>' +
+              dientesFila(700, 900, 530, 36, 8, true) +
+            '</g>' +
+            '<path d="' + bocaSonrisa + '" fill="none" stroke="' + C.labio + '" stroke-width="6"/>' +
+          '</g>' +
+          // ENJUAGUE: boca cerrada con cachetes inflados
+          '<g id="boca-enjuague" class="boca" style="display:none">' +
+            '<ellipse cx="650" cy="560" rx="70" ry="64" fill="' + C.piel + '"/>' +
+            '<ellipse cx="950" cy="560" rx="70" ry="64" fill="' + C.piel + '"/>' +
+            '<ellipse cx="640" cy="540" rx="46" ry="28" fill="#FF8F8F" opacity=".55"/>' +
+            '<ellipse cx="960" cy="540" rx="46" ry="28" fill="#FF8F8F" opacity=".55"/>' +
+            '<path d="M760 580q40 26 80 0" stroke="' + C.labio + '" stroke-width="10" fill="none" stroke-linecap="round"/>' +
+          '</g>' +
+        '</g>' +
+        // brazo (se recalcula en cada fotograma para seguir a la mano)
+        '<path id="brazo" d="" stroke="' + C.piel + '" stroke-width="84" stroke-linecap="round" fill="none"/>' +
+        '<path d="M330 900C340 830 400 790 480 790C540 792 560 850 552 900Z" fill="' + C.remera + '"/>' +
+        '<path d="M360 880Q450 850 540 880" stroke="' + C.remeraOsc + '" stroke-width="10" fill="none" stroke-linecap="round"/>' +
+        // flechas guía del movimiento
+        '<g id="guias" opacity=".95"></g>' +
+        // cepillo + mano
+        '<g id="cepillo" style="display:none">' + cepillo() + '<g id="espuma">' + espuma() + '</g></g>' +
+        // vaso + mano (enjuague)
+        '<g id="vaso" style="display:none">' +
+          manoAtras(0, 40) +
+          '<path d="M-58-90H58L46 70H-46Z" fill="#CDEBFF" opacity=".85" stroke="#FFFFFF" stroke-width="6"/>' +
+          '<path d="M-52-30H52L46 70H-46Z" fill="#6FC3FF" opacity=".7"/>' +
+          '<path d="M-36-70v110" stroke="#FFFFFF" stroke-width="10" stroke-linecap="round" opacity=".7"/>' +
+          manoDedos(0, 40) +
+        '</g>' +
+        '<g id="gotas" style="display:none" fill="#8FD3FF" stroke="#FFFFFF" stroke-width="3">' +
+          '<path d="M885 575q10 14 0 22q-10-8 0-22z"/><path d="M905 555q8 12 0 18q-8-6 0-18z"/><path d="M920 590q8 12 0 18q-8-6 0-18z"/>' +
+        '</g>' +
+        '<g id="destellos"></g>' +
+      '</g>';
+  }
+
+  function ojo(cx) {
+    return '' +
+      '<ellipse cx="' + cx + '" cy="400" rx="62" ry="72" fill="#FFFFFF"/>' +
+      '<circle cx="' + cx + '" cy="410" r="48" fill="#5A3419"/>' +
+      '<circle cx="' + cx + '" cy="410" r="30" fill="#1E120A"/>' +
+      '<circle cx="' + (cx - 16) + '" cy="390" r="14" fill="#FFFFFF"/>' +
+      '<circle cx="' + (cx + 18) + '" cy="428" r="7" fill="#FFFFFF"/>' +
+      '<path d="M' + (cx - 62) + ' 392Q' + cx + ' 312 ' + (cx + 62) + ' 392" stroke="#3A2414" stroke-width="9" fill="none" stroke-linecap="round"/>';
+  }
+
+  function dienteMascota(x, y, s) {
+    return '<g transform="translate(' + x + ' ' + y + ') scale(' + s + ')">' +
+      '<path d="M-74-64C-74-118-30-128 0-106C30-128 74-118 74-64C74-20 64 12 58 44C52 86 46 118 30 118C14 118 14 78 0 78C-14 78-14 118-30 118C-46 118-52 86-58 44C-64 12-74-20-74-64Z" fill="#FFFFFF" stroke="#CFE3F5" stroke-width="5"/>' +
+      '<ellipse cx="-26" cy="-40" rx="11" ry="14" fill="#1E2A44"/><ellipse cx="26" cy="-40" rx="11" ry="14" fill="#1E2A44"/>' +
+      '<circle cx="-30" cy="-45" r="4" fill="#fff"/><circle cx="22" cy="-45" r="4" fill="#fff"/>' +
+      '<path d="M-22-10Q0 14 22-10" stroke="#E24A5B" stroke-width="7" fill="none" stroke-linecap="round"/>' +
+      '<ellipse cx="-48" cy="-14" rx="11" ry="7" fill="#FF9CB0"/><ellipse cx="48" cy="-14" rx="11" ry="7" fill="#FF9CB0"/>' +
+      '<path d="M-74-40q-40-10-50-50M74-40q40-10 50-50" stroke="#FFFFFF" stroke-width="18" stroke-linecap="round" fill="none"/>' +
+      '</g>';
+  }
+
+  function estrellas(n, semilla) {
+    var s = '', r = semilla;
+    function azar() { r = (r * 9301 + 49297) % 233280; return r / 233280; }
+    for (var i = 0; i < n; i++) {
+      var x = azar() * 1600, y = azar() * 900, t = 4 + azar() * 9;
+      s += '<path class="titila" d="M' + x + ' ' + (y - t) + 'L' + (x + t * .3) + ' ' + (y - t * .3) + 'L' + (x + t) + ' ' + y + 'L' + (x + t * .3) + ' ' + (y + t * .3) + 'L' + x + ' ' + (y + t) + 'L' + (x - t * .3) + ' ' + (y + t * .3) + 'L' + (x - t) + ' ' + y + 'L' + (x - t * .3) + ' ' + (y - t * .3) + 'Z" fill="#FFFFFF" opacity="' + (.4 + azar() * .6).toFixed(2) + '"/>';
+    }
+    return s;
+  }
+
+  function cohete(x, y, s, ang) {
+    return '<g transform="translate(' + x + ' ' + y + ') rotate(' + ang + ') scale(' + s + ')">' +
+      '<path d="M0-90C30-60 34-10 26 30H-26C-34-10-30-60 0-90Z" fill="#F4F7FB"/>' +
+      '<circle cx="0" cy="-28" r="16" fill="#4FA3FF" stroke="#1753C9" stroke-width="6"/>' +
+      '<path d="M-26 0L-50 40L-24 32ZM26 0L50 40L24 32Z" fill="#FF5A5A"/>' +
+      '<path d="M-16 34Q0 90 16 34Z" fill="#FFB020"/><path d="M-8 34Q0 66 8 34Z" fill="#FFE36A"/>' +
+      '</g>';
+  }
+
+  function iconoBoca(tipo) {
+    if (tipo === 'agua') return '<circle cx="38" cy="38" r="36" fill="#E3F4FF"/><path d="M38 12C48 28 56 36 56 46A18 18 0 0 1 20 46C20 36 28 28 38 12Z" fill="#3FA9F5"/><path d="M28 46q2 8 10 10" stroke="#fff" stroke-width="4" fill="none" stroke-linecap="round"/>';
+    var dientesArriba = tipo !== 'abajo', dientesAbajo = tipo !== 'arriba';
+    return '<circle cx="38" cy="38" r="36" fill="#FFE7EA"/>' +
+      '<path d="M12 30Q38 18 64 30Q64 60 38 64Q12 60 12 30Z" fill="#C2394E"/>' +
+      '<path d="M18 30Q38 22 58 30V38H18Z" fill="' + (dientesArriba ? '#FFFFFF' : '#F4B9C2') + '"/>' +
+      '<path d="M22 52H54Q48 60 38 60Q28 60 22 52Z" fill="' + (dientesAbajo ? '#FFFFFF' : '#F4B9C2') + '"/>' +
+      '<path d="M12 30Q38 18 64 30Q64 60 38 64Q12 60 12 30Z" fill="none" stroke="#E86A7C" stroke-width="4"/>';
+  }
+
+  /* =====================================================================
+     ESTADO Y PANTALLAS
+     ===================================================================== */
+  var $ = function (id) { return document.getElementById(id); };
+  var estado = { pantalla: 'inicio', paso: 0, tiempo: 0, completado: false, reloj: 0, auto: true };
+
+  $('svg-inicio').innerHTML =
+    '<g>' + estrellas(70, 7) + '</g>' +
+    cohete(170, 140, .9, 40) + cohete(1480, 110, .55, 30) +
+    '<g transform="translate(-300 80) scale(.9)">' + nino('inicio') + '</g>' +
+    dienteMascota(660, 740, .75);
+  $('svg-paso').innerHTML = fondoBano(7) + nino('paso');
+  $('svg-final').innerHTML =
+    '<g>' + estrellas(80, 21) + '</g>' +
+    dienteMascota(800, 190, 1.05) +
+    '<g fill="#FFD23F">' +
+      '<path d="M560 180l10 22 24 3-18 16 5 24-21-12-21 12 5-24-18-16 24-3z"/>' +
+      '<path d="M1040 140l8 18 20 2-15 14 4 20-17-10-17 10 4-20-15-14 20-2z"/>' +
+      '<path d="M1110 260l6 13 14 2-10 10 3 14-13-7-13 7 3-14-10-10 14-2z"/>' +
+    '</g>';
+
+  // Lista vertical de pasos
+  $('lista').innerHTML = PASOS.map(function (_, i) { return '<span>' + (i + 1) + '</span>'; }).join('');
+
+  // Pose fija de la pantalla de inicio: sonrisa y cepillo en alto.
+  (function () {
+    var svg = $('svg-inicio');
+    svg.querySelector('#boca-sonrisa').style.display = '';
+    var cep = svg.querySelector('#cepillo');
+    cep.style.display = '';
+    cep.querySelector('#espuma').style.display = 'none';
+    colocarProp(svg, cep, 470, 300, -90, [0, 240]);
+  })();
+
+  function mostrar(nombre) {
+    estado.pantalla = nombre;
+    ['inicio', 'paso', 'final'].forEach(function (p) { $('p-' + p).classList.toggle('activa', p === nombre); });
+  }
+
+  function irAPaso(i) {
+    estado.paso = i; estado.tiempo = 0; estado.completado = false;
+    var p = PASOS[i], svg = $('svg-paso');
+    $('paso-contador').textContent = (i + 1) + '/' + PASOS.length;
+    $('paso-nombre').textContent = p.nombre;
+    $('paso-icono').innerHTML = iconoBoca(p.icono);
+    $('consejo-1').textContent = p.l1;
+    $('consejo-2').textContent = p.l2;
+    $('btn-anterior').disabled = i === 0;
+    $('bien').classList.remove('ver');
+    Array.prototype.forEach.call($('lista').children, function (el, j) {
+      el.className = j < i ? 'hecho' : j === i ? 'actual' : '';
+      el.textContent = j < i ? '✓' : String(j + 1);
+    });
+
+    Array.prototype.forEach.call(svg.querySelectorAll('.boca'), function (b) { b.style.display = 'none'; });
+    svg.querySelector('#boca-' + p.boca).style.display = '';
+    var enjuague = p.boca === 'enjuague';
+    svg.querySelector('#ojos').style.display = enjuague ? 'none' : '';
+    svg.querySelector('#ojos-felices').style.display = enjuague ? '' : 'none';
+    svg.querySelector('#cachete-i').style.display = enjuague ? 'none' : '';
+    svg.querySelector('#cachete-d').style.display = enjuague ? 'none' : '';
+    svg.querySelector('#cepillo').style.display = enjuague ? 'none' : '';
+    svg.querySelector('#vaso').style.display = enjuague ? '' : 'none';
+    svg.querySelector('#gotas').style.display = enjuague ? '' : 'none';
+    svg.querySelector('#cep-cabezal').setAttribute('transform', p.abajo ? 'scale(1 -1)' : '');
+    svg.querySelector('#espuma').setAttribute('transform', p.abajo ? 'translate(0 8)' : 'translate(0 -8)');
+    dibujarSarro(svg, p);
+    dibujarGuias(svg, p);
+    svg.querySelector('#destellos').innerHTML = '';
+    hablar(p.l1 + ' ' + p.l2);
+  }
+
+  // Manchitas de sarro que se van limpiando con el tiempo del paso.
+  var ZONAS_SARRO = {
+    arriba: [[730, 552], [760, 556], [800, 558], [840, 556], [870, 552], [780, 548]],
+    abajo: [[740, 610], [775, 612], [812, 614], [850, 610], [795, 606]],
+    adelante: [[740, 562], [790, 566], [845, 562], [760, 596], [820, 600], [870, 594]],
+    atrasArriba: [[840, 552], [870, 550], [890, 546], [855, 560]],
+    atrasAbajo: [[840, 612], [868, 610], [885, 606], [852, 606]],
+    molaresArriba: [[868, 548], [888, 544], [900, 552], [876, 558]],
+    molaresAbajo: [[866, 612], [884, 608], [896, 604], [876, 616]]
+  };
+  var SARRO_POR_PASO = ['arriba', 'abajo', 'adelante', 'atrasArriba', 'atrasAbajo', 'molaresArriba', 'molaresAbajo', null];
+
+  function dibujarSarro(svg, p) {
+    svg.querySelector('#sarro-abierta').innerHTML = '';
+    svg.querySelector('#sarro-dientes').innerHTML = '';
+    var zona = SARRO_POR_PASO[estado.paso];
+    if (!zona) return;
+    var destino = svg.querySelector(p.boca === 'dientes' ? '#sarro-dientes' : '#sarro-abierta');
+    destino.innerHTML = ZONAS_SARRO[zona].map(function (m, i) {
+      return '<ellipse cx="' + m[0] + '" cy="' + m[1] + '" rx="' + (9 + (i % 3) * 3) + '" ry="' + (6 + (i % 2) * 2) + '" fill="#E8CF7A"/>';
+    }).join('');
+  }
+
+  function flechaDoble(x1, y1, x2, y2) {
+    var dx = x2 - x1, dy = y2 - y1, L = Math.hypot(dx, dy), ux = dx / L, uy = dy / L, nx = -uy, ny = ux, h = 26;
+    function punta(x, y, sx, sy) {
+      return 'M' + (x - sx * h + nx * h * .8) + ' ' + (y - sy * h + ny * h * .8) + 'L' + x + ' ' + y + 'L' + (x - sx * h - nx * h * .8) + ' ' + (y - sy * h - ny * h * .8);
+    }
+    var d = 'M' + x1 + ' ' + y1 + 'L' + x2 + ' ' + y2 + punta(x2, y2, ux, uy) + punta(x1, y1, -ux, -uy);
+    return '<path d="' + d + '" stroke="#FFFFFF" stroke-width="22" fill="none" stroke-linecap="round" stroke-linejoin="round"/>' +
+           '<path d="' + d + '" stroke="#3FA9F5" stroke-width="11" fill="none" stroke-linecap="round" stroke-linejoin="round"/>';
+  }
+
+  function flechaCircular(cx, cy, r) {
+    var d = 'M' + (cx + r) + ' ' + cy + 'A' + r + ' ' + r + ' 0 1 1 ' + cx + ' ' + (cy - r);
+    var punta = 'M' + (cx - 20) + ' ' + (cy - r - 18) + 'L' + cx + ' ' + (cy - r) + 'L' + (cx - 20) + ' ' + (cy - r + 18);
+    return '<g>' +
+      '<path d="' + d + punta + '" stroke="#FFFFFF" stroke-width="22" fill="none" stroke-linecap="round" stroke-linejoin="round"/>' +
+      '<path d="' + d + punta + '" stroke="#3FA9F5" stroke-width="11" fill="none" stroke-linecap="round" stroke-linejoin="round"/></g>';
+  }
+
+  function dibujarGuias(svg, p) {
+    var g = svg.querySelector('#guias'), s = '';
+    if (p.mov === 'lado') {
+      var y = p.abajo ? 668 : 505;
+      s = flechaDoble(690, y, 790, y) + flechaDoble(820, y, 920, y);
+    } else if (p.mov === 'vertical') {
+      s = flechaDoble(960, 520, 960, 630) + flechaDoble(640, 520, 640, 630);
+    } else if (p.mov === 'eje') {
+      var a = p.angulo * Math.PI / 180, ca = Math.cos(a), sa = Math.sin(a), off = p.abajo ? 80 : -70;
+      var cx = p.cabezal[0] + 30, cy = p.cabezal[1] + off;
+      s = flechaDoble(cx - 70 * ca, cy - 70 * sa, cx + 70 * ca, cy + 70 * sa);
+    } else if (p.mov === 'circulo') {
+      s = flechaCircular(p.cabezal[0] + 70, p.cabezal[1] + (p.abajo ? 20 : -10), 56);
+    } else if (p.mov === 'ninguno') {
+      s = '';
+    }
+    g.innerHTML = s;
+  }
+
+  // Coloca el cepillo/vaso y recalcula el brazo para que siempre llegue a la mano.
+  function colocarProp(svg, prop, x, y, ang, muneca) {
+    prop.setAttribute('transform', 'translate(' + x.toFixed(2) + ' ' + y.toFixed(2) + ') rotate(' + ang.toFixed(2) + ')');
+    var a = ang * Math.PI / 180, mx = muneca[0], my = muneca[1];
+    var wx = x + mx * Math.cos(a) - my * Math.sin(a);
+    var wy = y + mx * Math.sin(a) + my * Math.cos(a);
+    var hx = 440, hy = 860; // salida del brazo desde la manga
+    var cx = hx - 30, cy = (hy + wy) / 2 + 60;
+    svg.querySelector('#brazo').setAttribute('d', 'M' + hx + ' ' + hy + 'Q' + cx.toFixed(1) + ' ' + cy.toFixed(1) + ' ' + wx.toFixed(1) + ' ' + wy.toFixed(1));
+  }
+
+  /* ---------- Bucle de animación ---------- */
+  function animar(t) {
+    if (estado.pantalla === 'paso') posarPaso($('svg-paso'), PASOS[estado.paso], t, estado.tiempo);
+    if (estado.pantalla === 'inicio') posarInicio(t);
+    if (estado.pantalla === 'final') posarFinal(t);
+  }
+
+  function parpadeo(t, periodo) {
+    var f = (t % periodo) / 0.16;
+    return f < 1 ? Math.max(0.08, Math.abs(1 - 2 * f)) : 1;
+  }
+
+  function posarPaso(svg, p, t, tiempoPaso) {
+    var w = 2 * Math.PI * HZ_CEPILLADO * t;
+    svg.querySelector('#cabeza').setAttribute('transform', 'rotate(' + (0.8 * Math.sin(w * 0.5)).toFixed(2) + ' 800 690)');
+    var s = parpadeo(t, 3.6);
+    svg.querySelector('#ojos').setAttribute('transform', 'translate(0 400) scale(1 ' + s.toFixed(3) + ') translate(0 -400)');
+
+    if (p.mov === 'ninguno') {
+      // enjuague: el vaso sube y baja suavemente, las gotas titilan
+      var b = 8 * Math.sin(2 * Math.PI * t / 1.4);
+      colocarProp(svg, svg.querySelector('#vaso'), 1010, 700 + b, 8, [0, 60]);
+      svg.querySelector('#gotas').setAttribute('opacity', (0.5 + 0.5 * Math.sin(2 * Math.PI * t)).toFixed(2));
+      svg.querySelector('#boca-enjuague').setAttribute('transform', 'translate(0 560) scale(1 ' + (1 + 0.03 * Math.sin(w)).toFixed(3) + ') translate(0 -560)');
+    } else {
+      var dx = 0, dy = 0, a = p.angulo * Math.PI / 180;
+      if (p.mov === 'lado') { dx = 32 * Math.sin(w); }
+      if (p.mov === 'vertical') { dy = 16 * Math.sin(w); }
+      if (p.mov === 'eje') { var e = 26 * Math.sin(w); dx = e * Math.cos(a); dy = e * Math.sin(a); }
+      if (p.mov === 'circulo') { dx = 14 * Math.cos(w); dy = 10 * Math.sin(w); }
+      colocarProp(svg, svg.querySelector('#cepillo'), p.cabezal[0] + dx, p.cabezal[1] + dy, p.angulo, [-270, 20]);
+      Array.prototype.forEach.call(svg.querySelectorAll('.burbuja'), function (c) {
+        var i = +c.getAttribute('data-i');
+        c.setAttribute('transform', 'translate(0 ' + (-4 * Math.sin(w * 1.5 + i)).toFixed(2) + ')');
+        c.setAttribute('opacity', (0.7 + 0.3 * Math.sin(w + i * 1.7)).toFixed(2));
+      });
+    }
+
+    // guías: laten; sarro: se va limpiando
+    svg.querySelector('#guias').setAttribute('opacity', (0.65 + 0.35 * Math.sin(2 * Math.PI * t / 0.9)).toFixed(2));
+    var limpio = Math.min(1, tiempoPaso / (SEGUNDOS_POR_PASO * 0.85));
+    Array.prototype.forEach.call(svg.querySelectorAll('#sarro-abierta ellipse, #sarro-dientes ellipse'), function (m, i) {
+      m.setAttribute('opacity', Math.max(0, 1 - limpio * (1 + i * 0.12)).toFixed(2));
+    });
+  }
+
+  function posarInicio(t) {
+    var svg = $('svg-inicio');
+    var s = parpadeo(t, 3.2);
+    svg.querySelector('#ojos').setAttribute('transform', 'translate(0 400) scale(1 ' + s.toFixed(3) + ') translate(0 -400)');
+    svg.querySelector('#cabeza').setAttribute('transform', 'rotate(' + (2 * Math.sin(2 * Math.PI * t / 2.4)).toFixed(2) + ' 800 690)');
+    Array.prototype.forEach.call(svg.querySelectorAll('.titila'), function (e, i) {
+      e.style.opacity = (0.35 + 0.65 * Math.abs(Math.sin(t * 1.3 + i))).toFixed(2);
+    });
+  }
+
+  function posarFinal(t) {
+    Array.prototype.forEach.call($('svg-final').querySelectorAll('.titila'), function (e, i) {
+      e.style.opacity = (0.35 + 0.65 * Math.abs(Math.sin(t * 1.3 + i))).toFixed(2);
+    });
+  }
+
+  /* ---------- Reloj de 20 s por paso ---------- */
+  function actualizarReloj() {
+    var resta = Math.max(0, SEGUNDOS_POR_PASO - estado.tiempo);
+    var seg = Math.ceil(resta);
+    $('reloj-texto').textContent = '0:' + String(seg).padStart(2, '0');
+    var L = 2 * Math.PI * 74;
+    $('reloj-anillo').setAttribute('stroke-dasharray', (L * resta / SEGUNDOS_POR_PASO).toFixed(1) + ' ' + L.toFixed(1));
+  }
+
+  function completarPaso() {
+    estado.completado = true;
+    $('bien').textContent = estado.paso === PASOS.length - 1 ? '¡Excelente!' : '¡Muy bien!';
+    $('bien').classList.add('ver');
+    var svg = $('svg-paso');
+    svg.querySelector('#destellos').innerHTML =
+      [[700, 470], [900, 470], [800, 440], [660, 600], [940, 600]].map(function (d) {
+        return '<path d="M' + d[0] + ' ' + (d[1] - 26) + 'C' + (d[0] + 4) + ' ' + (d[1] - 6) + ' ' + (d[0] + 6) + ' ' + (d[1] - 4) + ' ' + (d[0] + 26) + ' ' + d[1] +
+          'C' + (d[0] + 6) + ' ' + (d[1] + 4) + ' ' + (d[0] + 4) + ' ' + (d[1] + 6) + ' ' + d[0] + ' ' + (d[1] + 26) +
+          'C' + (d[0] - 4) + ' ' + (d[1] + 6) + ' ' + (d[0] - 6) + ' ' + (d[1] + 4) + ' ' + (d[0] - 26) + ' ' + d[1] +
+          'C' + (d[0] - 6) + ' ' + (d[1] - 4) + ' ' + (d[0] - 4) + ' ' + (d[1] - 6) + ' ' + d[0] + ' ' + (d[1] - 26) + 'Z" fill="#FFFFFF" stroke="#FFD23F" stroke-width="3"/>';
+      }).join('');
+    if (estado.auto) setTimeout(function () {
+      if (estado.pantalla === 'paso' && estado.completado) siguiente();
+    }, 1600);
+  }
+
+  function siguiente() {
+    if (estado.paso < PASOS.length - 1) irAPaso(estado.paso + 1);
+    else terminar();
+  }
+
+  function terminar() {
+    $('racha-num').textContent = actualizarRacha();
+    mostrar('final');
+    hablar('¡Lo hiciste! ¡Dientes limpios y una gran sonrisa!');
+  }
+
+  function actualizarRacha() {
+    var hoy = new Date(), clave = function (d) { return d.toISOString().slice(0, 10); };
+    var ayer = new Date(hoy.getTime() - 864e5);
+    try {
+      var r = JSON.parse(localStorage.getItem('dl-racha') || '{}');
+      var dias = r.ultimo === clave(hoy) ? r.dias : r.ultimo === clave(ayer) ? (r.dias || 0) + 1 : 1;
+      localStorage.setItem('dl-racha', JSON.stringify({ ultimo: clave(hoy), dias: dias }));
+      return dias;
+    } catch (e) { return 1; }
+  }
+
+  /* ---------- Voz ---------- */
+  var vozActiva = true;
+  function hablar(texto) {
+    if (!vozActiva || !('speechSynthesis' in window)) return;
+    try {
+      speechSynthesis.cancel();
+      var u = new SpeechSynthesisUtterance(texto);
+      u.lang = 'es-AR'; u.rate = 0.95; u.pitch = 1.15;
+      speechSynthesis.speak(u);
+    } catch (e) { /* sin voz disponible */ }
+  }
+
+  /* ---------- Controles ---------- */
+  $('btn-comenzar').onclick = function () { mostrar('paso'); irAPaso(0); };
+  $('btn-siguiente').onclick = siguiente;
+  $('btn-anterior').onclick = function () { if (estado.paso > 0) irAPaso(estado.paso - 1); };
+  $('btn-voz').onclick = function () { var p = PASOS[estado.paso]; hablar(p.l1 + ' ' + p.l2); };
+  $('btn-volver').onclick = function () { mostrar('inicio'); };
+
+  /* ---------- Escalado del escenario ---------- */
+  function ajustar() {
+    var e = Math.min(window.innerWidth / 1600, window.innerHeight / 900);
+    $('escenario').style.transform = 'scale(' + e + ')';
+  }
+  window.addEventListener('resize', ajustar);
+  ajustar();
+
+  var ultimo = null, t = 0, congelado = false;
+  function bucle(ahora) {
+    if (!congelado) {
+      var dt = ultimo === null ? 0 : Math.min(0.1, (ahora - ultimo) / 1000);
+      t += dt;
+      if (estado.pantalla === 'paso' && !estado.completado) {
+        estado.tiempo += dt;
+        if (estado.tiempo >= SEGUNDOS_POR_PASO) { estado.tiempo = SEGUNDOS_POR_PASO; completarPaso(); }
+      }
+      if (estado.pantalla === 'paso') actualizarReloj();
+      animar(t);
+    }
+    ultimo = ahora;
+    requestAnimationFrame(bucle);
+  }
+  requestAnimationFrame(bucle);
+
+  // Acceso para capturas y pruebas: congela el tiempo y posa una pantalla concreta.
+  window.DientesLimpios = {
+    PASOS: PASOS,
+    posar: function (pantalla, paso, tAnim, tPaso) {
+      congelado = true; vozActiva = false; estado.auto = false;
+      mostrar(pantalla);
+      if (pantalla === 'paso') { irAPaso(paso); estado.tiempo = tPaso || 0; actualizarReloj(); }
+      if (pantalla === 'final') $('racha-num').textContent = '5';
+      animar(tAnim || 0);
+    }
+  };
+})();
+</script>
+</body>
+</html>
