@@ -1,0 +1,274 @@
+<!doctype html>
+<html lang="es-AR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Misiones de Rami</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Andika:wght@400;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --fondo: #fff7e8; --fondo2: #ffe9c7; --tinta: #2b2140; --suave: #6b5f80;
+    --tarjeta: #ffffff; --borde: #e8d9bf; --primario: #5b4bdb; --primario-t: #ffffff;
+    --bien: #22a06b; --bien-f: #dcf5e8; --mal: #e0483e; --mal-f: #fde3e0; --aviso: #f5a524; --aviso-f: #fff1d6;
+    --sombra: 0 4px 0 rgba(43, 33, 64, .12); --radio: 18px;
+    --c1: #ff8a5b; --c2: #4cc3a5; --c3: #5b8def; --c4: #f5c542; --c5: #c77dde; --c6: #ff6f91;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --fondo: #1c1830; --fondo2: #262040; --tinta: #f4efff; --suave: #b9aed3;
+      --tarjeta: #2d2748; --borde: #443b66; --primario: #8f82ff; --primario-t: #151126;
+      --bien-f: #17392c; --mal-f: #43201f; --aviso-f: #43361a; --sombra: 0 4px 0 rgba(0, 0, 0, .35);
+    }
+  }
+  :root[data-theme="dark"] {
+    --fondo: #1c1830; --fondo2: #262040; --tinta: #f4efff; --suave: #b9aed3;
+    --tarjeta: #2d2748; --borde: #443b66; --primario: #8f82ff; --primario-t: #151126;
+    --bien-f: #17392c; --mal-f: #43201f; --aviso-f: #43361a; --sombra: 0 4px 0 rgba(0, 0, 0, .35);
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body {
+    background: radial-gradient(circle at 20% 0%, var(--fondo2), var(--fondo) 55%) fixed;
+    color: var(--tinta); font-family: 'Andika', 'Trebuchet MS', system-ui, sans-serif;
+    font-size: 20px; line-height: 1.35; min-height: 100vh; -webkit-tap-highlight-color: transparent;
+  }
+  body.mayus .mayusculable { text-transform: uppercase; }
+  button { font: inherit; color: inherit; cursor: pointer; border: 0; background: none; touch-action: manipulation; }
+  .contenedor { max-width: 920px; margin: 0 auto; padding: 12px 16px 40px; }
+  .pantalla { display: none; }
+  .pantalla.activa { display: block; animation: aparecer .25s ease; }
+  @keyframes aparecer { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
+  /* Barra superior */
+  .barra { display: flex; align-items: center; gap: 8px; padding: 6px 0 10px; }
+  .barra h1 { font-size: 1.15em; margin: 0; flex: 1; }
+  .icono-btn { width: 48px; height: 48px; border-radius: 14px; background: var(--tarjeta); box-shadow: var(--sombra); border: 2px solid var(--borde); font-size: 22px; display: grid; place-items: center; }
+  .icono-btn:active { transform: translateY(2px); box-shadow: none; }
+
+  /* Inicio */
+  .equipo { display: flex; justify-content: center; gap: 14px; margin: 8px 0 4px; }
+  .equipo figure { margin: 0; text-align: center; }
+  .equipo .cara { font-size: 52px; display: block; animation: flotar 3s ease-in-out infinite; }
+  .equipo figure:nth-child(2) .cara { animation-delay: -1s; } .equipo figure:nth-child(3) .cara { animation-delay: -2s; }
+  .equipo figcaption { font-weight: 700; font-size: .8em; }
+  @keyframes flotar { 50% { transform: translateY(-6px); } }
+  .saludo { text-align: center; margin: 6px 0 18px; color: var(--suave); }
+  .misiones { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 14px; }
+  .mision { background: var(--tarjeta); border: 3px solid var(--borde); border-radius: var(--radio); box-shadow: var(--sombra); padding: 16px 14px; text-align: left; display: flex; flex-direction: column; gap: 4px; min-height: 132px; position: relative; overflow: hidden; }
+  .mision::after { content: ''; position: absolute; right: -24px; bottom: -24px; width: 90px; height: 90px; border-radius: 50%; background: var(--c); opacity: .22; }
+  .mision .em { font-size: 40px; }
+  .mision b { font-size: 1.02em; }
+  .mision small { color: var(--suave); font-size: .72em; }
+  .mision:active { transform: translateY(2px); box-shadow: none; }
+  .pie-inicio { text-align: center; margin-top: 22px; }
+  .enlace { color: var(--suave); text-decoration: underline; font-size: .8em; padding: 10px; }
+
+  /* Actividad */
+  .progreso { display: flex; gap: 6px; flex-wrap: wrap; }
+  .progreso i { width: 14px; height: 14px; border-radius: 50%; background: var(--borde); display: block; }
+  .progreso i.hecho { background: var(--bien); } .progreso i.fallo { background: var(--aviso); } .progreso i.ahora { background: var(--primario); transform: scale(1.25); }
+  .nivel { font-size: .7em; background: var(--tarjeta); border: 2px solid var(--borde); padding: 2px 10px; border-radius: 99px; white-space: nowrap; }
+  .consigna { display: flex; align-items: flex-start; gap: 10px; margin: 6px 0 12px; }
+  .consigna .guia { font-size: 44px; line-height: 1; flex: none; }
+  .globo { background: var(--tarjeta); border: 3px solid var(--borde); border-radius: 18px 18px 18px 4px; padding: 10px 14px; flex: 1; font-weight: 700; font-size: 1.05em; box-shadow: var(--sombra); display: flex; gap: 8px; align-items: center; }
+  .globo span { flex: 1; }
+  .parlante { font-size: 24px; width: 44px; height: 44px; border-radius: 12px; background: var(--fondo2); flex: none; }
+  .repaso-cartel { display: inline-block; background: var(--aviso-f); color: var(--tinta); border: 2px dashed var(--aviso); border-radius: 10px; padding: 2px 10px; font-size: .7em; margin-bottom: 6px; }
+
+  .escena { display: flex; flex-direction: column; align-items: center; gap: 12px; margin-bottom: 14px; }
+  .caja { background: var(--tarjeta); border: 3px solid var(--borde); border-radius: var(--radio); padding: 14px 16px; box-shadow: var(--sombra); max-width: 100%; }
+  .cuenta { font-size: 2.2em; font-weight: 700; letter-spacing: .04em; text-align: center; }
+  .incognita { display: inline-block; min-width: 1.6em; padding: 0 .2em; border-bottom: 5px solid var(--primario); color: var(--primario); text-align: center; }
+  .secuencia { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
+  .secuencia .n { min-width: 72px; padding: 10px 8px; text-align: center; font-size: 1.6em; font-weight: 700; background: var(--tarjeta); border: 3px solid var(--borde); border-radius: 14px; box-shadow: var(--sombra); }
+  .secuencia .n.hueco { border-style: dashed; border-color: var(--primario); color: var(--primario); }
+  .objetos { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 10px; font-size: 34px; }
+  .objetos .grupo { display: flex; flex-wrap: wrap; gap: 2px; max-width: 220px; justify-content: center; }
+  .objetos .op { font-size: 40px; font-weight: 700; color: var(--suave); }
+  .tachado { position: relative; opacity: .45; }
+  .tachado::after { content: ''; position: absolute; left: -2px; right: -2px; top: 50%; height: 4px; background: var(--mal); transform: rotate(-35deg); border-radius: 2px; }
+  .grupos { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; }
+  .grupos .g { border: 3px dashed var(--c3); border-radius: 50px; padding: 4px 10px; font-size: 30px; }
+  .filas { display: grid; gap: 6px; font-size: 30px; text-align: center; }
+  .bloques { display: flex; gap: 18px; align-items: flex-end; flex-wrap: wrap; justify-content: center; }
+  .bloques .num { display: flex; gap: 4px; align-items: flex-end; }
+  .barra10 { width: 14px; height: 140px; display: grid; grid-template-rows: repeat(10, 1fr); gap: 1px; background: var(--c3); border: 2px solid var(--c3); border-radius: 3px; }
+  .barra10 i { background: #8fb3ff; }
+  .cubo { width: 14px; height: 14px; background: var(--c4); border: 2px solid #c79a1a; border-radius: 2px; }
+  .cubos { display: grid; grid-template-columns: repeat(2, 14px); gap: 2px; }
+  .bloques .etq { text-align: center; font-weight: 700; margin-top: 4px; }
+  .bloques .col { display: flex; flex-direction: column; align-items: center; }
+  .problema { display: flex; gap: 12px; align-items: center; font-size: 1.05em; max-width: 640px; }
+  .problema .dib { font-size: 46px; line-height: 1; text-align: center; }
+  .problema .rep { font-size: 22px; letter-spacing: 2px; margin-top: 6px; }
+  .cuento { max-width: 640px; }
+  .cuento h3 { margin: 0 0 6px; font-size: 1em; display: flex; gap: 8px; align-items: center; }
+  .cuento p { margin: 0; font-size: 1.05em; line-height: 1.55; }
+  .cartel { font-size: 1.5em; font-weight: 700; background: #7a4b25; color: #fff4dd; border-radius: 10px; padding: 12px 18px; border: 5px solid #5c3617; }
+  .grande { font-size: 3.2em; font-weight: 700; }
+  .emoji-grande { font-size: 72px; line-height: 1; }
+  .palabra { display: flex; align-items: center; gap: 14px; font-size: 2em; font-weight: 700; letter-spacing: .06em; flex-wrap: wrap; justify-content: center; }
+  .palabra .emoji-grande { font-size: 64px; }
+  .hueco-txt { display: inline-block; min-width: 2.4em; border-bottom: 5px solid var(--primario); color: var(--primario); text-align: center; }
+  .frase-vf { font-size: 1.3em; font-weight: 700; text-align: center; }
+  .contexto { color: var(--suave); font-size: .85em; margin-bottom: 6px; text-align: center; }
+  .oculto-btn { background: var(--fondo2); border: 2px dashed var(--borde); border-radius: 14px; padding: 10px 16px; }
+
+  /* Interacciones */
+  .zona { display: flex; flex-direction: column; align-items: center; gap: 12px; }
+  .opciones { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(150px, 100%), 1fr)); gap: 12px; width: 100%; }
+  .opciones.largas { grid-template-columns: 1fr; max-width: 640px; }
+  .opcion { background: var(--tarjeta); border: 3px solid var(--borde); border-radius: 16px; box-shadow: var(--sombra); padding: 14px 12px; font-weight: 700; font-size: 1.1em; min-height: 64px; display: flex; align-items: center; justify-content: center; gap: 10px; text-align: center; min-width: 0; overflow-wrap: break-word; hyphens: auto; }
+  .opcion .em { font-size: 1.5em; }
+  .opcion.img { flex-direction: column; } .opcion.img .em { font-size: 54px; }
+  .opcion.numero { font-size: 1.8em; }
+  .opcion:active { transform: translateY(2px); box-shadow: none; }
+  .opcion.bien { background: var(--bien-f); border-color: var(--bien); }
+  .opcion.mal { background: var(--mal-f); border-color: var(--mal); opacity: .6; }
+  .opcion.elegida { border-color: var(--primario); background: var(--fondo2); }
+  .opcion.emparejada { opacity: .85; }
+  .temblor { animation: temblor .35s; }
+  @keyframes temblor { 20%, 60% { transform: translateX(-6px); } 40%, 80% { transform: translateX(6px); } }
+  .frase-tocable { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; font-size: 1.4em; }
+  .frase-tocable .opcion { font-size: 1em; min-height: 56px; padding: 8px 14px; }
+  .ranuras { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; align-items: center; }
+  .ranura { min-width: 90px; min-height: 64px; border: 3px dashed var(--borde); border-radius: 14px; display: grid; place-items: center; padding: 6px 10px; font-weight: 700; font-size: 1.1em; background: var(--tarjeta); }
+  .ranura.llena { border-style: solid; border-color: var(--primario); }
+  .ranuras.largas { flex-direction: column; align-items: stretch; width: 100%; max-width: 640px; }
+  .ranuras.largas .ranura { justify-items: start; }
+  .etiqueta-orden { font-size: .7em; color: var(--suave); font-weight: 700; }
+  .fichas { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; }
+  .fichas.largas { flex-direction: column; width: 100%; max-width: 640px; }
+  .asociar { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 24px; width: 100%; max-width: 680px; }
+  .asociar .col { display: flex; flex-direction: column; gap: 10px; }
+  .par1 { border-color: var(--c1) !important; background: color-mix(in srgb, var(--c1) 18%, var(--tarjeta)) !important; }
+  .par2 { border-color: var(--c2) !important; background: color-mix(in srgb, var(--c2) 18%, var(--tarjeta)) !important; }
+  .par3 { border-color: var(--c5) !important; background: color-mix(in srgb, var(--c5) 18%, var(--tarjeta)) !important; }
+  .par4 { border-color: var(--c4) !important; background: color-mix(in srgb, var(--c4) 22%, var(--tarjeta)) !important; }
+  .cestos { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(140px, 100%), 1fr)); gap: 12px; width: 100%; }
+  .cesto { border: 3px dashed var(--borde); border-radius: 18px; min-height: 130px; padding: 8px; background: var(--tarjeta); display: flex; flex-direction: column; gap: 6px; align-items: stretch; }
+  .cesto h4 { margin: 0; text-align: center; font-size: 1em; }
+  .cesto h4 small { display: block; font-weight: 400; color: var(--suave); font-size: .7em; }
+  .cesto.sobre { border-color: var(--primario); background: var(--fondo2); }
+  .cesto .opcion { font-size: .9em; min-height: 44px; padding: 6px; }
+  .arrastrando { position: fixed; pointer-events: none; z-index: 50; transform: translate(-50%, -50%) rotate(-3deg); opacity: .95; }
+  .teclado { display: grid; grid-template-columns: repeat(3, 72px); gap: 10px; justify-content: center; }
+  .teclado button { height: 64px; border-radius: 16px; background: var(--tarjeta); border: 3px solid var(--borde); box-shadow: var(--sombra); font-size: 1.6em; font-weight: 700; }
+  .teclado button.ok { background: var(--primario); color: var(--primario-t); border-color: var(--primario); }
+  .pantallita { font-size: 2.4em; font-weight: 700; min-width: 160px; text-align: center; border-bottom: 5px solid var(--primario); min-height: 1.3em; }
+  .escuchar-btn { font-size: 1.1em; font-weight: 700; background: var(--primario); color: var(--primario-t); border-radius: 18px; padding: 14px 24px; box-shadow: var(--sombra); }
+
+  .acciones { display: flex; gap: 10px; justify-content: center; margin-top: 16px; flex-wrap: wrap; }
+  .boton { background: var(--primario); color: var(--primario-t); border-radius: 16px; padding: 12px 22px; font-weight: 700; box-shadow: var(--sombra); font-size: 1em; }
+  .boton.sec { background: var(--tarjeta); color: var(--tinta); border: 3px solid var(--borde); }
+  .boton:active { transform: translateY(2px); box-shadow: none; }
+  .aviso { border-radius: 16px; padding: 10px 14px; margin-top: 12px; text-align: center; font-weight: 700; display: none; }
+  .aviso.ver { display: block; animation: aparecer .2s; }
+  .aviso.bien { background: var(--bien-f); border: 3px solid var(--bien); }
+  .aviso.casi { background: var(--aviso-f); border: 3px solid var(--aviso); }
+  .aviso.pista { background: var(--fondo2); border: 3px dashed var(--primario); font-weight: 400; }
+  .confeti { position: fixed; inset: 0; pointer-events: none; overflow: hidden; z-index: 40; }
+  .confeti i { position: absolute; top: -20px; font-style: normal; font-size: 26px; animation: caer 1.3s ease-in forwards; }
+  @keyframes caer { to { transform: translateY(110vh) rotate(360deg); opacity: .6; } }
+
+  /* Final y adultos */
+  .final { text-align: center; }
+  .estrellas { font-size: 56px; letter-spacing: 6px; margin: 10px 0; }
+  table { border-collapse: collapse; width: 100%; font-size: .78em; background: var(--tarjeta); border-radius: 12px; overflow: hidden; }
+  th, td { padding: 8px 6px; border-bottom: 1px solid var(--borde); text-align: center; }
+  th:first-child, td:first-child { text-align: left; }
+  .tabla-scroll { overflow-x: auto; }
+  .muestras { font-size: .75em; }
+  .muestras li { margin-bottom: 6px; }
+  .muestras .r { color: var(--bien); font-weight: 700; }
+  select { font: inherit; font-size: .85em; padding: 8px; border-radius: 10px; border: 2px solid var(--borde); background: var(--tarjeta); color: var(--tinta); }
+  @media (max-width: 520px) {
+    body { font-size: 18px; }
+    .cuenta { font-size: 1.8em; }
+    .asociar { gap: 10px 10px; }
+    .opciones { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+    .opcion { font-size: 1em; padding: 12px 8px; gap: 6px; }
+    .opcion.numero { font-size: 1.5em; }
+    .consigna .guia { font-size: 34px; }
+    .asociar .opcion { font-size: .9em; }
+    .opciones.largas { grid-template-columns: 1fr; }
+    .teclado { grid-template-columns: repeat(3, 64px); }
+  }
+  @media (prefers-reduced-motion: reduce) { * { animation: none !important; } }
+</style>
+</head>
+<body class="mayus">
+<div class="contenedor">
+
+  <section id="inicio" class="pantalla activa">
+    <div class="barra">
+      <h1 class="mayusculable">Misiones de Rami</h1>
+      <button class="icono-btn" id="btn-letras" title="Cambiar mayúsculas / minúsculas">Aa</button>
+    </div>
+    <div class="equipo">
+      <figure><span class="cara">🧒</span><figcaption>Rami</figcaption></figure>
+      <figure><span class="cara">✨</span><figcaption>Chispa</figcaption></figure>
+      <figure><span class="cara">🤖</span><figcaption>Robot 2X</figcaption></figure>
+    </div>
+    <p class="saludo mayusculable" id="saludo">¿Qué misión jugamos hoy?</p>
+    <div class="misiones" id="lista-misiones"></div>
+    <div class="pie-inicio"><button class="enlace" id="btn-adultos">Para adultos: progreso y ejemplos</button></div>
+  </section>
+
+  <section id="actividad" class="pantalla">
+    <div class="barra">
+      <button class="icono-btn" id="btn-salir" title="Volver al inicio">🏠</button>
+      <div style="flex:1; display:flex; flex-direction:column; gap:4px">
+        <strong id="titulo-mision" class="mayusculable" style="font-size:.85em"></strong>
+        <div class="progreso" id="progreso"></div>
+      </div>
+      <span class="nivel" id="nivel"></span>
+    </div>
+    <div id="cartel-repaso"></div>
+    <div class="consigna">
+      <span class="guia" id="guia">🧒</span>
+      <div class="globo"><span id="consigna" class="mayusculable"></span><button class="parlante" id="btn-leer" title="Escuchar la consigna">🔊</button></div>
+    </div>
+    <div class="escena" id="escena"></div>
+    <div class="zona" id="zona"></div>
+    <div class="aviso" id="aviso"></div>
+    <div class="acciones">
+      <button class="boton sec" id="btn-pista">💡 Pista</button>
+      <button class="boton" id="btn-seguir" hidden>Seguir ▶</button>
+    </div>
+  </section>
+
+  <section id="fin" class="pantalla final">
+    <div class="barra"><h1 class="mayusculable" id="fin-titulo">¡Misión cumplida!</h1></div>
+    <div class="emoji-grande" id="fin-guia">🤖</div>
+    <div class="estrellas" id="fin-estrellas"></div>
+    <p class="mayusculable" id="fin-texto"></p>
+    <div class="acciones">
+      <button class="boton" id="btn-otra">Jugar otra vez</button>
+      <button class="boton sec" id="btn-volver">Elegir otra misión</button>
+    </div>
+  </section>
+
+  <section id="adultos" class="pantalla">
+    <div class="barra">
+      <button class="icono-btn" id="btn-adultos-volver" title="Volver">🏠</button>
+      <h1>Progreso y motor de actividades</h1>
+    </div>
+    <p style="font-size:.8em;color:var(--suave)">Cada actividad se genera en el momento con bancos de datos, plantillas y reglas. El nivel de cada tema sube tras 3 aciertos seguidos sin pistas y baja tras 2 errores o actividades con varias pistas. Nunca cuenta la velocidad.</p>
+    <div class="tabla-scroll"><table id="tabla-progreso"></table></div>
+    <h3 style="font-size:.9em;margin-top:22px">Vista previa del generador</h3>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+      <select id="prev-tema"></select>
+      <select id="prev-nivel"><option value="1">Nivel 1</option><option value="2">Nivel 2</option><option value="3">Nivel 3</option></select>
+      <button class="boton" id="btn-prev">Generar 8 ejemplos</button>
+    </div>
+    <ol class="muestras" id="muestras"></ol>
+    <div class="acciones"><button class="boton sec" id="btn-reiniciar">Borrar el progreso guardado</button></div>
+  </section>
+</div>
+<script src="motor.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
