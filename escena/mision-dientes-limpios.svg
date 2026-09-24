@@ -1,0 +1,443 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Misión: Dientes Limpios — escena base para animación (1920×1080)
+
+  Todas las piezas animables son grupos <g> con id propio. Cada grupo que gira
+  declara su punto de pivote en data-pivot="x,y" (coordenadas del grupo padre),
+  así que en la pose de reposo NO llevan transformación y se pueden rotar con
+  rotate(ángulo, x, y) sin recalcular nada. Ver escena/README.md.
+
+  Jerarquía del niño:
+    #nino
+      #nino-pierna-lejana, #nino-pierna-cercana      (fijas: pies apoyados)
+      #nino-superior        pivote cadera  (inclinación del tronco)
+        #nino-brazo-lejano  pivote hombro  (relajado, no interviene)
+        #nino-torso
+        #nino-cabeza        pivote cuello  (cabeza inclinada al espejo)
+          #nino-ojos        (parpadeo: scaleY)
+          #nino-boca        (boca entreabierta)
+          #nino-espuma      (burbujas de pasta)
+        #nino-brazo-cercano pivote hombro
+          #nino-antebrazo   pivote codo
+            #nino-mano-cepillo pivote muñeca/puño
+              #cepillo      (cabezal a 45° respecto de la encía)
+              #nino-mano
+-->
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"
+     viewBox="0 0 1920 1080" width="1920" height="1080" id="escena">
+  <title>Misión: Dientes Limpios</title>
+  <defs>
+    <linearGradient id="g-pared" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFF6DE"/>
+      <stop offset="1" stop-color="#FDE9C4"/>
+    </linearGradient>
+    <linearGradient id="g-azulejo" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#C9EEF0"/>
+      <stop offset="1" stop-color="#AEE2E6"/>
+    </linearGradient>
+    <linearGradient id="g-suelo" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#F3C99C"/>
+      <stop offset="1" stop-color="#E7B07C"/>
+    </linearGradient>
+    <linearGradient id="g-espejo" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#E9F8FC"/>
+      <stop offset="0.55" stop-color="#C8EAF4"/>
+      <stop offset="1" stop-color="#A9DCEC"/>
+    </linearGradient>
+    <linearGradient id="g-cielo" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#7CCBF5"/>
+      <stop offset="1" stop-color="#CDEFFD"/>
+    </linearGradient>
+    <linearGradient id="g-mueble" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#F7B27A"/>
+      <stop offset="1" stop-color="#EE9A5E"/>
+    </linearGradient>
+    <linearGradient id="g-cromo" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#9FB3C2"/>
+      <stop offset="0.45" stop-color="#F4F9FC"/>
+      <stop offset="1" stop-color="#8EA3B3"/>
+    </linearGradient>
+    <linearGradient id="g-diente" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#FFFFFF"/>
+      <stop offset="0.7" stop-color="#F2F9FF"/>
+      <stop offset="1" stop-color="#D6EAF8"/>
+    </linearGradient>
+    <linearGradient id="g-capa" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#F0514F"/>
+      <stop offset="1" stop-color="#C92F3D"/>
+    </linearGradient>
+    <radialGradient id="g-sombra">
+      <stop offset="0" stop-color="#7A4A26" stop-opacity="0.35"/>
+      <stop offset="1" stop-color="#7A4A26" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="g-brillo">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.9"/>
+      <stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/>
+    </radialGradient>
+
+    <pattern id="p-azulejos" width="60" height="60" patternUnits="userSpaceOnUse">
+      <rect width="60" height="60" fill="url(#g-azulejo)"/>
+      <path d="M0 0.5H60M0.5 0V60" stroke="#93D0D6" stroke-width="3"/>
+      <path d="M8 10q6-4 12 0" stroke="#FFFFFF" stroke-opacity="0.5" stroke-width="3" fill="none" stroke-linecap="round"/>
+    </pattern>
+    <pattern id="p-papel" width="90" height="90" patternUnits="userSpaceOnUse">
+      <rect width="90" height="90" fill="url(#g-pared)"/>
+      <circle cx="22" cy="22" r="6" fill="#FFE0A8"/>
+      <circle cx="67" cy="67" r="6" fill="#FFD3C7"/>
+      <path d="M67 16l3 6 6 1-4.5 4 1 6-5.5-3-5.5 3 1-6-4.5-4 6-1z" fill="#FCE6A6"/>
+    </pattern>
+    <pattern id="p-suelo" width="120" height="60" patternUnits="userSpaceOnUse">
+      <rect width="120" height="60" fill="url(#g-suelo)"/>
+      <path d="M0 0.5H120M60 0V30M0 30.5H120M0 30V60M120 30V60" stroke="#D99E6A" stroke-width="2.5"/>
+    </pattern>
+    <pattern id="p-pijama" width="46" height="46" patternUnits="userSpaceOnUse">
+      <rect width="46" height="46" fill="#4FA3E0"/>
+      <path d="M12 6l2.4 5 5.4.8-3.9 3.8.9 5.4-4.8-2.6-4.8 2.6.9-5.4L4.2 11.8l5.4-.8z" fill="#FFE27A"/>
+      <circle cx="34" cy="33" r="3.2" fill="#BFE4FF"/>
+    </pattern>
+    <pattern id="p-toalla" width="30" height="30" patternUnits="userSpaceOnUse">
+      <rect width="30" height="30" fill="#FF9EB5"/>
+      <rect y="18" width="30" height="7" fill="#FFFFFF" opacity="0.7"/>
+    </pattern>
+
+    <symbol id="destello" viewBox="-10 -10 20 20">
+      <path d="M0-10C1 -3 3-1 10 0C3 1 1 3 0 10C-1 3-3 1-10 0C-3-1-1-3 0-10Z" fill="#FFFFFF"/>
+    </symbol>
+    <symbol id="estrella" viewBox="-12 -12 24 24">
+      <path d="M0-11.5l3.4 7 7.7 1.1-5.6 5.4 1.3 7.7L0 7.1l-6.9 3.6 1.3-7.7-5.6-5.4 7.7-1.1z"/>
+    </symbol>
+
+    <clipPath id="clip-espejo">
+      <rect x="440" y="150" width="520" height="440" rx="36"/>
+    </clipPath>
+  </defs>
+
+  <!-- ============================ FONDO ============================ -->
+  <g id="fondo">
+    <rect width="1920" height="560" fill="url(#p-papel)"/>
+    <rect y="540" width="1920" height="370" fill="url(#p-azulejos)"/>
+    <rect y="528" width="1920" height="18" rx="4" fill="#7FC8CF"/>
+    <rect y="900" width="1920" height="180" fill="url(#p-suelo)"/>
+    <rect y="890" width="1920" height="14" fill="#E9A66C"/>
+
+    <!-- ventana -->
+    <g id="ventana">
+      <rect x="1300" y="130" width="420" height="330" rx="28" fill="#FFFFFF"/>
+      <rect x="1318" y="148" width="384" height="294" rx="18" fill="url(#g-cielo)"/>
+      <circle cx="1630" cy="215" r="38" fill="#FFD65A"/>
+      <circle cx="1630" cy="215" r="54" fill="#FFD65A" opacity="0.25"/>
+      <g id="nubes" fill="#FFFFFF">
+        <path d="M1360 300q0-26 28-26q10-22 36-16q22-6 32 16q26 0 26 26z"/>
+        <path d="M1520 370q0-20 22-20q8-17 28-12q17-5 25 12q20 0 20 20z" opacity="0.9"/>
+      </g>
+      <path d="M1510 148V442M1318 295H1702" stroke="#FFFFFF" stroke-width="14"/>
+      <rect x="1288" y="452" width="444" height="22" rx="10" fill="#FFFFFF"/>
+      <rect x="1288" y="468" width="444" height="8" rx="4" fill="#E3E9EE"/>
+    </g>
+
+    <!-- toallero con toalla -->
+    <g id="toallero">
+      <rect x="70" y="300" width="190" height="12" rx="6" fill="url(#g-cromo)"/>
+      <circle cx="74" cy="306" r="11" fill="#B5C4CF"/>
+      <circle cx="256" cy="306" r="11" fill="#B5C4CF"/>
+      <path d="M92 302h150v210q0 14-14 14H106q-14 0-14-14z" fill="url(#p-toalla)"/>
+      <path d="M92 302h150v26H92z" fill="#FF84A0"/>
+      <path d="M92 500h150v12q0 14-14 14H106q-14 0-14-14z" fill="#FF84A0"/>
+    </g>
+
+    <!-- estante de bañera / patito -->
+    <g id="estante">
+      <rect x="60" y="640" width="220" height="16" rx="8" fill="#FFFFFF"/>
+      <path d="M92 600q0-26 26-26q24 0 24 22q14 0 14 14q0 30-38 30q-26 0-26-26q-8 0-8-7q0-7 8-7z" fill="#FFD23F"/>
+      <circle cx="122" cy="592" r="4" fill="#3A2A20"/>
+      <path d="M140 598q14-2 16 6q-10 4-18 0z" fill="#FF8C42"/>
+      <rect x="190" y="584" width="44" height="56" rx="12" fill="#8FD694"/>
+      <rect x="202" y="572" width="20" height="16" rx="4" fill="#5CB85C"/>
+    </g>
+
+    <!-- alfombra de baño -->
+    <ellipse cx="1010" cy="962" rx="190" ry="40" fill="#8ED1FC"/>
+    <ellipse cx="1010" cy="962" rx="166" ry="30" fill="none" stroke="#FFFFFF" stroke-width="5" stroke-dasharray="4 12" stroke-linecap="round"/>
+  </g>
+
+  <!-- ====================== ESPEJO Y LAVABO ====================== -->
+  <g id="espejo">
+    <rect x="420" y="130" width="560" height="480" rx="52" fill="#F28B6F"/>
+    <rect x="428" y="138" width="544" height="464" rx="46" fill="#FFA98A"/>
+    <rect x="440" y="150" width="520" height="440" rx="36" fill="url(#g-espejo)"/>
+    <!-- Reflejo: reutiliza al niño con una simetría horizontal (x' = 1720 − x),
+         de modo que cualquier animación del niño se refleja automáticamente. -->
+    <g id="espejo-reflejo" clip-path="url(#clip-espejo)" opacity="0.5">
+      <use href="#nino-superior" xlink:href="#nino-superior" transform="translate(1720 0) scale(-1 1)"/>
+      <rect x="440" y="150" width="520" height="440" fill="#BFE6F2" opacity="0.35"/>
+    </g>
+    <g id="espejo-brillos" clip-path="url(#clip-espejo)" fill="#FFFFFF" opacity="0.55">
+      <path d="M470 330L620 170H670L500 360Z"/>
+      <path d="M520 400L720 180H745L535 415Z"/>
+    </g>
+    <circle cx="700" cy="140" r="8" fill="#FFD65A"/>
+  </g>
+
+  <g id="lavabo">
+    <!-- mueble -->
+    <rect x="200" y="700" width="800" height="226" rx="18" fill="url(#g-mueble)"/>
+    <rect x="224" y="726" width="360" height="176" rx="14" fill="#F9C193"/>
+    <rect x="608" y="726" width="368" height="176" rx="14" fill="#F9C193"/>
+    <circle cx="560" cy="814" r="10" fill="#FFFFFF"/>
+    <circle cx="632" cy="814" r="10" fill="#FFFFFF"/>
+    <rect x="224" y="918" width="40" height="16" rx="6" fill="#C9763F"/>
+    <rect x="936" y="918" width="40" height="16" rx="6" fill="#C9763F"/>
+    <!-- encimera -->
+    <rect x="180" y="668" width="840" height="40" rx="14" fill="#FFFFFF"/>
+    <rect x="180" y="694" width="840" height="14" rx="7" fill="#DDE8EE"/>
+    <!-- lavabo -->
+    <ellipse cx="720" cy="676" rx="120" ry="18" fill="#DDEAF1"/>
+    <ellipse cx="720" cy="678" rx="104" ry="12" fill="#BCD3DF"/>
+    <circle cx="720" cy="680" r="5" fill="#8EA3B3"/>
+    <!-- grifo -->
+    <g id="grifo">
+      <rect x="704" y="622" width="32" height="46" rx="8" fill="url(#g-cromo)"/>
+      <path d="M712 630h52q14 0 14 14v12h-18v-8h-48z" fill="url(#g-cromo)"/>
+      <rect x="690" y="610" width="60" height="16" rx="8" fill="url(#g-cromo)"/>
+      <circle cx="720" cy="610" r="10" fill="#6EC6F0"/>
+    </g>
+    <!-- vaso, pasta y jabón -->
+    <g id="vaso-pasta">
+      <path d="M300 600h56l-6 70h-44z" fill="#FFC857"/>
+      <path d="M306 610h44" stroke="#FFFFFF" stroke-width="5" stroke-linecap="round" opacity="0.6"/>
+      <rect x="318" y="560" width="12" height="60" rx="6" fill="#FF6B9A" transform="rotate(-12 324 620)"/>
+      <g transform="rotate(-8 390 650)">
+        <path d="M372 640h76q10 0 10 10v6q0 10-10 10h-76l-14-13z" fill="#FFFFFF"/>
+        <path d="M372 640h28v26h-28z" fill="#3FA9F5"/>
+        <rect x="448" y="645" width="16" height="16" rx="4" fill="#3FA9F5"/>
+        <path d="M410 648h30" stroke="#3FA9F5" stroke-width="4" stroke-linecap="round"/>
+      </g>
+    </g>
+    <g id="jabon">
+      <rect x="872" y="604" width="52" height="66" rx="16" fill="#B89CFF"/>
+      <rect x="890" y="586" width="16" height="22" rx="4" fill="#FFFFFF"/>
+      <path d="M906 590h18v8h-18z" fill="#FFFFFF"/>
+      <circle cx="890" cy="630" r="6" fill="#FFFFFF" opacity="0.6"/>
+    </g>
+  </g>
+
+  <!-- taburete -->
+  <g id="taburete">
+    <rect x="930" y="896" width="16" height="50" rx="5" fill="#4FB477"/>
+    <rect x="1074" y="896" width="16" height="50" rx="5" fill="#4FB477"/>
+    <rect x="912" y="874" width="196" height="30" rx="12" fill="#6CD08F"/>
+    <rect x="912" y="896" width="196" height="8" rx="4" fill="#4FB477"/>
+  </g>
+
+  <!-- ============================ NIÑO ============================ -->
+  <g id="nino" data-rol="personaje-principal">
+    <ellipse cx="1010" cy="880" rx="110" ry="10" fill="#3A7D55" opacity="0.35"/>
+
+    <!-- piernas: separadas al ancho de los hombros, pies bien apoyados -->
+    <g id="nino-pierna-lejana">
+      <path d="M952 704h54l-6 150h-40z" fill="#2F6FB3"/>
+      <rect x="958" y="838" width="44" height="18" rx="7" fill="#2A63A0"/>
+      <path d="M1002 852q2 26-14 28h-58q-14 0-12-12q2-14 22-18h52z" fill="#FF7A59"/>
+      <path d="M922 870h78" stroke="#E0603F" stroke-width="5" stroke-linecap="round"/>
+    </g>
+    <g id="nino-pierna-cercana">
+      <path d="M1014 704h60l2 150h-48z" fill="#3479BF"/>
+      <rect x="1026" y="838" width="52" height="18" rx="7" fill="#2E6CAC"/>
+      <path d="M1080 852q4 26-12 28h-62q-16 0-14-12q2-14 24-18h58z" fill="#FF8A6A"/>
+      <path d="M996 870h82" stroke="#E0603F" stroke-width="5" stroke-linecap="round"/>
+      <circle cx="1018" cy="858" r="7" fill="#FFFFFF" opacity="0.8"/>
+    </g>
+
+    <!-- tren superior: ligera inclinación hacia el espejo desde la cadera -->
+    <g id="nino-superior" data-pivot="1012,712" transform="rotate(-3 1012 712)">
+      <g id="nino-brazo-lejano" data-pivot="958,550">
+        <path d="M958 548L938 630" stroke="#3F8FCC" stroke-width="30" stroke-linecap="round"/>
+        <path d="M938 630L942 690" stroke="#3F8FCC" stroke-width="27" stroke-linecap="round"/>
+        <path d="M942 690L944 700" stroke="#F6C9A4" stroke-width="22" stroke-linecap="round"/>
+        <ellipse cx="945" cy="712" rx="14" ry="17" fill="#F2BF98"/>
+      </g>
+
+      <g id="nino-torso">
+        <path d="M962 526Q1010 512 1060 528Q1084 540 1082 582L1078 700Q1078 728 1050 730H974Q946 728 946 700L944 586Q942 540 962 526Z" fill="url(#p-pijama)"/>
+        <path d="M946 700Q946 728 974 730H1050Q1078 728 1078 700" fill="none" stroke="#2F6FB3" stroke-width="10"/>
+        <path d="M985 522Q1003 540 1024 522" fill="none" stroke="#2F6FB3" stroke-width="8" stroke-linecap="round"/>
+      </g>
+
+      <rect id="nino-cuello" x="988" y="488" width="34" height="42" rx="12" fill="#EDB891"/>
+
+      <!-- cabeza inclinada hacia adelante, cara mirando al espejo -->
+      <g id="nino-cabeza" data-pivot="1004,508" transform="rotate(-5 1004 508)">
+        <path d="M1076 350C1060 332 1030 322 996 324C952 326 918 356 914 398L1080 410Z" fill="#6B3E26"/>
+        <path d="M1072 420C1074 362 1036 336 996 336C948 336 914 370 914 418C914 440 918 456 926 472C938 496 962 506 992 506C1038 506 1070 470 1072 420Z" fill="#F6C9A4"/>
+        <!-- oreja -->
+        <ellipse cx="1060" cy="432" rx="15" ry="21" fill="#F2BF98"/>
+        <path d="M1062 424q-8 6-2 16" stroke="#DDA07A" stroke-width="4" fill="none" stroke-linecap="round"/>
+        <!-- pelo -->
+        <path d="M916 412C908 352 950 322 1000 324C1052 326 1084 362 1076 424C1072 410 1066 398 1054 392C1046 404 1026 390 1016 378C1000 392 974 386 962 374C950 388 928 392 916 412Z" fill="#7A4A2E"/>
+        <path d="M990 332C982 310 1000 296 1018 302C1006 310 1004 320 1010 332Z" fill="#7A4A2E"/>
+        <path d="M960 346q20-14 44-10" stroke="#9C6645" stroke-width="5" fill="none" stroke-linecap="round"/>
+        <path d="M1054 392q16 10 20 34" stroke="#6B3E26" stroke-width="4" fill="none" stroke-linecap="round"/>
+        <!-- cejas -->
+        <path d="M934 398q10-7 20-2" stroke="#6B3E26" stroke-width="5" fill="none" stroke-linecap="round"/>
+        <path d="M978 396q14-8 28-1" stroke="#6B3E26" stroke-width="5" fill="none" stroke-linecap="round"/>
+        <!-- ojos (mirando al espejo) -->
+        <g id="nino-ojos" data-pivot="966,420">
+          <ellipse cx="944" cy="421" rx="9" ry="12" fill="#FFFFFF"/>
+          <ellipse cx="990" cy="420" rx="12" ry="14" fill="#FFFFFF"/>
+          <ellipse cx="941" cy="422" rx="6.5" ry="8.5" fill="#3A2A20"/>
+          <ellipse cx="985" cy="421" rx="8" ry="10" fill="#3A2A20"/>
+          <circle cx="939" cy="418" r="2.4" fill="#FFFFFF"/>
+          <circle cx="982" cy="416" r="3" fill="#FFFFFF"/>
+        </g>
+        <!-- nariz y mejillas -->
+        <path d="M924 436q-10 10 4 16" stroke="#DDA07A" stroke-width="4" fill="none" stroke-linecap="round"/>
+        <ellipse cx="1010" cy="456" rx="16" ry="9" fill="#FF9C9C" opacity="0.55"/>
+        <ellipse cx="936" cy="458" rx="8" ry="6" fill="#FF9C9C" opacity="0.45"/>
+        <!-- boca entreabierta con dientes visibles -->
+        <g id="nino-boca">
+          <path d="M926 468Q948 460 972 466Q976 488 952 494Q930 494 926 468Z" fill="#8B2E3A"/>
+          <path d="M932 488Q950 480 966 486Q958 494 950 494Q938 494 932 488Z" fill="#F07C8A"/>
+          <path d="M929 469Q948 462 970 467L969 476Q948 472 931 478Z" fill="#FFFFFF"/>
+          <path d="M940 471v5M951 469v5M961 469v5" stroke="#E4EEF4" stroke-width="1.6"/>
+          <path d="M926 468Q948 460 972 466" fill="none" stroke="#D98A7E" stroke-width="3" stroke-linecap="round"/>
+        </g>
+      </g>
+
+      <!-- brazo que cepilla: codo cerca del cuerpo, antebrazo hacia la boca -->
+      <g id="nino-brazo-cercano" data-pivot="1050,552">
+        <path d="M1050 552L1044 638" stroke="#4FA3E0" stroke-width="34" stroke-linecap="round"/>
+        <g id="nino-antebrazo" data-pivot="1044,638">
+          <path d="M1044 638L1026 572" stroke="#4FA3E0" stroke-width="30" stroke-linecap="round"/>
+          <path d="M1030 586L1026 572" stroke="#2F6FB3" stroke-width="31" stroke-linecap="butt"/>
+          <path d="M1025 568L1018 546" stroke="#F6C9A4" stroke-width="20" stroke-linecap="round"/>
+
+          <!-- mano + cepillo: pivote en el puño, se desplaza en el ciclo de cepillado -->
+          <g id="nino-mano-cepillo" data-pivot="1015,536">
+            <!-- cepillo: mango desde el puño hasta la boca, cerdas contra los dientes -->
+            <g id="cepillo" data-angulo-encia="45" transform="translate(1015 536) rotate(40)">
+              <rect x="-80" y="-6.5" width="112" height="13" rx="6.5" fill="#2EC4B6"/>
+              <rect x="-40" y="-6.5" width="30" height="13" rx="4" fill="#FFFFFF" opacity="0.8"/>
+              <rect x="-10" y="-6.5" width="30" height="13" rx="4" fill="#1FA396"/>
+              <path d="M-80-4.5L-96-3.5V3.5L-80 4.5Z" fill="#2EC4B6"/>
+              <rect x="-122" y="-5" width="30" height="10" rx="4" fill="#2EC4B6"/>
+              <!-- cerdas: inclinadas 45° hacia la línea de las encías -->
+              <g id="cepillo-cerdas" transform="translate(-107 -5) skewX(20)">
+                <rect x="-14" y="-12" width="5" height="12" rx="1.5" fill="#FFFFFF"/>
+                <rect x="-7" y="-13" width="5" height="13" rx="1.5" fill="#BFF3EE"/>
+                <rect x="0" y="-13" width="5" height="13" rx="1.5" fill="#FFFFFF"/>
+                <rect x="7" y="-13" width="5" height="13" rx="1.5" fill="#BFF3EE"/>
+                <rect x="14" y="-12" width="5" height="12" rx="1.5" fill="#FFFFFF"/>
+              </g>
+            </g>
+            <g id="nino-mano">
+              <ellipse cx="1016" cy="538" rx="18" ry="16" fill="#F6C9A4"/>
+              <path d="M1002 532q14 2 28 0M1003 540q13 2 26 0M1006 548q10 2 20 0" stroke="#DDA07A" stroke-width="2.6" fill="none" stroke-linecap="round"/>
+              <path d="M1006 526q8-10 18-4q-6 6-14 8z" fill="#F6C9A4" stroke="#DDA07A" stroke-width="2"/>
+            </g>
+          </g>
+        </g>
+      </g>
+
+      <!-- espuma por encima del cepillo: sugiere que el cabezal está dentro de la boca -->
+      <g id="nino-espuma" fill="#FFFFFF" stroke="#D5EEF7" stroke-width="1.5">
+        <circle cx="922" cy="486" r="6"/>
+        <circle cx="930" cy="496" r="4.5"/>
+        <circle cx="972" cy="492" r="5"/>
+        <circle cx="966" cy="500" r="3.5"/>
+        <circle cx="914" cy="476" r="3"/>
+      </g>
+    </g>
+  </g>
+
+  <!-- ========================= SUPERDIENTE ========================= -->
+  <g id="superdiente" data-rol="mascota" data-pivot="1480,600" transform="translate(1480 600)">
+    <ellipse id="sd-sombra" cx="0" cy="300" rx="90" ry="16" fill="url(#g-sombra)"/>
+    <g id="sd-cuerpo">
+      <g id="sd-capa" data-pivot="0,-40">
+        <path d="M-58-46Q0-20 58-46Q110 40 128 150Q70 128 40 160Q10 128-24 150Q-40 60-58-46Z" fill="url(#g-capa)"/>
+        <path d="M40 160Q70 128 128 150" fill="none" stroke="#A8232F" stroke-width="4"/>
+      </g>
+      <!-- brazo levantado (saludo / puño de victoria) -->
+      <g id="sd-brazo-arriba" data-pivot="-62,-10">
+        <path d="M-62-10Q-96-30-104-82" stroke="#FFFFFF" stroke-width="22" stroke-linecap="round" fill="none"/>
+        <path d="M-62-10Q-96-30-104-82" stroke="#D6EAF8" stroke-width="22" stroke-linecap="round" fill="none" opacity="0.4"/>
+        <circle cx="-106" cy="-92" r="19" fill="#3A86FF"/>
+        <path d="M-118-98q12-6 24 0" stroke="#FFFFFF" stroke-width="3" fill="none" stroke-linecap="round" opacity="0.6"/>
+      </g>
+      <!-- brazo en la cintura -->
+      <g id="sd-brazo-cintura" data-pivot="62,0">
+        <path d="M62 0Q98 16 84 50" stroke="#FFFFFF" stroke-width="22" stroke-linecap="round" fill="none"/>
+        <circle cx="80" cy="56" r="16" fill="#3A86FF"/>
+      </g>
+      <!-- cuerpo-diente con raíces como piernas -->
+      <path d="M-74-64C-74-118-30-128 0-106C30-128 74-118 74-64C74-20 64 12 58 44C52 86 46 118 30 118C14 118 14 78 0 78C-14 78-14 118-30 118C-46 118-52 86-58 44C-64 12-74-20-74-64Z" fill="url(#g-diente)" stroke="#BFD9EA" stroke-width="4"/>
+      <path d="M-50-92Q-40-108-22-106" stroke="#FFFFFF" stroke-width="8" fill="none" stroke-linecap="round"/>
+      <!-- botas -->
+      <path d="M-46 108h34v18q0 8-8 8h-34q-6 0-4-8z" fill="#3A86FF"/>
+      <path d="M12 108h34l8 18q2 8-4 8h-34q-8 0-8-8z" fill="#3A86FF"/>
+      <!-- cinturón y emblema -->
+      <rect x="-64" y="24" width="128" height="14" rx="7" fill="#FFC23C"/>
+      <g id="sd-emblema">
+        <circle cx="0" cy="-2" r="24" fill="#FFC23C" stroke="#FFFFFF" stroke-width="4"/>
+        <use href="#estrella" xlink:href="#estrella" x="-14" y="-16" width="28" height="28" fill="#FFFFFF"/>
+      </g>
+      <!-- antifaz y ojos -->
+      <path d="M-62-62Q0-84 62-62Q60-36 32-34Q14-34 0-46Q-14-34-32-34Q-60-36-62-62Z" fill="#3A86FF"/>
+      <g id="sd-ojos" data-pivot="0,-54">
+        <ellipse cx="-26" cy="-54" rx="14" ry="15" fill="#FFFFFF"/>
+        <ellipse cx="26" cy="-54" rx="14" ry="15" fill="#FFFFFF"/>
+        <circle cx="-28" cy="-52" r="8" fill="#1E2A44"/>
+        <circle cx="24" cy="-52" r="8" fill="#1E2A44"/>
+        <circle cx="-31" cy="-56" r="3" fill="#FFFFFF"/>
+        <circle cx="21" cy="-56" r="3" fill="#FFFFFF"/>
+      </g>
+      <!-- sonrisa y mejillas -->
+      <path id="sd-boca" d="M-22-22Q0 2 22-22Q14-8 0-8Q-14-8-22-22Z" fill="#E24A5B" stroke="#B83244" stroke-width="3" stroke-linejoin="round"/>
+      <ellipse cx="-48" cy="-26" rx="10" ry="6" fill="#FF9CB0" opacity="0.7"/>
+      <ellipse cx="48" cy="-26" rx="10" ry="6" fill="#FF9CB0" opacity="0.7"/>
+    </g>
+    <g id="sd-destellos">
+      <use href="#destello" xlink:href="#destello" x="-150" y="-150" width="30" height="30"/>
+      <use href="#destello" xlink:href="#destello" x="100" y="-170" width="40" height="40"/>
+      <use href="#destello" xlink:href="#destello" x="130" y="-60" width="22" height="22"/>
+      <use href="#destello" xlink:href="#destello" x="-160" y="20" width="24" height="24"/>
+    </g>
+  </g>
+
+  <!-- ====================== INTERFAZ DEL JUEGO ====================== -->
+  <g id="ui" font-family="'Baloo 2','Fredoka','Nunito','Trebuchet MS','DejaVu Sans',sans-serif" font-weight="700">
+    <g id="ui-titulo">
+      <rect x="640" y="22" width="640" height="84" rx="42" fill="#FFFFFF" opacity="0.95"/>
+      <rect x="648" y="30" width="624" height="68" rx="34" fill="#3A86FF"/>
+      <text x="960" y="78" text-anchor="middle" font-size="42" fill="#FFFFFF" letter-spacing="1">Misión: Dientes Limpios</text>
+    </g>
+
+    <g id="ui-tiempo">
+      <rect x="36" y="30" width="214" height="72" rx="36" fill="#FFFFFF" stroke="#FFC23C" stroke-width="6"/>
+      <circle cx="80" cy="66" r="22" fill="#FFC23C"/>
+      <path d="M80 52V66L90 72" stroke="#FFFFFF" stroke-width="5" fill="none" stroke-linecap="round"/>
+      <text id="ui-tiempo-texto" x="170" y="80" text-anchor="middle" font-size="38" fill="#1E2A44">2:00</text>
+    </g>
+
+    <g id="ui-progreso">
+      <rect x="1500" y="30" width="384" height="72" rx="36" fill="#FFFFFF" stroke="#2EC4B6" stroke-width="6"/>
+      <text x="1532" y="60" font-size="20" fill="#1E2A44">Limpieza</text>
+      <rect x="1532" y="70" width="210" height="18" rx="9" fill="#DDF3F1"/>
+      <rect id="ui-progreso-barra" x="1532" y="70" width="84" height="18" rx="9" fill="#2EC4B6"/>
+      <g fill="#FFC23C">
+        <use href="#estrella" xlink:href="#estrella" x="1756" y="46" width="34" height="34"/>
+      </g>
+      <g fill="#E3E9EE">
+        <use href="#estrella" xlink:href="#estrella" x="1794" y="46" width="34" height="34"/>
+        <use href="#estrella" xlink:href="#estrella" x="1832" y="46" width="34" height="34"/>
+      </g>
+    </g>
+
+    <g id="ui-consejo">
+      <path d="M1580 300h290q24 0 24 24v92q0 24-24 24h-230l-50 34 10-34h-20q-24 0-24-24v-92q0-24 24-24z" fill="#FFFFFF" stroke="#3A86FF" stroke-width="5"/>
+      <text x="1725" y="350" text-anchor="middle" font-size="26" fill="#1E2A44">¡Cepillo a 45°</text>
+      <text x="1725" y="384" text-anchor="middle" font-size="26" fill="#1E2A44">hacia la encía,</text>
+      <text x="1725" y="418" text-anchor="middle" font-size="26" fill="#3A86FF">suave y en círculos!</text>
+    </g>
+  </g>
+</svg>
