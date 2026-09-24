@@ -369,6 +369,8 @@
     return '' +
       '<defs>' +
         '<clipPath id="clipCara' + u + '"><path d="' + cara + '"/></clipPath>' +
+        '<clipPath id="clipPelo' + u + '"><path d="M528 462C504 360 518 252 590 190C640 142 718 112 800 110C892 108 976 142 1026 200C1082 262 1092 372 1072 462C1062 408 1046 366 1020 334C1012 354 998 364 982 370C986 340 976 316 956 300C936 332 906 350 874 354C890 324 886 300 870 284C846 316 810 336 772 342C790 314 792 292 782 274C752 306 714 324 678 328C694 302 700 282 694 264C664 300 630 330 602 360C576 390 548 424 528 462Z"/></clipPath>' +
+        '<filter id="pincel' + u + '" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="14"/></filter>' +
         '<clipPath id="clipAbierta' + u + '"><path d="' + bocaAbierta + '"/></clipPath>' +
         '<clipPath id="clipDientes' + u + '"><path d="' + bocaDientes + '"/></clipPath>' +
         '<clipPath id="clipSonrisa' + u + '"><path d="' + bocaSonrisa + '"/></clipPath>' +
@@ -395,10 +397,23 @@
         // cabeza (pivote en el cuello)
         '<g id="cabeza">' +
           '<path d="' + cara + '" fill="url(#gCara' + u + ')" stroke="#B8683C" stroke-width="3.5"/>' +
+          // sombreado pintado: luz cálida arriba a la izquierda, sombra suave a la derecha y bajo el mentón
+          '<g clip-path="url(#clipCara' + u + ')" filter="url(#pincel' + u + ')">' +
+            '<ellipse cx="1030" cy="470" rx="80" ry="230" fill="' + C.pielSombra + '" opacity=".55"/>' +
+            '<ellipse cx="800" cy="700" rx="230" ry="60" fill="' + C.pielSombra + '" opacity=".5"/>' +
+            '<ellipse cx="720" cy="300" rx="150" ry="70" fill="#FFE3C8" opacity=".55"/>' +
+            '<ellipse cx="650" cy="470" rx="50" ry="30" fill="#FFF1E4" opacity=".45"/>' +
+          '</g>' +
           // pelo: volumen redondeado y mechones que caen hacia la frente (nada de puntas rectas hacia arriba)
           '<path d="M548 300Q508 330 512 396Q530 362 562 350ZM1052 300Q1092 330 1088 396Q1070 362 1038 350Z" fill="' + C.pelo + '"/>' +
           '<path d="M528 462C504 360 518 252 590 190C640 142 718 112 800 110C892 108 976 142 1026 200C1082 262 1092 372 1072 462C1062 408 1046 366 1020 334C1012 354 998 364 982 370C986 340 976 316 956 300C936 332 906 350 874 354C890 324 886 300 870 284C846 316 810 336 772 342C790 314 792 292 782 274C752 306 714 324 678 328C694 302 700 282 694 264C664 300 630 330 602 360C576 390 548 424 528 462Z" fill="' + C.pielSombra + '" opacity=".4" transform="translate(0 16)" clip-path="url(#clipCara' + u + ')"/>' +
           '<path d="M528 462C504 360 518 252 590 190C640 142 718 112 800 110C892 108 976 142 1026 200C1082 262 1092 372 1072 462C1062 408 1046 366 1020 334C1012 354 998 364 982 370C986 340 976 316 956 300C936 332 906 350 874 354C890 324 886 300 870 284C846 316 810 336 772 342C790 314 792 292 782 274C752 306 714 324 678 328C694 302 700 282 694 264C664 300 630 330 602 360C576 390 548 424 528 462Z" fill="url(#gPelo' + u + ')" stroke="#2A1206" stroke-width="3.5" stroke-linejoin="round"/>' +
+          '<g clip-path="url(#clipPelo' + u + ')" filter="url(#pincel' + u + ')">' +
+            '<ellipse cx="730" cy="190" rx="170" ry="70" fill="#8A4F2A" opacity=".75"/>' +
+            '<ellipse cx="930" cy="210" rx="90" ry="45" fill="#7A4424" opacity=".55"/>' +
+            '<ellipse cx="800" cy="372" rx="300" ry="26" fill="#1E0C04" opacity=".35"/>' +
+            '<ellipse cx="1060" cy="380" rx="50" ry="120" fill="#1E0C04" opacity=".45"/>' +
+          '</g>' +
           // mechones sueltos y ondulados en la coronilla
           '<path d="M606 194Q598 166 624 152Q624 172 642 180ZM748 116Q758 94 786 90Q774 104 780 118ZM880 112Q902 98 930 104Q910 110 906 124ZM994 172Q1024 170 1040 192Q1018 188 1004 198Z" fill="' + C.pelo + '"/>' +
           // separación entre mechones (sombras) y brillos que siguen la caída del pelo
