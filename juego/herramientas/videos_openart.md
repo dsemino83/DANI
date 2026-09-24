@@ -37,3 +37,10 @@ Costo estimado: 9 × 15 + 9 × 50 ≈ **585 créditos** en 540p (≈ 765 en 720p
 | 7 | bolsillos-otro-lado | Teeth closed; toothbrush against the outer side teeth next to the left cheek. | Small circles on the side teeth against the other cheek. |
 | 8 | dientes-abajo | Mouth open; toothbrush horizontal on the lower teeth. | Brushes side to side on the lower teeth, foam, blinks. |
 | 9 | enjuague | Holding a clear glass of water, cheeks puffed, eyes happily closed, no toothbrush. | Swishes water in the mouth, cheeks puff left and right, then smiles. |
+
+## Resultado (generado el 24/09/2026)
+
+Los 9 videos están en `recursos/videos/<id>.mp4|webm`. Se rehicieron las imágenes de los pasos 3, 5 y 7
+(salían con los brazos cruzados o copiaban el texto «PixVerse.ai» de la referencia): para los pasos
+«del otro lado» conviene pedir que sostenga el cepillo con UNA sola mano, la del lado correspondiente.
+Costo aproximado: 12 imágenes × 15 + 9 videos × 70 ≈ 810 créditos.

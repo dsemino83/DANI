@@ -746,12 +746,16 @@
   /* Videos por escena: si existe recursos/videos/<nombre>.mp4 se muestra en bucle
      debajo de la interfaz; si no existe, queda el dibujo animado de siempre. */
   var CARPETA_VIDEOS = 'recursos/videos/';
-  function ponerVideo(video, nombre, svg, selectorOcultar) {
+  // Videos que ya traen su propia interfaz dibujada: con ellos se oculta la del juego.
+  var VIDEOS_CON_INTERFAZ = { mision: true };
+
+  function ponerVideo(video, nombre, svg, selectorOcultar, alCambiar) {
     var piezas = Array.prototype.slice.call(svg.querySelectorAll(selectorOcultar));
     var escena = video.parentNode;
     function verDibujo(si) {
       piezas.forEach(function (el) { el.style.visibility = si ? '' : 'hidden'; });
-      escena.classList.toggle('con-video', !si);
+      if (alCambiar) alCambiar(!si);
+      escena.classList.toggle('con-video', !si && !!VIDEOS_CON_INTERFAZ[nombre]);
     }
     video.onloadeddata = function () {
       video.style.display = 'block';
@@ -779,7 +783,8 @@
   }
 
   function irAPaso(i) {
-    ponerVideo($('video-paso'), PASOS[i].id, $('svg-paso'), '.fondo, #nino');
+    ponerVideo($('video-paso'), PASOS[i].id, $('svg-paso'), '.fondo, #nino > :not(#guias):not(#destellos)',
+      function (enVideo) { dibujarGuias($('svg-paso'), PASOS[i], enVideo); });
     estado.paso = i; estado.tiempo = 0; estado.completado = false;
     var p = PASOS[i], svg = $('svg-paso');
     $('paso-contador').textContent = (i + 1) + '/' + PASOS.length;
@@ -857,8 +862,16 @@
     return trazoFlecha(d);
   }
 
-  function dibujarGuias(svg, p) {
+  function dibujarGuias(svg, p, enVideo) {
     var s = '';
+    if (enVideo) {
+      // Sobre los videos la boca queda más abajo que en el dibujo: guías bajo el mentón.
+      if (p.mov === 'lado') s = flechaCurva(672, 752, 780, 774, 22) + flechaCurva(820, 774, 928, 752, 22);
+      else if (p.mov === 'vertical') s = flechaCurva(1013, 617, 1013, 753, -18) + flechaCurva(586, 617, 586, 753, 18);
+      else if (p.mov === 'circulo') s = flechaCircular(p.cabezal[0] < 800 ? 700 : 900, 770, 46);
+      svg.querySelector('#guias').innerHTML = s;
+      return;
+    }
     if (p.mov === 'lado') {
       var y = p.abajo ? 716 : 700;
       s = flechaCurva(672, y - 14, 780, y + 8, 22) + flechaCurva(820, y + 8, 928, y - 14, 22);
