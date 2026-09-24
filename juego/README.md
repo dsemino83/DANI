@@ -32,7 +32,7 @@ El proyecto ya está creado en la cuenta de SVGator («Superdiente — Misión: 
 
 ## Fondos pintados (OpenArt)
 
-`recursos/fondo-bano.jpg` (baño, pasos y misión) y `recursos/fondo-noche.jpg` (inicio y final) se generaron con OpenArt (Seedream 4.5) tomando como referencia un cuadro del video de PixVerse. Las versiones actuales son las del plan Free y traen la marca de agua de OpenArt; para quitarla, descargá las mismas imágenes sin marca desde OpenArt (plan pago) y reemplazá estos dos archivos con el mismo nombre. Si falta alguno, el juego usa el fondo vectorial.
+`recursos/fondo-bano.jpg` (baño, pasos y misión) y `recursos/fondo-noche.jpg` (inicio y final) se generaron con OpenArt (Seedream 4.5) tomando como referencia un cuadro del video de PixVerse. Las versiones actuales son las del plan Free y traen la marca de agua de OpenArt; para quitarla, descargá las mismas imágenes sin marca desde OpenArt (plan pago), reemplazá estos dos archivos con el mismo nombre y corré `python3 herramientas/incrustar_fondos.py`. Los fondos van incrustados dentro de `index.html`, así se ven aunque el archivo se abra suelto (por ejemplo, en la vista previa de la app).
 
 ## Videos por escena (formato del video de referencia)
 
