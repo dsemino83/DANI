@@ -2,7 +2,7 @@
 
 Juego educativo infantil en una sola página (`index.html`, sin dependencias): primer plano frontal del niño en un baño azul desenfocado y 8 pasos guiados de cepillado.
 
-El estilo sigue el video de referencia: formato 4:3, piel cálida, pelo castaño oscuro, ojos grandes con pestañas marcadas, puño grande sobre el cepillo, flechas curvas bajo el mentón, parpadeo e interfaz de vidrio esmerilado. `capturas/demo-paso2.mp4` muestra 5 s del paso 2 en movimiento.
+El estilo sigue el video de referencia: formato 4:3, piel cálida, pelo castaño oscuro, ojos grandes con pestañas marcadas, puño grande sobre el cepillo, flechas curvas bajo el mentón, parpadeo e interfaz de vidrio esmerilado. `capturas/demo-paso2.mp4` muestra 5 s del paso 2 en movimiento y `capturas/demo-superdiente.mp4` la entrada de Superdiente, cómo habla y el festejo al agarrar el cepillo.
 
 ![Mosaico de pantallas](capturas/mosaico.png)
 
