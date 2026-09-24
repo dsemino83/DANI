@@ -8,6 +8,7 @@ El estilo sigue el video de referencia: formato 4:3, piel cálida, pelo castaño
 
 ## Flujo
 1. **Inicio**: título, «¡Vamos a cepillarnos paso a paso!» y botón **Comenzar**.
+1. **Tu misión**: Superdiente (muela con capa roja, aura dorada y haz de luz) saluda y pide «¡Agarrá tu cepillo de dientes para empezar!». Al tocar el cepillo (o la flecha), vuela hacia la mano del niño y empieza el paso 1.
 2. **8 pasos de 20 s** cada uno: dientes de arriba, de abajo, parte de adelante, parte de atrás (arriba y abajo), molares (arriba y abajo) y enjuague.
    - Reloj circular, píldora «n/8» con el nombre del paso, lista vertical de progreso y flechas ‹ ›.
    - Consigna con botón de altavoz: se lee en voz alta (voz del navegador, `es-AR`).

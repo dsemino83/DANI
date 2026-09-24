@@ -91,6 +91,10 @@
     display: flex; align-items: center; justify-content: center; }
   .ui-consejo .l1 { font-size: 31px; font-weight: 800; line-height: 1.1; color: var(--texto); }
   .ui-consejo .l2 { font-size: 27px; font-weight: 600; line-height: 1.15; color: #2F4C80; }
+  .pista { position: absolute; left: 780px; top: 640px; width: 200px; text-align: center; background: #FFD23F; color: #1753C9;
+    font-size: 36px; font-weight: 800; border-radius: 999px; padding: 4px 0; box-shadow: 0 6px 0 #D99A00, 0 10px 20px rgba(0,0,0,.25);
+    pointer-events: none; animation: latido 1s ease-in-out infinite; }
+  @keyframes latido { 50% { transform: scale(1.08); } }
   #bien { position: absolute; left: 50%; top: 230px; transform: translateX(-50%) scale(0); font-size: 110px;
     font-weight: 800; color: #FFD23F; -webkit-text-stroke: 12px #1753C9; paint-order: stroke fill;
     transition: transform .35s cubic-bezier(.3,1.6,.5,1); pointer-events: none; white-space: nowrap; }
@@ -109,6 +113,25 @@
       <button id="btn-comenzar" class="boton-amarillo">
         <svg width="60" height="60" viewBox="0 0 64 64"><circle cx="32" cy="32" r="30" fill="#1753C9"/><path d="M25 18L47 32L25 46Z" fill="#fff"/></svg>
         Comenzar
+      </button>
+    </section>
+
+    <!-- ============ MISIÓN: SUPERDIENTE PIDE EL CEPILLO ============ -->
+    <section id="p-mision" class="pantalla">
+      <svg id="svg-mision" viewBox="0 0 1200 900" width="1200" height="900"></svg>
+      <div class="ui-paso">
+        <svg class="icono" viewBox="0 0 76 76"><circle cx="38" cy="38" r="36" fill="#FFF3C4"/><path d="M38 12l7.6 15.4 17 2.5-12.3 12 2.9 16.9L38 50.8l-15.2 8 2.9-16.9-12.3-12 17-2.5z" fill="#FFC21A" stroke="#E0A100" stroke-width="3" stroke-linejoin="round"/></svg>
+        <span class="nombre">¡Tu misión!</span>
+      </div>
+      <div class="pista" id="pista-cepillo">¡Tocalo!</div>
+      <div class="ui-consejo">
+        <button id="btn-voz-mision" aria-label="Escuchar a Superdiente">
+          <svg width="48" height="48" viewBox="0 0 54 54"><path d="M8 20h9l12-10v34L17 34H8z" fill="#fff"/><path d="M36 18q6 9 0 18M42 12q11 15 0 30" stroke="#fff" stroke-width="5" stroke-linecap="round" fill="none"/></svg>
+        </button>
+        <div><div class="l1" id="mision-1">¡Hola! Soy Superdiente.</div><div class="l2" id="mision-2">¡Agarrá tu cepillo de dientes para empezar!</div></div>
+      </div>
+      <button class="flecha" id="btn-mision-seguir" aria-label="Agarrar el cepillo" style="right:30px">
+        <svg width="50" height="50" viewBox="0 0 54 54"><path d="M21 10L38 27L21 44" stroke="#fff" stroke-width="9" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>
       </button>
     </section>
 
@@ -216,18 +239,19 @@
   /* =====================================================================
      DIBUJO (SVG como texto)
      ===================================================================== */
-  function fondoBano() {
+  function fondoBano(u) {
+    u = u || '';
     return '' +
       '<defs>' +
-        '<filter id="desenfoque" x="-5%" y="-5%" width="110%" height="110%"><feGaussianBlur stdDeviation="7"/></filter>' +
-        '<linearGradient id="gPared" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#6FB3EE"/><stop offset="1" stop-color="#2F78D0"/></linearGradient>' +
-        '<radialGradient id="gLuz" cx="0.85" cy="0.3" r="0.55"><stop offset="0" stop-color="#FFFFFF" stop-opacity=".75"/><stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/></radialGradient>' +
-        '<radialGradient id="gVineta" cx=".5" cy=".45" r=".75"><stop offset=".6" stop-color="#0A2A70" stop-opacity="0"/><stop offset="1" stop-color="#0A2A70" stop-opacity=".35"/></radialGradient>' +
-        '<pattern id="pAzulejos" width="84" height="84" patternUnits="userSpaceOnUse"><path d="M0 1H84M1 0V84" stroke="#A9D2F7" stroke-opacity=".55" stroke-width="3"/></pattern>' +
+        '<filter id="desenfoque' + u + '" x="-5%" y="-5%" width="110%" height="110%"><feGaussianBlur stdDeviation="7"/></filter>' +
+        '<linearGradient id="gPared' + u + '" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#6FB3EE"/><stop offset="1" stop-color="#2F78D0"/></linearGradient>' +
+        '<radialGradient id="gLuz' + u + '" cx="0.85" cy="0.3" r="0.55"><stop offset="0" stop-color="#FFFFFF" stop-opacity=".75"/><stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/></radialGradient>' +
+        '<radialGradient id="gVineta' + u + '" cx=".5" cy=".45" r=".75"><stop offset=".6" stop-color="#0A2A70" stop-opacity="0"/><stop offset="1" stop-color="#0A2A70" stop-opacity=".35"/></radialGradient>' +
+        '<pattern id="pAzulejos' + u + '" width="84" height="84" patternUnits="userSpaceOnUse"><path d="M0 1H84M1 0V84" stroke="#A9D2F7" stroke-opacity=".55" stroke-width="3"/></pattern>' +
       '</defs>' +
-      '<g filter="url(#desenfoque)">' +
-        '<rect width="1200" height="900" fill="url(#gPared)"/>' +
-        '<rect width="1200" height="900" fill="url(#pAzulejos)"/>' +
+      '<g filter="url(#desenfoque' + u + ')">' +
+        '<rect width="1200" height="900" fill="url(#gPared' + u + ')"/>' +
+        '<rect width="1200" height="900" fill="url(#pAzulejos' + u + ')"/>' +
         // ventana luminosa con planta afuera
         '<rect x="930" y="40" width="300" height="520" rx="16" fill="#EAF6FF"/>' +
         '<rect x="950" y="60" width="260" height="480" rx="8" fill="#DDF1FF"/>' +
@@ -246,8 +270,8 @@
         // lavabo en primer plano (abajo)
         '<path d="M-20 860Q600 800 1220 860V900H-20Z" fill="#EAF2FA"/>' +
       '</g>' +
-      '<rect width="1200" height="900" fill="url(#gLuz)"/>' +
-      '<rect width="1200" height="900" fill="url(#gVineta)"/>';
+      '<rect width="1200" height="900" fill="url(#gLuz' + u + ')"/>' +
+      '<rect width="1200" height="900" fill="url(#gVineta' + u + ')"/>';
   }
 
   // Puño que agarra un mango horizontal (coordenadas locales del cepillo).
@@ -348,24 +372,31 @@
         '<linearGradient id="gRemera' + u + '" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="' + C.remeraLuz + '"/><stop offset="1" stop-color="' + C.remeraOsc + '"/></linearGradient>' +
       '</defs>' +
       '<g id="nino">' +
-        // remera azul con dinosaurio
-        '<path d="M290 1010C300 770 470 712 630 700H970C1130 712 1300 770 1310 1010Z" fill="url(#gRemera' + u + ')"/>' +
-        '<rect x="728" y="620" width="144" height="104" rx="34" fill="' + C.pielSombra + '"/>' +
-        '<path d="M700 700Q800 776 900 700" fill="none" stroke="' + C.remeraOsc + '" stroke-width="22" stroke-linecap="round"/>' +
-        '<g transform="translate(1000 830)"><path d="M-60 40q0-50 50-54q20-40 60-26q24 10 10 30q-14 8-26 4q-2 26-10 46z" fill="#4DB86B"/>' +
-          '<circle cx="42" cy="-40" r="5" fill="#1E3A2A"/><path d="M-30-14l8-16 8 14M-10-16l8-16 8 14" fill="#3A9C55"/></g>' +
+        // remera azul: hombros caídos, cuello acanalado, costuras y pliegues suaves
+        '<rect x="736" y="620" width="128" height="110" rx="18" fill="' + C.pielSombra + '"/>' +
+        '<path d="M292 1010L318 842C326 790 360 760 420 748L640 700Q800 752 960 700L1180 748C1240 760 1274 790 1282 842L1308 1010Z" fill="url(#gRemera' + u + ')"/>' +
+        '<path d="M440 752Q468 860 452 1010M1160 752Q1132 860 1148 1010" stroke="' + C.remeraOsc + '" stroke-width="5" fill="none" opacity=".7"/>' +
+        '<path d="M600 830Q640 880 628 960M990 810Q956 870 972 950M760 900Q800 930 850 918" stroke="' + C.remeraOsc + '" stroke-width="8" fill="none" stroke-linecap="round" opacity=".45"/>' +
+        '<path d="M520 790Q560 800 590 850M1080 780Q1050 800 1030 840" stroke="' + C.remeraLuz + '" stroke-width="10" fill="none" stroke-linecap="round" opacity=".6"/>' +
+        '<path d="M640 700Q800 752 960 700" fill="none" stroke="' + C.remeraOsc + '" stroke-width="26" stroke-linejoin="round"/>' +
+        '<path d="M650 708Q800 758 950 708" fill="none" stroke="' + C.remeraLuz + '" stroke-width="5" opacity=".6"/>' +
+        '<path d="M740 716Q800 740 860 716" fill="none" stroke="#0E2A66" stroke-width="8" opacity=".35"/>' +
+        '<g transform="translate(1000 860) rotate(-4)" opacity=".92"><path d="M-66 30C-60 0-30-12-4-14C8-40 40-50 62-36C74-26 70-12 58-8C46-4 38-8 30-8C28 12 22 26 14 34Z" fill="#4DB86B"/>' +
+          '<circle cx="48" cy="-30" r="4.5" fill="#1E3A2A"/><path d="M-34-8l7-14 8 12M-14-12l7-14 8 12" fill="#3A9C55"/></g>' +
         // cabeza (pivote en el cuello)
         '<g id="cabeza">' +
           '<ellipse cx="548" cy="448" rx="42" ry="56" fill="' + C.piel + '"/><path d="M556 428q-16 18 0 38" stroke="' + C.pielLinea + '" stroke-width="6" fill="none" stroke-linecap="round"/>' +
           '<ellipse cx="1052" cy="448" rx="42" ry="56" fill="' + C.piel + '"/><path d="M1044 428q16 18 0 38" stroke="' + C.pielLinea + '" stroke-width="6" fill="none" stroke-linecap="round"/>' +
           '<path d="' + cara + '" fill="url(#gCara' + u + ')"/>' +
-          // pelo despeinado: mechones irregulares en el flequillo, remolinos arriba y a los costados
-          '<path d="M548 300Q484 290 470 240Q512 268 566 252ZM1052 300Q1116 290 1130 240Q1088 268 1034 252ZM540 380Q496 380 474 340Q512 356 548 346ZM1060 380Q1104 380 1126 340Q1088 356 1052 346Z" fill="' + C.pelo + '"/>' +
-          '<path d="M532 450C500 320 540 190 640 136C662 92 740 70 800 88C850 56 930 70 962 108C1050 128 1092 230 1072 350C1066 390 1062 420 1060 452C1050 400 1036 360 1010 334Q1000 360 986 374Q982 336 958 318Q940 350 914 360Q920 322 898 300Q872 340 842 350Q850 312 830 290Q800 330 770 344Q776 306 758 288Q730 324 702 334Q712 300 700 284Q672 318 648 338Q650 312 640 300Q600 340 580 380Q560 410 532 450Z" fill="' + C.pielSombra + '" opacity=".4" transform="translate(0 16)" clip-path="url(#clipCara' + u + ')"/>' +
-          '<path d="M532 450C500 320 540 190 640 136C662 92 740 70 800 88C850 56 930 70 962 108C1050 128 1092 230 1072 350C1066 390 1062 420 1060 452C1050 400 1036 360 1010 334Q1000 360 986 374Q982 336 958 318Q940 350 914 360Q920 322 898 300Q872 340 842 350Q850 312 830 290Q800 330 770 344Q776 306 758 288Q730 324 702 334Q712 300 700 284Q672 318 648 338Q650 312 640 300Q600 340 580 380Q560 410 532 450Z" fill="url(#gPelo' + u + ')"/>' +
-          '<path d="M620 160Q552 124 560 52Q608 118 668 122ZM700 112Q674 46 716 2Q730 68 764 94ZM810 86Q836 16 904 -4Q868 50 872 92ZM930 104Q992 58 1048 66Q994 90 978 130ZM1010 164Q1084 150 1116 106Q1096 172 1046 204ZM580 240Q520 220 506 170Q548 208 598 206Z" fill="' + C.pelo + '"/>' +
-          '<path d="M690 150q60-40 150-34M880 130q70 12 110 70M620 230q20-50 60-80M1020 260q20 40 20 90M740 250q30-40 90-44M900 214q40 10 60 50" stroke="' + C.peloLuz + '" stroke-width="11" fill="none" stroke-linecap="round" opacity=".9"/>' +
-          '<path d="M760 190q40-20 80-10M660 290q30-40 70-50M860 260q30 10 44 40M960 240q30 30 36 70M600 330q10-30 30-50" stroke="' + C.peloOsc + '" stroke-width="7" fill="none" stroke-linecap="round" opacity=".7"/>' +
+          // pelo: volumen redondeado y mechones que caen hacia la frente (nada de puntas rectas hacia arriba)
+          '<path d="M548 300Q508 330 512 396Q530 362 562 350ZM1052 300Q1092 330 1088 396Q1070 362 1038 350Z" fill="' + C.pelo + '"/>' +
+          '<path d="M528 462C504 360 518 252 590 190C640 142 718 112 800 110C892 108 976 142 1026 200C1082 262 1092 372 1072 462C1062 408 1046 366 1020 334C1012 354 998 364 982 370C986 340 976 316 956 300C936 332 906 350 874 354C890 324 886 300 870 284C846 316 810 336 772 342C790 314 792 292 782 274C752 306 714 324 678 328C694 302 700 282 694 264C664 300 630 330 602 360C576 390 548 424 528 462Z" fill="' + C.pielSombra + '" opacity=".4" transform="translate(0 16)" clip-path="url(#clipCara' + u + ')"/>' +
+          '<path d="M528 462C504 360 518 252 590 190C640 142 718 112 800 110C892 108 976 142 1026 200C1082 262 1092 372 1072 462C1062 408 1046 366 1020 334C1012 354 998 364 982 370C986 340 976 316 956 300C936 332 906 350 874 354C890 324 886 300 870 284C846 316 810 336 772 342C790 314 792 292 782 274C752 306 714 324 678 328C694 302 700 282 694 264C664 300 630 330 602 360C576 390 548 424 528 462Z" fill="url(#gPelo' + u + ')"/>' +
+          // mechones sueltos y ondulados en la coronilla
+          '<path d="M606 194Q598 166 624 152Q624 172 642 180ZM748 116Q758 94 786 90Q774 104 780 118ZM880 112Q902 98 930 104Q910 110 906 124ZM994 172Q1024 170 1040 192Q1018 188 1004 198Z" fill="' + C.pelo + '"/>' +
+          // separación entre mechones (sombras) y brillos que siguen la caída del pelo
+          '<path d="M782 274Q796 220 830 170M870 284Q900 240 930 214M694 264Q712 214 748 180M956 300Q990 262 1004 226M620 300Q640 250 676 214" stroke="' + C.peloOsc + '" stroke-width="6" fill="none" stroke-linecap="round" opacity=".35"/>' +
+          '<path d="M700 160Q760 132 830 134M860 136Q930 146 980 190M640 214Q664 186 700 172M820 190Q846 226 846 266M730 210Q744 236 740 272M920 206Q946 234 952 268" stroke="' + C.peloLuz + '" stroke-width="10" fill="none" stroke-linecap="round" opacity=".85"/>' +
           // cejas gruesas
           '<path d="M626 322Q690 276 760 304Q758 318 746 318Q690 302 636 336Z" fill="' + C.peloOsc + '"/>' +
           '<path d="M974 322Q910 276 840 304Q842 318 854 318Q910 302 964 336Z" fill="' + C.peloOsc + '"/>' +
@@ -423,8 +454,9 @@
         // brazo (se recalcula en cada fotograma para seguir a la mano)
         '<path id="brazo" d="" stroke="' + C.piel + '" stroke-width="118" stroke-linecap="round" fill="none"/>' +
         '<path id="brazo-luz" d="" stroke="' + C.pielClara + '" stroke-width="40" stroke-linecap="round" fill="none" opacity=".45"/>' +
-        '<path d="M240 1010C250 850 330 800 420 800C500 804 530 870 530 1010Z" fill="url(#gRemera' + u + ')"/>' +
-        '<path d="M282 912Q390 876 506 906" stroke="' + C.remeraOsc + '" stroke-width="12" fill="none" stroke-linecap="round"/>' +
+        '<path d="M236 1010L268 842Q290 800 350 794L470 796Q520 802 532 852L542 1010Z" fill="url(#gRemera' + u + ')"/>' +
+        '<path d="M262 874Q400 860 538 880" stroke="' + C.remeraOsc + '" stroke-width="12" fill="none" stroke-linecap="round"/>' +
+        '<path d="M300 820Q330 810 360 812" stroke="' + C.remeraLuz + '" stroke-width="8" fill="none" stroke-linecap="round" opacity=".7"/>' +
         // flechas guía del movimiento
         '<g id="guias"></g>' +
         // cepillo + mano
@@ -444,15 +476,108 @@
       '</g>';
   }
 
-  function dienteMascota(x, y, s) {
-    return '<g transform="translate(' + x + ' ' + y + ') scale(' + s + ')">' +
-      '<path d="M-74-64C-74-118-30-128 0-106C30-128 74-118 74-64C74-20 64 12 58 44C52 86 46 118 30 118C14 118 14 78 0 78C-14 78-14 118-30 118C-46 118-52 86-58 44C-64 12-74-20-74-64Z" fill="#FFFFFF" stroke="#CFE3F5" stroke-width="5"/>' +
-      '<ellipse cx="-26" cy="-40" rx="11" ry="14" fill="#1E2A44"/><ellipse cx="26" cy="-40" rx="11" ry="14" fill="#1E2A44"/>' +
-      '<circle cx="-30" cy="-45" r="4" fill="#fff"/><circle cx="22" cy="-45" r="4" fill="#fff"/>' +
-      '<path d="M-22-10Q0 14 22-10" stroke="#E24A5B" stroke-width="7" fill="none" stroke-linecap="round"/>' +
-      '<ellipse cx="-48" cy="-14" rx="11" ry="7" fill="#FF9CB0"/><ellipse cx="48" cy="-14" rx="11" ry="7" fill="#FF9CB0"/>' +
-      '<path d="M-74-40q-40-10-50-50M74-40q40-10 50-50" stroke="#FFFFFF" stroke-width="18" stroke-linecap="round" fill="none"/>' +
+  /* Superdiente: muela blanca con contorno azul y borde blanco tipo sticker, capa roja
+     con puntas amarillas, aura dorada y haz de luz debajo (vuela).
+     objeto: 'varita' (antorcha mágica), 'senala' (señala algo a su derecha). */
+  function superDiente(id, x, y, s, objeto) {
+    var cuerpo = 'M-110-70C-110-150-50-165 0-135C50-165 110-150 110-70C110-20 98 20 90 60C80 120 72 160 45 160C18 160 20 100 0 100C-20 100-18 160-45 160C-72 160-80 120-90 60C-98 20-110-20-110-70Z';
+    var AZ = '#1F5FC0';
+    function brazo(d) {
+      return '<path d="' + d + '" stroke="' + AZ + '" stroke-width="32" fill="none" stroke-linecap="round"/>' +
+             '<path d="' + d + '" stroke="#FFFFFF" stroke-width="20" fill="none" stroke-linecap="round"/>';
+    }
+    function puno(cx, cy) {
+      return '<circle cx="' + cx + '" cy="' + cy + '" r="23" fill="#FFFFFF" stroke="' + AZ + '" stroke-width="6"/>' +
+             '<path d="M' + (cx - 10) + ' ' + (cy - 4) + 'q10 6 20 0" stroke="#BCD6F2" stroke-width="4" fill="none" stroke-linecap="round"/>';
+    }
+    var derecho;
+    if (objeto === 'senala') {
+      derecho = brazo('M96 0Q160 6 212-18') +
+        '<rect x="214" y="-34" width="44" height="18" rx="9" fill="#FFFFFF" stroke="' + AZ + '" stroke-width="5"/>' +
+        puno(212, -18);
+    } else {
+      derecho = '<g class="sd-varita">' +
+        '<path d="M160-80L184-196" stroke="' + AZ + '" stroke-width="16" stroke-linecap="round"/>' +
+        '<path d="M160-80L184-196" stroke="#6FB6FF" stroke-width="8" stroke-linecap="round"/>' +
+        '<circle class="sd-llama" cx="186" cy="-206" r="30" fill="url(#gLlama' + id + ')"/>' +
+        '<circle cx="186" cy="-206" r="17" fill="#FFB02E" stroke="#F07C1A" stroke-width="4"/>' +
+        '<circle cx="180" cy="-212" r="6" fill="#FFF1B8"/></g>' +
+        brazo('M96 0Q150-12 160-70') + puno(160, -80);
+    }
+    return '<g id="' + id + '" class="superdiente" data-x="' + x + '" data-y="' + y + '" data-s="' + s + '" transform="translate(' + x + ' ' + y + ') scale(' + s + ')">' +
+      '<defs>' +
+        '<radialGradient id="gAura' + id + '"><stop offset="0" stop-color="#FFF7C8" stop-opacity=".95"/><stop offset=".45" stop-color="#FFE27A" stop-opacity=".55"/><stop offset="1" stop-color="#FFD23F" stop-opacity="0"/></radialGradient>' +
+        '<linearGradient id="gHaz' + id + '" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FFF3B0" stop-opacity=".95"/><stop offset="1" stop-color="#FFD23F" stop-opacity="0"/></linearGradient>' +
+        '<radialGradient id="gCuerpo' + id + '" cx=".38" cy=".3" r=".8"><stop offset=".55" stop-color="#FFFFFF"/><stop offset="1" stop-color="#CFE6FF"/></radialGradient>' +
+        '<radialGradient id="gLlama' + id + '"><stop offset="0" stop-color="#FFF6C0"/><stop offset=".5" stop-color="#FFC94A" stop-opacity=".8"/><stop offset="1" stop-color="#FFB02E" stop-opacity="0"/></radialGradient>' +
+      '</defs>' +
+      '<circle class="sd-aura" r="260" fill="url(#gAura' + id + ')"/>' +
+      '<path class="sd-haz" d="M-56 130L56 130L22 380L-22 380Z" fill="url(#gHaz' + id + ')"/>' +
+      '<path class="sd-lineas" d="M-104-204Q0-236 104-204M-60-238Q0-254 60-238M-150-120Q-162-150-150-176M150-120Q162-150 150-176" stroke="#FFFFFF" stroke-width="6" fill="none" stroke-linecap="round" opacity=".85"/>' +
+      '<g class="sd-capa">' +
+        '<path d="M-90-40Q-150 50-142 176L-124 154L-112 182Q-98 94-86 10Z" fill="#E53935" stroke="#A61C1C" stroke-width="4" stroke-linejoin="round"/>' +
+        '<path d="M90-40Q150 50 142 176L124 154L112 182Q98 94 86 10Z" fill="#E53935" stroke="#A61C1C" stroke-width="4" stroke-linejoin="round"/>' +
+        '<path d="M-142 176L-124 154L-136 200ZM-124 154L-112 182L-116 204ZM142 176L124 154L136 200ZM124 154L112 182L116 204Z" fill="#FFC53D"/>' +
+      '</g>' +
+      '<g class="sd-brazo-izq">' + brazo('M-96 0Q-150-12-160-70') + puno(-162, -84) + '</g>' +
+      '<path d="' + cuerpo + '" fill="none" stroke="#FFFFFF" stroke-width="30" stroke-linejoin="round"/>' +
+      '<path d="' + cuerpo + '" fill="url(#gCuerpo' + id + ')" stroke="' + AZ + '" stroke-width="9" stroke-linejoin="round"/>' +
+      '<path d="M74-128Q104-96 98-38M-82-104Q-62-134-30-130" stroke="#FFFFFF" stroke-width="12" fill="none" stroke-linecap="round" opacity=".9"/>' +
+      '<path d="M84-120Q104-86 96-30" stroke="#BCD9F7" stroke-width="10" fill="none" stroke-linecap="round" opacity=".8"/>' +
+      '<g class="sd-ojos">' +
+        '<ellipse cx="-38" cy="-40" rx="14" ry="19" fill="#1B2F5E"/><ellipse cx="38" cy="-40" rx="14" ry="19" fill="#1B2F5E"/>' +
+        '<circle cx="-33" cy="-48" r="5.5" fill="#FFFFFF"/><circle cx="43" cy="-48" r="5.5" fill="#FFFFFF"/>' +
+      '</g>' +
+      '<g class="sd-ojos-cerrados" style="display:none">' +
+        '<path d="M-54-38Q-38-56-22-38M22-38Q38-56 54-38" stroke="#1B2F5E" stroke-width="7" fill="none" stroke-linecap="round"/>' +
+      '</g>' +
+      '<ellipse cx="-66" cy="-8" rx="18" ry="10" fill="#FFB3C1" opacity=".85"/><ellipse cx="66" cy="-8" rx="18" ry="10" fill="#FFB3C1" opacity=".85"/>' +
+      '<path class="sd-boca" d="M-28-10Q0 34 28-10Z" fill="#8E2433" stroke="' + AZ + '" stroke-width="4" stroke-linejoin="round"/>' +
+      '<ellipse cx="0" cy="10" rx="12" ry="6" fill="#FF7A8A"/>' +
+      derecho +
       '</g>';
+  }
+
+  // Animación común de Superdiente: vuela (sube y baja), capa al viento, saluda y parpadea.
+  function posarDiente(g, t, fase) {
+    if (!g) return;
+    var x = +g.getAttribute('data-x'), y = +g.getAttribute('data-y'), s = +g.getAttribute('data-s');
+    t += fase || 0;
+    g.setAttribute('transform', 'translate(' + x + ' ' + (y + 12 * s * Math.sin(2 * Math.PI * t / 1.8)).toFixed(2) + ') scale(' + s + ')');
+    g.querySelector('.sd-aura').setAttribute('opacity', (0.75 + 0.25 * Math.sin(2 * Math.PI * t / 1.2)).toFixed(2));
+    g.querySelector('.sd-haz').setAttribute('transform', 'translate(0 130) scale(1 ' + (0.85 + 0.15 * Math.sin(2 * Math.PI * t * 3)).toFixed(3) + ') translate(0 -130)');
+    g.querySelector('.sd-capa').setAttribute('transform', 'translate(0 -40) skewX(' + (4 * Math.sin(2 * Math.PI * t / 0.9)).toFixed(2) + ') translate(0 40)');
+    g.querySelector('.sd-brazo-izq').setAttribute('transform', 'rotate(' + (10 * Math.sin(2 * Math.PI * t / 1.1)).toFixed(2) + ' -96 0)');
+    g.querySelector('.sd-lineas').setAttribute('opacity', (0.4 + 0.45 * Math.abs(Math.sin(2 * Math.PI * t / 1.8))).toFixed(2));
+    var llama = g.querySelector('.sd-llama');
+    if (llama) llama.setAttribute('r', (26 + 6 * Math.sin(2 * Math.PI * t * 2)).toFixed(1));
+    var cerrado = (t % 3.1) < 0.18 || g.getAttribute('data-feliz') === '1';
+    g.querySelector('.sd-ojos').style.display = cerrado ? 'none' : '';
+    g.querySelector('.sd-ojos-cerrados').style.display = cerrado ? '' : 'none';
+  }
+
+  // Cepillo de dientes con pasta, para la escena en que Superdiente pide agarrarlo.
+  function cepilloPremio() {
+    var cerdas = '';
+    for (var i = 0; i < 9; i++) cerdas += '<rect x="' + (66 + i * 9.4) + '" y="-46" width="8" height="32" rx="3.5" fill="' + (i % 2 ? '#BFE6FF' : '#FFFFFF') + '"/>';
+    return '<g id="cepillo-premio" style="cursor:pointer">' +
+      '<defs><radialGradient id="gAnillo"><stop offset=".55" stop-color="#FFFFFF" stop-opacity="0"/><stop offset=".8" stop-color="#FFFFFF" stop-opacity=".75"/><stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/></radialGradient>' +
+      '<linearGradient id="gCepPremio" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#4A8CFF"/><stop offset=".55" stop-color="#1E5FE0"/><stop offset="1" stop-color="#1342A8"/></linearGradient></defs>' +
+      '<circle class="cp-anillo" r="190" fill="url(#gAnillo)"/>' +
+      '<circle r="190" fill="transparent"/>' +
+      '<g class="cp-cepillo" transform="rotate(-32)">' +
+        '<rect x="-190" y="-19" width="250" height="38" rx="19" fill="url(#gCepPremio)"/>' +
+        '<rect x="-178" y="-12" width="226" height="9" rx="4.5" fill="#6FB6FF" opacity=".8"/>' +
+        '<path d="M58-12L70-15V15L58 12Z" fill="url(#gCepPremio)"/>' +
+        cerdas +
+        '<rect x="62" y="-16" width="94" height="30" rx="15" fill="url(#gCepPremio)"/>' +
+        '<path d="M64-46Q66-80 98-72Q114-92 138-72Q162-72 156-46Z" fill="#FFFFFF" stroke="#7FD3FF" stroke-width="4"/>' +
+        '<path d="M78-56Q100-66 118-58M104-74Q124-80 142-62" stroke="#3FB6F0" stroke-width="6" fill="none" stroke-linecap="round"/>' +
+      '</g>' +
+      '<g class="cp-destellos" fill="#FFFFFF">' +
+        '<path d="M-130-110l6 16 16 6-16 6-6 16-6-16-16-6 16-6z"/><path d="M140-40l5 13 13 5-13 5-5 13-5-13-13-5 13-5z"/><path d="M-60 130l4 10 10 4-10 4-4 10-4-10-10-4 10-4z"/>' +
+      '</g>' +
+    '</g>';
   }
 
   function estrellas(n, semilla) {
@@ -499,16 +624,20 @@
     '<g>' + estrellas(60, 7) + '</g>' +
     cohete(120, 110, .8, 40) + cohete(1130, 60, .5, 30) +
     '<g transform="' + ENCUADRE_INICIO + '">' + nino('inicio') + '</g>' +
-    dienteMascota(560, 760, .65);
-  $('svg-paso').innerHTML = fondoBano() + '<g transform="' + ENCUADRE_PASO + '">' + nino('paso') + '</g>';
+    superDiente('sd-inicio', 530, 170, .4, 'varita');
+  $('svg-paso').innerHTML = fondoBano('-paso') + '<g transform="' + ENCUADRE_PASO + '">' + nino('paso') + '</g>';
   $('svg-final').innerHTML =
     '<g>' + estrellas(70, 21) + '</g>' +
-    dienteMascota(600, 190, 1.05) +
+    superDiente('sd-final', 600, 170, .62, 'varita') +
     '<g fill="#FFD23F">' +
       '<path d="M360 180l10 22 24 3-18 16 5 24-21-12-21 12 5-24-18-16 24-3z"/>' +
       '<path d="M840 140l8 18 20 2-15 14 4 20-17-10-17 10 4-20-15-14 20-2z"/>' +
       '<path d="M910 260l6 13 14 2-10 10 3 14-13-7-13 7 3-14-10-10 14-2z"/>' +
     '</g>';
+
+  $('svg-mision').innerHTML = fondoBano('-mision') +
+    superDiente('sd-mision', 380, 400, 1.1, 'senala') +
+    '<g id="premio" transform="translate(880 450)">' + cepilloPremio() + '</g>';
 
   $('lista').innerHTML = PASOS.map(function (_, i) { return '<span>' + (i + 1) + '</span>'; }).join('');
 
@@ -524,7 +653,7 @@
 
   function mostrar(nombre) {
     estado.pantalla = nombre;
-    ['inicio', 'paso', 'final'].forEach(function (p) { $('p-' + p).classList.toggle('activa', p === nombre); });
+    ['inicio', 'mision', 'paso', 'final'].forEach(function (p) { $('p-' + p).classList.toggle('activa', p === nombre); });
   }
 
   function irAPaso(i) {
@@ -639,7 +768,8 @@
   function animar(t) {
     if (estado.pantalla === 'paso') posarPaso($('svg-paso'), PASOS[estado.paso], t, estado.tiempo);
     if (estado.pantalla === 'inicio') posarInicio(t);
-    if (estado.pantalla === 'final') posarTitilar($('svg-final'), t);
+    if (estado.pantalla === 'mision') posarMision(t);
+    if (estado.pantalla === 'final') { posarTitilar($('svg-final'), t); posarDiente($('svg-final').querySelector('#sd-final'), t, 0.7); }
   }
 
   // Ojos cerrados unos 0,15 s cada `periodo` segundos, como en el video.
@@ -686,12 +816,53 @@
     aplicarParpadeo(svg, parpadea(t, 3.2));
     svg.querySelector('#cabeza').setAttribute('transform', 'rotate(' + (2 * Math.sin(2 * Math.PI * t / 2.4)).toFixed(2) + ' 800 720)');
     posarTitilar(svg, t);
+    posarDiente(svg.querySelector('#sd-inicio'), t, 0.3);
   }
 
   function posarTitilar(svg, t) {
     Array.prototype.forEach.call(svg.querySelectorAll('.titila'), function (e, i) {
       e.style.opacity = (0.35 + 0.65 * Math.abs(Math.sin(t * 1.3 + i))).toFixed(2);
     });
+  }
+
+  /* ---------- Misión: agarrar el cepillo ---------- */
+  var agarre = null; // instante en que se tocó el cepillo
+  function empezarMision() {
+    agarre = null;
+    $('mision-1').textContent = '¡Hola! Soy Superdiente.';
+    $('mision-2').textContent = '¡Agarrá tu cepillo de dientes para empezar!';
+    $('pista-cepillo').style.display = '';
+    $('svg-mision').querySelector('#sd-mision').removeAttribute('data-feliz');
+    mostrar('mision');
+    hablar('¡Hola! Soy Superdiente. ¡Agarrá tu cepillo de dientes para empezar!');
+  }
+  function agarrarCepillo() {
+    if (agarre !== null) return;
+    agarre = tReloj();
+    $('pista-cepillo').style.display = 'none';
+    $('mision-1').textContent = '¡Muy bien, ya lo tenés!';
+    $('mision-2').textContent = '¡Vamos a cepillarnos paso a paso!';
+    $('svg-mision').querySelector('#sd-mision').setAttribute('data-feliz', '1');
+    hablar('¡Muy bien, ya lo tenés! ¡Vamos a cepillarnos!');
+    if (estado.auto) setTimeout(function () {
+      if (estado.pantalla === 'mision') { mostrar('paso'); irAPaso(0); }
+    }, 1800);
+  }
+  function posarMision(t) {
+    var svg = $('svg-mision');
+    posarDiente(svg.querySelector('#sd-mision'), t, 0);
+    var premio = svg.querySelector('#premio'), anillo = svg.querySelector('.cp-anillo');
+    if (agarre === null) {
+      // flota y late para invitar a tocarlo
+      premio.setAttribute('transform', 'translate(880 ' + (450 + 10 * Math.sin(2 * Math.PI * t / 1.5)).toFixed(2) + ') rotate(' + (4 * Math.sin(2 * Math.PI * t / 2)).toFixed(2) + ')');
+      anillo.setAttribute('transform', 'scale(' + (0.85 + 0.15 * Math.sin(2 * Math.PI * t / 1)).toFixed(3) + ')');
+      premio.style.opacity = 1;
+    } else {
+      // vuela hacia abajo, hacia la mano del niño, y se desvanece
+      var k = Math.min(1, (t - agarre) / 0.9), e = k * k * (3 - 2 * k);
+      premio.setAttribute('transform', 'translate(' + (880 - 260 * e).toFixed(1) + ' ' + (450 + 420 * e).toFixed(1) + ') rotate(' + (-40 * e).toFixed(1) + ') scale(' + (1 + 0.4 * e).toFixed(3) + ')');
+      premio.style.opacity = (1 - e).toFixed(2);
+    }
   }
 
   /* ---------- Reloj de 20 s por paso ---------- */
@@ -754,7 +925,10 @@
   }
 
   /* ---------- Controles ---------- */
-  $('btn-comenzar').onclick = function () { mostrar('paso'); irAPaso(0); };
+  $('btn-comenzar').onclick = empezarMision;
+  $('svg-mision').querySelector('#cepillo-premio').addEventListener('click', agarrarCepillo);
+  $('btn-mision-seguir').onclick = agarrarCepillo;
+  $('btn-voz-mision').onclick = function () { hablar($('mision-1').textContent + ' ' + $('mision-2').textContent); };
   $('btn-siguiente').onclick = siguiente;
   $('btn-anterior').onclick = function () { if (estado.paso > 0) irAPaso(estado.paso - 1); };
   $('btn-voz').onclick = function () { var p = PASOS[estado.paso]; hablar(p.l1 + ' ' + p.l2); };
@@ -769,6 +943,7 @@
   ajustar();
 
   var ultimo = null, t = 0, congelado = false;
+  function tReloj() { return t; }
   function bucle(ahora) {
     if (!congelado) {
       var dt = ultimo === null ? 0 : Math.min(0.1, (ahora - ultimo) / 1000);
@@ -793,6 +968,7 @@
       mostrar(pantalla);
       if (pantalla === 'paso') { irAPaso(paso); estado.tiempo = tPaso || 0; actualizarReloj(); }
       if (pantalla === 'final') $('racha-num').textContent = '5';
+      if (pantalla === 'mision') { agarre = null; $('pista-cepillo').style.display = ''; }
       animar(tAnim || 0);
     }
   };
