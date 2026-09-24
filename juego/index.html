@@ -239,7 +239,16 @@
   /* =====================================================================
      DIBUJO (SVG como texto)
      ===================================================================== */
-  function fondoBano(u) {
+  /* Fondos pintados (generados con OpenArt a partir del video de referencia).
+     Se dibujan encima del fondo vectorial, que queda como respaldo si falta el archivo. */
+  var FONDO_BANO = 'recursos/fondo-bano.jpg';
+  var FONDO_NOCHE = 'recursos/fondo-noche.jpg';
+  function fotoFondo(href, filtro) {
+    return '<image href="' + href + '" x="0" y="0" width="1200" height="900" preserveAspectRatio="xMidYMid slice"' +
+      (filtro ? ' filter="url(#' + filtro + ')"' : '') + '/>';
+  }
+
+  function fondoBano(u, desenfoque) {
     u = u || '';
     return '' +
       '<defs>' +
@@ -248,6 +257,7 @@
         '<radialGradient id="gLuz' + u + '" cx="0.85" cy="0.3" r="0.55"><stop offset="0" stop-color="#FFFFFF" stop-opacity=".75"/><stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/></radialGradient>' +
         '<radialGradient id="gVineta' + u + '" cx=".5" cy=".45" r=".75"><stop offset=".6" stop-color="#0A2A70" stop-opacity="0"/><stop offset="1" stop-color="#0A2A70" stop-opacity=".35"/></radialGradient>' +
         '<pattern id="pAzulejos' + u + '" width="84" height="84" patternUnits="userSpaceOnUse"><path d="M0 1H84M1 0V84" stroke="#A9D2F7" stroke-opacity=".55" stroke-width="3"/></pattern>' +
+        '<filter id="desenfoqueFoto' + u + '" x="-2%" y="-2%" width="104%" height="104%"><feGaussianBlur stdDeviation="' + (desenfoque || 0) + '"/></filter>' +
       '</defs>' +
       '<g filter="url(#desenfoque' + u + ')">' +
         '<rect width="1200" height="900" fill="url(#gPared' + u + ')"/>' +
@@ -270,7 +280,7 @@
         // lavabo en primer plano (abajo)
         '<path d="M-20 860Q600 800 1220 860V900H-20Z" fill="#EAF2FA"/>' +
       '</g>' +
-      '<rect width="1200" height="900" fill="url(#gLuz' + u + ')"/>' +
+      fotoFondo(FONDO_BANO, desenfoque ? 'desenfoqueFoto' + u : '') +
       '<rect width="1200" height="900" fill="url(#gVineta' + u + ')"/>';
   }
 
@@ -672,13 +682,14 @@
   var ENCUADRE_INICIO = 'translate(-340 90) scale(.9)';
 
   $('svg-inicio').innerHTML =
-    '<g>' + estrellas(60, 7) + '</g>' +
-    cohete(120, 110, .8, 40) + cohete(1130, 60, .5, 30) +
+    fotoFondo(FONDO_NOCHE) +
+    '<g>' + estrellas(18, 7) + '</g>' +
     '<g transform="' + ENCUADRE_INICIO + '">' + nino('inicio') + '</g>' +
     superDiente('sd-inicio', 530, 170, .4, 'varita');
-  $('svg-paso').innerHTML = fondoBano('-paso') + '<g transform="' + ENCUADRE_PASO + '">' + nino('paso') + '</g>';
+  $('svg-paso').innerHTML = fondoBano('-paso', 3) + '<g transform="' + ENCUADRE_PASO + '">' + nino('paso') + '</g>';
   $('svg-final').innerHTML =
-    '<g>' + estrellas(70, 21) + '</g>' +
+    fotoFondo(FONDO_NOCHE) +
+    '<g>' + estrellas(18, 21) + '</g>' +
     superDiente('sd-final', 600, 170, .62, 'varita') +
     '<g fill="#FFD23F">' +
       '<path d="M360 180l10 22 24 3-18 16 5 24-21-12-21 12 5-24-18-16 24-3z"/>' +
@@ -686,7 +697,7 @@
       '<path d="M910 260l6 13 14 2-10 10 3 14-13-7-13 7 3-14-10-10 14-2z"/>' +
     '</g>';
 
-  $('svg-mision').innerHTML = fondoBano('-mision') +
+  $('svg-mision').innerHTML = fondoBano('-mision', 0) +
     superDiente('sd-mision', 380, 400, 1.1, 'senala') +
     '<g id="premio" transform="translate(880 450)">' + cepilloPremio() + '</g>';
 

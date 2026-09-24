@@ -29,3 +29,7 @@ Capturas: `cd juego && NODE_PATH="$(npm root -g)" node herramientas/capturas.js`
 - **ambiente:** aura que respira, haz de luz que titila, líneas de velocidad, destellos escalonados y parpadeo.
 
 El proyecto ya está creado en la cuenta de SVGator («Superdiente — Misión: Dientes Limpios»). Para exportarlo como SVG animado hace falta el plan Starter de SVGator; el archivo exportado va en `recursos/superdiente-animado.svg`.
+
+## Fondos pintados (OpenArt)
+
+`recursos/fondo-bano.jpg` (baño, pasos y misión) y `recursos/fondo-noche.jpg` (inicio y final) se generaron con OpenArt (Seedream 4.5) tomando como referencia un cuadro del video de PixVerse. Las versiones actuales son las del plan Free y traen la marca de agua de OpenArt; para quitarla, descargá las mismas imágenes sin marca desde OpenArt (plan pago) y reemplazá estos dos archivos con el mismo nombre. Si falta alguno, el juego usa el fondo vectorial.
