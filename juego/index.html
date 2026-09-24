@@ -9,89 +9,89 @@
 <link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@600;700;800&display=swap" rel="stylesheet">
 <style>
   :root {
-    --azul: #1F6FE5;
-    --azul-osc: #0F2A66;
-    --azul-noche: #0B1D4D;
-    --celeste: #7FD0FF;
-    --verde: #2DB86A;
+    --azul: #1F63D8;
+    --azul-osc: #0E2F86;
+    --verde: #2E9E4A;
     --amarillo: #FFD23F;
-    --texto: #16305E;
-    --blanco: #FFFFFF;
+    --texto: #152B57;
+    --vidrio: rgba(255, 255, 255, .86);
   }
   * { box-sizing: border-box; }
-  html, body { margin: 0; height: 100%; overflow: hidden; background: #081636;
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #061233;
     font-family: 'Baloo 2', 'Trebuchet MS', 'DejaVu Sans', sans-serif; color: var(--texto); }
   #marco { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; }
-  /* Escenario fijo de 1600×900 que se escala para entrar en cualquier pantalla. */
-  #escenario { position: relative; width: 1600px; height: 900px; flex: none; overflow: hidden;
-    transform-origin: center center; border-radius: 28px; background: #BFE3FA; }
+  /* Escenario fijo 4:3 (1200×900) que se escala para entrar en cualquier pantalla. */
+  #escenario { position: relative; width: 1200px; height: 900px; flex: none; overflow: hidden;
+    transform-origin: center center; border-radius: 28px; background: #3F8FE0; }
   .pantalla { position: absolute; inset: 0; display: none; }
   .pantalla.activa { display: block; }
-  svg { display: block; }
+  .pantalla > svg { position: absolute; inset: 0; display: block; }
   button { font: inherit; border: 0; cursor: pointer; -webkit-tap-highlight-color: transparent; }
 
   /* ---------- Inicio y final ---------- */
-  .noche { background: radial-gradient(ellipse at 70% 30%, #1E4AA8 0%, #0F2A66 45%, #0B1D4D 100%); }
-  .titulo { position: absolute; left: 780px; top: 100px; width: 780px; text-align: center; line-height: .86; }
-  .titulo .t1 { font-size: 104px; font-weight: 800; color: #fff;
-    -webkit-text-stroke: 10px #1753C9; paint-order: stroke fill; }
-  .titulo .t2 { font-size: 170px; font-weight: 800; color: #FFD23F; display: block;
-    -webkit-text-stroke: 14px #1753C9; paint-order: stroke fill; text-shadow: 0 10px 0 #0B3A99; }
-  .titulo .t3 { font-size: 170px; font-weight: 800; color: #9BE3FF; display: block;
-    -webkit-text-stroke: 14px #1753C9; paint-order: stroke fill; text-shadow: 0 10px 0 #0B3A99; }
-  .lema { position: absolute; left: 780px; top: 560px; width: 780px; text-align: center;
-    color: #fff; font-size: 46px; font-weight: 700; line-height: 1.15; }
+  .noche { background: radial-gradient(ellipse at 72% 28%, #1F4FB5 0%, #10307A 45%, #081B4F 100%); }
+  .titulo { position: absolute; left: 600px; top: 70px; width: 580px; text-align: center; line-height: .84; }
+  .titulo span { display: block; font-weight: 800; paint-order: stroke fill; }
+  .titulo .t1 { font-size: 76px; color: #fff; -webkit-text-stroke: 9px #1753C9; }
+  .titulo .t2 { font-size: 118px; color: #FFD23F; -webkit-text-stroke: 12px #1753C9; text-shadow: 0 9px 0 #0B3A99; }
+  .titulo .t3 { font-size: 118px; color: #9BE3FF; -webkit-text-stroke: 12px #1753C9; text-shadow: 0 9px 0 #0B3A99; }
+  .lema { position: absolute; left: 600px; top: 520px; width: 580px; text-align: center;
+    color: #fff; font-size: 42px; font-weight: 700; line-height: 1.15; }
   .boton-amarillo { position: absolute; background: linear-gradient(#FFE36A, #FFC21A);
-    color: #1753C9; font-size: 54px; font-weight: 800; border-radius: 999px;
+    color: #1753C9; font-size: 50px; font-weight: 800; border-radius: 999px;
     box-shadow: 0 8px 0 #D99A00, 0 14px 30px rgba(0,0,0,.35);
-    display: flex; align-items: center; justify-content: center; gap: 22px; }
+    display: flex; align-items: center; justify-content: center; gap: 20px; }
   .boton-amarillo:active { transform: translateY(6px); box-shadow: 0 2px 0 #D99A00; }
-  #btn-comenzar { left: 920px; top: 730px; width: 500px; height: 116px; }
-  .fin-titulo { position: absolute; left: 0; right: 0; top: 330px; text-align: center; font-size: 130px;
+  #btn-comenzar { left: 680px; top: 680px; width: 420px; height: 108px; }
+  .fin-titulo { position: absolute; left: 0; right: 0; top: 330px; text-align: center; font-size: 120px;
     font-weight: 800; color: #FFD23F; -webkit-text-stroke: 12px #1753C9; paint-order: stroke fill; }
-  .fin-texto { position: absolute; left: 0; right: 0; top: 490px; text-align: center; color: #fff;
-    font-size: 54px; font-weight: 700; line-height: 1.15; }
-  .racha { position: absolute; left: 510px; top: 640px; width: 580px; white-space: nowrap; height: 92px; border-radius: 999px;
-    background: #1B3C8C; border: 5px solid #6FA8FF; color: #fff; font-size: 42px; font-weight: 700;
-    display: flex; align-items: center; padding: 0 18px 0 30px; gap: 18px; }
-  .racha .num { margin-left: auto; width: 66px; height: 66px; border-radius: 50%; background: #FFD23F;
-    color: #1753C9; font-size: 44px; font-weight: 800; display: flex; align-items: center; justify-content: center; }
-  #btn-volver { left: 550px; top: 770px; width: 500px; height: 100px; font-size: 46px; }
+  .fin-texto { position: absolute; left: 0; right: 0; top: 480px; text-align: center; color: #fff;
+    font-size: 50px; font-weight: 700; line-height: 1.15; }
+  .racha { position: absolute; left: 330px; top: 630px; width: 540px; height: 88px; border-radius: 999px;
+    background: #1B3C8C; border: 5px solid #6FA8FF; color: #fff; font-size: 40px; font-weight: 700; white-space: nowrap;
+    display: flex; align-items: center; padding: 0 16px 0 28px; gap: 16px; }
+  .racha .num { margin-left: auto; width: 62px; height: 62px; border-radius: 50%; background: #FFD23F;
+    color: #1753C9; font-size: 42px; font-weight: 800; display: flex; align-items: center; justify-content: center; }
+  #btn-volver { left: 350px; top: 760px; width: 500px; height: 96px; font-size: 44px; }
 
-  /* ---------- Pasos ---------- */
-  .ui-reloj { position: absolute; left: 34px; top: 30px; width: 170px; height: 170px; }
+  /* ---------- Pasos (interfaz de vidrio esmerilado, como la referencia) ---------- */
+  .ui-reloj { position: absolute; left: 26px; top: 22px; width: 150px; height: 150px; }
   .ui-reloj .cifra { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center;
-    justify-content: center; color: #fff; font-weight: 800; font-size: 42px; line-height: .9; padding-top: 6px; }
-  .ui-paso { position: absolute; left: 50%; top: 34px; transform: translateX(-50%); height: 104px;
-    background: #fff; border-radius: 999px; box-shadow: 0 8px 24px rgba(15,42,102,.25);
-    display: flex; align-items: center; gap: 18px; padding: 0 44px 0 16px; white-space: nowrap; }
-  .ui-paso .icono { width: 76px; height: 76px; flex: none; }
-  .ui-paso .nombre { font-size: 46px; font-weight: 700; color: var(--texto); }
-  .ui-paso .contador { position: absolute; left: 50%; top: -20px; transform: translateX(-50%);
-    background: var(--azul); color: #fff; font-size: 28px; font-weight: 800; padding: 0 18px; border-radius: 999px; line-height: 40px; }
-  .ui-lista { position: absolute; right: 36px; top: 90px; width: 92px; padding: 16px 0; border-radius: 999px;
-    background: rgba(255,255,255,.8); display: flex; flex-direction: column; align-items: center; gap: 12px;
-    box-shadow: 0 8px 24px rgba(15,42,102,.18); }
-  .ui-lista span { width: 58px; height: 58px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
-    font-size: 30px; font-weight: 800; color: #9AAECB; border: 4px solid #D5E2F3; background: #fff; transition: transform .3s; }
-  .ui-lista span.hecho { color: #fff; background: #8FD9AE; border-color: #8FD9AE; }
-  .ui-lista span.actual { color: #fff; background: var(--verde); border-color: #fff; transform: scale(1.18);
-    box-shadow: 0 0 0 5px var(--verde); }
-  .flecha { position: absolute; bottom: 44px; width: 116px; height: 116px; border-radius: 50%;
-    background: var(--azul); border: 7px solid #fff; box-shadow: 0 8px 20px rgba(15,42,102,.35);
-    display: flex; align-items: center; justify-content: center; }
+    justify-content: center; color: #fff; font-weight: 800; font-size: 40px; line-height: .9; padding-top: 4px; }
+  .ui-paso { position: absolute; left: 50%; top: 26px; transform: translateX(-50%); height: 92px;
+    background: var(--vidrio); border-radius: 30px; box-shadow: 0 8px 24px rgba(10,40,110,.25);
+    display: flex; align-items: center; gap: 16px; padding: 0 38px 0 14px; white-space: nowrap;
+    backdrop-filter: blur(6px); }
+  .ui-paso .icono { width: 72px; height: 72px; flex: none; }
+  .ui-paso .nombre { font-size: 40px; font-weight: 700; color: var(--texto); }
+  .ui-paso .contador { position: absolute; left: 50%; top: -18px; transform: translateX(-50%);
+    background: rgba(40, 70, 130, .75); color: #fff; font-size: 24px; font-weight: 800; padding: 0 16px;
+    border-radius: 999px; line-height: 34px; }
+  .ui-lista { position: absolute; right: 24px; top: 36px; width: 84px; padding: 14px 0; border-radius: 42px;
+    background: rgba(255,255,255,.55); display: flex; flex-direction: column; align-items: center; gap: 10px;
+    box-shadow: 0 8px 24px rgba(10,40,110,.2); backdrop-filter: blur(6px); }
+  .ui-lista span { width: 56px; height: 56px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+    font-size: 28px; font-weight: 800; color: #6D86AD; background: #C9D8EC; transition: transform .3s;
+    box-shadow: inset 0 -4px 0 rgba(0,0,0,.08); }
+  .ui-lista span.hecho { color: #fff; background: #7FCB93; }
+  .ui-lista span.actual { color: #fff; background: var(--verde); transform: scale(1.15);
+    box-shadow: 0 0 0 4px #fff, 0 4px 12px rgba(0,0,0,.25); }
+  .flecha { position: absolute; bottom: 34px; width: 108px; height: 108px; border-radius: 50%;
+    background: radial-gradient(circle at 35% 30%, #3E8BFF, #1646B8 70%); border: 6px solid rgba(255,255,255,.9);
+    box-shadow: 0 8px 20px rgba(10,40,110,.4); display: flex; align-items: center; justify-content: center; }
   .flecha:active { transform: scale(.94); }
-  .flecha:disabled { opacity: .35; cursor: default; }
-  #btn-anterior { left: 44px; }
-  #btn-siguiente { right: 44px; }
-  .ui-consejo { position: absolute; left: 50%; bottom: 40px; transform: translateX(-50%); width: 1060px; min-height: 130px;
-    background: #fff; border-radius: 40px; box-shadow: 0 10px 28px rgba(15,42,102,.28);
-    display: flex; align-items: center; gap: 24px; padding: 16px 36px 16px 20px; }
-  .ui-consejo button { width: 92px; height: 92px; border-radius: 50%; background: #E3F0FF; flex: none;
+  .flecha:disabled { opacity: .4; cursor: default; }
+  #btn-anterior { left: 30px; }
+  #btn-siguiente { right: 30px; }
+  .ui-consejo { position: absolute; left: 50%; bottom: 34px; transform: translateX(-50%); width: 880px; min-height: 116px;
+    background: var(--vidrio); border-radius: 36px; box-shadow: 0 10px 28px rgba(10,40,110,.3);
+    display: flex; align-items: center; gap: 20px; padding: 12px 28px 12px 16px; backdrop-filter: blur(6px); }
+  .ui-consejo button { width: 84px; height: 84px; border-radius: 50%; flex: none;
+    background: radial-gradient(circle at 35% 30%, #3E8BFF, #1646B8 75%);
     display: flex; align-items: center; justify-content: center; }
-  .ui-consejo .l1 { font-size: 38px; font-weight: 800; line-height: 1.1; color: var(--texto); }
-  .ui-consejo .l2 { font-size: 34px; font-weight: 600; line-height: 1.15; color: #37558C; }
-  #bien { position: absolute; left: 50%; top: 250px; transform: translateX(-50%) scale(0); font-size: 120px;
+  .ui-consejo .l1 { font-size: 31px; font-weight: 800; line-height: 1.1; color: var(--texto); }
+  .ui-consejo .l2 { font-size: 27px; font-weight: 600; line-height: 1.15; color: #2F4C80; }
+  #bien { position: absolute; left: 50%; top: 230px; transform: translateX(-50%) scale(0); font-size: 110px;
     font-weight: 800; color: #FFD23F; -webkit-text-stroke: 12px #1753C9; paint-order: stroke fill;
     transition: transform .35s cubic-bezier(.3,1.6,.5,1); pointer-events: none; white-space: nowrap; }
   #bien.ver { transform: translateX(-50%) scale(1); }
@@ -103,28 +103,29 @@
 
     <!-- ================= INICIO ================= -->
     <section id="p-inicio" class="pantalla noche activa">
-      <svg id="svg-inicio" viewBox="0 0 1600 900" width="1600" height="900" style="position:absolute;inset:0"></svg>
+      <svg id="svg-inicio" viewBox="0 0 1200 900" width="1200" height="900"></svg>
       <div class="titulo"><span class="t1">Misión:</span><span class="t2">Dientes</span><span class="t3">Limpios</span></div>
       <div class="lema">¡Vamos a cepillarnos<br>paso a paso!</div>
       <button id="btn-comenzar" class="boton-amarillo">
-        <svg width="64" height="64" viewBox="0 0 64 64"><circle cx="32" cy="32" r="30" fill="#1753C9"/><path d="M25 18L47 32L25 46Z" fill="#fff"/></svg>
+        <svg width="60" height="60" viewBox="0 0 64 64"><circle cx="32" cy="32" r="30" fill="#1753C9"/><path d="M25 18L47 32L25 46Z" fill="#fff"/></svg>
         Comenzar
       </button>
     </section>
 
     <!-- ================= PASOS ================= -->
     <section id="p-paso" class="pantalla">
-      <svg id="svg-paso" viewBox="0 0 1600 900" width="1600" height="900" style="position:absolute;inset:0"></svg>
+      <svg id="svg-paso" viewBox="0 0 1200 900" width="1200" height="900"></svg>
 
       <div class="ui-reloj">
-        <svg viewBox="0 0 170 170" width="170" height="170">
-          <circle cx="85" cy="85" r="80" fill="#fff"/>
-          <circle cx="85" cy="85" r="68" fill="#1F6FE5"/>
-          <circle id="reloj-anillo" cx="85" cy="85" r="74" fill="none" stroke="#2DB86A" stroke-width="10"
-                  stroke-linecap="round" transform="rotate(-90 85 85)" stroke-dasharray="465 465"/>
+        <svg viewBox="0 0 150 150" width="150" height="150">
+          <defs><radialGradient id="gReloj" cx=".4" cy=".35" r=".7"><stop offset="0" stop-color="#2F72E8"/><stop offset="1" stop-color="#0E3596"/></radialGradient></defs>
+          <circle cx="75" cy="75" r="72" fill="rgba(255,255,255,.35)"/>
+          <circle cx="75" cy="75" r="62" fill="url(#gReloj)"/>
+          <circle id="reloj-anillo" cx="75" cy="75" r="67" fill="none" stroke="#FFFFFF" stroke-width="8"
+                  stroke-linecap="round" transform="rotate(-90 75 75)" stroke-dasharray="421 421"/>
         </svg>
         <div class="cifra">
-          <svg width="34" height="34" viewBox="0 0 34 34"><circle cx="17" cy="19" r="12" fill="none" stroke="#fff" stroke-width="4"/><path d="M17 12v7l5 3M12 3h10" stroke="#fff" stroke-width="4" stroke-linecap="round" fill="none"/></svg>
+          <svg width="30" height="30" viewBox="0 0 34 34"><circle cx="17" cy="19" r="12" fill="none" stroke="#fff" stroke-width="4"/><path d="M17 12v7l5 3M12 3h10" stroke="#fff" stroke-width="4" stroke-linecap="round" fill="none"/></svg>
           <span id="reloj-texto">0:20</span>
         </div>
       </div>
@@ -140,30 +141,30 @@
       <div id="bien">¡Muy bien!</div>
 
       <button class="flecha" id="btn-anterior" aria-label="Paso anterior">
-        <svg width="54" height="54" viewBox="0 0 54 54"><path d="M33 10L16 27L33 44" stroke="#fff" stroke-width="9" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>
+        <svg width="50" height="50" viewBox="0 0 54 54"><path d="M33 10L16 27L33 44" stroke="#fff" stroke-width="9" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>
       </button>
       <div class="ui-consejo">
         <button id="btn-voz" aria-label="Escuchar la consigna">
-          <svg width="54" height="54" viewBox="0 0 54 54"><path d="M8 20h9l12-10v34L17 34H8z" fill="#1F6FE5"/><path d="M36 18q6 9 0 18M42 12q11 15 0 30" stroke="#1F6FE5" stroke-width="5" stroke-linecap="round" fill="none"/></svg>
+          <svg width="48" height="48" viewBox="0 0 54 54"><path d="M8 20h9l12-10v34L17 34H8z" fill="#fff"/><path d="M36 18q6 9 0 18M42 12q11 15 0 30" stroke="#fff" stroke-width="5" stroke-linecap="round" fill="none"/></svg>
         </button>
         <div><div class="l1" id="consejo-1"></div><div class="l2" id="consejo-2"></div></div>
       </div>
       <button class="flecha" id="btn-siguiente" aria-label="Paso siguiente">
-        <svg width="54" height="54" viewBox="0 0 54 54"><path d="M21 10L38 27L21 44" stroke="#fff" stroke-width="9" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>
+        <svg width="50" height="50" viewBox="0 0 54 54"><path d="M21 10L38 27L21 44" stroke="#fff" stroke-width="9" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>
       </button>
     </section>
 
     <!-- ================= FINAL ================= -->
     <section id="p-final" class="pantalla noche">
-      <svg id="svg-final" viewBox="0 0 1600 900" width="1600" height="900" style="position:absolute;inset:0"></svg>
+      <svg id="svg-final" viewBox="0 0 1200 900" width="1200" height="900"></svg>
       <div class="fin-titulo">¡Lo hiciste!</div>
       <div class="fin-texto">¡Dientes limpios<br>y una gran sonrisa!</div>
       <div class="racha">
-        <svg width="50" height="50" viewBox="0 0 50 50"><path d="M25 4C29 14 40 18 40 31A15 15 0 0 1 10 31C10 23 15 19 18 14C19 20 22 22 24 22C22 15 23 9 25 4Z" fill="#FF7A2F"/><path d="M25 24C28 29 32 31 32 36A7 7 0 0 1 18 36C18 31 22 29 25 24Z" fill="#FFD23F"/></svg>
+        <svg width="48" height="48" viewBox="0 0 50 50"><path d="M25 4C29 14 40 18 40 31A15 15 0 0 1 10 31C10 23 15 19 18 14C19 20 22 22 24 22C22 15 23 9 25 4Z" fill="#FF7A2F"/><path d="M25 24C28 29 32 31 32 36A7 7 0 0 1 18 36C18 31 22 29 25 24Z" fill="#FFD23F"/></svg>
         Racha de días <span class="num" id="racha-num">1</span>
       </div>
       <button id="btn-volver" class="boton-amarillo">
-        <svg width="54" height="54" viewBox="0 0 54 54"><path d="M8 26L27 9L46 26M14 22V45H24V33H30V45H40V22" stroke="#1753C9" stroke-width="6" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>
+        <svg width="50" height="50" viewBox="0 0 54 54"><path d="M8 26L27 9L46 26M14 22V45H24V33H30V45H40V22" stroke="#1753C9" stroke-width="6" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>
         Volver al inicio
       </button>
     </section>
@@ -175,27 +176,27 @@
   'use strict';
 
   /* =====================================================================
-     DATOS DE LOS 8 PASOS
-     cabezal: posición del cabezal del cepillo en la boca (px del escenario)
+     DATOS DE LOS 8 PASOS  (coordenadas en el sistema del niño, ver nino())
+     cabezal: posición del cabezal del cepillo en la boca
      angulo:  inclinación del cepillo (el mango baja hacia la izquierda)
      abajo:   cerdas hacia abajo (dientes inferiores)
      mov:     'lado' | 'vertical' | 'eje' (adelante-atrás) | 'circulo'
-     boca:    'abierta' | 'dientes' (mordida, para la cara de adelante) | 'enjuague'
+     boca:    'abierta' | 'dientes' (mordida, cara de adelante) | 'enjuague'
      ===================================================================== */
   var PASOS = [
-    { nombre: 'Dientes de arriba', icono: 'arriba', boca: 'abierta', cabezal: [800, 553], angulo: -8, abajo: false, mov: 'lado',
+    { nombre: 'Dientes de arriba', icono: 'arriba', boca: 'abierta', cabezal: [770, 566], angulo: -10, abajo: false, mov: 'lado',
       l1: '¡Cepillá los dientes de arriba!', l2: 'Con movimientos de lado a lado.' },
-    { nombre: 'Dientes de abajo', icono: 'abajo', boca: 'abierta', cabezal: [800, 575], angulo: -8, abajo: true, mov: 'lado',
+    { nombre: 'Dientes de abajo', icono: 'abajo', boca: 'abierta', cabezal: [770, 604], angulo: -12, abajo: true, mov: 'lado',
       l1: '¡Ahora los dientes de abajo!', l2: 'Mové el cepillo de un lado al otro.' },
-    { nombre: 'Parte de adelante', icono: 'adelante', boca: 'dientes', cabezal: [792, 566], angulo: -6, abajo: false, mov: 'vertical',
+    { nombre: 'Parte de adelante', icono: 'adelante', boca: 'dientes', cabezal: [770, 590], angulo: -8, abajo: false, mov: 'vertical',
       l1: '¡La parte de adelante!', l2: 'Mové el cepillo de arriba hacia abajo.' },
-    { nombre: 'Parte de atrás (arriba)', icono: 'arriba', boca: 'abierta', cabezal: [838, 556], angulo: -18, abajo: false, mov: 'eje',
+    { nombre: 'Parte de atrás (arriba)', icono: 'arriba', boca: 'abierta', cabezal: [830, 570], angulo: -18, abajo: false, mov: 'eje',
       l1: '¡Los dientes de atrás de arriba!', l2: 'Mové el cepillo de adelante hacia atrás.' },
-    { nombre: 'Parte de atrás (abajo)', icono: 'abajo', boca: 'abierta', cabezal: [838, 572], angulo: -18, abajo: true, mov: 'eje',
+    { nombre: 'Parte de atrás (abajo)', icono: 'abajo', boca: 'abierta', cabezal: [830, 602], angulo: -20, abajo: true, mov: 'eje',
       l1: '¡Ahora los dientes de atrás de abajo!', l2: 'Mové el cepillo de adelante hacia atrás.' },
-    { nombre: 'Molares (arriba)', icono: 'arriba', boca: 'abierta', cabezal: [858, 552], angulo: -4, abajo: false, mov: 'circulo',
+    { nombre: 'Molares (arriba)', icono: 'arriba', boca: 'abierta', cabezal: [856, 566], angulo: -6, abajo: false, mov: 'circulo',
       l1: '¡Los molares de arriba!', l2: 'Hacé movimientos circulares.' },
-    { nombre: 'Molares (abajo)', icono: 'abajo', boca: 'abierta', cabezal: [858, 576], angulo: -4, abajo: true, mov: 'circulo',
+    { nombre: 'Molares (abajo)', icono: 'abajo', boca: 'abierta', cabezal: [856, 604], angulo: -8, abajo: true, mov: 'circulo',
       l1: '¡Los molares de abajo!', l2: 'Hacé movimientos circulares.' },
     { nombre: '¡Enjuagá!', icono: 'agua', boca: 'enjuague', mov: 'ninguno',
       l1: '¡Genial! Ahora enjuagá tu boca', l2: 'con agua.' }
@@ -203,210 +204,241 @@
   var SEGUNDOS_POR_PASO = 20;
   var HZ_CEPILLADO = 2;
 
+  // Paleta cálida tomada del video de referencia.
   var C = {
-    piel: '#F7C6A0', pielSombra: '#E9A67E', pielLinea: '#D98E68',
-    pelo: '#6A3B22', peloLuz: '#8E5634',
-    remera: '#2F6FD6', remeraOsc: '#1F55B0',
-    cepillo: '#1F6FE5', cepilloLuz: '#6FB6FF', boca: '#7A1F2B', lengua: '#F07C8A', labio: '#C45A52'
+    piel: '#F3AE7C', pielClara: '#F9C597', pielSombra: '#DE8A57', pielLinea: '#C06A3E',
+    pelo: '#3B1B0C', peloLuz: '#5E2D14', peloOsc: '#230F06',
+    remera: '#1E4FB8', remeraOsc: '#143A8C', remeraLuz: '#2C63D1',
+    cepillo: '#1E5FE0', cepilloLuz: '#6FB6FF', cepilloOsc: '#1342A8',
+    boca: '#5A1420', lengua: '#E0606E', labio: '#B8503F', ojo: '#2A1408'
   };
 
   /* =====================================================================
      DIBUJO (SVG como texto)
      ===================================================================== */
-  function fondoBano(desenfoque) {
+  function fondoBano() {
     return '' +
       '<defs>' +
-        '<filter id="desenfoque" x="-5%" y="-5%" width="110%" height="110%"><feGaussianBlur stdDeviation="' + desenfoque + '"/></filter>' +
-        '<linearGradient id="gPared" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#D8EEFC"/><stop offset="1" stop-color="#A8D6F5"/></linearGradient>' +
-        '<radialGradient id="gLuz" cx="0.8" cy="0.25" r="0.6"><stop offset="0" stop-color="#FFFFFF" stop-opacity=".9"/><stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/></radialGradient>' +
-        '<pattern id="pAzulejos" width="90" height="90" patternUnits="userSpaceOnUse"><rect width="90" height="90" fill="none"/><path d="M0 1H90M1 0V90" stroke="#FFFFFF" stroke-opacity=".5" stroke-width="3"/></pattern>' +
+        '<filter id="desenfoque" x="-5%" y="-5%" width="110%" height="110%"><feGaussianBlur stdDeviation="7"/></filter>' +
+        '<linearGradient id="gPared" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#6FB3EE"/><stop offset="1" stop-color="#2F78D0"/></linearGradient>' +
+        '<radialGradient id="gLuz" cx="0.85" cy="0.3" r="0.55"><stop offset="0" stop-color="#FFFFFF" stop-opacity=".75"/><stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/></radialGradient>' +
+        '<radialGradient id="gVineta" cx=".5" cy=".45" r=".75"><stop offset=".6" stop-color="#0A2A70" stop-opacity="0"/><stop offset="1" stop-color="#0A2A70" stop-opacity=".35"/></radialGradient>' +
+        '<pattern id="pAzulejos" width="84" height="84" patternUnits="userSpaceOnUse"><path d="M0 1H84M1 0V84" stroke="#A9D2F7" stroke-opacity=".55" stroke-width="3"/></pattern>' +
       '</defs>' +
       '<g filter="url(#desenfoque)">' +
-        '<rect width="1600" height="900" fill="url(#gPared)"/>' +
-        '<rect y="330" width="1600" height="570" fill="url(#pAzulejos)"/>' +
-        // ventana con luz
-        '<rect x="1160" y="70" width="330" height="470" rx="18" fill="#FFFFFF"/>' +
-        '<rect x="1180" y="90" width="290" height="430" rx="10" fill="#EAF7FF"/>' +
-        '<path d="M1325 90V520M1180 300H1470" stroke="#FFFFFF" stroke-width="16"/>' +
-        '<rect x="1150" y="530" width="350" height="26" rx="12" fill="#FFFFFF"/>' +
-        '<path d="M1230 520q10-60 40-80q-6 50 10 80z" fill="#8FD6A0"/>' +
+        '<rect width="1200" height="900" fill="url(#gPared)"/>' +
+        '<rect width="1200" height="900" fill="url(#pAzulejos)"/>' +
+        // ventana luminosa con planta afuera
+        '<rect x="930" y="40" width="300" height="520" rx="16" fill="#EAF6FF"/>' +
+        '<rect x="950" y="60" width="260" height="480" rx="8" fill="#DDF1FF"/>' +
+        '<circle cx="1110" cy="330" r="90" fill="#7CC67A"/><circle cx="1040" cy="380" r="70" fill="#5EAF63"/><circle cx="1160" cy="400" r="70" fill="#4E9E57"/>' +
+        '<path d="M1080 60V540" stroke="#FFFFFF" stroke-width="14"/>' +
+        '<rect x="910" y="540" width="320" height="30" rx="12" fill="#FFFFFF"/>' +
         // estante con planta
-        '<rect x="70" y="300" width="270" height="22" rx="10" fill="#E9C9A6"/>' +
-        '<path d="M150 300l10-70h70l10 70z" fill="#FFFFFF"/>' +
-        '<path d="M195 232q-50-40-40-110q40 30 40 110zM195 232q10-80 60-100q0 70-60 100zM195 232q-10-60 5-120q25 55-5 120z" fill="#3FAE6A"/>' +
-        // toallero y toalla con estrella
-        '<rect x="50" y="430" width="300" height="16" rx="8" fill="#C9D6E2"/>' +
-        '<path d="M80 438h230v330q0 16-16 16H96q-16 0-16-16z" fill="#2D63C8"/>' +
-        '<path d="M80 438h230v40H80z" fill="#244FA3"/>' +
-        '<path d="M195 560l18 36 40 6-29 28 7 40-36-19-36 19 7-40-29-28 40-6z" fill="#8CC2FF"/>' +
-        '<rect x="1460" y="620" width="140" height="280" fill="#FFFFFF" opacity=".35"/>' +
+        '<rect x="0" y="290" width="200" height="22" rx="8" fill="#E7C49E"/>' +
+        '<path d="M50 290l8-66h66l8 66z" fill="#FFFFFF"/>' +
+        '<path d="M92 226q-48-38-38-104q38 30 38 104zM92 226q10-76 58-96q0 66-58 96zM92 226q-10-58 5-116q24 52-5 116z" fill="#3FA864"/>' +
+        // toallero y toalla azul con estrella
+        '<rect x="0" y="420" width="220" height="16" rx="8" fill="#C6D3E0"/><circle cx="210" cy="428" r="14" fill="#9FB1C3"/>' +
+        '<path d="M0 428h170v330q0 16-16 16H0z" fill="#1E4FB8"/>' +
+        '<path d="M0 428h170v40H0z" fill="#16408F"/>' +
+        '<path d="M85 560l18 36 40 6-29 28 7 40-36-19-36 19 7-40-29-28 40-6z" fill="#7FB8FF"/>' +
+        // lavabo en primer plano (abajo)
+        '<path d="M-20 860Q600 800 1220 860V900H-20Z" fill="#EAF2FA"/>' +
       '</g>' +
-      '<rect width="1600" height="900" fill="url(#gLuz)"/>';
+      '<rect width="1200" height="900" fill="url(#gLuz)"/>' +
+      '<rect width="1200" height="900" fill="url(#gVineta)"/>';
   }
 
-  // Mano cerrada alrededor de un mango horizontal, en coordenadas locales.
-  function manoAtras(x, y) { return '<ellipse cx="' + x + '" cy="' + y + '" rx="50" ry="46" fill="' + C.piel + '"/>'; }
-  function manoDedos(x, y) {
+  // Puño que agarra un mango horizontal (coordenadas locales del cepillo).
+  function manoAtras(x, y) {
+    return '<ellipse cx="' + (x + 4) + '" cy="' + (y + 8) + '" rx="66" ry="60" fill="' + C.pielSombra + '"/>';
+  }
+  function manoDedos(x, y, u) {
     var s = '';
+    // cuatro dedos curvados sobre el mango, vistos de frente
     for (var i = 0; i < 4; i++) {
-      var fx = x - 38 + i * 21;
-      s += '<rect x="' + fx + '" y="' + (y - 10) + '" width="23" height="' + (54 - Math.abs(i - 1.5) * 6) + '" rx="11" fill="' + C.piel + '" stroke="' + C.pielLinea + '" stroke-width="3"/>';
+      var fx = x - 58 + i * 29, h = 78 - Math.abs(i - 1.2) * 8;
+      s += '<rect x="' + fx + '" y="' + (y - 22) + '" width="31" height="' + h + '" rx="15.5" fill="url(#gDedo' + u + ')" stroke="' + C.pielLinea + '" stroke-width="2.5"/>';
+      s += '<path d="M' + (fx + 7) + ' ' + (y + 18) + 'q8 5 17 0" stroke="' + C.pielLinea + '" stroke-width="2.5" fill="none" stroke-linecap="round" opacity=".7"/>';
     }
-    // pulgar apoyado sobre el mango
-    s += '<path d="M' + (x - 34) + ' ' + (y - 20) + 'q34-22 70-8q6 10-4 16q-30-2-60 8z" fill="' + C.piel + '" stroke="' + C.pielLinea + '" stroke-width="3"/>';
+    // pulgar apoyado sobre el mango, apuntando hacia el cabezal
+    s += '<path d="M' + (x - 50) + ' ' + (y - 24) + 'C' + (x - 20) + ' ' + (y - 58) + ' ' + (x + 40) + ' ' + (y - 50) + ' ' + (x + 64) + ' ' + (y - 30) +
+         'C' + (x + 74) + ' ' + (y - 20) + ' ' + (x + 66) + ' ' + (y - 8) + ' ' + (x + 52) + ' ' + (y - 10) +
+         'C' + (x + 20) + ' ' + (y - 16) + ' ' + (x - 20) + ' ' + (y - 10) + ' ' + (x - 50) + ' ' + (y - 24) + 'Z" fill="' + C.pielClara + '" stroke="' + C.pielLinea + '" stroke-width="2.5"/>';
+    s += '<ellipse cx="' + (x + 54) + '" cy="' + (y - 28) + '" rx="9" ry="6" fill="#FBD7BE" opacity=".8"/>';
     return s;
   }
 
   // Cepillo: origen (0,0) en el centro del cabezal, eje del mango en y=0, mango hacia -x.
-  function cepillo() {
+  function cepillo(u) {
     var cerdas = '';
-    for (var i = 0; i < 9; i++) {
-      cerdas += '<rect x="' + (-44 + i * 10) + '" y="-34" width="8" height="26" rx="3" fill="' + (i % 2 ? '#CFEFFF' : '#FFFFFF') + '"/>';
+    for (var i = 0; i < 10; i++) {
+      cerdas += '<rect x="' + (-52 + i * 10.6) + '" y="-44" width="9" height="34" rx="4" fill="' + (i % 2 ? '#BFE6FF' : '#FFFFFF') + '"/>';
     }
     return '' +
       '<g id="cep-cabezal">' +
-        '<rect x="-50" y="-12" width="100" height="24" rx="12" fill="' + C.cepillo + '"/>' +
         '<g id="cep-cerdas">' + cerdas + '</g>' +
+        '<rect x="-60" y="-14" width="120" height="28" rx="14" fill="url(#gCepillo' + u + ')"/>' +
       '</g>' +
-      '<path d="M-48-9L-110-12V12L-48 9Z" fill="' + C.cepillo + '"/>' +
-      manoAtras(-240, 0) +
-      '<rect x="-340" y="-17" width="240" height="34" rx="17" fill="' + C.cepillo + '"/>' +
-      '<rect x="-330" y="-11" width="220" height="10" rx="5" fill="' + C.cepilloLuz + '" opacity=".7"/>' +
-      manoDedos(-240, 0);
+      '<path d="M-56-10L-130-15V15L-56 10Z" fill="url(#gCepillo' + u + ')"/>' +
+      manoAtras(-270, 0) +
+      '<rect x="-400" y="-21" width="280" height="42" rx="21" fill="url(#gCepillo' + u + ')"/>' +
+      '<rect x="-388" y="-14" width="256" height="10" rx="5" fill="' + C.cepilloLuz + '" opacity=".75"/>' +
+      manoDedos(-270, 0, u);
   }
 
   function espuma() {
-    var p = [[-58, -4, 11], [-46, 14, 8], [54, -8, 10], [60, 10, 13], [30, 22, 7], [-20, 24, 9], [0, -30, 6], [72, -24, 7]];
+    var p = [[-66, -6, 12], [-52, 16, 9], [62, -10, 11], [70, 12, 14], [34, 24, 8], [-22, 26, 10], [0, -40, 7], [82, -28, 8]];
     return p.map(function (b, i) {
       return '<circle class="burbuja" data-i="' + i + '" cx="' + b[0] + '" cy="' + b[1] + '" r="' + b[2] + '" fill="#FFFFFF" stroke="#CDEBFA" stroke-width="2"/>';
     }).join('');
   }
 
-  function dientesFila(x0, x1, yTop, alto, n, bordeAbajo) {
+  // Fila de dientes redondeados; `arriba` redondea el borde inferior (dientes superiores).
+  function dientesFila(x0, x1, yTop, alto, n, arriba) {
     var s = '', w = (x1 - x0) / n;
     for (var i = 0; i < n; i++) {
-      var r = 9;
-      s += '<rect x="' + (x0 + i * w + 1.5).toFixed(1) + '" y="' + yTop + '" width="' + (w - 3).toFixed(1) + '" height="' + alto + '" rx="' + r + '" fill="#FFFFFF"/>';
+      var x = x0 + i * w + 2, ww = w - 4, r = Math.min(14, ww / 2);
+      var d = arriba
+        ? 'M' + x + ' ' + yTop + 'h' + ww + 'v' + (alto - r) + 'q0 ' + r + ' ' + (-r) + ' ' + r + 'h' + (-(ww - 2 * r)) + 'q' + (-r) + ' 0 ' + (-r) + ' ' + (-r) + 'z'
+        : 'M' + x + ' ' + (yTop + alto) + 'h' + ww + 'v' + (-(alto - r)) + 'q0 ' + (-r) + ' ' + (-r) + ' ' + (-r) + 'h' + (-(ww - 2 * r)) + 'q' + (-r) + ' 0 ' + (-r) + ' ' + r + 'z';
+      s += '<path d="' + d + '" fill="#FFFFFF" stroke="#E3ECF4" stroke-width="2"/>';
     }
-    s += '<rect x="' + x0 + '" y="' + (bordeAbajo ? yTop + alto - 8 : yTop) + '" width="' + (x1 - x0) + '" height="8" fill="#E8F2FA" opacity=".7"/>';
     return s;
   }
 
+  function ojo(cx, u) {
+    return '' +
+      '<ellipse cx="' + cx + '" cy="402" rx="66" ry="72" fill="#FFFFFF"/>' +
+      '<circle cx="' + cx + '" cy="414" r="54" fill="url(#gIris' + u + ')"/>' +
+      '<circle cx="' + cx + '" cy="416" r="28" fill="#1A0B04"/>' +
+      '<circle cx="' + (cx + 18) + '" cy="390" r="16" fill="#FFFFFF"/>' +
+      '<circle cx="' + (cx - 18) + '" cy="436" r="7" fill="#FFFFFF" opacity=".85"/>' +
+      // línea de pestañas gruesa y colita en el borde externo
+      '<path d="M' + (cx - 68) + ' 404Q' + (cx - 60) + ' 326 ' + cx + ' 326Q' + (cx + 60) + ' 326 ' + (cx + 68) + ' 404" stroke="' + C.ojo + '" stroke-width="13" fill="none" stroke-linecap="round"/>' +
+      '<path d="M' + (cx + (cx < 800 ? -64 : 64)) + ' 372l' + (cx < 800 ? -16 : 16) + ' -12" stroke="' + C.ojo + '" stroke-width="9" stroke-linecap="round"/>';
+  }
+
+  function ojoCerrado(cx) {
+    return '<path d="M' + (cx - 62) + ' 410Q' + cx + ' 452 ' + (cx + 62) + ' 410" stroke="' + C.ojo + '" stroke-width="12" fill="none" stroke-linecap="round"/>' +
+           '<path d="M' + (cx - 34) + ' 436l-8 14M' + cx + ' 442v16M' + (cx + 34) + ' 436l8 14" stroke="' + C.ojo + '" stroke-width="7" stroke-linecap="round"/>';
+  }
+
+  /* El niño se dibuja en un sistema propio (centro x=800, mentón y≈700) y
+     cada pantalla lo escala/ubica con un transform en el grupo contenedor. */
   function nino(modo) {
     var u = '-' + modo; // ids únicos por instancia: un gradiente dentro de una pantalla oculta no se pinta
-    var cara = 'M555 410C555 260 665 175 800 175C935 175 1045 260 1045 410C1045 570 940 685 800 685C660 685 555 570 555 410Z';
-    var bocaAbierta = 'M688 532Q800 508 912 532Q918 628 800 642Q682 628 688 532Z';
-    var bocaDientes = 'M688 540Q800 522 912 540Q902 618 800 628Q698 618 688 540Z';
-    var bocaSonrisa = 'M690 540Q800 548 910 540Q890 630 800 634Q710 630 690 540Z';
+    var cara = 'M545 420C545 255 660 170 800 170C940 170 1055 255 1055 420C1055 585 945 702 800 702C655 702 545 585 545 420Z';
+    var bocaAbierta = 'M668 540Q800 508 932 540Q940 656 800 674Q660 656 668 540Z';
+    var bocaDientes = 'M672 552Q800 530 928 552Q918 646 800 656Q682 646 672 552Z';
+    var bocaSonrisa = 'M676 548Q800 560 924 548Q904 656 800 660Q696 656 676 548Z';
     return '' +
       '<defs>' +
         '<clipPath id="clipAbierta' + u + '"><path d="' + bocaAbierta + '"/></clipPath>' +
         '<clipPath id="clipDientes' + u + '"><path d="' + bocaDientes + '"/></clipPath>' +
         '<clipPath id="clipSonrisa' + u + '"><path d="' + bocaSonrisa + '"/></clipPath>' +
-        '<radialGradient id="gCara' + u + '" cx=".45" cy=".4" r=".7"><stop offset=".6" stop-color="' + C.piel + '"/><stop offset="1" stop-color="' + C.pielSombra + '"/></radialGradient>' +
+        '<radialGradient id="gCara' + u + '" cx=".5" cy=".42" r=".62"><stop offset="0" stop-color="' + C.pielClara + '"/><stop offset=".7" stop-color="' + C.piel + '"/><stop offset="1" stop-color="' + C.pielSombra + '"/></radialGradient>' +
+        '<radialGradient id="gIris' + u + '" cx=".5" cy=".3" r=".7"><stop offset="0" stop-color="#8A5028"/><stop offset="1" stop-color="#3B1B09"/></radialGradient>' +
+        '<radialGradient id="gRubor' + u + '"><stop offset="0" stop-color="#F26B5B" stop-opacity=".55"/><stop offset="1" stop-color="#F26B5B" stop-opacity="0"/></radialGradient>' +
+        '<linearGradient id="gPelo' + u + '" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="' + C.peloLuz + '"/><stop offset="1" stop-color="' + C.pelo + '"/></linearGradient>' +
+        '<linearGradient id="gCepillo' + u + '" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#4A8CFF"/><stop offset=".55" stop-color="' + C.cepillo + '"/><stop offset="1" stop-color="' + C.cepilloOsc + '"/></linearGradient>' +
+        '<linearGradient id="gDedo' + u + '" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="' + C.pielClara + '"/><stop offset="1" stop-color="' + C.piel + '"/></linearGradient>' +
+        '<linearGradient id="gRemera' + u + '" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="' + C.remeraLuz + '"/><stop offset="1" stop-color="' + C.remeraOsc + '"/></linearGradient>' +
       '</defs>' +
       '<g id="nino">' +
-        // remera con dinosaurio
-        '<path d="M360 900C372 770 500 705 640 690H960C1100 705 1228 770 1240 900Z" fill="' + C.remera + '"/>' +
-        '<rect x="738" y="610" width="124" height="96" rx="30" fill="' + C.pielSombra + '"/>' +
-        '<path d="M712 690Q800 760 888 690" fill="none" stroke="' + C.remeraOsc + '" stroke-width="18" stroke-linecap="round"/>' +
-        '<g transform="translate(990 800)"><path d="M-60 40q0-50 50-54q20-40 60-26q24 10 10 30q-14 8-26 4q-2 26-10 46z" fill="#56C271"/>' +
-          '<circle cx="42" cy="-40" r="5" fill="#1E3A2A"/><path d="M-30 -14l8-16 8 14M-10-16l8-16 8 14" fill="#3FA85A"/></g>' +
-        // cabeza (grupo con pivote en el cuello para balanceo)
+        // remera azul con dinosaurio
+        '<path d="M290 1010C300 770 470 712 630 700H970C1130 712 1300 770 1310 1010Z" fill="url(#gRemera' + u + ')"/>' +
+        '<rect x="728" y="620" width="144" height="104" rx="34" fill="' + C.pielSombra + '"/>' +
+        '<path d="M700 700Q800 776 900 700" fill="none" stroke="' + C.remeraOsc + '" stroke-width="22" stroke-linecap="round"/>' +
+        '<g transform="translate(1000 830)"><path d="M-60 40q0-50 50-54q20-40 60-26q24 10 10 30q-14 8-26 4q-2 26-10 46z" fill="#4DB86B"/>' +
+          '<circle cx="42" cy="-40" r="5" fill="#1E3A2A"/><path d="M-30-14l8-16 8 14M-10-16l8-16 8 14" fill="#3A9C55"/></g>' +
+        // cabeza (pivote en el cuello)
         '<g id="cabeza">' +
-          '<ellipse cx="560" cy="430" rx="38" ry="52" fill="' + C.piel + '"/><path d="M566 412q-14 16 0 34" stroke="' + C.pielLinea + '" stroke-width="5" fill="none" stroke-linecap="round"/>' +
-          '<ellipse cx="1040" cy="430" rx="38" ry="52" fill="' + C.piel + '"/><path d="M1034 412q14 16 0 34" stroke="' + C.pielLinea + '" stroke-width="5" fill="none" stroke-linecap="round"/>' +
+          '<ellipse cx="548" cy="448" rx="42" ry="56" fill="' + C.piel + '"/><path d="M556 428q-16 18 0 38" stroke="' + C.pielLinea + '" stroke-width="6" fill="none" stroke-linecap="round"/>' +
+          '<ellipse cx="1052" cy="448" rx="42" ry="56" fill="' + C.piel + '"/><path d="M1044 428q16 18 0 38" stroke="' + C.pielLinea + '" stroke-width="6" fill="none" stroke-linecap="round"/>' +
           '<path d="' + cara + '" fill="url(#gCara' + u + ')"/>' +
-          // pelo despeinado
-          '<path d="M546 430C520 300 560 190 650 150C672 112 740 96 790 110C830 84 900 96 930 126C1010 140 1066 220 1058 330C1056 370 1052 400 1050 430C1036 372 1016 330 990 306L968 336L944 286L906 322L878 268L842 312L806 258L774 308L738 268L706 318L680 282L652 330L626 300C596 332 566 380 546 430Z" fill="' + C.pelo + '"/>' +
-          '<path d="M650 150L640 96L700 132ZM790 110L800 58L840 104ZM930 126L972 80L966 140Z" fill="' + C.pelo + '"/>' +
-          '<path d="M700 170q60-40 140-30M880 160q50 10 80 50" stroke="' + C.peloLuz + '" stroke-width="12" fill="none" stroke-linecap="round"/>' +
-          // cejas
-          '<path d="M640 318q52-30 110-8" stroke="' + C.pelo + '" stroke-width="18" fill="none" stroke-linecap="round"/>' +
-          '<path d="M850 310q58-22 110 8" stroke="' + C.pelo + '" stroke-width="18" fill="none" stroke-linecap="round"/>' +
-          // ojos abiertos
-          '<g id="ojos" style="' + (modo === 'enjuague' ? 'display:none' : '') + '">' +
-            ojo(698) + ojo(902) +
+          // pelo despeinado con mechones
+          '<path d="M532 450C500 320 540 190 640 136C662 92 740 70 800 88C850 56 930 70 962 108C1050 128 1092 230 1072 350C1066 390 1062 420 1060 452C1046 390 1024 346 996 320L978 350L952 300L916 334L886 280L852 322L814 268L780 318L744 276L712 326L684 290L656 338L630 306C598 340 560 390 532 450Z" fill="url(#gPelo' + u + ')"/>' +
+          '<path d="M640 140Q606 76 700 110ZM752 90Q740 30 820 76ZM896 86Q940 36 956 110ZM996 136Q1060 120 1030 176Z" fill="' + C.pelo + '"/>' +
+          '<path d="M690 150q60-40 150-34M880 130q70 12 110 70M620 230q20-50 60-80M1020 260q20 40 20 90" stroke="' + C.peloLuz + '" stroke-width="12" fill="none" stroke-linecap="round" opacity=".9"/>' +
+          '<path d="M760 190q40-20 80-10M660 290q30-40 70-50" stroke="' + C.peloOsc + '" stroke-width="8" fill="none" stroke-linecap="round" opacity=".6"/>' +
+          // cejas gruesas
+          '<path d="M626 322Q690 276 760 304Q758 318 746 318Q690 302 636 336Z" fill="' + C.peloOsc + '"/>' +
+          '<path d="M974 322Q910 276 840 304Q842 318 854 318Q910 302 964 336Z" fill="' + C.peloOsc + '"/>' +
+          // ojos abiertos / cerrados (parpadeo) / felices (enjuague)
+          '<g id="ojos">' + ojo(690, u) + ojo(910, u) + '</g>' +
+          '<g id="ojos-cerrados" style="display:none">' + ojoCerrado(690) + ojoCerrado(910) + '</g>' +
+          '<g id="ojos-felices" style="display:none">' +
+            '<path d="M636 420q54-50 108 0M856 420q54-50 108 0" stroke="' + C.ojo + '" stroke-width="13" fill="none" stroke-linecap="round"/>' +
           '</g>' +
-          // ojos cerrados felices (enjuague)
-          '<g id="ojos-felices" style="' + (modo === 'enjuague' ? '' : 'display:none') + '">' +
-            '<path d="M650 410q48-44 96 0M854 410q48-44 96 0" stroke="#3A2414" stroke-width="12" fill="none" stroke-linecap="round"/>' +
-          '</g>' +
-          // nariz y mejillas
-          '<path d="M780 468q20 18 40 0" stroke="' + C.pielLinea + '" stroke-width="7" fill="none" stroke-linecap="round"/>' +
-          '<ellipse id="cachete-i" cx="628" cy="505" rx="44" ry="26" fill="#FF8F8F" opacity=".45"/>' +
-          '<ellipse id="cachete-d" cx="972" cy="505" rx="44" ry="26" fill="#FF8F8F" opacity=".45"/>' +
+          // nariz y rubor
+          '<path d="M776 486q24 20 48 0" stroke="' + C.pielLinea + '" stroke-width="7" fill="none" stroke-linecap="round"/>' +
+          '<ellipse cx="800" cy="474" rx="16" ry="10" fill="#FBD2B2" opacity=".7"/>' +
+          '<ellipse cx="618" cy="512" rx="70" ry="44" fill="url(#gRubor' + u + ')"/>' +
+          '<ellipse cx="982" cy="512" rx="70" ry="44" fill="url(#gRubor' + u + ')"/>' +
 
           // BOCA ABIERTA
           '<g id="boca-abierta" class="boca" style="display:none">' +
             '<path d="' + bocaAbierta + '" fill="' + C.boca + '"/>' +
             '<g clip-path="url(#clipAbierta' + u + ')">' +
-              '<ellipse cx="800" cy="632" rx="78" ry="30" fill="' + C.lengua + '"/>' +
-              dientesFila(700, 900, 520, 44, 8, true) +
-              dientesFila(716, 884, 604, 40, 7, false) +
+              '<ellipse cx="800" cy="668" rx="96" ry="36" fill="' + C.lengua + '"/>' +
+              dientesFila(682, 918, 518, 50, 8, true) +
+              dientesFila(700, 900, 616, 44, 7, false) +
               '<g id="sarro-abierta"></g>' +
             '</g>' +
-            '<path d="' + bocaAbierta + '" fill="none" stroke="' + C.labio + '" stroke-width="6"/>' +
+            '<path d="' + bocaAbierta + '" fill="none" stroke="' + C.labio + '" stroke-width="7"/>' +
           '</g>' +
           // BOCA MOSTRANDO LOS DIENTES (mordida)
           '<g id="boca-dientes" class="boca" style="display:none">' +
             '<path d="' + bocaDientes + '" fill="' + C.boca + '"/>' +
             '<g clip-path="url(#clipDientes' + u + ')">' +
-              dientesFila(690, 910, 526, 50, 8, true) +
-              dientesFila(704, 896, 578, 48, 7, false) +
+              dientesFila(676, 924, 528, 66, 8, true) +
+              dientesFila(690, 910, 596, 62, 7, false) +
               '<g id="sarro-dientes"></g>' +
             '</g>' +
-            '<path d="' + bocaDientes + '" fill="none" stroke="' + C.labio + '" stroke-width="6"/>' +
+            '<path d="' + bocaDientes + '" fill="none" stroke="' + C.labio + '" stroke-width="7"/>' +
           '</g>' +
           // SONRISA (inicio)
           '<g id="boca-sonrisa" class="boca" style="display:none">' +
             '<path d="' + bocaSonrisa + '" fill="' + C.boca + '"/>' +
             '<g clip-path="url(#clipSonrisa' + u + ')">' +
-              '<ellipse cx="800" cy="632" rx="70" ry="34" fill="' + C.lengua + '"/>' +
-              dientesFila(700, 900, 530, 36, 8, true) +
+              '<ellipse cx="800" cy="660" rx="80" ry="38" fill="' + C.lengua + '"/>' +
+              dientesFila(686, 914, 540, 42, 8, true) +
             '</g>' +
-            '<path d="' + bocaSonrisa + '" fill="none" stroke="' + C.labio + '" stroke-width="6"/>' +
+            '<path d="' + bocaSonrisa + '" fill="none" stroke="' + C.labio + '" stroke-width="7"/>' +
           '</g>' +
           // ENJUAGUE: boca cerrada con cachetes inflados
           '<g id="boca-enjuague" class="boca" style="display:none">' +
-            '<ellipse cx="650" cy="560" rx="70" ry="64" fill="' + C.piel + '"/>' +
-            '<ellipse cx="950" cy="560" rx="70" ry="64" fill="' + C.piel + '"/>' +
-            '<ellipse cx="640" cy="540" rx="46" ry="28" fill="#FF8F8F" opacity=".55"/>' +
-            '<ellipse cx="960" cy="540" rx="46" ry="28" fill="#FF8F8F" opacity=".55"/>' +
-            '<path d="M760 580q40 26 80 0" stroke="' + C.labio + '" stroke-width="10" fill="none" stroke-linecap="round"/>' +
+            '<ellipse cx="640" cy="572" rx="80" ry="72" fill="' + C.piel + '"/>' +
+            '<ellipse cx="960" cy="572" rx="80" ry="72" fill="' + C.piel + '"/>' +
+            '<ellipse cx="630" cy="548" rx="60" ry="36" fill="url(#gRubor' + u + ')"/>' +
+            '<ellipse cx="970" cy="548" rx="60" ry="36" fill="url(#gRubor' + u + ')"/>' +
+            '<path d="M756 598q44 28 88 0" stroke="' + C.labio + '" stroke-width="11" fill="none" stroke-linecap="round"/>' +
           '</g>' +
         '</g>' +
         // brazo (se recalcula en cada fotograma para seguir a la mano)
-        '<path id="brazo" d="" stroke="' + C.piel + '" stroke-width="84" stroke-linecap="round" fill="none"/>' +
-        '<path d="M330 900C340 830 400 790 480 790C540 792 560 850 552 900Z" fill="' + C.remera + '"/>' +
-        '<path d="M360 880Q450 850 540 880" stroke="' + C.remeraOsc + '" stroke-width="10" fill="none" stroke-linecap="round"/>' +
+        '<path id="brazo" d="" stroke="' + C.piel + '" stroke-width="118" stroke-linecap="round" fill="none"/>' +
+        '<path id="brazo-luz" d="" stroke="' + C.pielClara + '" stroke-width="40" stroke-linecap="round" fill="none" opacity=".45"/>' +
+        '<path d="M240 1010C250 850 330 800 420 800C500 804 530 870 530 1010Z" fill="url(#gRemera' + u + ')"/>' +
+        '<path d="M282 912Q390 876 506 906" stroke="' + C.remeraOsc + '" stroke-width="12" fill="none" stroke-linecap="round"/>' +
         // flechas guía del movimiento
-        '<g id="guias" opacity=".95"></g>' +
+        '<g id="guias"></g>' +
         // cepillo + mano
-        '<g id="cepillo" style="display:none">' + cepillo() + '<g id="espuma">' + espuma() + '</g></g>' +
+        '<g id="cepillo" style="display:none">' + cepillo(u) + '<g id="espuma">' + espuma() + '</g></g>' +
         // vaso + mano (enjuague)
         '<g id="vaso" style="display:none">' +
-          manoAtras(0, 40) +
-          '<path d="M-58-90H58L46 70H-46Z" fill="#CDEBFF" opacity=".85" stroke="#FFFFFF" stroke-width="6"/>' +
-          '<path d="M-52-30H52L46 70H-46Z" fill="#6FC3FF" opacity=".7"/>' +
-          '<path d="M-36-70v110" stroke="#FFFFFF" stroke-width="10" stroke-linecap="round" opacity=".7"/>' +
-          manoDedos(0, 40) +
+          manoAtras(0, 50) +
+          '<path d="M-66-110H66L52 80H-52Z" fill="#CDEBFF" opacity=".85" stroke="#FFFFFF" stroke-width="6"/>' +
+          '<path d="M-60-40H60L52 80H-52Z" fill="#6FC3FF" opacity=".7"/>' +
+          '<path d="M-40-86v130" stroke="#FFFFFF" stroke-width="10" stroke-linecap="round" opacity=".7"/>' +
+          manoDedos(0, 50, u) +
         '</g>' +
         '<g id="gotas" style="display:none" fill="#8FD3FF" stroke="#FFFFFF" stroke-width="3">' +
-          '<path d="M885 575q10 14 0 22q-10-8 0-22z"/><path d="M905 555q8 12 0 18q-8-6 0-18z"/><path d="M920 590q8 12 0 18q-8-6 0-18z"/>' +
+          '<path d="M720 590q12 16 0 26q-12-10 0-26z"/><path d="M696 566q9 13 0 20q-9-7 0-20z"/><path d="M740 616q9 13 0 20q-9-7 0-20z"/>' +
         '</g>' +
         '<g id="destellos"></g>' +
       '</g>';
-  }
-
-  function ojo(cx) {
-    return '' +
-      '<ellipse cx="' + cx + '" cy="400" rx="62" ry="72" fill="#FFFFFF"/>' +
-      '<circle cx="' + cx + '" cy="410" r="48" fill="#5A3419"/>' +
-      '<circle cx="' + cx + '" cy="410" r="30" fill="#1E120A"/>' +
-      '<circle cx="' + (cx - 16) + '" cy="390" r="14" fill="#FFFFFF"/>' +
-      '<circle cx="' + (cx + 18) + '" cy="428" r="7" fill="#FFFFFF"/>' +
-      '<path d="M' + (cx - 62) + ' 392Q' + cx + ' 312 ' + (cx + 62) + ' 392" stroke="#3A2414" stroke-width="9" fill="none" stroke-linecap="round"/>';
   }
 
   function dienteMascota(x, y, s) {
@@ -424,7 +456,7 @@
     var s = '', r = semilla;
     function azar() { r = (r * 9301 + 49297) % 233280; return r / 233280; }
     for (var i = 0; i < n; i++) {
-      var x = azar() * 1600, y = azar() * 900, t = 4 + azar() * 9;
+      var x = azar() * 1200, y = azar() * 900, t = 4 + azar() * 9;
       s += '<path class="titila" d="M' + x + ' ' + (y - t) + 'L' + (x + t * .3) + ' ' + (y - t * .3) + 'L' + (x + t) + ' ' + y + 'L' + (x + t * .3) + ' ' + (y + t * .3) + 'L' + x + ' ' + (y + t) + 'L' + (x - t * .3) + ' ' + (y + t * .3) + 'L' + (x - t) + ' ' + y + 'L' + (x - t * .3) + ' ' + (y - t * .3) + 'Z" fill="#FFFFFF" opacity="' + (.4 + azar() * .6).toFixed(2) + '"/>';
     }
     return s;
@@ -439,48 +471,52 @@
       '</g>';
   }
 
+  // Ícono de la píldora del paso: boca con los dientes que tocan resaltados.
   function iconoBoca(tipo) {
     if (tipo === 'agua') return '<circle cx="38" cy="38" r="36" fill="#E3F4FF"/><path d="M38 12C48 28 56 36 56 46A18 18 0 0 1 20 46C20 36 28 28 38 12Z" fill="#3FA9F5"/><path d="M28 46q2 8 10 10" stroke="#fff" stroke-width="4" fill="none" stroke-linecap="round"/>';
-    var dientesArriba = tipo !== 'abajo', dientesAbajo = tipo !== 'arriba';
-    return '<circle cx="38" cy="38" r="36" fill="#FFE7EA"/>' +
-      '<path d="M12 30Q38 18 64 30Q64 60 38 64Q12 60 12 30Z" fill="#C2394E"/>' +
-      '<path d="M18 30Q38 22 58 30V38H18Z" fill="' + (dientesArriba ? '#FFFFFF' : '#F4B9C2') + '"/>' +
-      '<path d="M22 52H54Q48 60 38 60Q28 60 22 52Z" fill="' + (dientesAbajo ? '#FFFFFF' : '#F4B9C2') + '"/>' +
-      '<path d="M12 30Q38 18 64 30Q64 60 38 64Q12 60 12 30Z" fill="none" stroke="#E86A7C" stroke-width="4"/>';
+    var arriba = tipo !== 'abajo', abajo = tipo !== 'arriba';
+    return '<path d="M6 30Q38 10 70 30Q70 66 38 70Q6 66 6 30Z" fill="#E4536A"/>' +
+      '<path d="M12 30Q38 18 64 30V40Q38 34 12 40Z" fill="' + (arriba ? '#FFFFFF' : '#F5B6C0') + '"/>' +
+      '<path d="M20 30v8M29 26v10M38 25v10M47 26v10M56 30v8" stroke="#F0D6DA" stroke-width="2"/>' +
+      '<path d="M18 54Q38 48 58 54Q52 64 38 64Q24 64 18 54Z" fill="' + (abajo ? '#FFFFFF' : '#F5B6C0') + '"/>' +
+      '<path d="M6 30Q38 10 70 30Q70 66 38 70Q6 66 6 30Z" fill="none" stroke="#C23A52" stroke-width="4"/>';
   }
 
   /* =====================================================================
      ESTADO Y PANTALLAS
      ===================================================================== */
   var $ = function (id) { return document.getElementById(id); };
-  var estado = { pantalla: 'inicio', paso: 0, tiempo: 0, completado: false, reloj: 0, auto: true };
+  var estado = { pantalla: 'inicio', paso: 0, tiempo: 0, completado: false, auto: true };
+
+  // Encuadre del niño en cada pantalla (primer plano como en el video).
+  var ENCUADRE_PASO = 'translate(-224 -96) scale(1.03)';
+  var ENCUADRE_INICIO = 'translate(-340 90) scale(.9)';
 
   $('svg-inicio').innerHTML =
-    '<g>' + estrellas(70, 7) + '</g>' +
-    cohete(170, 140, .9, 40) + cohete(1480, 110, .55, 30) +
-    '<g transform="translate(-300 80) scale(.9)">' + nino('inicio') + '</g>' +
-    dienteMascota(660, 740, .75);
-  $('svg-paso').innerHTML = fondoBano(7) + nino('paso');
+    '<g>' + estrellas(60, 7) + '</g>' +
+    cohete(120, 110, .8, 40) + cohete(1130, 60, .5, 30) +
+    '<g transform="' + ENCUADRE_INICIO + '">' + nino('inicio') + '</g>' +
+    dienteMascota(560, 760, .65);
+  $('svg-paso').innerHTML = fondoBano() + '<g transform="' + ENCUADRE_PASO + '">' + nino('paso') + '</g>';
   $('svg-final').innerHTML =
-    '<g>' + estrellas(80, 21) + '</g>' +
-    dienteMascota(800, 190, 1.05) +
+    '<g>' + estrellas(70, 21) + '</g>' +
+    dienteMascota(600, 190, 1.05) +
     '<g fill="#FFD23F">' +
-      '<path d="M560 180l10 22 24 3-18 16 5 24-21-12-21 12 5-24-18-16 24-3z"/>' +
-      '<path d="M1040 140l8 18 20 2-15 14 4 20-17-10-17 10 4-20-15-14 20-2z"/>' +
-      '<path d="M1110 260l6 13 14 2-10 10 3 14-13-7-13 7 3-14-10-10 14-2z"/>' +
+      '<path d="M360 180l10 22 24 3-18 16 5 24-21-12-21 12 5-24-18-16 24-3z"/>' +
+      '<path d="M840 140l8 18 20 2-15 14 4 20-17-10-17 10 4-20-15-14 20-2z"/>' +
+      '<path d="M910 260l6 13 14 2-10 10 3 14-13-7-13 7 3-14-10-10 14-2z"/>' +
     '</g>';
 
-  // Lista vertical de pasos
   $('lista').innerHTML = PASOS.map(function (_, i) { return '<span>' + (i + 1) + '</span>'; }).join('');
 
-  // Pose fija de la pantalla de inicio: sonrisa y cepillo en alto.
+  // Pose de la pantalla de inicio: sonrisa y cepillo en alto.
   (function () {
     var svg = $('svg-inicio');
     svg.querySelector('#boca-sonrisa').style.display = '';
     var cep = svg.querySelector('#cepillo');
     cep.style.display = '';
     cep.querySelector('#espuma').style.display = 'none';
-    colocarProp(svg, cep, 470, 300, -90, [0, 240]);
+    colocarProp(svg, cep, 470, 300, -90, [-320, 30]);
   })();
 
   function mostrar(nombre) {
@@ -507,14 +543,13 @@
     svg.querySelector('#boca-' + p.boca).style.display = '';
     var enjuague = p.boca === 'enjuague';
     svg.querySelector('#ojos').style.display = enjuague ? 'none' : '';
+    svg.querySelector('#ojos-cerrados').style.display = 'none';
     svg.querySelector('#ojos-felices').style.display = enjuague ? '' : 'none';
-    svg.querySelector('#cachete-i').style.display = enjuague ? 'none' : '';
-    svg.querySelector('#cachete-d').style.display = enjuague ? 'none' : '';
     svg.querySelector('#cepillo').style.display = enjuague ? 'none' : '';
     svg.querySelector('#vaso').style.display = enjuague ? '' : 'none';
     svg.querySelector('#gotas').style.display = enjuague ? '' : 'none';
     svg.querySelector('#cep-cabezal').setAttribute('transform', p.abajo ? 'scale(1 -1)' : '');
-    svg.querySelector('#espuma').setAttribute('transform', p.abajo ? 'translate(0 8)' : 'translate(0 -8)');
+    svg.querySelector('#espuma').setAttribute('transform', p.abajo ? 'translate(0 10)' : 'translate(0 -10)');
     dibujarSarro(svg, p);
     dibujarGuias(svg, p);
     svg.querySelector('#destellos').innerHTML = '';
@@ -523,13 +558,13 @@
 
   // Manchitas de sarro que se van limpiando con el tiempo del paso.
   var ZONAS_SARRO = {
-    arriba: [[730, 552], [760, 556], [800, 558], [840, 556], [870, 552], [780, 548]],
-    abajo: [[740, 610], [775, 612], [812, 614], [850, 610], [795, 606]],
-    adelante: [[740, 562], [790, 566], [845, 562], [760, 596], [820, 600], [870, 594]],
-    atrasArriba: [[840, 552], [870, 550], [890, 546], [855, 560]],
-    atrasAbajo: [[840, 612], [868, 610], [885, 606], [852, 606]],
-    molaresArriba: [[868, 548], [888, 544], [900, 552], [876, 558]],
-    molaresAbajo: [[866, 612], [884, 608], [896, 604], [876, 616]]
+    arriba: [[712, 552], [748, 558], [790, 560], [834, 558], [876, 552], [770, 546]],
+    abajo: [[726, 626], [764, 628], [806, 630], [848, 626], [880, 622]],
+    adelante: [[716, 574], [770, 580], [834, 578], [884, 572], [746, 614], [812, 618], [866, 612]],
+    atrasArriba: [[840, 556], [872, 552], [898, 546], [856, 566]],
+    atrasAbajo: [[842, 630], [870, 628], [892, 624], [858, 622]],
+    molaresArriba: [[870, 552], [894, 548], [908, 556], [882, 562]],
+    molaresAbajo: [[868, 628], [888, 624], [904, 620], [880, 634]]
   };
   var SARRO_POR_PASO = ['arriba', 'abajo', 'adelante', 'atrasArriba', 'atrasAbajo', 'molaresArriba', 'molaresAbajo', null];
 
@@ -540,45 +575,48 @@
     if (!zona) return;
     var destino = svg.querySelector(p.boca === 'dientes' ? '#sarro-dientes' : '#sarro-abierta');
     destino.innerHTML = ZONAS_SARRO[zona].map(function (m, i) {
-      return '<ellipse cx="' + m[0] + '" cy="' + m[1] + '" rx="' + (9 + (i % 3) * 3) + '" ry="' + (6 + (i % 2) * 2) + '" fill="#E8CF7A"/>';
+      return '<ellipse cx="' + m[0] + '" cy="' + m[1] + '" rx="' + (10 + (i % 3) * 3) + '" ry="' + (7 + (i % 2) * 2) + '" fill="#E8CF7A"/>';
     }).join('');
   }
 
-  function flechaDoble(x1, y1, x2, y2) {
-    var dx = x2 - x1, dy = y2 - y1, L = Math.hypot(dx, dy), ux = dx / L, uy = dy / L, nx = -uy, ny = ux, h = 26;
-    function punta(x, y, sx, sy) {
-      return 'M' + (x - sx * h + nx * h * .8) + ' ' + (y - sy * h + ny * h * .8) + 'L' + x + ' ' + y + 'L' + (x - sx * h - nx * h * .8) + ' ' + (y - sy * h - ny * h * .8);
-    }
-    var d = 'M' + x1 + ' ' + y1 + 'L' + x2 + ' ' + y2 + punta(x2, y2, ux, uy) + punta(x1, y1, -ux, -uy);
-    return '<path d="' + d + '" stroke="#FFFFFF" stroke-width="22" fill="none" stroke-linecap="round" stroke-linejoin="round"/>' +
-           '<path d="' + d + '" stroke="#3FA9F5" stroke-width="11" fill="none" stroke-linecap="round" stroke-linejoin="round"/>';
+  // Flecha curva con dos puntas (como las del video, debajo del mentón).
+  function trazoFlecha(d) {
+    return '<path d="' + d + '" stroke="#FFFFFF" stroke-width="26" fill="none" stroke-linecap="round" stroke-linejoin="round"/>' +
+           '<path d="' + d + '" stroke="#4FA8F0" stroke-width="13" fill="none" stroke-linecap="round" stroke-linejoin="round"/>';
   }
-
+  function punta(x, y, dx, dy) {
+    var L = Math.hypot(dx, dy), ux = dx / L, uy = dy / L, h = 24;
+    return 'M' + (x - ux * h - uy * h * .75) + ' ' + (y - uy * h + ux * h * .75) + 'L' + x + ' ' + y +
+           'L' + (x - ux * h + uy * h * .75) + ' ' + (y - uy * h - ux * h * .75);
+  }
+  function flechaCurva(x1, y1, x2, y2, curva) {
+    var mx = (x1 + x2) / 2, my = (y1 + y2) / 2, dx = x2 - x1, dy = y2 - y1, L = Math.hypot(dx, dy);
+    var cx = mx - dy / L * curva, cy = my + dx / L * curva;
+    var d = 'M' + x1 + ' ' + y1 + 'Q' + cx + ' ' + cy + ' ' + x2 + ' ' + y2 +
+            punta(x2, y2, x2 - cx, y2 - cy) + punta(x1, y1, x1 - cx, y1 - cy);
+    return trazoFlecha(d);
+  }
   function flechaCircular(cx, cy, r) {
-    var d = 'M' + (cx + r) + ' ' + cy + 'A' + r + ' ' + r + ' 0 1 1 ' + cx + ' ' + (cy - r);
-    var punta = 'M' + (cx - 20) + ' ' + (cy - r - 18) + 'L' + cx + ' ' + (cy - r) + 'L' + (cx - 20) + ' ' + (cy - r + 18);
-    return '<g>' +
-      '<path d="' + d + punta + '" stroke="#FFFFFF" stroke-width="22" fill="none" stroke-linecap="round" stroke-linejoin="round"/>' +
-      '<path d="' + d + punta + '" stroke="#3FA9F5" stroke-width="11" fill="none" stroke-linecap="round" stroke-linejoin="round"/></g>';
+    var d = 'M' + (cx + r) + ' ' + cy + 'A' + r + ' ' + r + ' 0 1 1 ' + cx + ' ' + (cy - r) +
+            'M' + (cx - 22) + ' ' + (cy - r - 20) + 'L' + cx + ' ' + (cy - r) + 'L' + (cx - 22) + ' ' + (cy - r + 20);
+    return trazoFlecha(d);
   }
 
   function dibujarGuias(svg, p) {
-    var g = svg.querySelector('#guias'), s = '';
+    var s = '';
     if (p.mov === 'lado') {
-      var y = p.abajo ? 668 : 505;
-      s = flechaDoble(690, y, 790, y) + flechaDoble(820, y, 920, y);
+      var y = p.abajo ? 716 : 700;
+      s = flechaCurva(672, y - 14, 780, y + 8, 22) + flechaCurva(820, y + 8, 928, y - 14, 22);
     } else if (p.mov === 'vertical') {
-      s = flechaDoble(960, 520, 960, 630) + flechaDoble(640, 520, 640, 630);
+      s = flechaCurva(960, 530, 960, 660, -18) + flechaCurva(640, 530, 640, 660, 18);
     } else if (p.mov === 'eje') {
-      var a = p.angulo * Math.PI / 180, ca = Math.cos(a), sa = Math.sin(a), off = p.abajo ? 80 : -70;
-      var cx = p.cabezal[0] + 30, cy = p.cabezal[1] + off;
-      s = flechaDoble(cx - 70 * ca, cy - 70 * sa, cx + 70 * ca, cy + 70 * sa);
+      var a = p.angulo * Math.PI / 180, ca = Math.cos(a), sa = Math.sin(a);
+      var cx = p.cabezal[0] + 20, cy = p.abajo ? 722 : 506;
+      s = flechaCurva(cx - 80 * ca, cy - 80 * sa, cx + 80 * ca, cy + 80 * sa, p.abajo ? 16 : -16);
     } else if (p.mov === 'circulo') {
-      s = flechaCircular(p.cabezal[0] + 70, p.cabezal[1] + (p.abajo ? 20 : -10), 56);
-    } else if (p.mov === 'ninguno') {
-      s = '';
+      s = flechaCircular(p.cabezal[0] + 66, p.cabezal[1] + (p.abajo ? 30 : -16), 58);
     }
-    g.innerHTML = s;
+    svg.querySelector('#guias').innerHTML = s;
   }
 
   // Coloca el cepillo/vaso y recalcula el brazo para que siempre llegue a la mano.
@@ -587,42 +625,45 @@
     var a = ang * Math.PI / 180, mx = muneca[0], my = muneca[1];
     var wx = x + mx * Math.cos(a) - my * Math.sin(a);
     var wy = y + mx * Math.sin(a) + my * Math.cos(a);
-    var hx = 440, hy = 860; // salida del brazo desde la manga
-    var cx = hx - 30, cy = (hy + wy) / 2 + 60;
-    svg.querySelector('#brazo').setAttribute('d', 'M' + hx + ' ' + hy + 'Q' + cx.toFixed(1) + ' ' + cy.toFixed(1) + ' ' + wx.toFixed(1) + ' ' + wy.toFixed(1));
+    var hx = 390, hy = 880; // salida del brazo desde la manga
+    var cx = hx - 40, cy = (hy + wy) / 2 + 70;
+    var d = 'M' + hx + ' ' + hy + 'Q' + cx.toFixed(1) + ' ' + cy.toFixed(1) + ' ' + wx.toFixed(1) + ' ' + wy.toFixed(1);
+    svg.querySelector('#brazo').setAttribute('d', d);
+    svg.querySelector('#brazo-luz').setAttribute('d', 'M' + (hx + 14) + ' ' + (hy - 10) + 'Q' + (cx + 14).toFixed(1) + ' ' + (cy - 10).toFixed(1) + ' ' + (wx + 10).toFixed(1) + ' ' + (wy - 20).toFixed(1));
   }
 
   /* ---------- Bucle de animación ---------- */
   function animar(t) {
     if (estado.pantalla === 'paso') posarPaso($('svg-paso'), PASOS[estado.paso], t, estado.tiempo);
     if (estado.pantalla === 'inicio') posarInicio(t);
-    if (estado.pantalla === 'final') posarFinal(t);
+    if (estado.pantalla === 'final') posarTitilar($('svg-final'), t);
   }
 
-  function parpadeo(t, periodo) {
-    var f = (t % periodo) / 0.16;
-    return f < 1 ? Math.max(0.08, Math.abs(1 - 2 * f)) : 1;
+  // Ojos cerrados unos 0,15 s cada `periodo` segundos, como en el video.
+  function parpadea(t, periodo) { return (t % periodo) < 0.15; }
+  function aplicarParpadeo(svg, cerrado) {
+    svg.querySelector('#ojos').style.display = cerrado ? 'none' : '';
+    svg.querySelector('#ojos-cerrados').style.display = cerrado ? '' : 'none';
   }
 
   function posarPaso(svg, p, t, tiempoPaso) {
     var w = 2 * Math.PI * HZ_CEPILLADO * t;
-    svg.querySelector('#cabeza').setAttribute('transform', 'rotate(' + (0.8 * Math.sin(w * 0.5)).toFixed(2) + ' 800 690)');
-    var s = parpadeo(t, 3.6);
-    svg.querySelector('#ojos').setAttribute('transform', 'translate(0 400) scale(1 ' + s.toFixed(3) + ') translate(0 -400)');
+    // la cabeza acompaña el cepillado con un leve vaivén
+    svg.querySelector('#cabeza').setAttribute('transform', 'rotate(' + (1.2 * Math.sin(w * 0.5)).toFixed(2) + ' 800 720)');
 
     if (p.mov === 'ninguno') {
-      // enjuague: el vaso sube y baja suavemente, las gotas titilan
       var b = 8 * Math.sin(2 * Math.PI * t / 1.4);
-      colocarProp(svg, svg.querySelector('#vaso'), 1010, 700 + b, 8, [0, 60]);
+      colocarProp(svg, svg.querySelector('#vaso'), 610, 700 + b, -6, [0, 80]);
       svg.querySelector('#gotas').setAttribute('opacity', (0.5 + 0.5 * Math.sin(2 * Math.PI * t)).toFixed(2));
-      svg.querySelector('#boca-enjuague').setAttribute('transform', 'translate(0 560) scale(1 ' + (1 + 0.03 * Math.sin(w)).toFixed(3) + ') translate(0 -560)');
+      svg.querySelector('#boca-enjuague').setAttribute('transform', 'translate(0 572) scale(1 ' + (1 + 0.03 * Math.sin(w)).toFixed(3) + ') translate(0 -572)');
     } else {
+      aplicarParpadeo(svg, parpadea(t, 3.4));
       var dx = 0, dy = 0, a = p.angulo * Math.PI / 180;
-      if (p.mov === 'lado') { dx = 32 * Math.sin(w); }
-      if (p.mov === 'vertical') { dy = 16 * Math.sin(w); }
-      if (p.mov === 'eje') { var e = 26 * Math.sin(w); dx = e * Math.cos(a); dy = e * Math.sin(a); }
-      if (p.mov === 'circulo') { dx = 14 * Math.cos(w); dy = 10 * Math.sin(w); }
-      colocarProp(svg, svg.querySelector('#cepillo'), p.cabezal[0] + dx, p.cabezal[1] + dy, p.angulo, [-270, 20]);
+      if (p.mov === 'lado') { dx = 34 * Math.sin(w); dy = 3 * Math.sin(2 * w); }
+      if (p.mov === 'vertical') { dy = 18 * Math.sin(w); }
+      if (p.mov === 'eje') { var e = 28 * Math.sin(w); dx = e * Math.cos(a); dy = e * Math.sin(a); }
+      if (p.mov === 'circulo') { dx = 15 * Math.cos(w); dy = 11 * Math.sin(w); }
+      colocarProp(svg, svg.querySelector('#cepillo'), p.cabezal[0] + dx, p.cabezal[1] + dy, p.angulo + 1.5 * Math.sin(w), [-320, 30]);
       Array.prototype.forEach.call(svg.querySelectorAll('.burbuja'), function (c) {
         var i = +c.getAttribute('data-i');
         c.setAttribute('transform', 'translate(0 ' + (-4 * Math.sin(w * 1.5 + i)).toFixed(2) + ')');
@@ -630,8 +671,7 @@
       });
     }
 
-    // guías: laten; sarro: se va limpiando
-    svg.querySelector('#guias').setAttribute('opacity', (0.65 + 0.35 * Math.sin(2 * Math.PI * t / 0.9)).toFixed(2));
+    svg.querySelector('#guias').setAttribute('opacity', (0.7 + 0.3 * Math.sin(2 * Math.PI * t / 0.9)).toFixed(2));
     var limpio = Math.min(1, tiempoPaso / (SEGUNDOS_POR_PASO * 0.85));
     Array.prototype.forEach.call(svg.querySelectorAll('#sarro-abierta ellipse, #sarro-dientes ellipse'), function (m, i) {
       m.setAttribute('opacity', Math.max(0, 1 - limpio * (1 + i * 0.12)).toFixed(2));
@@ -640,16 +680,13 @@
 
   function posarInicio(t) {
     var svg = $('svg-inicio');
-    var s = parpadeo(t, 3.2);
-    svg.querySelector('#ojos').setAttribute('transform', 'translate(0 400) scale(1 ' + s.toFixed(3) + ') translate(0 -400)');
-    svg.querySelector('#cabeza').setAttribute('transform', 'rotate(' + (2 * Math.sin(2 * Math.PI * t / 2.4)).toFixed(2) + ' 800 690)');
-    Array.prototype.forEach.call(svg.querySelectorAll('.titila'), function (e, i) {
-      e.style.opacity = (0.35 + 0.65 * Math.abs(Math.sin(t * 1.3 + i))).toFixed(2);
-    });
+    aplicarParpadeo(svg, parpadea(t, 3.2));
+    svg.querySelector('#cabeza').setAttribute('transform', 'rotate(' + (2 * Math.sin(2 * Math.PI * t / 2.4)).toFixed(2) + ' 800 720)');
+    posarTitilar(svg, t);
   }
 
-  function posarFinal(t) {
-    Array.prototype.forEach.call($('svg-final').querySelectorAll('.titila'), function (e, i) {
+  function posarTitilar(svg, t) {
+    Array.prototype.forEach.call(svg.querySelectorAll('.titila'), function (e, i) {
       e.style.opacity = (0.35 + 0.65 * Math.abs(Math.sin(t * 1.3 + i))).toFixed(2);
     });
   }
@@ -657,9 +694,8 @@
   /* ---------- Reloj de 20 s por paso ---------- */
   function actualizarReloj() {
     var resta = Math.max(0, SEGUNDOS_POR_PASO - estado.tiempo);
-    var seg = Math.ceil(resta);
-    $('reloj-texto').textContent = '0:' + String(seg).padStart(2, '0');
-    var L = 2 * Math.PI * 74;
+    $('reloj-texto').textContent = '0:' + String(Math.ceil(resta)).padStart(2, '0');
+    var L = 2 * Math.PI * 67;
     $('reloj-anillo').setAttribute('stroke-dasharray', (L * resta / SEGUNDOS_POR_PASO).toFixed(1) + ' ' + L.toFixed(1));
   }
 
@@ -667,13 +703,13 @@
     estado.completado = true;
     $('bien').textContent = estado.paso === PASOS.length - 1 ? '¡Excelente!' : '¡Muy bien!';
     $('bien').classList.add('ver');
-    var svg = $('svg-paso');
-    svg.querySelector('#destellos').innerHTML =
-      [[700, 470], [900, 470], [800, 440], [660, 600], [940, 600]].map(function (d) {
-        return '<path d="M' + d[0] + ' ' + (d[1] - 26) + 'C' + (d[0] + 4) + ' ' + (d[1] - 6) + ' ' + (d[0] + 6) + ' ' + (d[1] - 4) + ' ' + (d[0] + 26) + ' ' + d[1] +
-          'C' + (d[0] + 6) + ' ' + (d[1] + 4) + ' ' + (d[0] + 4) + ' ' + (d[1] + 6) + ' ' + d[0] + ' ' + (d[1] + 26) +
-          'C' + (d[0] - 4) + ' ' + (d[1] + 6) + ' ' + (d[0] - 6) + ' ' + (d[1] + 4) + ' ' + (d[0] - 26) + ' ' + d[1] +
-          'C' + (d[0] - 6) + ' ' + (d[1] - 4) + ' ' + (d[0] - 4) + ' ' + (d[1] - 6) + ' ' + d[0] + ' ' + (d[1] - 26) + 'Z" fill="#FFFFFF" stroke="#FFD23F" stroke-width="3"/>';
+    $('svg-paso').querySelector('#destellos').innerHTML =
+      [[690, 470], [910, 470], [800, 440], [640, 620], [960, 620]].map(function (d) {
+        var x = d[0], y = d[1];
+        return '<path d="M' + x + ' ' + (y - 28) + 'C' + (x + 4) + ' ' + (y - 6) + ' ' + (x + 6) + ' ' + (y - 4) + ' ' + (x + 28) + ' ' + y +
+          'C' + (x + 6) + ' ' + (y + 4) + ' ' + (x + 4) + ' ' + (y + 6) + ' ' + x + ' ' + (y + 28) +
+          'C' + (x - 4) + ' ' + (y + 6) + ' ' + (x - 6) + ' ' + (y + 4) + ' ' + (x - 28) + ' ' + y +
+          'C' + (x - 6) + ' ' + (y - 4) + ' ' + (x - 4) + ' ' + (y - 6) + ' ' + x + ' ' + (y - 28) + 'Z" fill="#FFFFFF" stroke="#FFD23F" stroke-width="3"/>';
       }).join('');
     if (estado.auto) setTimeout(function () {
       if (estado.pantalla === 'paso' && estado.completado) siguiente();
@@ -723,7 +759,7 @@
 
   /* ---------- Escalado del escenario ---------- */
   function ajustar() {
-    var e = Math.min(window.innerWidth / 1600, window.innerHeight / 900);
+    var e = Math.min(window.innerWidth / 1200, window.innerHeight / 900);
     $('escenario').style.transform = 'scale(' + e + ')';
   }
   window.addEventListener('resize', ajustar);

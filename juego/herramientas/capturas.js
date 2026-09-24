@@ -13,7 +13,7 @@ const SALIDA = path.join(RAIZ, 'capturas');
 (async () => {
   fs.mkdirSync(SALIDA, { recursive: true });
   const nav = await chromium.launch();
-  const pag = await nav.newPage({ viewport: { width: 1600, height: 900 } });
+  const pag = await nav.newPage({ viewport: { width: 1200, height: 900 } });
   await pag.goto('file://' + path.join(RAIZ, 'index.html'));
   await pag.evaluate(() => document.fonts.ready);
 
@@ -29,7 +29,7 @@ const SALIDA = path.join(RAIZ, 'capturas');
   }
 
   // Mosaico 5×2 a 1/3 de tamaño
-  const w = 533, h = 300;
+  const w = 400, h = 300;
   const mos = await nav.newPage({ viewport: { width: w * 5 + 6 * 8, height: h * 2 + 3 * 8 } });
   await mos.setContent(`<body style="margin:0;background:#081636;display:grid;grid-template-columns:repeat(5,${w}px);gap:8px;padding:8px">${
     imgs.map((b) => `<img src="data:image/png;base64,${b}" width="${w}" height="${h}" style="border-radius:10px">`).join('')}</body>`);
