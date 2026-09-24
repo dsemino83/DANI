@@ -95,6 +95,8 @@
     font-size: 36px; font-weight: 800; border-radius: 999px; padding: 4px 0; box-shadow: 0 6px 0 #D99A00, 0 10px 20px rgba(0,0,0,.25);
     pointer-events: none; animation: latido 1s ease-in-out infinite; }
   @keyframes latido { 50% { transform: scale(1.08); } }
+  /* Clip de video generado con IA (PixVerse/OpenArt) que reemplaza al dibujo cuando existe. */
+  .video-escena { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: none; pointer-events: none; }
   #bien { position: absolute; left: 50%; top: 230px; transform: translateX(-50%) scale(0); font-size: 110px;
     font-weight: 800; color: #FFD23F; -webkit-text-stroke: 12px #1753C9; paint-order: stroke fill;
     transition: transform .35s cubic-bezier(.3,1.6,.5,1); pointer-events: none; white-space: nowrap; }
@@ -119,6 +121,7 @@
     <!-- ============ MISIÓN: SUPERDIENTE PIDE EL CEPILLO ============ -->
     <section id="p-mision" class="pantalla">
       <svg id="svg-mision" viewBox="0 0 1200 900" width="1200" height="900"></svg>
+      <video class="video-escena" id="video-mision" muted loop playsinline preload="auto"></video>
       <div class="ui-paso">
         <svg class="icono" viewBox="0 0 76 76"><circle cx="38" cy="38" r="36" fill="#FFF3C4"/><path d="M38 12l7.6 15.4 17 2.5-12.3 12 2.9 16.9L38 50.8l-15.2 8 2.9-16.9-12.3-12 17-2.5z" fill="#FFC21A" stroke="#E0A100" stroke-width="3" stroke-linejoin="round"/></svg>
         <span class="nombre">¡Tu misión!</span>
@@ -138,6 +141,7 @@
     <!-- ================= PASOS ================= -->
     <section id="p-paso" class="pantalla">
       <svg id="svg-paso" viewBox="0 0 1200 900" width="1200" height="900"></svg>
+      <video class="video-escena" id="video-paso" muted loop playsinline preload="auto"></video>
 
       <div class="ui-reloj">
         <svg viewBox="0 0 150 150" width="150" height="150">
@@ -729,6 +733,27 @@
     colocarProp(svg, cep, 470, 300, -90, [-320, 30]);
   })();
 
+  /* Videos por escena: si existe recursos/videos/<nombre>.mp4 se muestra en bucle
+     debajo de la interfaz; si no existe, queda el dibujo animado de siempre. */
+  var CARPETA_VIDEOS = 'recursos/videos/';
+  function ponerVideo(video, nombre, svg, selectorOcultar) {
+    var ocultar = svg.querySelector(selectorOcultar);
+    video.onloadeddata = function () {
+      video.style.display = 'block';
+      if (ocultar) ocultar.style.visibility = 'hidden';
+      video.play().catch(function () {});
+    };
+    var formatos = ['.mp4', '.webm']; // MP4 para Chrome/Safari; WebM para navegadores sin H.264
+    video.onerror = function () {
+      if (formatos.length) { video.src = CARPETA_VIDEOS + nombre + formatos.shift(); return; }
+      video.style.display = 'none';
+      if (ocultar) ocultar.style.visibility = '';
+    };
+    video.style.display = 'none';
+    if (ocultar) ocultar.style.visibility = '';
+    video.src = CARPETA_VIDEOS + nombre + formatos.shift();
+  }
+
   function mostrar(nombre) {
     estado.pantalla = nombre;
     ['inicio', 'mision', 'paso', 'final'].forEach(function (p) { $('p-' + p).classList.toggle('activa', p === nombre); });
@@ -739,6 +764,7 @@
   }
 
   function irAPaso(i) {
+    ponerVideo($('video-paso'), 'paso' + (i + 1), $('svg-paso'), '#nino');
     estado.paso = i; estado.tiempo = 0; estado.completado = false;
     var p = PASOS[i], svg = $('svg-paso');
     $('paso-contador').textContent = (i + 1) + '/' + PASOS.length;
@@ -910,6 +936,7 @@
   /* ---------- Misión: agarrar el cepillo ---------- */
   var agarre = null; // instante en que se tocó el cepillo
   function empezarMision() {
+    ponerVideo($('video-mision'), 'mision', $('svg-mision'), '#sd-mision');
     agarre = null;
     $('mision-1').textContent = '¡Hola! Soy Superdiente.';
     $('mision-2').textContent = '¡Agarrá tu cepillo de dientes para empezar!';
