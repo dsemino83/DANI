@@ -9,7 +9,7 @@ El estilo sigue el video de referencia: formato 4:3, piel cálida, pelo castaño
 ## Flujo
 1. **Inicio**: título, «¡Vamos a cepillarnos paso a paso!» y botón **Comenzar**.
 1. **Tu misión**: Superdiente (muela con capa roja, aura dorada y haz de luz) saluda y pide «¡Agarrá tu cepillo de dientes para empezar!». Al tocar el cepillo (o la flecha), vuela hacia la mano del niño y empieza el paso 1.
-2. **8 pasos de 20 s** cada uno: dientes de adelante, muelas de arriba, muelas de arriba del otro lado, muelas de abajo, muelas de abajo del otro lado, bolsillos (dientes del costado), bolsillos del otro lado y dientes de abajo.
+2. **9 pasos de 20 s** cada uno: dientes de adelante, muelas de arriba, muelas de arriba del otro lado, muelas de abajo, muelas de abajo del otro lado, bolsillos (dientes del costado), bolsillos del otro lado, dientes de abajo y enjuague.
    - Reloj circular, píldora «n/8» con el nombre del paso, lista vertical de progreso y flechas ‹ ›.
    - Consigna con botón de altavoz: se lee en voz alta (voz del navegador, `es-AR`).
    - El cepillo se mueve como indica el paso (lado a lado, arriba-abajo, adelante-atrás o en círculos) y hay flechas guía que laten.
@@ -36,6 +36,6 @@ El proyecto ya está creado en la cuenta de SVGator («Superdiente — Misión: 
 
 ## Videos por escena (formato del video de referencia)
 
-Si existe `recursos/videos/<escena>.mp4` (o `.webm`), el juego lo reproduce en bucle debajo de la interfaz y oculta el dibujo; si no existe, se usa el dibujo animado. Nombres: `mision` y el `id` de cada paso: `dientes-adelante`, `muelas-arriba`, `muelas-arriba-otro-lado`, `muelas-abajo`, `muelas-abajo-otro-lado`, `bolsillos`, `bolsillos-otro-lado`, `dientes-abajo`. Pensado para clips de 5 s generados con PixVerse V6 (OpenArt) a partir de las capturas del juego.
+Si existe `recursos/videos/<escena>.mp4` (o `.webm`), el juego lo reproduce en bucle debajo de la interfaz y oculta el dibujo; si no existe, se usa el dibujo animado. Nombres: `mision` y el `id` de cada paso: `dientes-adelante`, `muelas-arriba`, `muelas-arriba-otro-lado`, `muelas-abajo`, `muelas-abajo-otro-lado`, `bolsillos`, `bolsillos-otro-lado`, `dientes-abajo`, `enjuague`. Pensado para clips de 5 s generados con PixVerse V6 (OpenArt) a partir de las capturas del juego.
 
 Por ahora están integrados los dos videos de referencia tal como vinieron: `dientes-abajo` (PixVerse, paso 8) y `mision` (DomoAI, Superdiente). Traen su propia interfaz y marca de agua dibujadas; la interfaz del juego va encima.

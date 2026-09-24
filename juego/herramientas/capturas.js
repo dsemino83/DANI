@@ -18,8 +18,8 @@ const SALIDA = path.join(RAIZ, 'capturas');
   await pag.evaluate(() => document.fonts.ready);
 
   const tomas = [['00-inicio', 'inicio', 0, 0.3, 0], ['01-mision', 'mision', 0, 0.3, 0]];
-  for (let i = 0; i < 8; i++) tomas.push([`${String(i + 2).padStart(2, '0')}-paso${i + 1}`, 'paso', i, 1.1, 4]);
-  tomas.push(['10-final', 'final', 0, 0.3, 0]);
+  for (let i = 0; i < 9; i++) tomas.push([`${String(i + 2).padStart(2, '0')}-paso${i + 1}`, 'paso', i, 1.1, 4]);
+  tomas.push(['11-final', 'final', 0, 0.3, 0]);
 
   const imgs = [];
   for (const [nombre, pantalla, paso, t, tPaso] of tomas) {
