@@ -120,7 +120,7 @@
       <video class="video-escena" id="video-inicio" muted loop playsinline preload="auto"></video>
       <svg id="svg-inicio" viewBox="0 0 1200 900" width="1200" height="900"></svg>
       <div class="titulo"><span class="t1">Misión:</span><span class="t2">Dientes</span><span class="t3">Limpios</span></div>
-      <div class="lema">¡Vamos a cepillarnos<br>paso a paso!</div>
+      <div class="lema"><span id="lema-nombre">¿Estás listo, Rami?</span><br>¡Vamos a cepillarnos!</div>
       <button id="btn-comenzar" class="boton-amarillo">
         <svg width="60" height="60" viewBox="0 0 64 64"><circle cx="32" cy="32" r="30" fill="#1753C9"/><path d="M25 18L47 32L25 46Z" fill="#fff"/></svg>
         Comenzar
@@ -758,19 +758,18 @@
       if (alCambiar) alCambiar(!si);
       escena.classList.toggle('con-video', !si && !!VIDEOS_CON_INTERFAZ[nombre]);
     }
-    video.onloadeddata = function () {
-      video.style.display = 'block';
-      verDibujo(false);
-      video.play().catch(function () {});
-    };
+    video.onloadeddata = function () { video.play().catch(function () {}); };
     var formatos = ['.mp4', '.webm']; // MP4 para Chrome/Safari; WebM para navegadores sin H.264
     video.onerror = function () {
       if (formatos.length) { video.src = CARPETA_VIDEOS + nombre + formatos.shift(); return; }
+      // Sin video: vuelve el dibujo vectorial.
       video.style.display = 'none';
       verDibujo(true);
     };
-    video.style.display = 'none';
-    verDibujo(true);
+    // El primer cuadro (.jpg) se ve al instante mientras carga el video: nunca asoma el dibujo.
+    video.poster = CARPETA_VIDEOS + nombre + '.jpg';
+    video.style.display = 'block';
+    verDibujo(false);
     video.src = CARPETA_VIDEOS + nombre + formatos.shift();
   }
 
@@ -785,8 +784,6 @@
   }
 
   function irAPaso(i) {
-    ponerVideo($('video-paso'), PASOS[i].id, $('svg-paso'), '.fondo, #nino > :not(#guias):not(#destellos)',
-      function (enVideo) { dibujarGuias($('svg-paso'), PASOS[i], enVideo); });
     estado.paso = i; estado.tiempo = 0; estado.completado = false;
     var p = PASOS[i], svg = $('svg-paso');
     $('paso-contador').textContent = (i + 1) + '/' + PASOS.length;
@@ -815,6 +812,8 @@
     dibujarSarro(svg, p);
     dibujarGuias(svg, p);
     svg.querySelector('#destellos').innerHTML = '';
+    ponerVideo($('video-paso'), PASOS[i].id, $('svg-paso'), '.fondo, #nino > :not(#guias):not(#destellos)',
+      function (enVideo) { dibujarGuias($('svg-paso'), PASOS[i], enVideo); });
     // El paso se activa con la voz: el reloj empieza cuando termina la consigna.
     estado.esperandoVoz = true;
     var pasoQueHabla = i;
@@ -1063,26 +1062,52 @@
      Si no existe, se usa la voz del navegador. Devuelve una promesa que se
      cumple cuando termina de hablar (o a los 12 s como máximo). */
   var CARPETA_AUDIO = 'recursos/audio/';
+  // Claves con archivo grabado en recursos/audio/<clave>.mp3 (ver herramientas/frases_voz.json).
+  // Las que no están acá se leen con la voz del navegador.
+  var AUDIOS_GRABADOS = {};
   var audioActual = null;
+  var hayVoz = 'speechSynthesis' in window;
+
+  // Elige la mejor voz en español que tenga el dispositivo (argentina si hay).
+  var vozEspanol = null;
+  function elegirVoz() {
+    if (!hayVoz) return;
+    var voces = speechSynthesis.getVoices().filter(function (v) { return /^es/i.test(v.lang); });
+    var orden = ['es-AR', 'es-419', 'es-US', 'es-MX', 'es-ES'];
+    voces.sort(function (a, b) {
+      var ia = orden.indexOf(a.lang.replace('_', '-')), ib = orden.indexOf(b.lang.replace('_', '-'));
+      return (ia < 0 ? 9 : ia) - (ib < 0 ? 9 : ib);
+    });
+    vozEspanol = voces[0] || null;
+  }
+  if (hayVoz) { elegirVoz(); speechSynthesis.onvoiceschanged = elegirVoz; }
+
   function hablar(texto, clave) {
-    hablandoHasta = tReloj() + 0.8 + texto.length * 0.065;
+    var estimado = 0.8 + texto.length * 0.065;
+    hablandoHasta = tReloj() + estimado;
     if (!vozActiva) return Promise.resolve();
     if (audioActual) { try { audioActual.pause(); } catch (e) {} audioActual = null; }
-    try { if ('speechSynthesis' in window) speechSynthesis.cancel(); } catch (e) {}
+    try { if (hayVoz && (speechSynthesis.speaking || speechSynthesis.pending)) speechSynthesis.cancel(); } catch (e) {}
     return new Promise(function (listo) {
       var terminado = false;
       function fin() { if (!terminado) { terminado = true; hablandoHasta = tReloj(); listo(); } }
       setTimeout(fin, 12000);
       function vozNavegador() {
-        if (!('speechSynthesis' in window)) { setTimeout(fin, texto.length * 65); return; }
+        // Si el dispositivo no habla, igual se espera lo que duraría la frase.
+        if (!hayVoz) { setTimeout(fin, estimado * 1000); return; }
         try {
           var u = new SpeechSynthesisUtterance(texto);
-          u.lang = 'es-AR'; u.rate = 0.95; u.pitch = 1.15;
+          u.lang = vozEspanol ? vozEspanol.lang : 'es-AR';
+          if (vozEspanol) u.voice = vozEspanol;
+          u.rate = 0.95; u.pitch = 1.1;
           u.onend = fin; u.onerror = fin;
+          speechSynthesis.resume();
           speechSynthesis.speak(u);
+          setTimeout(fin, (estimado + 3) * 1000);
         } catch (e) { fin(); }
       }
-      if (!clave) { vozNavegador(); return; }
+      // Se habla en el mismo toque que lo pidió: iPhone y Chrome no dejan sonar después.
+      if (!clave || !AUDIOS_GRABADOS[clave]) { vozNavegador(); return; }
       var a = new Audio(CARPETA_AUDIO + clave + '.mp3');
       audioActual = a;
       a.onended = fin;
@@ -1090,6 +1115,21 @@
       a.play().catch(function () { if (audioActual === a) vozNavegador(); });
     });
   }
+
+  // Saludo de la pantalla principal. Los navegadores no dejan hablar antes del primer toque,
+  // así que suena con el primer toque en la pantalla (y al volver al inicio).
+  var NOMBRE = 'Rami';
+  var saludoDicho = false;
+  $('lema-nombre').textContent = '¿Estás listo, ' + NOMBRE + '?';
+  function saludar() {
+    if (estado.pantalla !== 'inicio') return;
+    saludoDicho = true;
+    hablar('¿Estás listo, ' + NOMBRE + '?', 'inicio');
+  }
+  document.addEventListener('pointerdown', function primerToque(ev) {
+    document.removeEventListener('pointerdown', primerToque, true);
+    if (!saludoDicho && !$('btn-comenzar').contains(ev.target)) saludar();
+  }, true);
 
   /* ---------- Controles ---------- */
   $('btn-comenzar').onclick = empezarMision;
@@ -1101,7 +1141,12 @@
   $('btn-siguiente').onclick = siguiente;
   $('btn-anterior').onclick = function () { if (estado.paso > 0) irAPaso(estado.paso - 1); };
   $('btn-voz').onclick = function () { var p = PASOS[estado.paso]; hablar(p.l1 + ' ' + p.l2, p.id); };
-  $('btn-volver').onclick = function () { mostrar('inicio'); };
+  $('btn-volver').onclick = function () { mostrar('inicio'); saludar(); };
+  // Algunos navegadores sí dejan hablar al abrir; si no arrancó, queda para el primer toque.
+  setTimeout(function () {
+    saludar();
+    setTimeout(function () { if (!hayVoz || !speechSynthesis.speaking) saludoDicho = false; }, 900);
+  }, 600);
 
   /* ---------- Escalado del escenario ---------- */
   function ajustar() {

@@ -2,6 +2,7 @@
   "voz": "Narrador v2 (Fish Audio, 35199d5438854f5d9157c500479ab684)",
   "carpeta": "recursos/audio/<clave>.mp3",
   "frases": {
+    "inicio": "¿Estás listo, Rami?",
     "dientes-adelante": "¡Primero, los dientes de adelante! Mové el cepillo de arriba hacia abajo.",
     "muelas-arriba": "¡Ahora las muelas de arriba! Hacé circulitos en las muelas de este lado.",
     "muelas-arriba-otro-lado": "¡Las muelas de arriba del otro lado! Pasá el cepillo al otro lado y hacé circulitos.",
