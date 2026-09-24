@@ -335,6 +335,7 @@
     var bocaSonrisa = 'M676 548Q800 560 924 548Q904 656 800 660Q696 656 676 548Z';
     return '' +
       '<defs>' +
+        '<clipPath id="clipCara' + u + '"><path d="' + cara + '"/></clipPath>' +
         '<clipPath id="clipAbierta' + u + '"><path d="' + bocaAbierta + '"/></clipPath>' +
         '<clipPath id="clipDientes' + u + '"><path d="' + bocaDientes + '"/></clipPath>' +
         '<clipPath id="clipSonrisa' + u + '"><path d="' + bocaSonrisa + '"/></clipPath>' +
@@ -358,11 +359,13 @@
           '<ellipse cx="548" cy="448" rx="42" ry="56" fill="' + C.piel + '"/><path d="M556 428q-16 18 0 38" stroke="' + C.pielLinea + '" stroke-width="6" fill="none" stroke-linecap="round"/>' +
           '<ellipse cx="1052" cy="448" rx="42" ry="56" fill="' + C.piel + '"/><path d="M1044 428q16 18 0 38" stroke="' + C.pielLinea + '" stroke-width="6" fill="none" stroke-linecap="round"/>' +
           '<path d="' + cara + '" fill="url(#gCara' + u + ')"/>' +
-          // pelo despeinado con mechones
-          '<path d="M532 450C500 320 540 190 640 136C662 92 740 70 800 88C850 56 930 70 962 108C1050 128 1092 230 1072 350C1066 390 1062 420 1060 452C1046 390 1024 346 996 320L978 350L952 300L916 334L886 280L852 322L814 268L780 318L744 276L712 326L684 290L656 338L630 306C598 340 560 390 532 450Z" fill="url(#gPelo' + u + ')"/>' +
-          '<path d="M640 140Q606 76 700 110ZM752 90Q740 30 820 76ZM896 86Q940 36 956 110ZM996 136Q1060 120 1030 176Z" fill="' + C.pelo + '"/>' +
-          '<path d="M690 150q60-40 150-34M880 130q70 12 110 70M620 230q20-50 60-80M1020 260q20 40 20 90" stroke="' + C.peloLuz + '" stroke-width="12" fill="none" stroke-linecap="round" opacity=".9"/>' +
-          '<path d="M760 190q40-20 80-10M660 290q30-40 70-50" stroke="' + C.peloOsc + '" stroke-width="8" fill="none" stroke-linecap="round" opacity=".6"/>' +
+          // pelo despeinado: mechones irregulares en el flequillo, remolinos arriba y a los costados
+          '<path d="M548 300Q484 290 470 240Q512 268 566 252ZM1052 300Q1116 290 1130 240Q1088 268 1034 252ZM540 380Q496 380 474 340Q512 356 548 346ZM1060 380Q1104 380 1126 340Q1088 356 1052 346Z" fill="' + C.pelo + '"/>' +
+          '<path d="M532 450C500 320 540 190 640 136C662 92 740 70 800 88C850 56 930 70 962 108C1050 128 1092 230 1072 350C1066 390 1062 420 1060 452C1050 400 1036 360 1010 334Q1000 360 986 374Q982 336 958 318Q940 350 914 360Q920 322 898 300Q872 340 842 350Q850 312 830 290Q800 330 770 344Q776 306 758 288Q730 324 702 334Q712 300 700 284Q672 318 648 338Q650 312 640 300Q600 340 580 380Q560 410 532 450Z" fill="' + C.pielSombra + '" opacity=".4" transform="translate(0 16)" clip-path="url(#clipCara' + u + ')"/>' +
+          '<path d="M532 450C500 320 540 190 640 136C662 92 740 70 800 88C850 56 930 70 962 108C1050 128 1092 230 1072 350C1066 390 1062 420 1060 452C1050 400 1036 360 1010 334Q1000 360 986 374Q982 336 958 318Q940 350 914 360Q920 322 898 300Q872 340 842 350Q850 312 830 290Q800 330 770 344Q776 306 758 288Q730 324 702 334Q712 300 700 284Q672 318 648 338Q650 312 640 300Q600 340 580 380Q560 410 532 450Z" fill="url(#gPelo' + u + ')"/>' +
+          '<path d="M620 160Q552 124 560 52Q608 118 668 122ZM700 112Q674 46 716 2Q730 68 764 94ZM810 86Q836 16 904 -4Q868 50 872 92ZM930 104Q992 58 1048 66Q994 90 978 130ZM1010 164Q1084 150 1116 106Q1096 172 1046 204ZM580 240Q520 220 506 170Q548 208 598 206Z" fill="' + C.pelo + '"/>' +
+          '<path d="M690 150q60-40 150-34M880 130q70 12 110 70M620 230q20-50 60-80M1020 260q20 40 20 90M740 250q30-40 90-44M900 214q40 10 60 50" stroke="' + C.peloLuz + '" stroke-width="11" fill="none" stroke-linecap="round" opacity=".9"/>' +
+          '<path d="M760 190q40-20 80-10M660 290q30-40 70-50M860 260q30 10 44 40M960 240q30 30 36 70M600 330q10-30 30-50" stroke="' + C.peloOsc + '" stroke-width="7" fill="none" stroke-linecap="round" opacity=".7"/>' +
           // cejas gruesas
           '<path d="M626 322Q690 276 760 304Q758 318 746 318Q690 302 636 336Z" fill="' + C.peloOsc + '"/>' +
           '<path d="M974 322Q910 276 840 304Q842 318 854 318Q910 302 964 336Z" fill="' + C.peloOsc + '"/>' +
