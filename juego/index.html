@@ -105,6 +105,17 @@
   .con-video #btn-anterior { left: 16px; }
   .con-video #btn-siguiente { right: 16px; }
   #p-mision.con-video { cursor: pointer; }
+  /* Avisos flotantes: micrófono escuchando y sonido bloqueado. */
+  .aviso { position: absolute; left: 50%; bottom: 170px; transform: translateX(-50%) scale(.6); opacity: 0;
+    z-index: 20; display: flex; align-items: center; gap: 12px; padding: 10px 26px 10px 18px; border-radius: 999px;
+    background: #FFD23F; color: #1753C9; font-size: 36px; font-weight: 800; white-space: nowrap;
+    box-shadow: 0 6px 0 #D99A00, 0 12px 26px rgba(0,0,0,.3); pointer-events: none;
+    transition: transform .25s, opacity .25s; }
+  .aviso.ver { opacity: 1; transform: translateX(-50%) scale(1); }
+  #aviso-sonido.ver { pointer-events: auto; }
+  #aviso-mic.ver svg { animation: latido 1s ease-in-out infinite; }
+  #escenario[data-pantalla="inicio"] .aviso { left: 890px; bottom: 28px; }
+  #escenario[data-pantalla="final"] .aviso { display: none; }
   #bien { position: absolute; left: 50%; top: 230px; transform: translateX(-50%) scale(0); font-size: 110px;
     font-weight: 800; color: #FFD23F; -webkit-text-stroke: 12px #1753C9; paint-order: stroke fill;
     transition: transform .35s cubic-bezier(.3,1.6,.5,1); pointer-events: none; white-space: nowrap; }
@@ -113,7 +124,16 @@
 </head>
 <body>
 <div id="marco">
-  <div id="escenario">
+  <div id="escenario" data-pantalla="inicio">
+
+    <div id="aviso-mic" class="aviso" aria-live="polite">
+      <svg width="34" height="34" viewBox="0 0 34 34"><rect x="11" y="3" width="12" height="19" rx="6" fill="#1753C9"/><path d="M6 15a11 11 0 0 0 22 0M17 26v5M11 31h12" stroke="#1753C9" stroke-width="3.5" stroke-linecap="round" fill="none"/></svg>
+      Decí «sí»
+    </div>
+    <button id="aviso-sonido" class="aviso">
+      <svg width="34" height="34" viewBox="0 0 54 54"><path d="M8 20h9l12-10v34L17 34H8z" fill="#1753C9"/><path d="M36 18q6 9 0 18M42 12q11 15 0 30" stroke="#1753C9" stroke-width="5" stroke-linecap="round" fill="none"/></svg>
+      Tocá para escuchar
+    </button>
 
     <!-- ================= INICIO ================= -->
     <section id="p-inicio" class="pantalla noche activa">
@@ -775,6 +795,8 @@
 
   function mostrar(nombre) {
     estado.pantalla = nombre;
+    escuchar(false);
+    $('escenario').setAttribute('data-pantalla', nombre);
     if (nombre === 'inicio') ponerVideo($('video-inicio'), 'inicio', $('svg-inicio'), '.fondo, .nino-inicio, #sd-inicio');
     ['inicio', 'mision', 'paso', 'final'].forEach(function (p) { $('p-' + p).classList.toggle('activa', p === nombre); });
     Array.prototype.forEach.call($('p-' + nombre).querySelectorAll('.superdiente'), function (g) {
@@ -976,7 +998,8 @@
     $('svg-mision').querySelector('#sd-mision').removeAttribute('data-feliz');
     $('svg-mision').querySelector('#sd-mision').removeAttribute('data-fiesta');
     mostrar('mision');
-    hablar('¡Hola! Soy Superdiente. ¡Agarrá tu cepillo de dientes para empezar!', 'mision-hola');
+    hablar('¡Hola! Soy Superdiente. ¡Agarrá tu cepillo de dientes para empezar!', 'mision-hola')
+      .then(function () { esperarSi('mision'); });
   }
   function agarrarCepillo() {
     if (agarre !== null) return;
@@ -1028,9 +1051,19 @@
           'C' + (x - 4) + ' ' + (y + 6) + ' ' + (x - 6) + ' ' + (y + 4) + ' ' + (x - 28) + ' ' + y +
           'C' + (x - 6) + ' ' + (y - 4) + ' ' + (x - 4) + ' ' + (y - 6) + ' ' + x + ' ' + (y - 28) + 'Z" fill="#FFFFFF" stroke="#FFD23F" stroke-width="3"/>';
       }).join('');
-    if (estado.auto) setTimeout(function () {
-      if (estado.pantalla === 'paso' && estado.completado) siguiente();
-    }, 1600);
+    var ultimo = estado.paso === PASOS.length - 1;
+    var pasoTerminado = estado.paso;
+    setTimeout(function () {
+      if (estado.pantalla !== 'paso' || estado.paso !== pasoTerminado) return;
+      hablar(ultimo ? '¡Excelente! ¿Terminamos? ¡Decí sí!' : '¡Muy bien! ¿Seguimos? ¡Decí sí!', ultimo ? 'terminar' : 'seguir')
+        .then(function () {
+          if (estado.pantalla !== 'paso' || estado.paso !== pasoTerminado) return;
+          if (micUsable()) escuchar(true);
+          else if (estado.auto) setTimeout(function () {
+            if (estado.pantalla === 'paso' && estado.paso === pasoTerminado) siguiente();
+          }, 800);
+        });
+    }, 700);
   }
 
   function siguiente() {
@@ -1064,9 +1097,14 @@
   var CARPETA_AUDIO = 'recursos/audio/';
   // Claves con archivo grabado en recursos/audio/<clave>.mp3 (ver herramientas/frases_voz.json).
   // Las que no están acá se leen con la voz del navegador.
-  var AUDIOS_GRABADOS = {'inicio': 1, 'dientes-adelante': 1, 'muelas-arriba': 1, 'muelas-arriba-otro-lado': 1, 'muelas-abajo': 1, 'muelas-abajo-otro-lado': 1, 'bolsillos': 1, 'bolsillos-otro-lado': 1, 'dientes-abajo': 1, 'enjuague': 1, 'mision-hola': 1, 'mision-agarrado': 1, 'final': 1};
-  var audioActual = null;
+  var AUDIOS_GRABADOS = {'inicio': 1, 'dientes-adelante': 1, 'muelas-arriba': 1, 'muelas-arriba-otro-lado': 1, 'muelas-abajo': 1, 'muelas-abajo-otro-lado': 1, 'bolsillos': 1, 'bolsillos-otro-lado': 1, 'dientes-abajo': 1, 'enjuague': 1, 'mision-hola': 1, 'mision-agarrado': 1, 'final': 1, 'seguir': 1, 'terminar': 1};
+  // Un solo reproductor para todas las frases: en iPhone, una vez que suena dentro de un toque
+  // queda habilitado y después puede sonar solo (por ejemplo, al pasar de paso automáticamente).
+  var reproductor = new Audio();
+  reproductor.preload = 'auto';
+  var turnoAudio = 0;
   var sonoClave = {}; // claves que llegaron a sonar de verdad
+  var ultimaFrase = null; // para repetirla desde el aviso de sonido
   var hayVoz = 'speechSynthesis' in window;
 
   // Elige la mejor voz en español que tenga el dispositivo (argentina si hay).
@@ -1083,15 +1121,20 @@
   }
   if (hayVoz) { elegirVoz(); speechSynthesis.onvoiceschanged = elegirVoz; }
 
+  function avisoSonido(ver) { $('aviso-sonido').classList.toggle('ver', ver); }
+
   function hablar(texto, clave) {
     var estimado = 0.8 + texto.length * 0.065;
     hablandoHasta = tReloj() + estimado;
     if (!vozActiva) return Promise.resolve();
-    if (audioActual) { try { audioActual.pause(); } catch (e) {} audioActual = null; }
+    ultimaFrase = [texto, clave];
+    escuchar(false); // el micrófono no escucha mientras habla el juego
+    var turno = ++turnoAudio;
+    try { reproductor.pause(); } catch (e) {}
     try { if (hayVoz && (speechSynthesis.speaking || speechSynthesis.pending)) speechSynthesis.cancel(); } catch (e) {}
     return new Promise(function (listo) {
       var terminado = false;
-      function fin() { if (!terminado) { terminado = true; hablandoHasta = tReloj(); listo(); } }
+      function fin() { if (!terminado) { terminado = true; if (turno === turnoAudio) hablandoHasta = tReloj(); listo(); } }
       setTimeout(fin, 12000);
       function vozNavegador() {
         // Si el dispositivo no habla, igual se espera lo que duraría la frase.
@@ -1102,22 +1145,80 @@
           if (vozEspanol) u.voice = vozEspanol;
           u.rate = 0.95; u.pitch = 1.1;
           u.onend = fin; u.onerror = fin;
-          u.onstart = function () { if (clave) sonoClave[clave] = true; };
+          u.onstart = function () { if (clave) sonoClave[clave] = true; avisoSonido(false); };
           speechSynthesis.resume();
           speechSynthesis.speak(u);
           setTimeout(fin, (estimado + 3) * 1000);
         } catch (e) { fin(); }
       }
-      // Se habla en el mismo toque que lo pidió: iPhone y Chrome no dejan sonar después.
       if (!clave || !AUDIOS_GRABADOS[clave]) { vozNavegador(); return; }
-      var a = new Audio(CARPETA_AUDIO + clave + '.mp3');
-      audioActual = a;
-      a.onended = fin;
-      a.onplaying = function () { sonoClave[clave] = true; };
-      a.onerror = function () { if (audioActual === a) vozNavegador(); };
-      a.play().catch(function () { if (audioActual === a) vozNavegador(); });
+      reproductor.onended = function () { if (turno === turnoAudio) fin(); };
+      reproductor.onplaying = function () { if (turno === turnoAudio) { sonoClave[clave] = true; avisoSonido(false); } };
+      reproductor.onerror = function () { if (turno === turnoAudio) vozNavegador(); };
+      reproductor.src = CARPETA_AUDIO + clave + '.mp3';
+      var intento = reproductor.play();
+      if (intento && intento.catch) intento.catch(function (err) {
+        if (turno !== turnoAudio) return;
+        // El navegador no dejó sonar: se avisa para que un toque lo habilite.
+        if (err && err.name === 'NotAllowedError') avisoSonido(true);
+        setTimeout(fin, estimado * 1000);
+      });
     });
   }
+
+  /* ---------- Micrófono: decir «sí» para avanzar ----------
+     Usa el reconocimiento de voz del navegador (Chrome, Edge, Safari). Si no hay micrófono o no
+     dan permiso, el juego sigue como antes: pasa solo de paso y se puede tocar la flecha. */
+  var Reconocedor = window.SpeechRecognition || window.webkitSpeechRecognition;
+  var mic = { rec: null, quiere: false, activo: false, fallo: !Reconocedor };
+  function micUsable() { return vozActiva && !mic.fallo; }
+  function esSi(t) {
+    t = t.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+    return /(^|[^a-z])(si+|listo|lista|dale|vamos|seguimos|sigamos|terminamos|ok|okey)([^a-z]|$)/.test(t);
+  }
+  function accionSi() {
+    if (estado.pantalla === 'inicio') empezarMision();
+    else if (estado.pantalla === 'mision') agarrarCepillo();
+    else if (estado.pantalla === 'paso' && estado.completado) siguiente();
+  }
+  function crearReconocedor() {
+    var r = new Reconocedor();
+    r.lang = 'es-AR'; r.continuous = true; r.interimResults = true; r.maxAlternatives = 3;
+    r.onstart = function () { mic.activo = true; $('aviso-mic').classList.add('ver'); };
+    r.onresult = function (ev) {
+      if (tReloj() < hablandoHasta) return; // no reaccionar a la voz del propio juego
+      for (var i = ev.resultIndex; i < ev.results.length; i++) {
+        for (var j = 0; j < ev.results[i].length; j++) {
+          if (esSi(ev.results[i][j].transcript)) { escuchar(false); accionSi(); return; }
+        }
+      }
+    };
+    r.onerror = function (ev) {
+      if (ev.error === 'not-allowed' || ev.error === 'service-not-allowed' || ev.error === 'audio-capture') {
+        mic.fallo = true; mic.quiere = false;
+        // Sin micrófono, el paso terminado sigue solo como antes.
+        if (estado.pantalla === 'paso' && estado.completado) setTimeout(function () {
+          if (estado.pantalla === 'paso' && estado.completado) siguiente();
+        }, 800);
+      }
+    };
+    r.onend = function () {
+      mic.activo = false; $('aviso-mic').classList.remove('ver');
+      if (mic.quiere && !mic.fallo) setTimeout(function () { if (mic.quiere) escuchar(true); }, 250);
+    };
+    return r;
+  }
+  function escuchar(si) {
+    mic.quiere = si && micUsable();
+    if (mic.fallo) return;
+    if (mic.quiere && !mic.activo) {
+      try { mic.rec = mic.rec || crearReconocedor(); mic.rec.start(); } catch (e) {}
+    } else if (!mic.quiere && mic.activo) {
+      try { mic.rec.abort(); } catch (e) {}
+    }
+  }
+  // Espera el «sí» en una pantalla, si sigue siendo la misma cuando termina de hablar.
+  function esperarSi(pantalla) { if (estado.pantalla === pantalla) escuchar(true); }
 
   // Saludo de la pantalla principal. Los navegadores no dejan hablar antes del primer toque,
   // así que suena con el primer toque en la pantalla (y al volver al inicio).
@@ -1127,12 +1228,17 @@
   function saludar() {
     if (estado.pantalla !== 'inicio') return;
     saludoDicho = true;
-    hablar('¿Estás listo, ' + NOMBRE + '?', 'inicio');
+    hablar('¿Estás listo, ' + NOMBRE + '?', 'inicio').then(function () { esperarSi('inicio'); });
   }
   document.addEventListener('pointerdown', function primerToque(ev) {
     document.removeEventListener('pointerdown', primerToque, true);
     if (!saludoDicho && !$('btn-comenzar').contains(ev.target)) saludar();
   }, true);
+  $('aviso-sonido').addEventListener('click', function (ev) {
+    ev.stopPropagation();
+    avisoSonido(false);
+    if (ultimaFrase) hablar(ultimaFrase[0], ultimaFrase[1]).then(function () { esperarSi(estado.pantalla); });
+  });
 
   /* ---------- Controles ---------- */
   $('btn-comenzar').onclick = empezarMision;
