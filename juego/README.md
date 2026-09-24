@@ -37,3 +37,5 @@ El proyecto ya está creado en la cuenta de SVGator («Superdiente — Misión: 
 ## Videos por escena (formato del video de referencia)
 
 Si existe `recursos/videos/<escena>.mp4` (o `.webm`), el juego lo reproduce en bucle debajo de la interfaz y oculta el dibujo; si no existe, se usa el dibujo animado. Nombres: `mision`, `paso1` … `paso8`. Pensado para clips de 5 s generados con PixVerse V6 (OpenArt) a partir de las capturas del juego.
+
+Por ahora están integrados los dos videos de referencia tal como vinieron: `paso2` (PixVerse, «Dientes de abajo») y `mision` (DomoAI, Superdiente). Traen su propia interfaz y marca de agua dibujadas; la interfaz del juego va encima.

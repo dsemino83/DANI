@@ -120,8 +120,8 @@
 
     <!-- ============ MISIÓN: SUPERDIENTE PIDE EL CEPILLO ============ -->
     <section id="p-mision" class="pantalla">
-      <svg id="svg-mision" viewBox="0 0 1200 900" width="1200" height="900"></svg>
       <video class="video-escena" id="video-mision" muted loop playsinline preload="auto"></video>
+      <svg id="svg-mision" viewBox="0 0 1200 900" width="1200" height="900"></svg>
       <div class="ui-paso">
         <svg class="icono" viewBox="0 0 76 76"><circle cx="38" cy="38" r="36" fill="#FFF3C4"/><path d="M38 12l7.6 15.4 17 2.5-12.3 12 2.9 16.9L38 50.8l-15.2 8 2.9-16.9-12.3-12 17-2.5z" fill="#FFC21A" stroke="#E0A100" stroke-width="3" stroke-linejoin="round"/></svg>
         <span class="nombre">¡Tu misión!</span>
@@ -140,8 +140,8 @@
 
     <!-- ================= PASOS ================= -->
     <section id="p-paso" class="pantalla">
-      <svg id="svg-paso" viewBox="0 0 1200 900" width="1200" height="900"></svg>
       <video class="video-escena" id="video-paso" muted loop playsinline preload="auto"></video>
+      <svg id="svg-paso" viewBox="0 0 1200 900" width="1200" height="900"></svg>
 
       <div class="ui-reloj">
         <svg viewBox="0 0 150 150" width="150" height="150">
@@ -254,7 +254,7 @@
 
   function fondoBano(u, desenfoque) {
     u = u || '';
-    return '' +
+    return '<g class="fondo">' +
       '<defs>' +
         '<filter id="desenfoque' + u + '" x="-5%" y="-5%" width="110%" height="110%"><feGaussianBlur stdDeviation="7"/></filter>' +
         '<linearGradient id="gPared' + u + '" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#6FB3EE"/><stop offset="1" stop-color="#2F78D0"/></linearGradient>' +
@@ -285,7 +285,7 @@
         '<path d="M-20 860Q600 800 1220 860V900H-20Z" fill="#EAF2FA"/>' +
       '</g>' +
       fotoFondo(FONDO_BANO, desenfoque ? 'desenfoqueFoto' + u : '') +
-      '<rect width="1200" height="900" fill="url(#gVineta' + u + ')"/>';
+      '<rect width="1200" height="900" fill="url(#gVineta' + u + ')"/></g>';
   }
 
   // Puño que agarra un mango horizontal (coordenadas locales del cepillo).
@@ -737,20 +737,21 @@
      debajo de la interfaz; si no existe, queda el dibujo animado de siempre. */
   var CARPETA_VIDEOS = 'recursos/videos/';
   function ponerVideo(video, nombre, svg, selectorOcultar) {
-    var ocultar = svg.querySelector(selectorOcultar);
+    var piezas = Array.prototype.slice.call(svg.querySelectorAll(selectorOcultar));
+    function verDibujo(si) { piezas.forEach(function (el) { el.style.visibility = si ? '' : 'hidden'; }); }
     video.onloadeddata = function () {
       video.style.display = 'block';
-      if (ocultar) ocultar.style.visibility = 'hidden';
+      verDibujo(false);
       video.play().catch(function () {});
     };
     var formatos = ['.mp4', '.webm']; // MP4 para Chrome/Safari; WebM para navegadores sin H.264
     video.onerror = function () {
       if (formatos.length) { video.src = CARPETA_VIDEOS + nombre + formatos.shift(); return; }
       video.style.display = 'none';
-      if (ocultar) ocultar.style.visibility = '';
+      verDibujo(true);
     };
     video.style.display = 'none';
-    if (ocultar) ocultar.style.visibility = '';
+    verDibujo(true);
     video.src = CARPETA_VIDEOS + nombre + formatos.shift();
   }
 
@@ -764,7 +765,7 @@
   }
 
   function irAPaso(i) {
-    ponerVideo($('video-paso'), 'paso' + (i + 1), $('svg-paso'), '#nino');
+    ponerVideo($('video-paso'), 'paso' + (i + 1), $('svg-paso'), '.fondo, #nino');
     estado.paso = i; estado.tiempo = 0; estado.completado = false;
     var p = PASOS[i], svg = $('svg-paso');
     $('paso-contador').textContent = (i + 1) + '/' + PASOS.length;
@@ -936,7 +937,7 @@
   /* ---------- Misión: agarrar el cepillo ---------- */
   var agarre = null; // instante en que se tocó el cepillo
   function empezarMision() {
-    ponerVideo($('video-mision'), 'mision', $('svg-mision'), '#sd-mision');
+    ponerVideo($('video-mision'), 'mision', $('svg-mision'), '.fondo, #sd-mision');
     agarre = null;
     $('mision-1').textContent = '¡Hola! Soy Superdiente.';
     $('mision-2').textContent = '¡Agarrá tu cepillo de dientes para empezar!';
