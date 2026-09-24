@@ -231,7 +231,7 @@
   var C = {
     piel: '#F3AE7C', pielClara: '#F9C597', pielSombra: '#DE8A57', pielLinea: '#C06A3E',
     pelo: '#3B1B0C', peloLuz: '#5E2D14', peloOsc: '#230F06',
-    remera: '#1E4FB8', remeraOsc: '#143A8C', remeraLuz: '#2C63D1',
+    remera: '#1D3E9E', remeraOsc: '#132C73', remeraLuz: '#2B55BF',
     cepillo: '#1E5FE0', cepilloLuz: '#6FB6FF', cepilloOsc: '#1342A8',
     boca: '#5A1420', lengua: '#E0606E', labio: '#B8503F', ojo: '#2A1408'
   };
@@ -342,21 +342,20 @@
     return s;
   }
 
+  // Ojos como en el video: redondos, con blanco visible, contorno fino y párpado superior marcado.
   function ojo(cx, u) {
+    var mira = cx < 800 ? 3 : -3; // leve bizqueo hacia el centro, mirada simpática
     return '' +
-      '<ellipse cx="' + cx + '" cy="402" rx="66" ry="72" fill="#FFFFFF"/>' +
-      '<circle cx="' + cx + '" cy="414" r="54" fill="url(#gIris' + u + ')"/>' +
-      '<circle cx="' + cx + '" cy="416" r="28" fill="#1A0B04"/>' +
-      '<circle cx="' + (cx + 18) + '" cy="390" r="16" fill="#FFFFFF"/>' +
-      '<circle cx="' + (cx - 18) + '" cy="436" r="7" fill="#FFFFFF" opacity=".85"/>' +
-      // línea de pestañas gruesa y colita en el borde externo
-      '<path d="M' + (cx - 68) + ' 404Q' + (cx - 60) + ' 326 ' + cx + ' 326Q' + (cx + 60) + ' 326 ' + (cx + 68) + ' 404" stroke="' + C.ojo + '" stroke-width="13" fill="none" stroke-linecap="round"/>' +
-      '<path d="M' + (cx + (cx < 800 ? -64 : 64)) + ' 372l' + (cx < 800 ? -16 : 16) + ' -12" stroke="' + C.ojo + '" stroke-width="9" stroke-linecap="round"/>';
+      '<ellipse cx="' + cx + '" cy="410" rx="54" ry="60" fill="#FFFFFF" stroke="#5A2E16" stroke-width="3"/>' +
+      '<circle cx="' + (cx + mira) + '" cy="420" r="41" fill="url(#gIris' + u + ')"/>' +
+      '<circle cx="' + (cx + mira) + '" cy="422" r="22" fill="#1A0B04"/>' +
+      '<circle cx="' + (cx + mira + 14) + '" cy="402" r="13" fill="#FFFFFF"/>' +
+      '<circle cx="' + (cx + mira - 14) + '" cy="438" r="6" fill="#FFFFFF" opacity=".85"/>' +
+      '<path d="M' + (cx - 56) + ' 406Q' + (cx - 50) + ' 346 ' + cx + ' 348Q' + (cx + 50) + ' 346 ' + (cx + 56) + ' 406" stroke="' + C.ojo + '" stroke-width="8" fill="none" stroke-linecap="round"/>';
   }
 
   function ojoCerrado(cx) {
-    return '<path d="M' + (cx - 62) + ' 410Q' + cx + ' 452 ' + (cx + 62) + ' 410" stroke="' + C.ojo + '" stroke-width="12" fill="none" stroke-linecap="round"/>' +
-           '<path d="M' + (cx - 34) + ' 436l-8 14M' + cx + ' 442v16M' + (cx + 34) + ' 436l8 14" stroke="' + C.ojo + '" stroke-width="7" stroke-linecap="round"/>';
+    return '<path d="M' + (cx - 52) + ' 414Q' + cx + ' 448 ' + (cx + 52) + ' 414" stroke="' + C.ojo + '" stroke-width="9" fill="none" stroke-linecap="round"/>';
   }
 
   /* El niño se dibuja en un sistema propio (centro x=800, mentón y≈700) y
@@ -395,21 +394,21 @@
           '<circle cx="48" cy="-30" r="4.5" fill="#1E3A2A"/><path d="M-34-8l7-14 8 12M-14-12l7-14 8 12" fill="#3A9C55"/></g>' +
         // cabeza (pivote en el cuello)
         '<g id="cabeza">' +
-          '<ellipse cx="548" cy="448" rx="42" ry="56" fill="' + C.piel + '"/><path d="M556 428q-16 18 0 38" stroke="' + C.pielLinea + '" stroke-width="6" fill="none" stroke-linecap="round"/>' +
-          '<ellipse cx="1052" cy="448" rx="42" ry="56" fill="' + C.piel + '"/><path d="M1044 428q16 18 0 38" stroke="' + C.pielLinea + '" stroke-width="6" fill="none" stroke-linecap="round"/>' +
-          '<path d="' + cara + '" fill="url(#gCara' + u + ')"/>' +
+          '<path d="' + cara + '" fill="url(#gCara' + u + ')" stroke="#B8683C" stroke-width="3.5"/>' +
           // pelo: volumen redondeado y mechones que caen hacia la frente (nada de puntas rectas hacia arriba)
           '<path d="M548 300Q508 330 512 396Q530 362 562 350ZM1052 300Q1092 330 1088 396Q1070 362 1038 350Z" fill="' + C.pelo + '"/>' +
           '<path d="M528 462C504 360 518 252 590 190C640 142 718 112 800 110C892 108 976 142 1026 200C1082 262 1092 372 1072 462C1062 408 1046 366 1020 334C1012 354 998 364 982 370C986 340 976 316 956 300C936 332 906 350 874 354C890 324 886 300 870 284C846 316 810 336 772 342C790 314 792 292 782 274C752 306 714 324 678 328C694 302 700 282 694 264C664 300 630 330 602 360C576 390 548 424 528 462Z" fill="' + C.pielSombra + '" opacity=".4" transform="translate(0 16)" clip-path="url(#clipCara' + u + ')"/>' +
-          '<path d="M528 462C504 360 518 252 590 190C640 142 718 112 800 110C892 108 976 142 1026 200C1082 262 1092 372 1072 462C1062 408 1046 366 1020 334C1012 354 998 364 982 370C986 340 976 316 956 300C936 332 906 350 874 354C890 324 886 300 870 284C846 316 810 336 772 342C790 314 792 292 782 274C752 306 714 324 678 328C694 302 700 282 694 264C664 300 630 330 602 360C576 390 548 424 528 462Z" fill="url(#gPelo' + u + ')"/>' +
+          '<path d="M528 462C504 360 518 252 590 190C640 142 718 112 800 110C892 108 976 142 1026 200C1082 262 1092 372 1072 462C1062 408 1046 366 1020 334C1012 354 998 364 982 370C986 340 976 316 956 300C936 332 906 350 874 354C890 324 886 300 870 284C846 316 810 336 772 342C790 314 792 292 782 274C752 306 714 324 678 328C694 302 700 282 694 264C664 300 630 330 602 360C576 390 548 424 528 462Z" fill="url(#gPelo' + u + ')" stroke="#2A1206" stroke-width="3.5" stroke-linejoin="round"/>' +
           // mechones sueltos y ondulados en la coronilla
           '<path d="M606 194Q598 166 624 152Q624 172 642 180ZM748 116Q758 94 786 90Q774 104 780 118ZM880 112Q902 98 930 104Q910 110 906 124ZM994 172Q1024 170 1040 192Q1018 188 1004 198Z" fill="' + C.pelo + '"/>' +
           // separación entre mechones (sombras) y brillos que siguen la caída del pelo
-          '<path d="M782 274Q796 220 830 170M870 284Q900 240 930 214M694 264Q712 214 748 180M956 300Q990 262 1004 226M620 300Q640 250 676 214" stroke="' + C.peloOsc + '" stroke-width="6" fill="none" stroke-linecap="round" opacity=".35"/>' +
-          '<path d="M700 160Q760 132 830 134M860 136Q930 146 980 190M640 214Q664 186 700 172M820 190Q846 226 846 266M730 210Q744 236 740 272M920 206Q946 234 952 268" stroke="' + C.peloLuz + '" stroke-width="10" fill="none" stroke-linecap="round" opacity=".85"/>' +
+          '<path d="M700 160Q760 132 830 134M860 136Q930 146 980 190M640 214Q664 186 700 172M820 190Q846 226 846 266M730 210Q744 236 740 272M920 206Q946 234 952 268" stroke="#8A4A26" stroke-width="12" fill="none" stroke-linecap="round" opacity=".7"/>' +
+          // orejas bien visibles, asomando por debajo del pelo
+          '<ellipse cx="548" cy="468" rx="44" ry="58" fill="' + C.piel + '" stroke="#B8683C" stroke-width="3"/><path d="M558 450q-16 18 0 38" stroke="' + C.pielLinea + '" stroke-width="6" fill="none" stroke-linecap="round"/>' +
+          '<ellipse cx="1052" cy="468" rx="44" ry="58" fill="' + C.piel + '" stroke="#B8683C" stroke-width="3"/><path d="M1042 450q16 18 0 38" stroke="' + C.pielLinea + '" stroke-width="6" fill="none" stroke-linecap="round"/>' +
           // cejas gruesas
-          '<path d="M626 322Q690 276 760 304Q758 318 746 318Q690 302 636 336Z" fill="' + C.peloOsc + '"/>' +
-          '<path d="M974 322Q910 276 840 304Q842 318 854 318Q910 302 964 336Z" fill="' + C.peloOsc + '"/>' +
+          '<path d="M636 330Q688 294 748 314" stroke="' + C.pelo + '" stroke-width="17" fill="none" stroke-linecap="round"/>' +
+          '<path d="M964 330Q912 294 852 314" stroke="' + C.pelo + '" stroke-width="17" fill="none" stroke-linecap="round"/>' +
           // ojos abiertos / cerrados (parpadeo) / felices (enjuague)
           '<g id="ojos">' + ojo(690, u) + ojo(910, u) + '</g>' +
           '<g id="ojos-cerrados" style="display:none">' + ojoCerrado(690) + ojoCerrado(910) + '</g>' +
@@ -417,8 +416,10 @@
             '<path d="M636 420q54-50 108 0M856 420q54-50 108 0" stroke="' + C.ojo + '" stroke-width="13" fill="none" stroke-linecap="round"/>' +
           '</g>' +
           // nariz y rubor
-          '<path d="M776 486q24 20 48 0" stroke="' + C.pielLinea + '" stroke-width="7" fill="none" stroke-linecap="round"/>' +
-          '<ellipse cx="800" cy="474" rx="16" ry="10" fill="#FBD2B2" opacity=".7"/>' +
+          // nariz de botón con sombra suave y brillo
+          '<ellipse cx="800" cy="478" rx="22" ry="16" fill="' + C.pielSombra + '" opacity=".45"/>' +
+          '<path d="M784 486q16 10 32 0" stroke="' + C.pielLinea + '" stroke-width="5" fill="none" stroke-linecap="round"/>' +
+          '<ellipse cx="796" cy="470" rx="8" ry="5" fill="#FDE0C8" opacity=".85"/>' +
           '<ellipse cx="618" cy="512" rx="70" ry="44" fill="url(#gRubor' + u + ')"/>' +
           '<ellipse cx="982" cy="512" rx="70" ry="44" fill="url(#gRubor' + u + ')"/>' +
 
