@@ -545,7 +545,19 @@
   $('#btn-adultos').onclick = () => { pintarAdultos(); mostrar('adultos'); };
   $('#btn-adultos-volver').onclick = () => { pintarInicio(); mostrar('inicio'); };
   $('#btn-prev').onclick = generarMuestras;
-  $('#btn-reiniciar').onclick = () => { if (confirm('¿Borrar niveles, historial y respuestas guardadas?')) { motor.reiniciar(); pintarAdultos(); } };
+  // Confirmación dentro de la página (las ventanas confirm() no siempre se muestran).
+  let confirmarBorrado = null;
+  $('#btn-reiniciar').onclick = () => {
+    const b = $('#btn-reiniciar');
+    if (!confirmarBorrado) {
+      b.textContent = 'Tocá otra vez para borrar todo';
+      confirmarBorrado = setTimeout(() => { confirmarBorrado = null; b.textContent = 'Borrar el progreso guardado'; }, 4000);
+      return;
+    }
+    clearTimeout(confirmarBorrado); confirmarBorrado = null;
+    motor.reiniciar(); pintarAdultos(); b.textContent = 'Progreso borrado';
+    setTimeout(() => { b.textContent = 'Borrar el progreso guardado'; }, 2000);
+  };
   $('#btn-letras').onclick = () => {
     document.body.classList.toggle('mayus');
     try { localStorage.setItem('aventura2.mayus', document.body.classList.contains('mayus') ? '1' : '0'); } catch (e) { /* sin almacenamiento */ }

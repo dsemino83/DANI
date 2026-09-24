@@ -6,6 +6,10 @@ Abrí `index.html` en el navegador. Hay seis misiones (Números, Sumas y Restas,
 
 ![Inicio](capturas/00-inicio.png)
 
+## Página web de un solo archivo
+
+`python3 aventura/herramientas/armar_pagina.py` arma `aventura/publicar/misiones-de-rami.html`, que trae adentro el motor, los escenarios y el juego. Se abre con doble clic, sin internet (solo la tipografía se descarga si hay conexión), y se puede subir tal cual a cualquier hosting (GitHub Pages, Netlify) o mandar como archivo. Volvé a correr el script después de cambiar `index.html`, `motor.js`, `escenarios.js` o `app.js`.
+
 ## Escenarios animados (`escenarios.js`)
 
 Cada pregunta aparece sobre un paisaje animado distinto de los dos anteriores, con el estilo de películas animadas pero **sin personajes ni imágenes de las películas**: todo está dibujado en SVG con animaciones CSS, sin archivos externos.
