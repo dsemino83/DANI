@@ -20,3 +20,12 @@ El estilo sigue el video de referencia: formato 4:3, piel cálida, pelo castaño
 Todo el dibujo es SVG generado por código: el brazo se recalcula en cada fotograma para seguir la mano, así que basta con mover el cepillo (`colocarProp`). Las posiciones y los movimientos de cada paso están en la tabla `PASOS`.
 
 Capturas: `cd juego && NODE_PATH="$(npm root -g)" node herramientas/capturas.js`
+
+## Superdiente en SVGator
+
+`herramientas/superdiente_svgator.py` convierte el dibujo de Superdiente al formato de proyecto de SVGator y le agrega la animación en capas (bucle de 2,4 s):
+- **principal:** vuela subiendo y bajando, con estirado/aplastado y balanceo;
+- **secundaria:** capa que flamea con retraso, saludo del brazo, llama de la varita;
+- **ambiente:** aura que respira, haz de luz que titila, líneas de velocidad, destellos escalonados y parpadeo.
+
+El proyecto ya está creado en la cuenta de SVGator («Superdiente — Misión: Dientes Limpios»). Para exportarlo como SVG animado hace falta el plan Starter de SVGator; el archivo exportado va en `recursos/superdiente-animado.svg`.
