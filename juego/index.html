@@ -1064,8 +1064,9 @@
   var CARPETA_AUDIO = 'recursos/audio/';
   // Claves con archivo grabado en recursos/audio/<clave>.mp3 (ver herramientas/frases_voz.json).
   // Las que no están acá se leen con la voz del navegador.
-  var AUDIOS_GRABADOS = {};
+  var AUDIOS_GRABADOS = {'inicio': 1, 'dientes-adelante': 1, 'muelas-arriba': 1, 'muelas-arriba-otro-lado': 1, 'muelas-abajo': 1, 'muelas-abajo-otro-lado': 1, 'bolsillos': 1, 'bolsillos-otro-lado': 1, 'dientes-abajo': 1, 'enjuague': 1, 'mision-hola': 1, 'mision-agarrado': 1, 'final': 1};
   var audioActual = null;
+  var sonoClave = {}; // claves que llegaron a sonar de verdad
   var hayVoz = 'speechSynthesis' in window;
 
   // Elige la mejor voz en español que tenga el dispositivo (argentina si hay).
@@ -1101,6 +1102,7 @@
           if (vozEspanol) u.voice = vozEspanol;
           u.rate = 0.95; u.pitch = 1.1;
           u.onend = fin; u.onerror = fin;
+          u.onstart = function () { if (clave) sonoClave[clave] = true; };
           speechSynthesis.resume();
           speechSynthesis.speak(u);
           setTimeout(fin, (estimado + 3) * 1000);
@@ -1111,6 +1113,7 @@
       var a = new Audio(CARPETA_AUDIO + clave + '.mp3');
       audioActual = a;
       a.onended = fin;
+      a.onplaying = function () { sonoClave[clave] = true; };
       a.onerror = function () { if (audioActual === a) vozNavegador(); };
       a.play().catch(function () { if (audioActual === a) vozNavegador(); });
     });
@@ -1145,7 +1148,9 @@
   // Algunos navegadores sí dejan hablar al abrir; si no arrancó, queda para el primer toque.
   setTimeout(function () {
     saludar();
-    setTimeout(function () { if (!hayVoz || !speechSynthesis.speaking) saludoDicho = false; }, 900);
+    setTimeout(function () {
+      if (!sonoClave.inicio) saludoDicho = false;
+    }, 900);
   }, 600);
 
   /* ---------- Escalado del escenario ---------- */

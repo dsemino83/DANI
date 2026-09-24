@@ -57,3 +57,6 @@ Costo aproximado: 12 imágenes × 15 + 9 videos × 70 ≈ 810 créditos.
 
 Las consignas usan `recursos/audio/<clave>.mp3` si existe (frases en `herramientas/frases_voz.json`);
 si no, la voz del navegador (es-AR). El reloj de cada paso arranca cuando termina la consigna.
+
+Audios grabados con Fish Audio, voz «Narrador v2» con la etiqueta [excited] (13 frases, ~1000 créditos).
+Para agregar una frase: grabarla en `recursos/audio/<clave>.mp3` y sumar la clave en `AUDIOS_GRABADOS` (index.html).
