@@ -153,9 +153,9 @@
     border-radius: 30px; padding: 14px 34px; font-size: 38px; font-weight: 800; color: var(--texto); white-space: nowrap; }
   .foto-aviso small { display: block; font-size: 28px; font-weight: 600; color: #2F4C80; }
   .foto-aviso.abajo { top: auto; bottom: 160px; text-align: center; z-index: 2; }
-  .foto-botones { position: absolute; left: 0; right: 0; bottom: 34px; display: none; justify-content: center; gap: 30px; }
+  .foto-botones { position: absolute; left: 0; right: 0; bottom: 12px; display: none; justify-content: center; gap: 30px; }
   .foto-botones.ver { display: flex; }
-  .foto-botones .boton-amarillo { position: static; width: 470px; height: 100px; font-size: 40px; white-space: nowrap; }
+  .foto-botones .boton-amarillo { position: static; width: 440px; height: 80px; font-size: 36px; white-space: nowrap; }
   #bien { position: absolute; left: 50%; top: 230px; transform: translateX(-50%) scale(0); font-size: 110px;
     font-weight: 800; color: #FFD23F; -webkit-text-stroke: 12px #1753C9; paint-order: stroke fill;
     transition: transform .35s cubic-bezier(.3,1.6,.5,1); pointer-events: none; white-space: nowrap; }
@@ -1245,11 +1245,14 @@
     var v = $('camara'), c = $('foto'), g;
     c.width = 1200; c.height = 900;
     g = c.getContext('2d');
-    // Recorte tipo "cover" y en espejo, igual que se veía en pantalla.
-    var vw = v.videoWidth || 1200, vh = v.videoHeight || 900;
-    var e = Math.max(1200 / vw, 900 / vh), dw = vw * e, dh = vh * e;
-    g.save(); g.translate(1200, 0); g.scale(-1, 1);
-    g.drawImage(v, (1200 - dw) / 2, (900 - dh) / 2, dw, dh);
+    pintarMarco(g);
+    // La foto va dentro del recuadro, recortada tipo "cover" y en espejo, como se veía en pantalla.
+    var m = MARCO, vw = v.videoWidth || m.w, vh = v.videoHeight || m.h;
+    var e = Math.max(m.w / vw, m.h / vh), dw = vw * e, dh = vh * e;
+    g.save();
+    recuadro(g); g.clip();
+    g.translate(m.x + m.w, 0); g.scale(-1, 1);
+    g.drawImage(v, (m.w - dw) / 2, m.y + (m.h - dh) / 2, dw, dh);
     g.restore();
     detenerCamara();
     $('foto-flash').classList.remove('ver'); void $('foto-flash').offsetWidth; $('foto-flash').classList.add('ver');
@@ -1269,49 +1272,73 @@
     var c = $('foto');
     c.width = 1200; c.height = 900;
     var g = c.getContext('2d');
-    // Cielo nocturno con estrellas, dibujado (sin imagen de fondo).
-    var cielo = g.createRadialGradient(840, 250, 40, 600, 450, 900);
+    pintarMarco(g);
+    function azar(n) { var x = Math.sin(n * 12.9898) * 43758.5453; return x - Math.floor(x); }
+    // En el lugar de la foto, un cielo nocturno con estrellas.
+    g.save();
+    recuadro(g); g.clip();
+    var cielo = g.createRadialGradient(840, 350, 40, 600, 500, 800);
     cielo.addColorStop(0, '#1F4FB5'); cielo.addColorStop(.5, '#10307A'); cielo.addColorStop(1, '#081B4F');
-    g.fillStyle = cielo; g.fillRect(0, 0, 1200, 900);
+    g.fillStyle = cielo; g.fillRect(MARCO.x, MARCO.y, MARCO.w, MARCO.h);
     g.fillStyle = 'rgba(255,255,255,.85)';
-    for (var k = 0; k < 70; k++) {
-      var sx = (k * 379) % 1200, sy = (k * 571) % 900, sr = 1.5 + (k % 4);
+    for (var k = 0; k < 60; k++) {
+      var sx = MARCO.x + azar(k) * MARCO.w, sy = MARCO.y + azar(k + 99) * MARCO.h, sr = 1.5 + 3 * azar(k + 7);
       g.beginPath(); g.arc(sx, sy, sr, 0, Math.PI * 2); g.fill();
     }
+    g.restore();
     $('foto-aviso').classList.add('abajo');
     mostrarFoto(g, true);
   }
   function mostrarFoto(g, sinFoto) {
-    decorarFoto(g, sinFoto);
+    decorarFoto(g);
     $('foto').style.display = 'block';
     $('foto-botones').classList.add('ver');
     hablar('¡Felicidades, ' + NOMBRE + '! ¡Lo lograste!', 'foto-final');
   }
-  // Superdiente en un sello redondo y el mensaje de aliento.
-  function decorarFoto(g, sinFoto) {
-    var cx = sinFoto ? 600 : 185, cy = sinFoto ? 560 : 190, r = sinFoto ? 230 : 150;
-    var fondo = g.createLinearGradient(0, 0, 0, 330);
-    fondo.addColorStop(0, 'rgba(6,18,51,.75)'); fondo.addColorStop(1, 'rgba(6,18,51,0)');
-    g.fillStyle = fondo; g.fillRect(0, 0, 1200, 330);
+  /* Formato de la foto: una franja arriba con Superdiente (margen superior izquierdo) y el
+     mensaje, y la foto entera en el recuadro de abajo; nada se dibuja encima de la foto. */
+  var MARCO = { x: 30, y: 196, w: 1140, h: 604, r: 28 };
+  function recuadro(g) {
+    var m = MARCO;
+    g.beginPath();
+    g.moveTo(m.x + m.r, m.y);
+    g.arcTo(m.x + m.w, m.y, m.x + m.w, m.y + m.h, m.r);
+    g.arcTo(m.x + m.w, m.y + m.h, m.x, m.y + m.h, m.r);
+    g.arcTo(m.x, m.y + m.h, m.x, m.y, m.r);
+    g.arcTo(m.x, m.y, m.x + m.w, m.y, m.r);
+    g.closePath();
+  }
+  function pintarMarco(g) {
+    var fondo = g.createLinearGradient(0, 0, 0, 900);
+    fondo.addColorStop(0, '#1F4FB5'); fondo.addColorStop(1, '#0B2466');
+    g.fillStyle = fondo; g.fillRect(0, 0, 1200, 900);
+  }
+  function decorarFoto(g) {
+    // Borde dorado alrededor de la foto (por fuera del recuadro).
+    g.save();
+    g.lineWidth = 10; g.strokeStyle = '#FFD23F';
+    recuadro(g); g.stroke();
+    g.restore();
+    // Sello de Superdiente en el margen superior izquierdo.
+    var cx = 112, cy = 98, r = 80;
     g.save();
     g.beginPath(); g.arc(cx, cy, r, 0, Math.PI * 2); g.closePath();
     g.fillStyle = '#10307A'; g.fill();
     g.clip();
     if (sello.complete && sello.naturalWidth) g.drawImage(sello, cx - r, cy - r, r * 2, r * 2);
     g.restore();
-    g.lineWidth = 14; g.strokeStyle = '#FFD23F';
+    g.lineWidth = 9; g.strokeStyle = '#FFD23F';
     g.beginPath(); g.arc(cx, cy, r, 0, Math.PI * 2); g.stroke();
-    g.lineWidth = 5; g.strokeStyle = '#1753C9';
-    g.beginPath(); g.arc(cx, cy, r + 9, 0, Math.PI * 2); g.stroke();
-    var tx = sinFoto ? 600 : 720;
+    // Mensaje de aliento en la franja de arriba, a la derecha del sello.
+    var tx = 680;
     g.textAlign = 'center'; g.lineJoin = 'round';
     function texto(t, y, tam, color) {
       g.font = '800 ' + tam + 'px "Baloo 2", "Trebuchet MS", sans-serif';
-      g.lineWidth = tam / 6; g.strokeStyle = '#1753C9'; g.strokeText(t, tx, y);
+      g.lineWidth = tam / 6; g.strokeStyle = '#0E2F86'; g.strokeText(t, tx, y);
       g.fillStyle = color; g.fillText(t, tx, y);
     }
-    texto('¡Felicidades, ' + NOMBRE + '!', 130, 86, '#FFD23F');
-    texto('¡Lo lograste!', 235, 82, '#FFFFFF');
+    texto('¡Felicidades, ' + NOMBRE + '!', 88, 76, '#FFD23F');
+    texto('¡Lo lograste!', 168, 62, '#FFFFFF');
   }
   // Si se sale de la aplicación (otra app, bloqueo de pantalla, cerrar), la foto se borra.
   document.addEventListener('visibilitychange', function () {
