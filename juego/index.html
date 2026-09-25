@@ -151,6 +151,8 @@
   @keyframes flash { 0% { opacity: 1; } 100% { opacity: 0; } }
   .foto-aviso { position: absolute; left: 50%; top: 40px; transform: translateX(-50%); background: var(--vidrio);
     border-radius: 30px; padding: 14px 34px; font-size: 38px; font-weight: 800; color: var(--texto); white-space: nowrap; }
+  .foto-aviso small { display: block; font-size: 28px; font-weight: 600; color: #2F4C80; }
+  .foto-aviso.abajo { top: auto; bottom: 160px; text-align: center; z-index: 2; }
   .foto-botones { position: absolute; left: 0; right: 0; bottom: 34px; display: none; justify-content: center; gap: 30px; }
   .foto-botones.ver { display: flex; }
   .foto-botones .boton-amarillo { position: static; width: 470px; height: 100px; font-size: 40px; white-space: nowrap; }
@@ -1193,8 +1195,6 @@
   var cuentaTimer = null;
   var sello = new Image();
   sello.src = 'recursos/superdiente-sello.jpg';
-  var fondoFoto = new Image();
-  fondoFoto.src = FONDO_NOCHE;
 
   function detenerCamara() {
     clearTimeout(cuentaTimer);
@@ -1215,6 +1215,7 @@
     $('foto-botones').classList.remove('ver');
     $('foto-aviso').textContent = 'Abriendo la cámara…';
     $('foto-aviso').style.display = '';
+    $('foto-aviso').classList.remove('abajo');
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { sinCamara(); return; }
     navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 960 } }, audio: false })
       .then(function (flujo) {
@@ -1255,14 +1256,29 @@
     mostrarFoto(g);
   }
   // Sin cámara (no hay o no dieron permiso): igual se muestra la tarjeta de Superdiente.
-  function sinCamara() {
+  // Dirección del juego como página propia, donde el navegador sí deja usar cámara y micrófono.
+  var PAGINA_PROPIA = 'dsemino83.github.io/DANI/juego';
+  function sinCamara(err) {
     if (estado.pantalla !== 'foto') return;
+    var bloqueada = err && (err.name === 'NotAllowedError' || err.name === 'SecurityError');
+    var dentroDeOtraPagina = window.self !== window.top;
+    $('foto-aviso').innerHTML = dentroDeOtraPagina
+      ? 'La cámara no se puede usar acá.<small>Abrí el juego en <b>' + PAGINA_PROPIA + '</b></small>'
+      : bloqueada ? 'Falta el permiso de la cámara.<small>Permitila en el navegador y tocá «Otra foto».</small>'
+      : 'No se encontró la cámara.';
     var c = $('foto');
     c.width = 1200; c.height = 900;
     var g = c.getContext('2d');
-    g.fillStyle = '#10307A'; g.fillRect(0, 0, 1200, 900);
-    if (fondoFoto.complete && fondoFoto.naturalWidth) g.drawImage(fondoFoto, 0, 0, 1200, 900);
-    $('foto-aviso').style.display = 'none';
+    // Cielo nocturno con estrellas, dibujado (sin imagen de fondo).
+    var cielo = g.createRadialGradient(840, 250, 40, 600, 450, 900);
+    cielo.addColorStop(0, '#1F4FB5'); cielo.addColorStop(.5, '#10307A'); cielo.addColorStop(1, '#081B4F');
+    g.fillStyle = cielo; g.fillRect(0, 0, 1200, 900);
+    g.fillStyle = 'rgba(255,255,255,.85)';
+    for (var k = 0; k < 70; k++) {
+      var sx = (k * 379) % 1200, sy = (k * 571) % 900, sr = 1.5 + (k % 4);
+      g.beginPath(); g.arc(sx, sy, sr, 0, Math.PI * 2); g.fill();
+    }
+    $('foto-aviso').classList.add('abajo');
     mostrarFoto(g, true);
   }
   function mostrarFoto(g, sinFoto) {
