@@ -152,6 +152,8 @@
   .foto-aviso { position: absolute; left: 50%; top: 40px; transform: translateX(-50%); background: var(--vidrio);
     border-radius: 30px; padding: 14px 34px; font-size: 38px; font-weight: 800; color: var(--texto); white-space: nowrap; }
   .foto-aviso small { display: block; font-size: 28px; font-weight: 600; color: #2F4C80; }
+  .foto-aviso .abrir-propia { display: block; margin: 10px auto 2px; padding: 8px 26px; border-radius: 999px;
+    background: #1753C9; color: #fff; font-size: 32px; font-weight: 800; text-decoration: none; }
   .foto-aviso.abajo { top: auto; bottom: 160px; text-align: center; z-index: 2; }
   .foto-botones { position: absolute; left: 0; right: 0; bottom: 12px; display: none; justify-content: center; gap: 30px; }
   .foto-botones.ver { display: flex; }
@@ -1266,7 +1268,7 @@
     var bloqueada = err && (err.name === 'NotAllowedError' || err.name === 'SecurityError');
     var dentroDeOtraPagina = window.self !== window.top;
     $('foto-aviso').innerHTML = dentroDeOtraPagina
-      ? 'La cámara no se puede usar acá.<small>Abrí el juego en <b>' + PAGINA_PROPIA + '</b></small>'
+      ? 'La cámara no se puede usar acá.<a class="abrir-propia" href="https://' + PAGINA_PROPIA + '/" target="_blank" rel="noopener">Abrir el juego con cámara</a>'
       : bloqueada ? 'Falta el permiso de la cámara.<small>Permitila en el navegador y tocá «Otra foto».</small>'
       : 'No se encontró la cámara.';
     var c = $('foto');
