@@ -974,7 +974,12 @@
       if (id in fotoLista) continue;
       fotoLista[id] = null;
       const im = new Image();
-      im.onload = () => { fotoLista[id] = true; };
+      im.onload = () => {
+        fotoLista[id] = true;
+        // Si ese escenario ya se estaba viendo con el dibujo, se cambia por la foto.
+        const c = capas && capas[actual];
+        if (c && c.dataset.escenario === id && !c.querySelector('.foto')) c.innerHTML = dibujo(id);
+      };
       im.onerror = () => { fotoLista[id] = false; };
       im.src = src;
     }
