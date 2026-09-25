@@ -115,7 +115,45 @@
   #aviso-sonido.ver { pointer-events: auto; }
   #aviso-mic.ver svg { animation: latido 1s ease-in-out infinite; }
   #escenario[data-pantalla="inicio"] .aviso { left: 890px; bottom: 28px; }
-  #escenario[data-pantalla="final"] .aviso { display: none; }
+  #escenario[data-pantalla="final"] .aviso { bottom: auto; top: 24px; }
+  #escenario[data-pantalla="foto"] .aviso { display: none; }
+
+  /* ---------- Configuración (ruedita del inicio) ---------- */
+  #btn-config { position: absolute; left: 28px; top: 28px; width: 96px; height: 96px; border-radius: 50%;
+    background: rgba(255,255,255,.22); border: 4px solid rgba(255,255,255,.7); display: flex;
+    align-items: center; justify-content: center; box-shadow: 0 8px 20px rgba(0,0,0,.3); z-index: 5; }
+  #btn-config:active { transform: scale(.94); }
+  .modal { position: absolute; inset: 0; z-index: 30; background: rgba(4,14,44,.62); display: none;
+    align-items: center; justify-content: center; }
+  .modal.ver { display: flex; }
+  .tarjeta { width: 720px; background: #fff; border-radius: 40px; padding: 40px 48px 44px; text-align: center;
+    box-shadow: 0 20px 60px rgba(0,0,0,.45); }
+  .tarjeta h2 { margin: 0; font-size: 56px; font-weight: 800; color: var(--texto); }
+  .tarjeta p { margin: 4px 0 28px; font-size: 32px; font-weight: 600; color: #2F4C80; }
+  .opciones { display: flex; gap: 22px; justify-content: center; margin-bottom: 34px; }
+  .opciones button { width: 180px; height: 150px; border-radius: 32px; background: #E4EEFB; color: #1753C9;
+    font-size: 64px; font-weight: 800; line-height: 1; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; box-shadow: inset 0 -6px 0 rgba(0,0,0,.08); }
+  .opciones button small { font-size: 28px; font-weight: 700; }
+  .opciones button.elegida { background: var(--verde); color: #fff; box-shadow: 0 0 0 6px #BFE8C9, inset 0 -6px 0 rgba(0,0,0,.15); }
+  #config-listo { position: static; width: 320px; height: 96px; margin: 0 auto; font-size: 46px; }
+
+  /* ---------- Final y foto ---------- */
+  #btn-foto { left: 100px; top: 760px; width: 480px; height: 100px; font-size: 44px; }
+  #p-final #btn-volver { left: 620px; width: 480px; height: 100px; font-size: 44px; }
+  #camara, #foto { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: none; }
+  #camara { transform: scaleX(-1); } /* como un espejo */
+  #cuenta { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); font-size: 360px; font-weight: 800;
+    color: #FFD23F; -webkit-text-stroke: 20px #1753C9; paint-order: stroke fill; pointer-events: none; line-height: 1; }
+  #cuenta.late { animation: latido .9s ease-out; }
+  #foto-flash { position: absolute; inset: 0; background: #fff; opacity: 0; pointer-events: none; }
+  #foto-flash.ver { animation: flash .6s ease-out; }
+  @keyframes flash { 0% { opacity: 1; } 100% { opacity: 0; } }
+  .foto-aviso { position: absolute; left: 50%; top: 40px; transform: translateX(-50%); background: var(--vidrio);
+    border-radius: 30px; padding: 14px 34px; font-size: 38px; font-weight: 800; color: var(--texto); white-space: nowrap; }
+  .foto-botones { position: absolute; left: 0; right: 0; bottom: 34px; display: none; justify-content: center; gap: 30px; }
+  .foto-botones.ver { display: flex; }
+  .foto-botones .boton-amarillo { position: static; width: 470px; height: 100px; font-size: 40px; white-space: nowrap; }
   #bien { position: absolute; left: 50%; top: 230px; transform: translateX(-50%) scale(0); font-size: 110px;
     font-weight: 800; color: #FFD23F; -webkit-text-stroke: 12px #1753C9; paint-order: stroke fill;
     transition: transform .35s cubic-bezier(.3,1.6,.5,1); pointer-events: none; white-space: nowrap; }
@@ -135,12 +173,33 @@
       Tocá para escuchar
     </button>
 
+    <div id="config" class="modal" role="dialog" aria-label="Configuración">
+      <div class="tarjeta">
+        <h2>Tiempo por paso</h2>
+        <p>¿Cuánto dura cada paso del cepillado?</p>
+        <div class="opciones">
+          <button data-seg="20">20<small>segundos</small></button>
+          <button data-seg="15">15<small>segundos</small></button>
+          <button data-seg="10">10<small>segundos</small></button>
+        </div>
+        <button id="config-listo" class="boton-amarillo">Listo</button>
+      </div>
+    </div>
+
     <!-- ================= INICIO ================= -->
     <section id="p-inicio" class="pantalla noche activa">
       <video class="video-escena" id="video-inicio" muted loop playsinline preload="auto"></video>
       <svg id="svg-inicio" viewBox="0 0 1200 900" width="1200" height="900"></svg>
       <div class="titulo"><span class="t1">Misión:</span><span class="t2">Dientes</span><span class="t3">Limpios</span></div>
       <div class="lema"><span id="lema-nombre">¿Estás listo, Rami?</span><br>¡Vamos a cepillarnos!</div>
+      <button id="btn-config" aria-label="Configuración">
+        <svg width="58" height="58" viewBox="0 0 60 60"><g fill="#fff" transform="translate(30 30)">
+          <rect x="-6" y="-28" width="12" height="14" rx="3"/><rect x="-6" y="-28" width="12" height="14" rx="3" transform="rotate(45)"/>
+          <rect x="-6" y="-28" width="12" height="14" rx="3" transform="rotate(90)"/><rect x="-6" y="-28" width="12" height="14" rx="3" transform="rotate(135)"/>
+          <rect x="-6" y="-28" width="12" height="14" rx="3" transform="rotate(180)"/><rect x="-6" y="-28" width="12" height="14" rx="3" transform="rotate(225)"/>
+          <rect x="-6" y="-28" width="12" height="14" rx="3" transform="rotate(270)"/><rect x="-6" y="-28" width="12" height="14" rx="3" transform="rotate(315)"/>
+          <circle r="19"/></g><circle cx="30" cy="30" r="8" fill="#1753C9"/></svg>
+      </button>
       <button id="btn-comenzar" class="boton-amarillo">
         <svg width="60" height="60" viewBox="0 0 64 64"><circle cx="32" cy="32" r="30" fill="#1753C9"/><path d="M25 18L47 32L25 46Z" fill="#fff"/></svg>
         Comenzar
@@ -219,10 +278,35 @@
         <svg width="48" height="48" viewBox="0 0 50 50"><path d="M25 4C29 14 40 18 40 31A15 15 0 0 1 10 31C10 23 15 19 18 14C19 20 22 22 24 22C22 15 23 9 25 4Z" fill="#FF7A2F"/><path d="M25 24C28 29 32 31 32 36A7 7 0 0 1 18 36C18 31 22 29 25 24Z" fill="#FFD23F"/></svg>
         Racha de días <span class="num" id="racha-num">1</span>
       </div>
+      <button id="btn-foto" class="boton-amarillo">
+        <svg width="54" height="54" viewBox="0 0 54 54"><path d="M8 17h9l4-6h12l4 6h9v26H8z" fill="#1753C9"/><circle cx="27" cy="30" r="9" fill="#FFD23F" stroke="#1753C9" stroke-width="4"/></svg>
+        Ver mi sonrisa
+      </button>
       <button id="btn-volver" class="boton-amarillo">
         <svg width="50" height="50" viewBox="0 0 54 54"><path d="M8 26L27 9L46 26M14 22V45H24V33H30V45H40V22" stroke="#1753C9" stroke-width="6" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>
         Volver al inicio
       </button>
+    </section>
+
+    <!-- ============ FOTO: ¿Querés ver cómo quedó? ============
+         La foto vive solo en la memoria de esta pantalla: nunca se guarda ni se sube,
+         y se borra al salir de la pantalla o de la aplicación. -->
+    <section id="p-foto" class="pantalla noche">
+      <video id="camara" playsinline muted autoplay></video>
+      <canvas id="foto" width="1200" height="900"></canvas>
+      <div id="cuenta"></div>
+      <div id="foto-flash"></div>
+      <div class="foto-aviso" id="foto-aviso">Abriendo la cámara…</div>
+      <div class="foto-botones" id="foto-botones">
+        <button id="btn-otra-foto" class="boton-amarillo">
+          <svg width="50" height="50" viewBox="0 0 54 54"><path d="M8 17h9l4-6h12l4 6h9v26H8z" fill="#1753C9"/><circle cx="27" cy="30" r="9" fill="#FFD23F" stroke="#1753C9" stroke-width="4"/></svg>
+          Otra foto
+        </button>
+        <button id="btn-foto-volver" class="boton-amarillo">
+          <svg width="50" height="50" viewBox="0 0 54 54"><path d="M8 26L27 9L46 26M14 22V45H24V33H30V45H40V22" stroke="#1753C9" stroke-width="6" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>
+          Volver al inicio
+        </button>
+      </div>
     </section>
   </div>
 </div>
@@ -259,7 +343,13 @@
     { id: 'enjuague', nombre: '¡Enjuagá!', icono: 'agua', boca: 'enjuague', mov: 'ninguno',
       l1: '¡Genial! Por último, enjuagá tu boca', l2: 'con agua.' }
   ];
+  // Tiempo por paso: se elige con la ruedita del inicio (20, 15 o 10 s) y se recuerda en este dispositivo.
+  var OPCIONES_SEGUNDOS = [20, 15, 10];
   var SEGUNDOS_POR_PASO = 20;
+  try {
+    var guardado = Number(localStorage.getItem('dl-segundos'));
+    if (OPCIONES_SEGUNDOS.indexOf(guardado) >= 0) SEGUNDOS_POR_PASO = guardado;
+  } catch (e) {}
   var HZ_CEPILLADO = 2;
 
   // Paleta cálida tomada del video de referencia.
@@ -798,7 +888,8 @@
     escuchar(false);
     $('escenario').setAttribute('data-pantalla', nombre);
     if (nombre === 'inicio') ponerVideo($('video-inicio'), 'inicio', $('svg-inicio'), '.fondo, .nino-inicio, #sd-inicio');
-    ['inicio', 'mision', 'paso', 'final'].forEach(function (p) { $('p-' + p).classList.toggle('activa', p === nombre); });
+    if (nombre !== 'foto') { detenerCamara(); borrarFoto(); }
+    ['inicio', 'mision', 'paso', 'final', 'foto'].forEach(function (p) { $('p-' + p).classList.toggle('activa', p === nombre); });
     Array.prototype.forEach.call($('p-' + nombre).querySelectorAll('.superdiente'), function (g) {
       g.setAttribute('data-t0', tReloj());
       g.removeAttribute('data-fiesta');
@@ -1074,8 +1165,143 @@
   function terminar() {
     $('racha-num').textContent = actualizarRacha();
     mostrar('final');
-    hablar('¡Lo hiciste! ¡Dientes limpios y una gran sonrisa!', 'final');
+    hablar('¡Lo hiciste! ¡Dientes limpios y una gran sonrisa!', 'final').then(function () {
+      if (estado.pantalla !== 'final') return;
+      hablar('¿Querés ver cómo quedó tu sonrisa? ¡Decí sí!', 'foto-pregunta').then(function () { esperarSi('final'); });
+    });
   }
+
+  /* ---------- Configuración ---------- */
+  function marcarSegundos() {
+    Array.prototype.forEach.call(document.querySelectorAll('.opciones button'), function (b) {
+      b.classList.toggle('elegida', Number(b.getAttribute('data-seg')) === SEGUNDOS_POR_PASO);
+    });
+    $('reloj-texto').textContent = '0:' + String(SEGUNDOS_POR_PASO).padStart(2, '0');
+  }
+  function abrirConfig(si) { $('config').classList.toggle('ver', si); if (si) escuchar(false); }
+  Array.prototype.forEach.call(document.querySelectorAll('.opciones button'), function (b) {
+    b.onclick = function () {
+      SEGUNDOS_POR_PASO = Number(b.getAttribute('data-seg'));
+      try { localStorage.setItem('dl-segundos', String(SEGUNDOS_POR_PASO)); } catch (e) {}
+      marcarSegundos();
+    };
+  });
+  marcarSegundos();
+
+  /* ---------- Foto final con la cámara ---------- */
+  var flujoCamara = null;
+  var cuentaTimer = null;
+  var sello = new Image();
+  sello.src = 'recursos/superdiente-sello.jpg';
+  var fondoFoto = new Image();
+  fondoFoto.src = FONDO_NOCHE;
+
+  function detenerCamara() {
+    clearTimeout(cuentaTimer);
+    if (flujoCamara) { flujoCamara.getTracks().forEach(function (t) { t.stop(); }); flujoCamara = null; }
+    var v = $('camara');
+    if (v) { v.srcObject = null; v.style.display = 'none'; }
+  }
+  // Borra la foto de la memoria: se achica el lienzo, así no queda ningún píxel.
+  function borrarFoto() {
+    var c = $('foto');
+    if (!c) return;
+    c.width = 1; c.height = 1; c.style.display = 'none';
+  }
+  function abrirCamara() {
+    mostrar('foto');
+    borrarFoto();
+    $('cuenta').textContent = '';
+    $('foto-botones').classList.remove('ver');
+    $('foto-aviso').textContent = 'Abriendo la cámara…';
+    $('foto-aviso').style.display = '';
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { sinCamara(); return; }
+    navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 960 } }, audio: false })
+      .then(function (flujo) {
+        if (estado.pantalla !== 'foto') { flujo.getTracks().forEach(function (t) { t.stop(); }); return; }
+        flujoCamara = flujo;
+        var v = $('camara');
+        v.srcObject = flujo;
+        v.style.display = 'block';
+        v.play().catch(function () {});
+        $('foto-aviso').textContent = '¡Mirá la cámara y sonreí!';
+        hablar('¡Mirá la cámara y sonreí!', 'foto-mira').then(function () { cuentaRegresiva(5); });
+      })
+      .catch(sinCamara);
+  }
+  var NUMEROS = ['', 'Uno', 'Dos', 'Tres', 'Cuatro', 'Cinco'];
+  function cuentaRegresiva(n) {
+    if (estado.pantalla !== 'foto' || !flujoCamara) return;
+    var c = $('cuenta');
+    if (n === 0) { c.textContent = ''; sacarFoto(); return; }
+    $('foto-aviso').style.display = 'none';
+    c.textContent = n;
+    c.classList.remove('late'); void c.offsetWidth; c.classList.add('late');
+    hablar('¡' + NUMEROS[n] + '!', 'cuenta-' + n);
+    cuentaTimer = setTimeout(function () { cuentaRegresiva(n - 1); }, 1000);
+  }
+  function sacarFoto() {
+    var v = $('camara'), c = $('foto'), g;
+    c.width = 1200; c.height = 900;
+    g = c.getContext('2d');
+    // Recorte tipo "cover" y en espejo, igual que se veía en pantalla.
+    var vw = v.videoWidth || 1200, vh = v.videoHeight || 900;
+    var e = Math.max(1200 / vw, 900 / vh), dw = vw * e, dh = vh * e;
+    g.save(); g.translate(1200, 0); g.scale(-1, 1);
+    g.drawImage(v, (1200 - dw) / 2, (900 - dh) / 2, dw, dh);
+    g.restore();
+    detenerCamara();
+    $('foto-flash').classList.remove('ver'); void $('foto-flash').offsetWidth; $('foto-flash').classList.add('ver');
+    mostrarFoto(g);
+  }
+  // Sin cámara (no hay o no dieron permiso): igual se muestra la tarjeta de Superdiente.
+  function sinCamara() {
+    if (estado.pantalla !== 'foto') return;
+    var c = $('foto');
+    c.width = 1200; c.height = 900;
+    var g = c.getContext('2d');
+    g.fillStyle = '#10307A'; g.fillRect(0, 0, 1200, 900);
+    if (fondoFoto.complete && fondoFoto.naturalWidth) g.drawImage(fondoFoto, 0, 0, 1200, 900);
+    $('foto-aviso').style.display = 'none';
+    mostrarFoto(g, true);
+  }
+  function mostrarFoto(g, sinFoto) {
+    decorarFoto(g, sinFoto);
+    $('foto').style.display = 'block';
+    $('foto-botones').classList.add('ver');
+    hablar('¡Felicidades, ' + NOMBRE + '! ¡Lo lograste!', 'foto-final');
+  }
+  // Superdiente en un sello redondo y el mensaje de aliento.
+  function decorarFoto(g, sinFoto) {
+    var cx = sinFoto ? 600 : 185, cy = sinFoto ? 560 : 190, r = sinFoto ? 230 : 150;
+    var fondo = g.createLinearGradient(0, 0, 0, 330);
+    fondo.addColorStop(0, 'rgba(6,18,51,.75)'); fondo.addColorStop(1, 'rgba(6,18,51,0)');
+    g.fillStyle = fondo; g.fillRect(0, 0, 1200, 330);
+    g.save();
+    g.beginPath(); g.arc(cx, cy, r, 0, Math.PI * 2); g.closePath();
+    g.fillStyle = '#10307A'; g.fill();
+    g.clip();
+    if (sello.complete && sello.naturalWidth) g.drawImage(sello, cx - r, cy - r, r * 2, r * 2);
+    g.restore();
+    g.lineWidth = 14; g.strokeStyle = '#FFD23F';
+    g.beginPath(); g.arc(cx, cy, r, 0, Math.PI * 2); g.stroke();
+    g.lineWidth = 5; g.strokeStyle = '#1753C9';
+    g.beginPath(); g.arc(cx, cy, r + 9, 0, Math.PI * 2); g.stroke();
+    var tx = sinFoto ? 600 : 720;
+    g.textAlign = 'center'; g.lineJoin = 'round';
+    function texto(t, y, tam, color) {
+      g.font = '800 ' + tam + 'px "Baloo 2", "Trebuchet MS", sans-serif';
+      g.lineWidth = tam / 6; g.strokeStyle = '#1753C9'; g.strokeText(t, tx, y);
+      g.fillStyle = color; g.fillText(t, tx, y);
+    }
+    texto('¡Felicidades, ' + NOMBRE + '!', 130, 86, '#FFD23F');
+    texto('¡Lo lograste!', 235, 82, '#FFFFFF');
+  }
+  // Si se sale de la aplicación (otra app, bloqueo de pantalla, cerrar), la foto se borra.
+  document.addEventListener('visibilitychange', function () {
+    if (document.hidden && estado.pantalla === 'foto') mostrar('inicio');
+  });
+  window.addEventListener('pagehide', function () { detenerCamara(); borrarFoto(); });
 
   function actualizarRacha() {
     var hoy = new Date(), clave = function (d) { return d.toISOString().slice(0, 10); };
@@ -1097,7 +1323,8 @@
   var CARPETA_AUDIO = 'recursos/audio/';
   // Claves con archivo grabado en recursos/audio/<clave>.mp3 (ver herramientas/frases_voz.json).
   // Las que no están acá se leen con la voz del navegador.
-  var AUDIOS_GRABADOS = {'inicio': 1, 'dientes-adelante': 1, 'muelas-arriba': 1, 'muelas-arriba-otro-lado': 1, 'muelas-abajo': 1, 'muelas-abajo-otro-lado': 1, 'bolsillos': 1, 'bolsillos-otro-lado': 1, 'dientes-abajo': 1, 'enjuague': 1, 'mision-hola': 1, 'mision-agarrado': 1, 'final': 1, 'seguir': 1, 'terminar': 1};
+  var AUDIOS_GRABADOS = {'inicio': 1, 'dientes-adelante': 1, 'muelas-arriba': 1, 'muelas-arriba-otro-lado': 1, 'muelas-abajo': 1, 'muelas-abajo-otro-lado': 1, 'bolsillos': 1, 'bolsillos-otro-lado': 1, 'dientes-abajo': 1, 'enjuague': 1, 'mision-hola': 1, 'mision-agarrado': 1, 'final': 1, 'seguir': 1, 'terminar': 1,
+    'foto-pregunta': 1, 'foto-mira': 1, 'foto-final': 1, 'cuenta-5': 1, 'cuenta-4': 1, 'cuenta-3': 1, 'cuenta-2': 1, 'cuenta-1': 1};
   // Un solo reproductor para todas las frases: en iPhone, una vez que suena dentro de un toque
   // queda habilitado y después puede sonar solo (por ejemplo, al pasar de paso automáticamente).
   var reproductor = new Audio();
@@ -1177,7 +1404,8 @@
     return /(^|[^a-z])(si+|listo|lista|dale|vamos|seguimos|sigamos|terminamos|ok|okey)([^a-z]|$)/.test(t);
   }
   function accionSi() {
-    if (estado.pantalla === 'inicio') empezarMision();
+    if (estado.pantalla === 'inicio') { if (!$('config').classList.contains('ver')) empezarMision(); }
+    else if (estado.pantalla === 'final') abrirCamara();
     else if (estado.pantalla === 'mision') agarrarCepillo();
     else if (estado.pantalla === 'paso' && estado.completado) siguiente();
   }
@@ -1232,7 +1460,7 @@
   }
   document.addEventListener('pointerdown', function primerToque(ev) {
     document.removeEventListener('pointerdown', primerToque, true);
-    if (!saludoDicho && !$('btn-comenzar').contains(ev.target)) saludar();
+    if (!saludoDicho && !$('btn-comenzar').contains(ev.target) && !$('btn-config').contains(ev.target)) saludar();
   }, true);
   $('aviso-sonido').addEventListener('click', function (ev) {
     ev.stopPropagation();
@@ -1251,6 +1479,12 @@
   $('btn-anterior').onclick = function () { if (estado.paso > 0) irAPaso(estado.paso - 1); };
   $('btn-voz').onclick = function () { var p = PASOS[estado.paso]; hablar(p.l1 + ' ' + p.l2, p.id); };
   $('btn-volver').onclick = function () { mostrar('inicio'); saludar(); };
+  $('btn-config').onclick = function () { abrirConfig(true); };
+  $('config-listo').onclick = function () { abrirConfig(false); };
+  $('config').addEventListener('click', function (ev) { if (ev.target === $('config')) abrirConfig(false); });
+  $('btn-foto').onclick = abrirCamara;
+  $('btn-otra-foto').onclick = abrirCamara;
+  $('btn-foto-volver').onclick = function () { mostrar('inicio'); saludar(); };
   // Algunos navegadores sí dejan hablar al abrir; si no arrancó, queda para el primer toque.
   setTimeout(function () {
     saludar();
