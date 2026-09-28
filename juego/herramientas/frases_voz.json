@@ -24,6 +24,15 @@
     "cuenta-4": "¡Cuatro!",
     "cuenta-3": "¡Tres!",
     "cuenta-2": "¡Dos!",
-    "cuenta-1": "¡Uno!"
-  }
+    "cuenta-1": "¡Uno!",
+    "inicio-guardian": "¿Estás listo, guardián espacial?",
+    "foto-final-guardian": "¡Felicidades, guardián espacial! ¡Lo lograste!"
+  },
+  "voces": {
+    "narrador": {
+      "nombre": "Narrador (Narrador v2 de Fish Audio, ya no disponible para grabar frases nuevas)",
+      "carpeta": "recursos/audio/"
+    }
+  },
+  "nota": "inicio-guardian y foto-final-guardian son recortes de inicio y foto-final sin la palabra «Rami»."
 }

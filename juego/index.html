@@ -126,23 +126,33 @@
   .modal { position: absolute; inset: 0; z-index: 30; background: rgba(4,14,44,.62); display: none;
     align-items: center; justify-content: center; }
   .modal.ver { display: flex; }
-  .tarjeta { width: 720px; background: #fff; border-radius: 40px; padding: 40px 48px 44px; text-align: center;
+  .tarjeta { width: 860px; background: #fff; border-radius: 40px; padding: 30px 48px 34px; text-align: center;
     box-shadow: 0 20px 60px rgba(0,0,0,.45); }
   .tarjeta h2 { margin: 0; font-size: 56px; font-weight: 800; color: var(--texto); }
-  .tarjeta p { margin: 4px 0 28px; font-size: 32px; font-weight: 600; color: #2F4C80; }
-  .opciones { display: flex; gap: 22px; justify-content: center; margin-bottom: 34px; }
-  .opciones button { width: 180px; height: 150px; border-radius: 32px; background: #E4EEFB; color: #1753C9;
+  .tarjeta p { margin: 0 0 14px; font-size: 28px; font-weight: 600; color: #2F4C80; }
+  .tarjeta .campo { display: block; margin: 10px 0 10px; font-size: 32px; font-weight: 800; color: var(--texto); }
+  .tarjeta .campo small { font-size: 24px; font-weight: 600; color: #2F4C80; }
+  #config-nombre { width: 560px; height: 84px; border-radius: 24px; border: 4px solid #C9D8EC; padding: 0 24px;
+    font: inherit; font-size: 44px; font-weight: 700; color: var(--texto); text-align: center; outline: none; }
+  #config-nombre:focus { border-color: #3E8BFF; }
+  #config-nombre.falta { border-color: #E5484D; animation: latido .5s; }
+  .opciones { display: flex; gap: 22px; justify-content: center; margin-bottom: 14px; }
+  .opciones.voces button { width: 290px; height: 110px; font-size: 44px; }
+  .opciones button { width: 180px; height: 120px; border-radius: 32px; background: #E4EEFB; color: #1753C9;
     font-size: 64px; font-weight: 800; line-height: 1; display: flex; flex-direction: column;
     align-items: center; justify-content: center; box-shadow: inset 0 -6px 0 rgba(0,0,0,.08); }
   .opciones button small { font-size: 28px; font-weight: 700; }
   .opciones button.elegida { background: var(--verde); color: #fff; box-shadow: 0 0 0 6px #BFE8C9, inset 0 -6px 0 rgba(0,0,0,.15); }
-  #config-listo { position: static; width: 320px; height: 96px; margin: 0 auto; font-size: 46px; }
+  #config-listo { position: static; width: 360px; height: 96px; margin: 20px auto 0; font-size: 46px; }
 
   /* ---------- Final y foto ---------- */
   #btn-foto { left: 100px; top: 760px; width: 480px; height: 100px; font-size: 44px; }
   #p-final #btn-volver { left: 620px; width: 480px; height: 100px; font-size: 44px; }
-  #camara, #foto { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: none; }
-  #camara { transform: scaleX(-1); } /* como un espejo */
+  #foto { position: absolute; inset: 0; width: 100%; height: 100%; display: none; z-index: 1; }
+  /* La cámara se ve dentro del mismo recuadro que tendrá la foto: lo que se ve es lo que sale. */
+  #camara { position: absolute; left: 30px; top: 196px; width: 1140px; height: 604px; border-radius: 28px;
+    object-fit: cover; display: none; transform: scaleX(-1); /* como un espejo */ }
+  #cuenta, #foto-flash, .foto-aviso, .foto-botones { z-index: 2; }
   #cuenta { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); font-size: 360px; font-weight: 800;
     color: #FFD23F; -webkit-text-stroke: 20px #1753C9; paint-order: stroke fill; pointer-events: none; line-height: 1; }
   #cuenta.late { animation: latido .9s ease-out; }
@@ -179,8 +189,11 @@
 
     <div id="config" class="modal" role="dialog" aria-label="Configuración">
       <div class="tarjeta">
-        <h2>Tiempo por paso</h2>
-        <p>¿Cuánto dura cada paso del cepillado?</p>
+        <h2 id="config-titulo">Configuración</h2>
+        <p id="config-sub">Esto se hace una sola vez en este dispositivo.</p>
+        <label class="campo" for="config-nombre">¿Cómo te llamás?</label>
+        <input id="config-nombre" type="text" maxlength="24" autocomplete="off" autocapitalize="words" spellcheck="false" placeholder="Tu nombre">
+        <div class="campo">Tiempo por paso</div>
         <div class="opciones">
           <button data-seg="20">20<small>segundos</small></button>
           <button data-seg="15">15<small>segundos</small></button>
@@ -350,10 +363,14 @@
   // Tiempo por paso: se elige con la ruedita del inicio (20, 15 o 10 s) y se recuerda en este dispositivo.
   var OPCIONES_SEGUNDOS = [20, 15, 10];
   var SEGUNDOS_POR_PASO = 20;
-  try {
-    var guardado = Number(localStorage.getItem('dl-segundos'));
-    if (OPCIONES_SEGUNDOS.indexOf(guardado) >= 0) SEGUNDOS_POR_PASO = guardado;
-  } catch (e) {}
+  /* Perfil de este dispositivo: nombre, tiempo por paso y narrador. Se completa una sola vez
+     (la primera vez que se abre el juego) y queda guardado; después se cambia con la ruedita. */
+  var perfil = null;
+  try { perfil = JSON.parse(localStorage.getItem('dl-perfil') || 'null'); } catch (e) {}
+  if (perfil && OPCIONES_SEGUNDOS.indexOf(perfil.segundos) >= 0) SEGUNDOS_POR_PASO = perfil.segundos;
+  function guardarPerfil() {
+    try { localStorage.setItem('dl-perfil', JSON.stringify(perfil)); } catch (e) {}
+  }
   var HZ_CEPILLADO = 2;
 
   // Paleta cálida tomada del video de referencia.
@@ -1177,20 +1194,69 @@
 
   /* ---------- Configuración ---------- */
   function marcarSegundos() {
-    Array.prototype.forEach.call(document.querySelectorAll('.opciones button'), function (b) {
-      b.classList.toggle('elegida', Number(b.getAttribute('data-seg')) === SEGUNDOS_POR_PASO);
+    var seg = borrador ? borrador.segundos : SEGUNDOS_POR_PASO;
+    Array.prototype.forEach.call(document.querySelectorAll('.opciones button[data-seg]'), function (b) {
+      b.classList.toggle('elegida', Number(b.getAttribute('data-seg')) === seg);
     });
     $('reloj-texto').textContent = '0:' + String(SEGUNDOS_POR_PASO).padStart(2, '0');
   }
-  function abrirConfig(si) { $('config').classList.toggle('ver', si); if (si) escuchar(false); }
-  Array.prototype.forEach.call(document.querySelectorAll('.opciones button'), function (b) {
+  // Borrador de lo que se elige en la ventana; se guarda recién al tocar «Listo» / «¡Empezar!».
+  var borrador = null;
+  function marcarVoz() {
+    var voz = (borrador || perfil || {}).voz || 'narrador';
+    Array.prototype.forEach.call(document.querySelectorAll('.opciones.voces button'), function (b) {
+      b.classList.toggle('elegida', b.getAttribute('data-voz') === voz);
+    });
+  }
+  function abrirConfig(si) {
+    var primeraVez = !perfil;
+    if (si) {
+      borrador = { nombre: perfil ? perfil.nombre : '', segundos: SEGUNDOS_POR_PASO, voz: perfil ? perfil.voz : 'narrador' };
+      $('config-nombre').value = borrador.nombre;
+      $('config-nombre').classList.remove('falta');
+      $('config-titulo').textContent = primeraVez ? '¡Bienvenido a la misión!' : 'Configuración';
+      $('config-sub').textContent = primeraVez ? 'Completá esto una sola vez y listo.' : 'Los cambios quedan guardados en este dispositivo.';
+      $('config-listo').textContent = primeraVez ? '¡Empezar!' : 'Listo';
+      escuchar(false);
+    }
+    $('config').classList.toggle('ver', si);
+    $('config').classList.toggle('primera', primeraVez);
+    marcarVoz();
+  }
+  function confirmarConfig() {
+    var nombre = $('config-nombre').value.trim().replace(/\s+/g, ' ');
+    if (!nombre) { $('config-nombre').classList.add('falta'); $('config-nombre').focus(); return; }
+    var primeraVez = !perfil;
+    perfil = { nombre: nombre, segundos: borrador.segundos, voz: borrador.voz };
+    SEGUNDOS_POR_PASO = perfil.segundos;
+    guardarPerfil();
+    borrador = null;
+    try { document.activeElement.blur(); } catch (e) {}
+    abrirConfig(false);
+    aplicarPerfil();
+    // Recién configurado: el saludo suena en este mismo toque.
+    if (primeraVez || estado.pantalla === 'inicio') { saludoDicho = false; saludar(); }
+  }
+  Array.prototype.forEach.call(document.querySelectorAll('.opciones button[data-seg]'), function (b) {
     b.onclick = function () {
-      SEGUNDOS_POR_PASO = Number(b.getAttribute('data-seg'));
-      try { localStorage.setItem('dl-segundos', String(SEGUNDOS_POR_PASO)); } catch (e) {}
-      marcarSegundos();
+      borrador.segundos = Number(b.getAttribute('data-seg'));
+      Array.prototype.forEach.call(document.querySelectorAll('.opciones button[data-seg]'), function (o) {
+        o.classList.toggle('elegida', o === b);
+      });
     };
   });
-  marcarSegundos();
+  Array.prototype.forEach.call(document.querySelectorAll('.opciones.voces button'), function (b) {
+    b.onclick = function () {
+      borrador.voz = b.getAttribute('data-voz');
+      marcarVoz();
+      // Muestra de la voz elegida (se escucha con esa carpeta de audios).
+      var antes = perfil;
+      perfil = { nombre: 'x', segundos: borrador.segundos, voz: borrador.voz };
+      hablar('¡Hola! Soy Superdiente.', 'mision-hola');
+      perfil = antes;
+    };
+  });
+  $('config-nombre').addEventListener('keydown', function (ev) { if (ev.key === 'Enter') confirmarConfig(); });
 
   /* ---------- Foto final con la cámara ---------- */
   var flujoCamara = null;
@@ -1226,8 +1292,10 @@
         var v = $('camara');
         v.srcObject = flujo;
         v.style.display = 'block';
+        marcoEnVivo();
         v.play().catch(function () {});
         $('foto-aviso').textContent = '¡Mirá la cámara y sonreí!';
+        $('foto-aviso').classList.add('abajo');
         hablar('¡Mirá la cámara y sonreí!', 'foto-mira').then(function () { cuentaRegresiva(5); });
       })
       .catch(sinCamara);
@@ -1243,6 +1311,17 @@
     hablar('¡' + NUMEROS[n] + '!', 'cuenta-' + n);
     cuentaTimer = setTimeout(function () { cuentaRegresiva(n - 1); }, 1000);
   }
+  // Mientras la cámara está prendida se ve el mismo marco que tendrá la foto,
+  // con el recuadro vacío para que se vea el video por debajo.
+  function marcoEnVivo() {
+    var c = $('foto');
+    c.width = 1200; c.height = 900;
+    var g = c.getContext('2d');
+    pintarMarco(g);
+    g.save(); recuadro(g); g.clip(); g.clearRect(0, 0, 1200, 900); g.restore();
+    decorarFoto(g);
+    c.style.display = 'block';
+  }
   function sacarFoto() {
     var v = $('camara'), c = $('foto'), g;
     c.width = 1200; c.height = 900;
@@ -1250,6 +1329,7 @@
     pintarMarco(g);
     // La foto va dentro del recuadro, recortada tipo "cover" y en espejo, como se veía en pantalla.
     var m = MARCO, vw = v.videoWidth || m.w, vh = v.videoHeight || m.h;
+    // El cuadro se toma directo del video a su resolución máxima, así no sale borroso.
     var e = Math.max(m.w / vw, m.h / vh), dw = vw * e, dh = vh * e;
     g.save();
     recuadro(g); g.clip();
@@ -1295,7 +1375,7 @@
     decorarFoto(g);
     $('foto').style.display = 'block';
     $('foto-botones').classList.add('ver');
-    hablar('¡Felicidades, ' + NOMBRE + '! ¡Lo lograste!', 'foto-final');
+    hablar('¡Felicidades, ' + NOMBRE + '! ¡Lo lograste!', claveNombre('foto-final'));
   }
   /* Formato de la foto: una franja arriba con Superdiente (margen superior izquierdo) y el
      mensaje, y la foto entera en el recuadro de abajo; nada se dibuja encima de la foto. */
@@ -1336,6 +1416,9 @@
     g.textAlign = 'center'; g.lineJoin = 'round';
     function texto(t, y, tam, color) {
       g.font = '800 ' + tam + 'px "Baloo 2", "Trebuchet MS", sans-serif';
+      while (tam > 36 && g.measureText(t).width > 920) {
+        tam -= 4; g.font = '800 ' + tam + 'px "Baloo 2", "Trebuchet MS", sans-serif';
+      }
       g.lineWidth = tam / 6; g.strokeStyle = '#0E2F86'; g.strokeText(t, tx, y);
       g.fillStyle = color; g.fillText(t, tx, y);
     }
@@ -1365,11 +1448,15 @@
   /* Cada frase tiene un archivo en recursos/audio/<clave>.mp3 (voz grabada).
      Si no existe, se usa la voz del navegador. Devuelve una promesa que se
      cumple cuando termina de hablar (o a los 12 s como máximo). */
-  var CARPETA_AUDIO = 'recursos/audio/';
+  // Un juego de audios por narrador (ver herramientas/frases_voz.json).
+  // Para sumar otro narrador: grabar las frases en otra carpeta y agregarla acá y en la configuración.
+  var VOCES = { narrador: 'recursos/audio/' };
+  function carpetaAudio() { return VOCES[(perfil && perfil.voz) || 'narrador'] || VOCES.narrador; }
   // Claves con archivo grabado en recursos/audio/<clave>.mp3 (ver herramientas/frases_voz.json).
   // Las que no están acá se leen con la voz del navegador.
   var AUDIOS_GRABADOS = {'inicio': 1, 'dientes-adelante': 1, 'muelas-arriba': 1, 'muelas-arriba-otro-lado': 1, 'muelas-abajo': 1, 'muelas-abajo-otro-lado': 1, 'bolsillos': 1, 'bolsillos-otro-lado': 1, 'dientes-abajo': 1, 'enjuague': 1, 'mision-hola': 1, 'mision-agarrado': 1, 'final': 1, 'seguir': 1, 'terminar': 1,
-    'foto-pregunta': 1, 'foto-mira': 1, 'foto-final': 1, 'cuenta-5': 1, 'cuenta-4': 1, 'cuenta-3': 1, 'cuenta-2': 1, 'cuenta-1': 1};
+    'foto-pregunta': 1, 'foto-mira': 1, 'foto-final': 1, 'cuenta-5': 1, 'cuenta-4': 1, 'cuenta-3': 1, 'cuenta-2': 1, 'cuenta-1': 1,
+    'inicio-guardian': 1, 'foto-final-guardian': 1};
   // Un solo reproductor para todas las frases: en iPhone, una vez que suena dentro de un toque
   // queda habilitado y después puede sonar solo (por ejemplo, al pasar de paso automáticamente).
   var reproductor = new Audio();
@@ -1427,7 +1514,7 @@
       reproductor.onended = function () { if (turno === turnoAudio) fin(); };
       reproductor.onplaying = function () { if (turno === turnoAudio) { sonoClave[clave] = true; avisoSonido(false); } };
       reproductor.onerror = function () { if (turno === turnoAudio) vozNavegador(); };
-      reproductor.src = CARPETA_AUDIO + clave + '.mp3';
+      reproductor.src = carpetaAudio() + clave + '.mp3';
       var intento = reproductor.play();
       if (intento && intento.catch) intento.catch(function (err) {
         if (turno !== turnoAudio) return;
@@ -1495,15 +1582,27 @@
 
   // Saludo de la pantalla principal. Los navegadores no dejan hablar antes del primer toque,
   // así que suena con el primer toque en la pantalla (y al volver al inicio).
+  // Rami (o Rama, Ramiro) conserva su presentación y sus audios; cualquier otro nombre
+  // pasa a ser «guardián espacial».
+  function sinAcentos(t) { return String(t || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim(); }
+  function esRami() { return /^(rami|rama|ramiro)$/.test(sinAcentos(perfil && perfil.nombre)); }
+  function trato() { return esRami() ? 'Rami' : 'guardián espacial'; }
+  function claveNombre(base) { return esRami() ? base : base + '-guardian'; }
   var NOMBRE = 'Rami';
+  function aplicarPerfil() {
+    NOMBRE = trato();
+    $('lema-nombre').textContent = '¿Estás listo, ' + NOMBRE + '?';
+    marcarSegundos();
+    marcarVoz();
+  }
   var saludoDicho = false;
-  $('lema-nombre').textContent = '¿Estás listo, ' + NOMBRE + '?';
   function saludar() {
-    if (estado.pantalla !== 'inicio') return;
+    if (estado.pantalla !== 'inicio' || !perfil) return;
     saludoDicho = true;
-    hablar('¿Estás listo, ' + NOMBRE + '?', 'inicio').then(function () { esperarSi('inicio'); });
+    hablar('¿Estás listo, ' + NOMBRE + '?', claveNombre('inicio')).then(function () { esperarSi('inicio'); });
   }
   document.addEventListener('pointerdown', function primerToque(ev) {
+    if ($('config').classList.contains('ver')) return; // la bienvenida no cuenta como primer toque
     document.removeEventListener('pointerdown', primerToque, true);
     if (!saludoDicho && !$('btn-comenzar').contains(ev.target) && !$('btn-config').contains(ev.target)) saludar();
   }, true);
@@ -1525,8 +1624,11 @@
   $('btn-voz').onclick = function () { var p = PASOS[estado.paso]; hablar(p.l1 + ' ' + p.l2, p.id); };
   $('btn-volver').onclick = function () { mostrar('inicio'); saludar(); };
   $('btn-config').onclick = function () { abrirConfig(true); };
-  $('config-listo').onclick = function () { abrirConfig(false); };
-  $('config').addEventListener('click', function (ev) { if (ev.target === $('config')) abrirConfig(false); });
+  $('config-listo').onclick = confirmarConfig;
+  // Tocar afuera cierra sin guardar, salvo la primera vez (hay que completar el nombre).
+  $('config').addEventListener('click', function (ev) { if (ev.target === $('config') && perfil) abrirConfig(false); });
+  aplicarPerfil();
+  if (!perfil) abrirConfig(true);
   $('btn-foto').onclick = abrirCamara;
   $('btn-otra-foto').onclick = abrirCamara;
   $('btn-foto-volver').onclick = function () { mostrar('inicio'); saludar(); };

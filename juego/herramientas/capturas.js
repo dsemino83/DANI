@@ -15,6 +15,9 @@ const SALIDA = path.join(RAIZ, 'capturas');
   const nav = await chromium.launch();
   const pag = await nav.newPage({ viewport: { width: 1200, height: 900 } });
   await pag.goto('file://' + path.join(RAIZ, 'index.html'));
+  // Perfil ya configurado, así no aparece la bienvenida en las capturas.
+  await pag.evaluate(() => localStorage.setItem('dl-perfil', JSON.stringify({ nombre: 'Rami', segundos: 20, voz: 'narrador' })));
+  await pag.reload();
   await pag.evaluate(() => document.fonts.ready);
 
   const tomas = [['00-inicio', 'inicio', 0, 0.3, 0], ['01-mision', 'mision', 0, 0.3, 0]];
