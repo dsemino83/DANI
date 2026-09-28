@@ -12,7 +12,7 @@
     "bolsillos-otro-lado": "¡Los bolsillos del otro lado! Ahora pegado al otro cachete, con circulitos.",
     "dientes-abajo": "¡Ahora los dientes de abajo! Mové el cepillo de un lado al otro.",
     "enjuague": "¡Genial! Por último, enjuagá tu boca con agua.",
-    "mision-hola": "¡Hola! Soy Superdiente. ¡Agarrá tu cepillo de dientes para empezar!",
+    "mision-hola": "¡Hola! Soy Superdiente. ¡Agarrá tu cepillo de dientes para empezar! ¡Decí sí!",
     "mision-agarrado": "¡Muy bien, ya lo tenés! ¡Vamos a cepillarnos!",
     "final": "¡Lo hiciste! ¡Dientes limpios y una gran sonrisa!",
     "seguir": "¡Muy bien! ¿Seguimos? ¡Decí sí!",
@@ -34,5 +34,5 @@
       "carpeta": "recursos/audio/"
     }
   },
-  "nota": "inicio-guardian y foto-final-guardian son recortes de inicio y foto-final sin la palabra «Rami»."
+  "nota": "inicio-guardian y foto-final-guardian son recortes de inicio y foto-final sin la palabra «Rami». mision-hola termina con «¡Decí sí!» recortado de seguir."
 }

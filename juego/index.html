@@ -91,7 +91,7 @@
     display: flex; align-items: center; justify-content: center; }
   .ui-consejo .l1 { font-size: 31px; font-weight: 800; line-height: 1.1; color: var(--texto); }
   .ui-consejo .l2 { font-size: 27px; font-weight: 600; line-height: 1.15; color: #2F4C80; }
-  .pista { position: absolute; left: 780px; top: 640px; width: 200px; text-align: center; background: #FFD23F; color: #1753C9;
+  .pista { position: absolute; left: 660px; top: 640px; width: 440px; white-space: nowrap; text-align: center; background: #FFD23F; color: #1753C9;
     font-size: 36px; font-weight: 800; border-radius: 999px; padding: 4px 0; box-shadow: 0 6px 0 #D99A00, 0 10px 20px rgba(0,0,0,.25);
     pointer-events: none; animation: latido 1s ease-in-out infinite; }
   @keyframes latido { 50% { transform: scale(1.08); } }
@@ -114,6 +114,7 @@
   .aviso.ver { opacity: 1; transform: translateX(-50%) scale(1); }
   #aviso-sonido.ver { pointer-events: auto; }
   #aviso-mic.ver svg { animation: latido 1s ease-in-out infinite; }
+  #escenario[data-pantalla="mision"] .aviso { left: 330px; }
   #escenario[data-pantalla="inicio"] .aviso { left: 890px; bottom: 28px; }
   #escenario[data-pantalla="final"] .aviso { bottom: auto; top: 24px; }
   #escenario[data-pantalla="foto"] .aviso { display: none; }
@@ -231,12 +232,12 @@
         <svg class="icono" viewBox="0 0 76 76"><circle cx="38" cy="38" r="36" fill="#FFF3C4"/><path d="M38 12l7.6 15.4 17 2.5-12.3 12 2.9 16.9L38 50.8l-15.2 8 2.9-16.9-12.3-12 17-2.5z" fill="#FFC21A" stroke="#E0A100" stroke-width="3" stroke-linejoin="round"/></svg>
         <span class="nombre">¡Tu misión!</span>
       </div>
-      <div class="pista" id="pista-cepillo">¡Tocalo!</div>
+      <div class="pista" id="pista-cepillo">¡Tocalo o decí «sí»!</div>
       <div class="ui-consejo">
         <button id="btn-voz-mision" aria-label="Escuchar a Superdiente">
           <svg width="48" height="48" viewBox="0 0 54 54"><path d="M8 20h9l12-10v34L17 34H8z" fill="#fff"/><path d="M36 18q6 9 0 18M42 12q11 15 0 30" stroke="#fff" stroke-width="5" stroke-linecap="round" fill="none"/></svg>
         </button>
-        <div><div class="l1" id="mision-1">¡Hola! Soy Superdiente.</div><div class="l2" id="mision-2">¡Agarrá tu cepillo de dientes para empezar!</div></div>
+        <div><div class="l1" id="mision-1">¡Hola! Soy Superdiente.</div><div class="l2" id="mision-2">¡Agarrá tu cepillo de dientes para empezar! ¡Decí sí!</div></div>
       </div>
       <button class="flecha" id="btn-mision-seguir" aria-label="Agarrar el cepillo" style="right:30px">
         <svg width="50" height="50" viewBox="0 0 54 54"><path d="M21 10L38 27L21 44" stroke="#fff" stroke-width="9" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>
@@ -1105,12 +1106,12 @@
     ponerVideo($('video-mision'), 'mision', $('svg-mision'), '.fondo, #sd-mision');
     agarre = null;
     $('mision-1').textContent = '¡Hola! Soy Superdiente.';
-    $('mision-2').textContent = '¡Agarrá tu cepillo de dientes para empezar!';
+    $('mision-2').textContent = '¡Agarrá tu cepillo de dientes para empezar! ¡Decí sí!';
     $('pista-cepillo').style.display = '';
     $('svg-mision').querySelector('#sd-mision').removeAttribute('data-feliz');
     $('svg-mision').querySelector('#sd-mision').removeAttribute('data-fiesta');
     mostrar('mision');
-    hablar('¡Hola! Soy Superdiente. ¡Agarrá tu cepillo de dientes para empezar!', 'mision-hola')
+    hablar('¡Hola! Soy Superdiente. ¡Agarrá tu cepillo de dientes para empezar! ¡Decí sí!', 'mision-hola')
       .then(function () { esperarSi('mision'); });
   }
   function agarrarCepillo() {
@@ -1470,7 +1471,7 @@
   if (hayVoz) { elegirVoz(); speechSynthesis.onvoiceschanged = elegirVoz; }
 
   // Precarga todas las grabaciones del narrador al abrir el juego, así suenan al instante.
-  setTimeout(function () {
+  if (location.protocol !== 'file:') setTimeout(function () {
     Object.keys(AUDIOS_GRABADOS).forEach(function (clave) {
       try { fetch(carpetaAudio() + clave + '.mp3').catch(function () {}); } catch (e) {}
     });
