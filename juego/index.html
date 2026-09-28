@@ -196,46 +196,59 @@
   #btn-volver-jugar { position: static; width: 480px; height: 104px; }
 
   /* ---------- Celular vertical ----------
-     El escenario pasa a 1000 de ancho y tan alto como la pantalla; la escena (el cuadro de
-     1200×900) va arriba, más chica, y los textos y botones quedan debajo, más grandes.
-     --dy centra el contenido cuando la pantalla es más alta de lo necesario. */
-  #escenario.vertical .pantalla { background: linear-gradient(#1D4BA8, #0B2466); }
-  #escenario.vertical .cuadro { left: 20px; top: calc(var(--dy) + 150px); transform: scale(.8); transform-origin: 0 0;
-    border-radius: 40px; overflow: hidden; box-shadow: 0 12px 34px rgba(0,0,0,.4); }
+     La imagen ocupa toda la pantalla (se recorta a los costados, encuadrada en lo importante)
+     y los carteles y botones van encima, como en horizontal. El escenario mide 1000 de ancho
+     y tan alto como la pantalla. */
+  #escenario.vertical .cuadro { width: 100%; height: 100%; }
+  #escenario.vertical .video-escena { object-position: 50% 50%; }
+  #escenario.vertical #video-inicio { object-position: 15% 50%; }
+  #escenario.vertical #video-mision { object-position: 34% 50%; }
+  /* Pasos: la cara del niño entera (se ve ~740 de los 1200 de ancho) y, arriba y abajo,
+     la misma imagen desenfocada para que toda la pantalla quede cubierta. */
+  #escenario.vertical #p-paso .cuadro { overflow: hidden; }
+  #escenario.vertical #p-paso .cuadro::before { content: ''; position: absolute; inset: -40px; background: var(--poster) center / cover;
+    filter: blur(28px) brightness(.8); }
+  #escenario.vertical #video-paso, #escenario.vertical #svg-paso { top: 50%; bottom: auto; height: 1216px; transform: translateY(-50%); }
+  /* degradé abajo para que se lean los textos sobre la imagen */
+  #escenario.vertical .pantalla:not(#p-foto):not(#p-chau) .cuadro::after { content: ''; position: absolute; left: 0; right: 0;
+    bottom: 0; height: 42%; background: linear-gradient(rgba(6,18,51,0), rgba(6,18,51,.75)); pointer-events: none; }
   #escenario.vertical #btn-config { top: 24px; left: 24px; }
   /* inicio */
-  #escenario.vertical .titulo { left: 0; width: 1000px; top: calc(var(--dy) + 900px); }
-  #escenario.vertical .lema { left: 0; width: 1000px; top: calc(var(--dy) + 1190px); font-size: 46px; }
-  #escenario.vertical #btn-comenzar { left: 250px; width: 500px; height: 116px; top: calc(var(--dy) + 1350px); }
-  #escenario.vertical[data-pantalla="inicio"] .aviso { left: 500px; bottom: auto; top: calc(var(--dy) + 1510px); }
-  /* misión */
-  #escenario.vertical #p-mision .ui-paso { top: calc(var(--dy) + 40px); }
-  #escenario.vertical .ui-consejo { left: 30px; width: 940px; transform: none; bottom: auto; min-height: 150px; }
-  #escenario.vertical .ui-consejo .l1 { font-size: 42px; }
-  #escenario.vertical .ui-consejo .l2 { font-size: 36px; }
-  #escenario.vertical #p-mision .ui-consejo { top: calc(var(--dy) + 910px); }
-  #escenario.vertical #btn-mision-seguir { right: auto !important; left: 446px; bottom: auto; top: calc(var(--dy) + 1140px); }
-  #escenario.vertical[data-pantalla="mision"] .aviso { left: 500px; bottom: auto; top: calc(var(--dy) + 1290px); }
-  /* pasos */
-  #escenario.vertical #p-paso .cuadro { top: calc(var(--dy) + 300px); }
-  #escenario.vertical .ui-reloj { top: calc(var(--dy) + 14px); left: 30px; }
-  #escenario.vertical #p-paso .ui-paso { top: calc(var(--dy) + 190px); }
-  #escenario.vertical .ui-lista { top: calc(var(--dy) + 1040px); right: auto; left: 50%; transform: translateX(-50%);
-    width: auto; flex-direction: row; padding: 10px 18px; }
-  #escenario.vertical #p-paso .ui-consejo { top: calc(var(--dy) + 1140px); }
-  #escenario.vertical #btn-anterior, #escenario.vertical #btn-siguiente { bottom: auto; top: calc(var(--dy) + 1330px); }
-  #escenario.vertical #btn-anterior { left: 200px; }
-  #escenario.vertical #btn-siguiente { right: 200px; }
-  #escenario.vertical[data-pantalla="paso"] .aviso { left: 500px; bottom: auto; top: calc(var(--dy) + 1470px); }
+  #escenario.vertical .titulo { left: 0; width: 1000px; top: 130px; }
+  #escenario.vertical .lema { left: 0; width: 1000px; top: auto; bottom: 330px; font-size: 50px; text-shadow: 0 3px 8px rgba(0,0,0,.6); }
+  #escenario.vertical #btn-comenzar { left: 230px; width: 540px; height: 124px; top: auto; bottom: 150px; font-size: 56px; }
+  #escenario.vertical[data-pantalla="inicio"] .aviso { left: 500px; bottom: 50px; }
+  /* misión: Superdiente grande; el cepillo se agarra con el botón amarillo o diciendo «sí» */
+  #escenario.vertical #svg-mision #premio, #escenario.vertical .pista, #escenario.vertical #btn-mision-seguir { display: none; }
+  #btn-agarrar { display: none; }
+  #escenario.vertical #btn-agarrar { display: flex; left: 170px; width: 660px; height: 124px; bottom: 250px; font-size: 48px; }
+  #escenario.vertical #p-mision .ui-paso { top: 130px; }
+  #escenario.vertical .ui-consejo { left: 30px; width: 940px; transform: none; min-height: 150px; }
+  #escenario.vertical .ui-consejo .l1 { font-size: 40px; }
+  #escenario.vertical .ui-consejo .l2 { font-size: 34px; }
+  #escenario.vertical #p-mision .ui-consejo { bottom: 60px; }
+  #escenario.vertical[data-pantalla="mision"] .aviso { left: 500px; bottom: 410px; }
+  /* pasos: la cara del niño grande; reloj y nombre arriba, lista a la derecha, consigna y flechas abajo */
+  #escenario.vertical .ui-reloj { top: 24px; left: 24px; }
+  #escenario.vertical #p-paso .ui-paso { top: 190px; }
+  #escenario.vertical .ui-lista { top: 330px; right: 20px; }
+  #escenario.vertical #p-paso .ui-consejo { bottom: 180px; }
+  #escenario.vertical #btn-anterior { left: 30px; bottom: 40px; }
+  #escenario.vertical #btn-siguiente { right: 30px; bottom: 40px; }
+  #escenario.vertical[data-pantalla="paso"] .aviso { left: 500px; bottom: 60px; }
   /* final */
-  #escenario.vertical #btn-foto, #escenario.vertical #p-final #btn-volver { left: 150px; width: 700px; height: 112px; font-size: 46px; }
-  #escenario.vertical #btn-foto { top: calc(var(--dy) + 910px); }
-  #escenario.vertical #p-final #btn-volver { top: calc(var(--dy) + 1060px); }
-  #escenario.vertical[data-pantalla="final"] .aviso { left: 500px; top: calc(var(--dy) + 1210px); }
-  /* foto */
-  #escenario.vertical .foto-botones { bottom: auto; top: calc(var(--dy) + 910px); flex-direction: column; align-items: center; gap: 24px; }
-  #escenario.vertical .foto-botones .boton-amarillo { width: 620px; height: 104px; font-size: 44px; }
-  /* despedida */
+  #escenario.vertical .fin-titulo { top: 34%; }
+  #escenario.vertical .fin-texto { top: calc(34% + 150px); font-size: 54px; }
+  #escenario.vertical .racha { left: 230px; top: calc(34% + 320px); }
+  #escenario.vertical #btn-foto, #escenario.vertical #p-final #btn-volver { left: 150px; width: 700px; height: 112px; font-size: 46px; top: auto; }
+  #escenario.vertical #btn-foto { bottom: 190px; }
+  #escenario.vertical #p-final #btn-volver { bottom: 50px; }
+  #escenario.vertical[data-pantalla="final"] .aviso { left: 500px; top: 140px; bottom: auto; }
+  /* foto: el formato con marco se mantiene (4:3), centrado y lo más grande posible */
+  #escenario.vertical #p-foto .cuadro { width: 1200px; height: 900px; left: 0; top: calc(50% - 460px); transform: scale(.8333); transform-origin: 0 0; }
+  #escenario.vertical .foto-botones { bottom: 60px; flex-direction: column; align-items: center; gap: 24px; }
+  #escenario.vertical .foto-botones .boton-amarillo { width: 640px; height: 110px; font-size: 44px; }
+  #escenario.vertical #p-foto { background: linear-gradient(#1D4BA8, #0B2466); }
   #escenario.vertical .chau-titulo { font-size: 96px; }
 
   #bien { position: absolute; left: 50%; top: 230px; transform: translateX(-50%) scale(0); font-size: 110px;
@@ -321,6 +334,10 @@
         </button>
         <div><div class="l1" id="mision-1">¡Hola! Soy Superdiente.</div><div class="l2" id="mision-2">¡Agarrá tu cepillo de dientes para empezar! ¡Decí sí!</div></div>
       </div>
+      <button id="btn-agarrar" class="boton-amarillo">
+        <svg width="70" height="40" viewBox="0 0 70 40"><rect x="2" y="16" width="44" height="10" rx="5" fill="#1753C9"/><rect x="44" y="8" width="22" height="18" rx="5" fill="#fff" stroke="#1753C9" stroke-width="3"/><path d="M48 8v-5M53 8v-5M58 8v-5M63 8v-5" stroke="#6FB6FF" stroke-width="3" stroke-linecap="round"/></svg>
+        ¡Agarrá el cepillo!
+      </button>
       <button class="flecha" id="btn-mision-seguir" aria-label="Agarrar el cepillo" style="right:30px">
         <svg width="50" height="50" viewBox="0 0 54 54"><path d="M21 10L38 27L21 44" stroke="#fff" stroke-width="9" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>
       </button>
@@ -996,6 +1013,8 @@
     };
     // El primer cuadro (.jpg) se ve al instante mientras carga el video: nunca asoma el dibujo.
     video.poster = CARPETA_VIDEOS + nombre + '.jpg';
+    var cuadro = video.closest('.cuadro');
+    if (cuadro) cuadro.style.setProperty('--poster', 'url("' + video.poster + '")');
     video.style.display = 'block';
     verDibujo(false);
     video.src = CARPETA_VIDEOS + nombre + formatos.shift();
@@ -1204,6 +1223,7 @@
     $('mision-1').textContent = '¡Hola! Soy Superdiente.';
     $('mision-2').textContent = '¡Agarrá tu cepillo de dientes para empezar! ¡Decí sí!';
     $('pista-cepillo').style.display = '';
+    $('btn-agarrar').style.visibility = '';
     $('svg-mision').querySelector('#sd-mision').removeAttribute('data-feliz');
     $('svg-mision').querySelector('#sd-mision').removeAttribute('data-fiesta');
     mostrar('mision');
@@ -1214,6 +1234,7 @@
     if (agarre !== null) return;
     agarre = tReloj();
     $('pista-cepillo').style.display = 'none';
+    $('btn-agarrar').style.visibility = 'hidden';
     $('mision-1').textContent = '¡Muy bien, ya lo tenés!';
     $('mision-2').textContent = '¡Vamos a cepillarnos paso a paso!';
     $('svg-mision').querySelector('#sd-mision').setAttribute('data-feliz', '1');
@@ -1715,6 +1736,7 @@
   $('btn-comenzar').onclick = empezarMision;
   $('svg-mision').querySelector('#cepillo-premio').addEventListener('click', agarrarCepillo);
   $('btn-mision-seguir').onclick = agarrarCepillo;
+  $('btn-agarrar').onclick = agarrarCepillo;
   // Con el video de Superdiente no hay cepillo dibujado: tocar cualquier parte lo agarra.
   $('p-mision').addEventListener('click', function () { if ($('p-mision').classList.contains('con-video')) agarrarCepillo(); });
   $('btn-voz-mision').onclick = function () { hablar($('mision-1').textContent + ' ' + $('mision-2').textContent, agarre === null ? 'mision-hola' : 'mision-agarrado'); };
@@ -1754,11 +1776,14 @@
   /* ---------- Escalado del escenario ---------- */
   // Horizontal: escenario 1200×900. Vertical (celular parado): 1000 de ancho y tan alto como la
   // pantalla, con la escena arriba y los controles abajo (ver «Celular vertical» en el CSS).
-  var ALTO_VERTICAL = 1650;
+  var ALTO_VERTICAL = 1500;
   function ajustar() {
     var an = window.innerWidth, al = window.innerHeight, esc = $('escenario');
     var vertical = al > an * 1.15 && !congeladoCaptura;
     esc.classList.toggle('vertical', vertical);
+    ['svg-inicio', 'svg-mision', 'svg-paso', 'svg-final'].forEach(function (id) {
+      $(id).setAttribute('preserveAspectRatio', vertical ? 'xMidYMid slice' : 'xMidYMid meet');
+    });
     if (vertical) {
       var alto = Math.max(ALTO_VERTICAL, Math.round(1000 * al / an));
       esc.style.width = '1000px'; esc.style.height = alto + 'px';
