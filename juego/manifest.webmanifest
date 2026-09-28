@@ -1,0 +1,16 @@
+{
+  "name": "Misión: Dientes Limpios",
+  "short_name": "Dientes Limpios",
+  "description": "Juego para aprender a cepillarse los dientes paso a paso con Superdiente.",
+  "lang": "es",
+  "start_url": "./",
+  "scope": "./",
+  "display": "fullscreen",
+  "orientation": "landscape",
+  "background_color": "#061233",
+  "theme_color": "#0E2F86",
+  "icons": [
+    { "src": "recursos/app/icono-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "recursos/app/icono-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}

@@ -12,4 +12,6 @@ s = open('index.html', encoding='utf-8').read()
 s = re.sub(r'<!DOCTYPE html>\s*<html[^>]*>\s*<head>\s*', '', s)
 s = re.sub(r'<meta charset="utf-8">\s*<meta name="viewport"[^>]*>\s*', '', s)
 s = s.replace('</head>\n<body>\n', '').replace('</body>\n</html>', '')
+# Lo de la app instalable (manifiesto, íconos) no aplica dentro del visor.
+s = re.sub(r'<!-- app -->.*?<!-- /app -->\s*', '', s, flags=re.S)
 open(sys.argv[1], 'w', encoding='utf-8').write(s)
