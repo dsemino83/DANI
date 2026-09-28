@@ -35,7 +35,8 @@
     transform-origin: center center; border-radius: 28px; background: #3F8FE0; }
   .pantalla { position: absolute; inset: 0; display: none; }
   .pantalla.activa { display: block; }
-  .pantalla > svg { position: absolute; inset: 0; display: block; }
+  .cuadro { position: absolute; left: 0; top: 0; width: 1200px; height: 900px; }
+  .cuadro > svg { position: absolute; inset: 0; display: block; }
   button { font: inherit; border: 0; cursor: pointer; -webkit-tap-highlight-color: transparent; }
 
   /* ---------- Inicio y final ---------- */
@@ -127,7 +128,7 @@
   #escenario[data-pantalla="mision"] .aviso { left: 330px; }
   #escenario[data-pantalla="inicio"] .aviso { left: 890px; bottom: 28px; }
   #escenario[data-pantalla="final"] .aviso { bottom: auto; top: 24px; }
-  #escenario[data-pantalla="foto"] .aviso { display: none; }
+  #escenario[data-pantalla="foto"] .aviso, #escenario[data-pantalla="chau"] .aviso { display: none; }
 
   /* ---------- Configuración (ruedita del inicio) ---------- */
   #btn-config { position: absolute; left: 28px; top: 28px; width: 96px; height: 96px; border-radius: 50%;
@@ -179,15 +180,64 @@
   .foto-botones { position: absolute; left: 0; right: 0; bottom: 12px; display: none; justify-content: center; gap: 30px; }
   .foto-botones.ver { display: flex; }
   .foto-botones .boton-amarillo { position: static; width: 440px; height: 80px; font-size: 36px; white-space: nowrap; }
-  /* Aviso para girar el celular: el juego se ve horizontal. */
-  #girar { position: fixed; inset: 0; z-index: 50; display: none; flex-direction: column; align-items: center;
-    justify-content: center; gap: 22px; padding: 24px; text-align: center; background: #0B2466; color: #fff;
-    font-size: 26px; font-weight: 800; }
-  #girar svg { animation: girar 2.2s ease-in-out infinite; }
-  @keyframes girar { 0%, 30% { transform: rotate(0); } 60%, 100% { transform: rotate(-90deg); } }
-  #girar button { font-size: 18px; font-weight: 700; color: #fff; background: none; border: 2px solid rgba(255,255,255,.6);
-    border-radius: 999px; padding: 10px 22px; }
-  @media (orientation: portrait) and (max-width: 820px) { body:not(.vertical-ok) #girar { display: flex; } }
+  /* Botones redondos: casita (menú principal) y salir. */
+  #barra { position: absolute; top: 24px; right: 24px; z-index: 25; display: flex; gap: 14px; }
+  .redondo { width: 88px; height: 88px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+    background: radial-gradient(circle at 35% 30%, #3E8BFF, #1646B8 70%); border: 5px solid rgba(255,255,255,.9);
+    box-shadow: 0 6px 16px rgba(10,40,110,.4); }
+  .redondo:active { transform: scale(.94); }
+  #btn-salir { background: radial-gradient(circle at 35% 30%, #FF7A7A, #C62828 70%); }
+  #escenario[data-pantalla="inicio"] #btn-casa,
+  #escenario[data-pantalla="foto"] #barra, #escenario[data-pantalla="chau"] #barra { display: none; }
+  #escenario:not(.vertical)[data-pantalla="paso"] .ui-lista { top: 128px; gap: 8px; }
+  .chau { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 30px; text-align: center; }
+  .chau-titulo { font-size: 110px; font-weight: 800; color: #FFD23F; -webkit-text-stroke: 12px #1753C9; paint-order: stroke fill; line-height: 1; }
+  .chau-texto { color: #fff; font-size: 44px; font-weight: 700; line-height: 1.2; }
+  #btn-volver-jugar { position: static; width: 480px; height: 104px; }
+
+  /* ---------- Celular vertical ----------
+     El escenario pasa a 1000 de ancho y tan alto como la pantalla; la escena (el cuadro de
+     1200×900) va arriba, más chica, y los textos y botones quedan debajo, más grandes.
+     --dy centra el contenido cuando la pantalla es más alta de lo necesario. */
+  #escenario.vertical .pantalla { background: linear-gradient(#1D4BA8, #0B2466); }
+  #escenario.vertical .cuadro { left: 20px; top: calc(var(--dy) + 150px); transform: scale(.8); transform-origin: 0 0;
+    border-radius: 40px; overflow: hidden; box-shadow: 0 12px 34px rgba(0,0,0,.4); }
+  #escenario.vertical #btn-config { top: 24px; left: 24px; }
+  /* inicio */
+  #escenario.vertical .titulo { left: 0; width: 1000px; top: calc(var(--dy) + 900px); }
+  #escenario.vertical .lema { left: 0; width: 1000px; top: calc(var(--dy) + 1190px); font-size: 46px; }
+  #escenario.vertical #btn-comenzar { left: 250px; width: 500px; height: 116px; top: calc(var(--dy) + 1350px); }
+  #escenario.vertical[data-pantalla="inicio"] .aviso { left: 500px; bottom: auto; top: calc(var(--dy) + 1510px); }
+  /* misión */
+  #escenario.vertical #p-mision .ui-paso { top: calc(var(--dy) + 40px); }
+  #escenario.vertical .ui-consejo { left: 30px; width: 940px; transform: none; bottom: auto; min-height: 150px; }
+  #escenario.vertical .ui-consejo .l1 { font-size: 42px; }
+  #escenario.vertical .ui-consejo .l2 { font-size: 36px; }
+  #escenario.vertical #p-mision .ui-consejo { top: calc(var(--dy) + 910px); }
+  #escenario.vertical #btn-mision-seguir { right: auto !important; left: 446px; bottom: auto; top: calc(var(--dy) + 1140px); }
+  #escenario.vertical[data-pantalla="mision"] .aviso { left: 500px; bottom: auto; top: calc(var(--dy) + 1290px); }
+  /* pasos */
+  #escenario.vertical #p-paso .cuadro { top: calc(var(--dy) + 300px); }
+  #escenario.vertical .ui-reloj { top: calc(var(--dy) + 14px); left: 30px; }
+  #escenario.vertical #p-paso .ui-paso { top: calc(var(--dy) + 190px); }
+  #escenario.vertical .ui-lista { top: calc(var(--dy) + 1040px); right: auto; left: 50%; transform: translateX(-50%);
+    width: auto; flex-direction: row; padding: 10px 18px; }
+  #escenario.vertical #p-paso .ui-consejo { top: calc(var(--dy) + 1140px); }
+  #escenario.vertical #btn-anterior, #escenario.vertical #btn-siguiente { bottom: auto; top: calc(var(--dy) + 1330px); }
+  #escenario.vertical #btn-anterior { left: 200px; }
+  #escenario.vertical #btn-siguiente { right: 200px; }
+  #escenario.vertical[data-pantalla="paso"] .aviso { left: 500px; bottom: auto; top: calc(var(--dy) + 1470px); }
+  /* final */
+  #escenario.vertical #btn-foto, #escenario.vertical #p-final #btn-volver { left: 150px; width: 700px; height: 112px; font-size: 46px; }
+  #escenario.vertical #btn-foto { top: calc(var(--dy) + 910px); }
+  #escenario.vertical #p-final #btn-volver { top: calc(var(--dy) + 1060px); }
+  #escenario.vertical[data-pantalla="final"] .aviso { left: 500px; top: calc(var(--dy) + 1210px); }
+  /* foto */
+  #escenario.vertical .foto-botones { bottom: auto; top: calc(var(--dy) + 910px); flex-direction: column; align-items: center; gap: 24px; }
+  #escenario.vertical .foto-botones .boton-amarillo { width: 620px; height: 104px; font-size: 44px; }
+  /* despedida */
+  #escenario.vertical .chau-titulo { font-size: 96px; }
+
   #bien { position: absolute; left: 50%; top: 230px; transform: translateX(-50%) scale(0); font-size: 110px;
     font-weight: 800; color: #FFD23F; -webkit-text-stroke: 12px #1753C9; paint-order: stroke fill;
     transition: transform .35s cubic-bezier(.3,1.6,.5,1); pointer-events: none; white-space: nowrap; }
@@ -195,11 +245,6 @@
 </style>
 </head>
 <body>
-<div id="girar" role="dialog" aria-label="Girá el celular">
-  <svg width="96" height="96" viewBox="0 0 96 96"><rect x="30" y="10" width="36" height="66" rx="8" fill="none" stroke="#FFD23F" stroke-width="6"/><circle cx="48" cy="66" r="3.5" fill="#FFD23F"/><path d="M14 58a36 36 0 0 0 26 28" fill="none" stroke="#fff" stroke-width="5" stroke-linecap="round"/><path d="M36 80l6 7-9 2" fill="none" stroke="#fff" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/></svg>
-  Girá el celular para jugar
-  <button id="girar-igual">Jugar así igual</button>
-</div>
 <div id="marco">
   <div id="escenario" data-pantalla="inicio">
 
@@ -228,10 +273,21 @@
       </div>
     </div>
 
+    <div id="barra">
+      <button id="btn-casa" class="redondo" aria-label="Ir al menú principal">
+        <svg width="50" height="50" viewBox="0 0 54 54"><path d="M8 26L27 9L46 26M14 22V45H24V33H30V45H40V22" stroke="#fff" stroke-width="6" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>
+      </button>
+      <button id="btn-salir" class="redondo" aria-label="Salir de la aplicación">
+        <svg width="46" height="46" viewBox="0 0 54 54"><path d="M14 14L40 40M40 14L14 40" stroke="#fff" stroke-width="8" stroke-linecap="round" fill="none"/></svg>
+      </button>
+    </div>
+
     <!-- ================= INICIO ================= -->
     <section id="p-inicio" class="pantalla noche activa">
-      <video class="video-escena" id="video-inicio" muted loop playsinline preload="auto"></video>
-      <svg id="svg-inicio" viewBox="0 0 1200 900" width="1200" height="900"></svg>
+      <div class="cuadro">
+        <video class="video-escena" id="video-inicio" muted loop playsinline preload="auto"></video>
+        <svg id="svg-inicio" viewBox="0 0 1200 900" width="1200" height="900"></svg>
+      </div>
       <div class="titulo"><span class="t1">Misión:</span><span class="t2">Dientes</span><span class="t3">Limpios</span></div>
       <div class="lema"><span id="lema-nombre">¿Estás listo, Rami?</span><br>¡Vamos a cepillarnos!</div>
       <button id="btn-config" aria-label="Configuración">
@@ -250,13 +306,15 @@
 
     <!-- ============ MISIÓN: SUPERDIENTE PIDE EL CEPILLO ============ -->
     <section id="p-mision" class="pantalla">
-      <video class="video-escena" id="video-mision" muted loop playsinline preload="auto"></video>
-      <svg id="svg-mision" viewBox="0 0 1200 900" width="1200" height="900"></svg>
+      <div class="cuadro">
+        <video class="video-escena" id="video-mision" muted loop playsinline preload="auto"></video>
+        <svg id="svg-mision" viewBox="0 0 1200 900" width="1200" height="900"></svg>
+        <div class="pista" id="pista-cepillo">¡Tocalo o decí «sí»!</div>
+      </div>
       <div class="ui-paso">
         <svg class="icono" viewBox="0 0 76 76"><circle cx="38" cy="38" r="36" fill="#FFF3C4"/><path d="M38 12l7.6 15.4 17 2.5-12.3 12 2.9 16.9L38 50.8l-15.2 8 2.9-16.9-12.3-12 17-2.5z" fill="#FFC21A" stroke="#E0A100" stroke-width="3" stroke-linejoin="round"/></svg>
         <span class="nombre">¡Tu misión!</span>
       </div>
-      <div class="pista" id="pista-cepillo">¡Tocalo o decí «sí»!</div>
       <div class="ui-consejo">
         <button id="btn-voz-mision" aria-label="Escuchar a Superdiente">
           <svg width="48" height="48" viewBox="0 0 54 54"><path d="M8 20h9l12-10v34L17 34H8z" fill="#fff"/><path d="M36 18q6 9 0 18M42 12q11 15 0 30" stroke="#fff" stroke-width="5" stroke-linecap="round" fill="none"/></svg>
@@ -270,8 +328,11 @@
 
     <!-- ================= PASOS ================= -->
     <section id="p-paso" class="pantalla">
-      <video class="video-escena" id="video-paso" muted loop playsinline preload="auto"></video>
-      <svg id="svg-paso" viewBox="0 0 1200 900" width="1200" height="900"></svg>
+      <div class="cuadro">
+        <video class="video-escena" id="video-paso" muted loop playsinline preload="auto"></video>
+        <svg id="svg-paso" viewBox="0 0 1200 900" width="1200" height="900"></svg>
+        <div id="bien">¡Muy bien!</div>
+      </div>
 
       <div class="ui-reloj">
         <svg viewBox="0 0 150 150" width="150" height="150">
@@ -295,8 +356,6 @@
 
       <div class="ui-lista" id="lista"></div>
 
-      <div id="bien">¡Muy bien!</div>
-
       <button class="flecha" id="btn-anterior" aria-label="Paso anterior">
         <svg width="50" height="50" viewBox="0 0 54 54"><path d="M33 10L16 27L33 44" stroke="#fff" stroke-width="9" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>
       </button>
@@ -313,12 +372,14 @@
 
     <!-- ================= FINAL ================= -->
     <section id="p-final" class="pantalla noche">
+      <div class="cuadro">
       <svg id="svg-final" viewBox="0 0 1200 900" width="1200" height="900"></svg>
       <div class="fin-titulo">¡Lo hiciste!</div>
       <div class="fin-texto">¡Dientes limpios<br>y una gran sonrisa!</div>
       <div class="racha">
         <svg width="48" height="48" viewBox="0 0 50 50"><path d="M25 4C29 14 40 18 40 31A15 15 0 0 1 10 31C10 23 15 19 18 14C19 20 22 22 24 22C22 15 23 9 25 4Z" fill="#FF7A2F"/><path d="M25 24C28 29 32 31 32 36A7 7 0 0 1 18 36C18 31 22 29 25 24Z" fill="#FFD23F"/></svg>
         Racha de días <span class="num" id="racha-num">1</span>
+      </div>
       </div>
       <button id="btn-foto" class="boton-amarillo">
         <svg width="54" height="54" viewBox="0 0 54 54"><path d="M8 17h9l4-6h12l4 6h9v26H8z" fill="#1753C9"/><circle cx="27" cy="30" r="9" fill="#FFD23F" stroke="#1753C9" stroke-width="4"/></svg>
@@ -330,15 +391,26 @@
       </button>
     </section>
 
+    <!-- ================= DESPEDIDA (botón salir) ================= -->
+    <section id="p-chau" class="pantalla noche">
+      <div class="chau">
+        <div class="chau-titulo">¡Hasta la próxima!</div>
+        <div class="chau-texto" id="chau-texto">Ya podés cerrar la aplicación<br>con el botón ◁ del celular.</div>
+        <button id="btn-volver-jugar" class="boton-amarillo">Volver a jugar</button>
+      </div>
+    </section>
+
     <!-- ============ FOTO: ¿Querés ver cómo quedó? ============
          La foto vive solo en la memoria de esta pantalla: nunca se guarda ni se sube,
          y se borra al salir de la pantalla o de la aplicación. -->
     <section id="p-foto" class="pantalla noche">
-      <video id="camara" playsinline muted autoplay></video>
-      <canvas id="foto" width="1200" height="900"></canvas>
-      <div id="cuenta"></div>
-      <div id="foto-flash"></div>
-      <div class="foto-aviso" id="foto-aviso">Abriendo la cámara…</div>
+      <div class="cuadro">
+        <video id="camara" playsinline muted autoplay></video>
+        <canvas id="foto" width="1200" height="900"></canvas>
+        <div id="cuenta"></div>
+        <div id="foto-flash"></div>
+        <div class="foto-aviso" id="foto-aviso">Abriendo la cámara…</div>
+      </div>
       <div class="foto-botones" id="foto-botones">
         <button id="btn-otra-foto" class="boton-amarillo">
           <svg width="50" height="50" viewBox="0 0 54 54"><path d="M8 17h9l4-6h12l4 6h9v26H8z" fill="#1753C9"/><circle cx="27" cy="30" r="9" fill="#FFD23F" stroke="#1753C9" stroke-width="4"/></svg>
@@ -908,7 +980,7 @@
 
   function ponerVideo(video, nombre, svg, selectorOcultar, alCambiar) {
     var piezas = Array.prototype.slice.call(svg.querySelectorAll(selectorOcultar));
-    var escena = video.parentNode;
+    var escena = video.closest('.pantalla');
     function verDibujo(si) {
       piezas.forEach(function (el) { el.style.visibility = si ? '' : 'hidden'; });
       if (alCambiar) alCambiar(!si);
@@ -935,7 +1007,7 @@
     $('escenario').setAttribute('data-pantalla', nombre);
     if (nombre === 'inicio') ponerVideo($('video-inicio'), 'inicio', $('svg-inicio'), '.fondo, .nino-inicio, #sd-inicio');
     if (nombre !== 'foto') { detenerCamara(); borrarFoto(); }
-    ['inicio', 'mision', 'paso', 'final', 'foto'].forEach(function (p) { $('p-' + p).classList.toggle('activa', p === nombre); });
+    ['inicio', 'mision', 'paso', 'final', 'foto', 'chau'].forEach(function (p) { $('p-' + p).classList.toggle('activa', p === nombre); });
     Array.prototype.forEach.call($('p-' + nombre).querySelectorAll('.superdiente'), function (g) {
       g.setAttribute('data-t0', tReloj());
       g.removeAttribute('data-fiesta');
@@ -1651,6 +1723,18 @@
   $('btn-voz').onclick = function () { var p = PASOS[estado.paso]; hablar(p.l1 + ' ' + p.l2, p.id); };
   $('btn-volver').onclick = function () { mostrar('inicio'); saludar(); };
   $('btn-config').onclick = function () { abrirConfig(true); };
+  // Casita: vuelve al menú principal sin salir de la aplicación.
+  $('btn-casa').onclick = function () { mostrar('inicio'); saludar(); };
+  // Salir: apaga todo y cierra la app si el sistema lo permite; si no, queda la despedida.
+  $('btn-salir').onclick = function () {
+    escuchar(false);
+    try { reproductor.pause(); } catch (e) {}
+    try { if (hayVoz) speechSynthesis.cancel(); } catch (e) {}
+    $('chau-texto').innerHTML = '¡Chau, ' + NOMBRE + '!<br>Ya podés cerrar la aplicación<br>con el botón ◁ del celular.';
+    mostrar('chau');
+    try { window.close(); } catch (e) {}
+  };
+  $('btn-volver-jugar').onclick = function () { mostrar('inicio'); saludar(); };
   $('config-listo').onclick = confirmarConfig;
   // Tocar afuera cierra sin guardar, salvo la primera vez (hay que completar el nombre).
   $('config').addEventListener('click', function (ev) { if (ev.target === $('config') && perfil) abrirConfig(false); });
@@ -1668,12 +1752,25 @@
   }, 600);
 
   /* ---------- Escalado del escenario ---------- */
+  // Horizontal: escenario 1200×900. Vertical (celular parado): 1000 de ancho y tan alto como la
+  // pantalla, con la escena arriba y los controles abajo (ver «Celular vertical» en el CSS).
+  var ALTO_VERTICAL = 1650;
   function ajustar() {
-    var e = Math.min(window.innerWidth / 1200, window.innerHeight / 900);
-    $('escenario').style.transform = 'scale(' + e + ')';
+    var an = window.innerWidth, al = window.innerHeight, esc = $('escenario');
+    var vertical = al > an * 1.15 && !congeladoCaptura;
+    esc.classList.toggle('vertical', vertical);
+    if (vertical) {
+      var alto = Math.max(ALTO_VERTICAL, Math.round(1000 * al / an));
+      esc.style.width = '1000px'; esc.style.height = alto + 'px';
+      esc.style.setProperty('--dy', Math.round((alto - ALTO_VERTICAL) / 2) + 'px');
+      esc.style.transform = 'scale(' + Math.min(an / 1000, al / alto) + ')';
+    } else {
+      esc.style.width = ''; esc.style.height = '';
+      esc.style.transform = 'scale(' + Math.min(an / 1200, al / 900) + ')';
+    }
   }
+  var congeladoCaptura = false;
   window.addEventListener('resize', ajustar);
-  $('girar-igual').onclick = function () { document.body.classList.add('vertical-ok'); };
   // App instalable (pantalla completa, horizontal). Solo en la página publicada, no dentro de otro visor.
   if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost') && window.self === window.top) {
     window.addEventListener('load', function () { navigator.serviceWorker.register('sw.js').catch(function () {}); });
@@ -1702,8 +1799,11 @@
   // Acceso para capturas y pruebas: congela el tiempo y posa una pantalla concreta.
   window.DientesLimpios = {
     PASOS: PASOS,
+    // Para capturas en celular vertical: vuelve a usar el diseño según el tamaño de la ventana.
+    segunPantalla: function () { congeladoCaptura = false; ajustar(); },
     posar: function (pantalla, paso, tAnim, tPaso) {
       congelado = true; vozActiva = false; estado.auto = false;
+      congeladoCaptura = true; ajustar();
       mostrar(pantalla);
       Array.prototype.forEach.call(document.querySelectorAll('.superdiente'), function (g) { g.setAttribute('data-t0', -100); });
       if (pantalla === 'paso') { irAPaso(paso); estado.tiempo = tPaso || 0; actualizarReloj(); }
