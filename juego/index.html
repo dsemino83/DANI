@@ -1245,17 +1245,6 @@
       });
     };
   });
-  Array.prototype.forEach.call(document.querySelectorAll('.opciones.voces button'), function (b) {
-    b.onclick = function () {
-      borrador.voz = b.getAttribute('data-voz');
-      marcarVoz();
-      // Muestra de la voz elegida (se escucha con esa carpeta de audios).
-      var antes = perfil;
-      perfil = { nombre: 'x', segundos: borrador.segundos, voz: borrador.voz };
-      hablar('¡Hola! Soy Superdiente.', 'mision-hola');
-      perfil = antes;
-    };
-  });
   $('config-nombre').addEventListener('keydown', function (ev) { if (ev.key === 'Enter') confirmarConfig(); });
 
   /* ---------- Foto final con la cámara ---------- */
@@ -1480,6 +1469,13 @@
   }
   if (hayVoz) { elegirVoz(); speechSynthesis.onvoiceschanged = elegirVoz; }
 
+  // Precarga todas las grabaciones del narrador al abrir el juego, así suenan al instante.
+  setTimeout(function () {
+    Object.keys(AUDIOS_GRABADOS).forEach(function (clave) {
+      try { fetch(carpetaAudio() + clave + '.mp3').catch(function () {}); } catch (e) {}
+    });
+  }, 1500);
+
   function avisoSonido(ver) { $('aviso-sonido').classList.toggle('ver', ver); }
 
   function hablar(texto, clave) {
@@ -1513,7 +1509,13 @@
       if (!clave || !AUDIOS_GRABADOS[clave]) { vozNavegador(); return; }
       reproductor.onended = function () { if (turno === turnoAudio) fin(); };
       reproductor.onplaying = function () { if (turno === turnoAudio) { sonoClave[clave] = true; avisoSonido(false); } };
-      reproductor.onerror = function () { if (turno === turnoAudio) vozNavegador(); };
+      // Si la grabación falla, se reintenta una vez; nunca se cambia a otra voz.
+      var reintento = false;
+      reproductor.onerror = function () {
+        if (turno !== turnoAudio) return;
+        if (!reintento) { reintento = true; reproductor.src = carpetaAudio() + clave + '.mp3?r=1'; reproductor.play().catch(function () {}); }
+        else setTimeout(fin, estimado * 1000);
+      };
       reproductor.src = carpetaAudio() + clave + '.mp3';
       var intento = reproductor.play();
       if (intento && intento.catch) intento.catch(function (err) {
