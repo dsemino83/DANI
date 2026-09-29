@@ -23,7 +23,7 @@ Después de modificar el código, regenerar el archivo único con `python3 const
 2. **Bancos** – tabla maestra precargada con la solapa Bancos del conversor (107 bancos).
    Se actualiza subiendo un Excel con `Banco, Nombre, CUIT, Jurisdiccion, Codigo Sucursal, Codigo Nº Credito`
    (modo *actualizar/agregar* o *reemplazar todo*), o editando banco por banco.
-   Si falta el código de crédito se usa `RIGHT(Banco,4)`; si falta la sucursal se toma de la provincia.
+   Si falta la sucursal se toma de la provincia.
 3. **Carga de lote** – elegir cliente y tipo de acción, completar periodo y tasa, y adjuntar el Excel del cliente.
    - Secuencia: se guarda por cliente; cada lote procesado toma la siguiente (última + 1).
    - **Alta**: lote = secuencia. **Revolving**: lote = 0.
@@ -32,6 +32,8 @@ Después de modificar el código, regenerar el archivo único con `python3 const
      (`ID_LOTE, COD_BANCO, NOMBRE_BANCO, MONTO, FECHA_VENCIMIENTO, …`).
    - Controles previos: formulario LISTO, filas válidas, y todos los bancos usados completos
      (sin *Prueba* ni *#N/D*). Si algo falla no deja procesar.
+   - Número de crédito: 3 dígitos del código de banco (con ceros a la izquierda; si tiene más de 3, los 3 últimos)
+     + fecha de generación ddmmyy + secuencia del lote. Ej.: banco 11, 29/09/2026, secuencia 158 → `011290926158`.
    - Genera Cuotas y Créditos con las mismas reglas del conversor y descarga
      `CuotasGetNet<ddmmyy>.csv` y `CreditosGetNet<ddmmyy>.csv` (CSV UTF-8), con el mismo contenido que los scripts Python.
 4. **Historial** – registro de todos los CSV generados, filtrable por cliente y por tipo de acción (Alta / Revolving),

@@ -352,11 +352,11 @@
       return;
     }
     $('tablaBancos').innerHTML = `<table><thead><tr><th class="num">Banco</th><th>Nombre</th><th>CUIT</th><th>Jurisdicción</th>
-      <th class="num">Cód. sucursal</th><th class="num">Cód. Nº crédito</th><th>Estado</th><th></th></tr></thead><tbody>${
+      <th class="num">Cód. sucursal</th><th class="num" title="3 dígitos del banco en el número de crédito">Prefijo crédito</th><th>Estado</th><th></th></tr></thead><tbody>${
       lista.map(b => {
         const p = M.problemasBanco(b);
         return `<tr><td class="num">${esc(b.codigo)}</td><td>${esc(b.nombre)}</td><td>${esc(b.cuit)}</td><td>${esc(b.jurisdiccion)}</td>
-          <td class="num">${b.sucursal == null || b.sucursal === '' ? '#N/D' : esc(b.sucursal)}</td><td class="num">${esc(b.codCredito)}</td>
+          <td class="num">${b.sucursal == null || b.sucursal === '' ? '#N/D' : esc(b.sucursal)}</td><td class="num">${M.prefijoBanco(b.codigo)}</td>
           <td>${p.length ? `<span class="chip warn" title="${esc(p.join(' · '))}">Incompleto</span>` : '<span class="chip ok">OK</span>'}</td>
           <td><button class="btn chico" data-escribe data-editar-banco="${esc(b.codigo)}">Editar</button></td></tr>`;
       }).join('')}</tbody></table>`;
@@ -744,11 +744,17 @@
           cb.conProblemas.map(d => `<tr><td class="num">${d.codigo}</td><td>${esc(d.nombreArchivo)}</td><td class="num">${d.filas}</td>
           <td>${esc(d.problemas.join(' · '))}</td><td><button class="btn chico" data-escribe data-arreglar-banco="${d.codigo}">${d.banco ? 'Editar banco' : 'Agregar banco'}</button></td></tr>`).join('')}</tbody></table></div>`;
     } else {
-      $('controlBancos').innerHTML = cb.detalle.length ? aviso('ok', `Mapeo de bancos OK: los ${cb.detalle.length} bancos del archivo tienen CUIT, provincia, sucursal y código de crédito.`) : '';
+      $('controlBancos').innerHTML = cb.detalle.length ? aviso('ok', `Mapeo de bancos OK: los ${cb.detalle.length} bancos del archivo tienen CUIT, provincia y sucursal.`) : '';
     }
     if (!reporte.length) bloqueos.push('el archivo no tiene filas');
     if (errores.length) bloqueos.push('corregí las filas inválidas del archivo');
     if (cb.conProblemas.length) bloqueos.push('completá los bancos marcados');
+    const choques = M.prefijosRepetidos(cb.detalle.map(d => d.codigo));
+    if (choques.length) {
+      $('controlBancos').innerHTML += aviso('bad', '<b>Números de crédito repetidos:</b> ' + choques.map(c =>
+        `los bancos ${c.bancos.join(' y ')} comparten los 3 dígitos ${c.prefijo}`).join('; ') + '. Revisá los códigos de banco del archivo.');
+      bloqueos.push('hay bancos con los mismos 3 dígitos');
+    }
     mostrarBloqueo(bloqueos);
     aplicarPermisos();
   }

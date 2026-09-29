@@ -347,8 +347,28 @@
     if (!/^\d{11}$/.test(String(b.cuit || ''))) p.push('CUIT inválido');
     if (!b.jurisdiccion || normalizar(b.jurisdiccion) === 'prueba') p.push('Jurisdicción = Prueba');
     if (b.sucursal == null || b.sucursal === '' || !isFinite(Number(b.sucursal))) p.push('Código Sucursal #N/D');
-    if (b.codCredito == null || String(b.codCredito).trim() === '' || !/^\d+$/.test(String(b.codCredito).trim())) p.push('Código Nº Crédito vacío');
     return p;
+  }
+
+  // Los 3 dígitos del banco en el número de crédito: código con ceros a la izquierda (7 → 007);
+  // si el código tiene más de 3 dígitos se toman los 3 últimos (44059 → 059).
+  function prefijoBanco(codigo) {
+    return String(Math.round(Number(codigo))).padStart(3, '0').slice(-3);
+  }
+
+  function numeroCredito(codigoBanco, fechaDDMMYY, secuencia) {
+    return prefijoBanco(codigoBanco) + fechaDDMMYY + String(secuencia);
+  }
+
+  // Bancos del lote que comparten los mismos 3 dígitos (darían el mismo número de crédito).
+  function prefijosRepetidos(codigos) {
+    const por = new Map();
+    codigos.forEach(c => {
+      const p = prefijoBanco(c);
+      if (!por.has(p)) por.set(p, new Set());
+      por.get(p).add(Number(c));
+    });
+    return [...por.entries()].filter(([, set]) => set.size > 1).map(([p, set]) => ({ prefijo: p, bancos: [...set] }));
   }
 
   function codigoCreditoPorDefecto(codigo) {
@@ -410,8 +430,8 @@
       const b = porCodigo.get(g.banco);
       const suc = b && b.sucursal != null && b.sucursal !== '' ? Number(b.sucursal) : '';
       const cuit = b && b.cuit ? String(b.cuit) : '';
-      const codCred = b && b.codCredito != null && String(b.codCredito).trim() !== '' ? String(b.codCredito).trim() : '';
-      const credito = codCred === '' ? '' : (/^\d+(\.\d+)?$/.test(codCred) ? String(Math.round(Number(codCred))) : codCred) + sufijo;
+      // Número de crédito: 3 dígitos del banco + fecha ddmmyy + secuencia del lote.
+      const credito = b ? numeroCredito(g.banco, sufijo, params.secuencia) : '';
       const m = round2(g.suma);
       return {
         sucursal: suc, tipo: FIJOS.tipoIdentificacion, cuit, credito, cuota: numero,
@@ -559,7 +579,7 @@
     normalizar, provinciaPorNombre, round2, aNumero, aFechaSerial, aCodigoBanco,
     fechaDDMMYY, fechaYYYYMMDD, fechaLegible, hoyDDMMYY,
     detectarHoja, armarReporte, leerConciliacion,
-    problemasBanco, codigoCreditoPorDefecto, controlarBancos, controlarReporte,
+    problemasBanco, codigoCreditoPorDefecto, prefijoBanco, numeroCredito, prefijosRepetidos, controlarBancos, controlarReporte,
     generarCuotas, generarCreditos, txtCuotas, txtCreditos, nombreArchivo,
     calcularSecuenciaLote, validarFormulario,
   };
