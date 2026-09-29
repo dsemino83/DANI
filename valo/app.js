@@ -698,8 +698,11 @@
   // ============================================================ HISTORIAL
 
   function renderHistorial() {
-    const filtro = $('hCliente').value;
-    const lista = estado.lotes.filter(l => !filtro || l.clienteId === filtro).slice().reverse();
+    const lista = lotesFiltrados().slice().reverse();
+    const vigentes = lista.filter(l => !l.anulado);
+    const porTipo = t => vigentes.filter(l => l.tipoAccion === t);
+    const kpi = (t, arr) => `<div class="kpi"><b>${fmtEntero(arr.length)}</b><span>${t} · $ ${fmtMonto(arr.reduce((s, l) => s + (l.total || 0), 0))}</span></div>`;
+    $('hResumen').innerHTML = kpi('lotes vigentes', vigentes) + kpi('Alta', porTipo('Alta')) + kpi('Revolving', porTipo('Revolving'));
     if (!lista.length) {
       $('tablaHistorial').innerHTML = '<div class="vacio">Todavía no se procesó ningún lote.</div>';
       return;
@@ -721,7 +724,29 @@
           <td>${l.anulado ? '<span class="chip gris">Anulado</span>' : ultimos.get(l.clienteId) === l.id ? `<button class="btn chico peligro" data-h-anular="${l.id}">Anular</button>` : ''}</td></tr>`;
       }).join('')}</tbody></table>`;
   }
-  $('hCliente').addEventListener('change', renderHistorial);
+  function lotesFiltrados() {
+    const cli = $('hCliente').value, tipo = $('hTipo').value, anulados = $('hAnulados').checked;
+    return estado.lotes.filter(l => (!cli || l.clienteId === cli) && (!tipo || l.tipoAccion === tipo) && (anulados || !l.anulado));
+  }
+  ['hCliente', 'hTipo', 'hAnulados'].forEach(id => $(id).addEventListener('change', renderHistorial));
+
+  $('btnExportarHistorial').addEventListener('click', () => {
+    const lista = lotesFiltrados();
+    if (!lista.length) { toast('No hay lotes para exportar'); return; }
+    const aoa = [['Fecha', 'Cliente', 'Nº negocio', 'CUIT cedente', 'Tipo de acción', 'Secuencia', 'Lote', 'Periodo', 'Tasa',
+      'Archivo', 'Hoja', 'Columna MONTO', 'Filas reporte', 'Registros cuotas', 'Registros créditos', 'Total capital',
+      'TXT cuotas', 'TXT créditos', 'Estado']].concat(lista.map(l => {
+      const c = clientePorId(l.clienteId) || {};
+      return [new Date(l.fecha), c.nombre || '(borrado)', c.negocio || '', c.cuit || '', l.tipoAccion, l.secuencia, l.lote,
+        Number(l.periodo), l.tasa, l.archivo, l.hoja, l.columnaMonto, l.filas, l.cantCuotas, l.cantCreditos, l.total,
+        l.nombreCuotas, l.nombreCreditos, l.anulado ? 'Anulado' : 'Vigente'];
+    }));
+    const ws = XLSX.utils.aoa_to_sheet(aoa, { cellDates: true, dateNF: 'dd/mm/yyyy hh:mm' });
+    ws['!cols'] = aoa[0].map((h, i) => ({ wch: i === 9 ? 40 : Math.max(10, h.length + 2) }));
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Lotes');
+    XLSX.writeFile(wb, 'Historial-lotes-VALO.xlsx');
+  });
   $('tablaHistorial').addEventListener('click', e => {
     const b = e.target.closest('button');
     if (!b) return;
@@ -767,6 +792,7 @@
 
   // ============================================================ inicio
 
+  $('errorCarga').classList.add('oculto');
   $('fPeriodo').value = periodoActual();
   renderSelectClientes();
   renderClientes();

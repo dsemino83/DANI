@@ -116,6 +116,10 @@
 </header>
 
 <main>
+  <div id="errorCarga" class="aviso bad">
+    <b>La página no terminó de cargar.</b> Si abriste <code>index.html</code> suelto, usá el archivo único
+    <code>Conversor-VALO.html</code> (trae todo adentro), o abrí <code>index.html</code> dentro de la carpeta <code>valo</code> completa.
+  </div>
   <!-- ============================================================ LOTE -->
   <section class="vista activa" id="vista-lote">
     <div id="sinClientes" class="aviso warn oculto">
@@ -256,7 +260,12 @@
       <p class="sub">Podés volver a descargar los TXT de cualquier lote. Anular el último lote de un cliente devuelve su secuencia al número anterior.</p>
       <div class="fila-flex" style="margin-bottom:10px">
         <label class="campo" style="flex-direction:row;align-items:center;gap:8px">Cliente <select id="hCliente" style="width:auto"></select></label>
+        <label class="campo" style="flex-direction:row;align-items:center;gap:8px">Tipo de acción
+          <select id="hTipo" style="width:auto"><option value="">Todos</option><option>Alta</option><option>Revolving</option></select></label>
+        <label style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="hAnulados" style="width:auto" checked> Mostrar anulados</label>
+        <button class="btn" id="btnExportarHistorial" type="button" style="margin-left:auto">Exportar historial a Excel</button>
       </div>
+      <div class="kpis" id="hResumen"></div>
       <div class="tabla-caja" id="tablaHistorial"></div>
     </div>
   </section>

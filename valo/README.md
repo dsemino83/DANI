@@ -3,7 +3,10 @@
 Página web que reemplaza el flujo manual del libro **Conversor GetNet.xlsx** + los scripts
 `GenerarCuotas.py` y `GenerarCreditos.py`.
 
-Abrir `valo/index.html` en el navegador (funciona sin servidor ni internet: SheetJS está en `vendor/`).
+**Para usarla: abrir `Conversor-VALO.html`** (un solo archivo con todo adentro; se puede descargar suelto y abrir con doble clic, sin internet).
+
+`index.html` es la versión de desarrollo y solo funciona dentro de la carpeta `valo` completa.
+Después de modificar el código, regenerar el archivo único con `python3 construir.py`.
 
 ## Flujo
 
@@ -24,7 +27,9 @@ Abrir `valo/index.html` en el navegador (funciona sin servidor ni internet: Shee
      (sin *Prueba* ni *#N/D*). Si algo falla no deja procesar.
    - Genera Cuotas y Créditos con las mismas reglas del conversor y descarga
      `CuotasGetNet<ddmmyy>.txt` y `CreditosGetNet<ddmmyy>.txt`, con el mismo contenido que los scripts Python.
-4. **Historial** – re-descarga de TXT y anulación del último lote de cada cliente (devuelve la secuencia).
+4. **Historial** – registro de todos los TXT generados, filtrable por cliente y por tipo de acción (Alta / Revolving),
+   con totales por tipo, re-descarga de los TXT, exportación a Excel y anulación del último lote de cada cliente
+   (devuelve la secuencia).
 
 ## Datos
 
@@ -33,7 +38,8 @@ Usar **Descargar respaldo** / **Restaurar respaldo** para guardarlos o pasarlos 
 
 ## Archivos
 
-- `index.html` – interfaz.
+- `Conversor-VALO.html` – archivo único para usar (generado por `construir.py`).
+- `index.html` – interfaz (desarrollo).
 - `app.js` – pantallas, almacenamiento y carga de archivos.
 - `motor.js` – cálculo de Cuotas/Créditos y formato de los TXT (sin dependencias del navegador).
 - `bancos-iniciales.js` – carga masiva inicial de Bancos.
