@@ -51,7 +51,8 @@
   const informar = (titulo, mensajeHtml) => confirmar(titulo, mensajeHtml, null);
 
   async function descargar(nombre, contenido) {
-    const blob = contenido instanceof Blob ? contenido : new Blob([contenido], { type: 'text/plain;charset=utf-8' });
+    nombre = nombre.replace(/\.txt$/i, '.csv');
+    const blob = contenido instanceof Blob ? contenido : new Blob([contenido], { type: (/\.csv$/i.test(nombre) ? 'text/csv' : 'text/plain') + ';charset=utf-8' });
     if (descargas) {
       try {
         await descargas.save({ filename: nombre, data: blob });
@@ -639,7 +640,7 @@
       <tr><td>Periodo</td><td>${esc(p.periodo)}</td></tr><tr><td>Tasa</td><td>${p.tasa}</td></tr>
       <tr><td>Total</td><td>$ ${fmtMonto(preparado.total)}</td></tr></tbody></table>`;
     if (repetido) mensaje = aviso('warn', `Este archivo ya se procesó para ${esc(c.nombre)} con la secuencia ${repetido.secuencia}.`) + mensaje;
-    if (!await confirmar('Generar lote', mensaje, 'Generar TXT')) return;
+    if (!await confirmar('Generar lote', mensaje, 'Generar CSV')) return;
 
     procesando = true;
     $('btnProcesar').disabled = true;
@@ -672,7 +673,7 @@
       };
     }));
     procesando = false;
-    $('btnProcesar').textContent = 'Procesar lote y generar TXT';
+    $('btnProcesar').textContent = 'Procesar lote y generar CSV';
     if (!r) { refrescar(); return; }
     if (r.aviso) toast(r.aviso);
     mostrarResultado(r.lote, resultado, prep.reporte, prep.total);
@@ -773,7 +774,7 @@
     const kpi = (t, arr) => `<div class="kpi"><b>${fmtEntero(arr.length)}</b><span>${t} · $ ${fmtMonto(arr.reduce((s, l) => s + (l.total || 0), 0))}</span></div>`;
     $('hResumen').innerHTML = kpi('lotes vigentes', vigentes) + kpi('Alta', porTipo('Alta')) + kpi('Revolving', porTipo('Revolving'));
     if (!lista.length) {
-      $('tablaHistorial').innerHTML = '<div class="vacio">Todavía no se procesó ningún lote. Los lotes aparecen acá al generar sus TXT en "Carga de lote".</div>';
+      $('tablaHistorial').innerHTML = '<div class="vacio">Todavía no se procesó ningún lote. Los lotes aparecen acá al generar sus CSV en "Carga de lote".</div>';
       return;
     }
     const compartido = almacen.modo === 'compartido';
@@ -783,7 +784,7 @@
       if (ls.length) ultimos.set(c.id, ls[ls.length - 1].id);
     });
     $('tablaHistorial').innerHTML = `<table><thead><tr><th>Fecha</th><th>Cliente</th><th>Archivo</th><th>Tipo</th><th class="num">Secuencia</th><th class="num">Lote</th>
-      <th class="num">Periodo</th><th class="num">Cuotas</th><th class="num">Créditos</th><th class="num">Total capital</th>${compartido ? '<th>Procesó</th>' : ''}<th>TXT</th><th></th></tr></thead><tbody>${
+      <th class="num">Periodo</th><th class="num">Cuotas</th><th class="num">Créditos</th><th class="num">Total capital</th>${compartido ? '<th>Procesó</th>' : ''}<th>CSV</th><th></th></tr></thead><tbody>${
       lista.map(l => {
         const c = clientePorId(l.clienteId);
         const tieneTxt = compartido ? !!l.txtPartes : !!(l.txtCuotas && l.txtCreditos);
@@ -802,7 +803,7 @@
     if (!lista.length) { toast('No hay lotes para exportar'); return; }
     const aoa = [['Fecha', 'Cliente', 'Nº negocio', 'CUIT cedente', 'Tipo de acción', 'Secuencia', 'Lote', 'Periodo', 'Tasa',
       'Archivo', 'Hoja', 'Columna MONTO', 'Filas reporte', 'Registros cuotas', 'Registros créditos', 'Total capital',
-      'TXT cuotas', 'TXT créditos', 'Estado', 'Procesó']].concat(lista.map(l => {
+      'CSV cuotas', 'CSV créditos', 'Estado', 'Procesó']].concat(lista.map(l => {
       const c = clientePorId(l.clienteId) || {};
       return [new Date(l.fecha), c.nombre || '(borrado)', c.negocio || '', c.cuit || '', l.tipoAccion, l.secuencia, l.lote,
         Number(l.periodo), l.tasa, l.archivo, l.hoja, l.columnaMonto, l.filas, l.cantCuotas, l.cantCreditos, l.total,
@@ -825,11 +826,11 @@
       b.disabled = true;
       try {
         const t = await almacen.leerTxt(l);
-        if (!t) toast('Los TXT de este lote no están guardados');
+        if (!t) toast('Los CSV de este lote no están guardados');
         else if (b.dataset.hCuotas) await descargar(l.nombreCuotas, t.cuotas);
         else await descargar(l.nombreCreditos, t.creditos);
       } catch (err) {
-        toast('No se pudieron leer los TXT: ' + (err.message || err));
+        toast('No se pudieron leer los CSV: ' + (err.message || err));
       }
       b.disabled = false;
     }

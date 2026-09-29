@@ -126,7 +126,7 @@
   </div>
   <div id="errorBase"></div>
   <div id="cargandoBase" class="vacio">Cargando clientes, bancos e historial…</div>
-  <div id="avisoSoloLectura" class="aviso warn oculto">Tenés acceso de solo lectura: podés ver clientes, bancos e historial y descargar TXT, pero no cargar ni modificar datos. Pedile al dueño de la página que te comparta como Colaborador o Editor.</div>
+  <div id="avisoSoloLectura" class="aviso warn oculto">Tenés acceso de solo lectura: podés ver clientes, bancos e historial y descargar CSV, pero no cargar ni modificar datos. Pedile al dueño de la página que te comparta como Colaborador o Editor.</div>
   <div id="contenido" class="oculto">
   <!-- ============================================================ LOTE -->
   <section class="vista activa" id="vista-lote">
@@ -191,7 +191,7 @@
         <div id="controlBancos"></div>
       </div>
       <div class="acciones">
-        <button class="btn primario" id="btnProcesar" type="button" disabled>Procesar lote y generar TXT</button>
+        <button class="btn primario" id="btnProcesar" type="button" disabled>Procesar lote y generar CSV</button>
         <span id="motivoBloqueo" class="sub" style="margin:0"></span>
       </div>
     </div>
@@ -265,7 +265,7 @@
   <section class="vista" id="vista-historial">
     <div class="card">
       <h2>Historial de lotes</h2>
-      <p class="sub">Podés volver a descargar los TXT de cualquier lote. Anular el último lote de un cliente devuelve su secuencia al número anterior.</p>
+      <p class="sub">Podés volver a descargar los CSV de cualquier lote. Anular el último lote de un cliente devuelve su secuencia al número anterior.</p>
       <div class="fila-flex" style="margin-bottom:10px">
         <label class="campo" style="flex-direction:row;align-items:center;gap:8px">Cliente <select id="hCliente" style="width:auto"></select></label>
         <label class="campo" style="flex-direction:row;align-items:center;gap:8px">Tipo de acción

@@ -3,6 +3,8 @@
 Página web que reemplaza el flujo manual del libro **Conversor GetNet.xlsx** + los scripts
 `GenerarCuotas.py` y `GenerarCreditos.py`.
 
+**En internet:** https://dsemino83.github.io/DANI/valo/ (GitHub Pages publicando la rama `VALO`).
+
 **Para usarla: abrir `Conversor-VALO.html`** (un solo archivo con todo adentro; se puede descargar suelto y abrir con doble clic, sin internet).
 
 `index.html` es la versión de desarrollo y solo funciona dentro de la carpeta `valo` completa.
@@ -26,18 +28,18 @@ Después de modificar el código, regenerar el archivo único con `python3 const
    - Controles previos: formulario LISTO, filas válidas, y todos los bancos usados completos
      (sin *Prueba* ni *#N/D*). Si algo falla no deja procesar.
    - Genera Cuotas y Créditos con las mismas reglas del conversor y descarga
-     `CuotasGetNet<ddmmyy>.txt` y `CreditosGetNet<ddmmyy>.txt`, con el mismo contenido que los scripts Python.
-4. **Historial** – registro de todos los TXT generados, filtrable por cliente y por tipo de acción (Alta / Revolving),
-   con totales por tipo, re-descarga de los TXT, exportación a Excel y anulación del último lote de cada cliente
+     `CuotasGetNet<ddmmyy>.csv` y `CreditosGetNet<ddmmyy>.csv` (CSV UTF-8), con el mismo contenido que los scripts Python.
+4. **Historial** – registro de todos los CSV generados, filtrable por cliente y por tipo de acción (Alta / Revolving),
+   con totales por tipo, re-descarga de los CSV, exportación a Excel y anulación del último lote de cada cliente
    (devuelve la secuencia).
 
 ## Datos
 
 - **Versión compartida (recomendada):** página publicada en claude.ai (`compartido/conversor-valo-compartido.html`).
-  Clientes, secuencias, bancos e historial (con los TXT) viven en una base compartida: todos los que abren el link
+  Clientes, secuencias, bancos e historial (con los CSV) viven en una base compartida: todos los que abren el link
   ven y usan los mismos datos, en vivo. Al generar un lote se bloquea el cliente y se relee su secuencia en la base,
   así dos personas no pueden tomar el mismo número. El historial registra quién procesó cada lote.
-  Base: `clientes/*`, `lotes/*`, `lotesTxt/*` (TXT en partes), `maestros/bancos`, `maestros/bancosOriginales`.
+  Base: `clientes/*`, `lotes/*`, `lotesTxt/*` (CSV en partes), `maestros/bancos`, `maestros/bancosOriginales`.
 - **Versión local:** `Conversor-VALO.html` guarda todo en el navegador (localStorage).
   Usar **Descargar respaldo** / **Restaurar respaldo** para guardarlos o pasarlos a otra PC.
 
@@ -48,5 +50,5 @@ Después de modificar el código, regenerar el archivo único con `python3 const
 - `app.js` – pantallas, almacenamiento y carga de archivos.
 - `almacen.js` – guardado de datos: base compartida de claude.ai o navegador.
 - `compartido/conversor-valo-compartido.html` – página publicada en claude.ai (generada por `construir.py`).
-- `motor.js` – cálculo de Cuotas/Créditos y formato de los TXT (sin dependencias del navegador).
+- `motor.js` – cálculo de Cuotas/Créditos y formato de los CSV (sin dependencias del navegador).
 - `bancos-iniciales.js` – carga masiva inicial de Bancos.

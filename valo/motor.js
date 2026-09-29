@@ -407,7 +407,7 @@
   }
 
   function nombreArchivo(tipo, hoy, extension) {
-    return (tipo === 'cuotas' ? 'CuotasGetNet' : 'CreditosGetNet') + hoyDDMMYY(hoy) + '.' + (extension || 'txt');
+    return (tipo === 'cuotas' ? 'CuotasGetNet' : 'CreditosGetNet') + hoyDDMMYY(hoy) + '.' + (extension || 'csv');
   }
 
   // ---------------------------------------------------- Formulario / secuencia

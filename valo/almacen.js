@@ -61,8 +61,8 @@
         let aviso = null;
         if (!guardar()) {
           delete lote.txtCuotas; delete lote.txtCreditos;
-          aviso = guardar() ? 'Sin espacio para guardar los TXT en el historial: descargalos ahora.'
-            : 'No se pudo guardar en este navegador. Descargá los TXT ahora.';
+          aviso = guardar() ? 'Sin espacio para guardar los CSV en el historial: descargalos ahora.'
+            : 'No se pudo guardar en este navegador. Descargá los CSV ahora.';
         }
         ev.emitir();
         return { lote, aviso };
