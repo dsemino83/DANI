@@ -34,7 +34,7 @@ def script_en_linea(nombre):
 fuente = leer("index.html")
 
 # Versión local: todo embebido.
-local = re.sub(r'<script src="([^"]+)"></script>', lambda m: script_en_linea(m.group(1)), fuente)
+local = re.sub(r'<script src="([^"?]+)(?:\?[^"]*)?"></script>', lambda m: script_en_linea(m.group(1)), fuente)
 escribir("Conversor-VALO.html", local)
 
 
@@ -51,5 +51,5 @@ def script_compartido(m):
 titulo = re.search(r"<title>.*?</title>", fuente, re.S).group(0)
 estilo = re.search(r"<style>.*?</style>", fuente, re.S).group(0)
 cuerpo = re.search(r"<body>(.*)</body>", fuente, re.S).group(1)
-cuerpo = re.sub(r'<script src="([^"]+)"></script>', script_compartido, cuerpo)
+cuerpo = re.sub(r'<script src="([^"?]+)(?:\?[^"]*)?"></script>', script_compartido, cuerpo)
 escribir(os.path.join("compartido", "conversor-valo-compartido.html"), titulo + "\n" + estilo + "\n" + cuerpo.strip() + "\n")
