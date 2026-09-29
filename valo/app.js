@@ -598,15 +598,22 @@
   function estadoFormulario() {
     const c = clientePorId($('fCliente').value);
     const p = parametros();
-    const faltan = !c || !p.periodo || !p.tasa || !$('fSecuencia').value;
+    const faltantes = [
+      [!c, 'fCliente', 'Cliente'], [!p.periodo, 'fPeriodo', 'Periodo'],
+      [!p.tasa, 'fTasa', 'Tasa de descuento'], [!$('fSecuencia').value, 'fSecuencia', 'Secuencia'],
+    ];
+    faltantes.forEach(([falta, id]) => $(id).classList.toggle('falta', falta));
+    const faltan = faltantes.some(([falta]) => falta);
     const errores = c ? M.validarFormulario(Object.assign({}, p, { tasa: p.tasa === '' ? null : Number(p.tasa) })) : [];
     if (c) errores.push(...erroresSecuencia(c.id, p.secuencia));
-    return { cliente: c, p, estado: faltan ? 'INCOMPLETO' : errores.length ? 'REVISAR DATOS' : 'LISTO', errores };
+    return { cliente: c, p, estado: faltan ? 'INCOMPLETO' : errores.length ? 'REVISAR DATOS' : 'LISTO', errores,
+      faltantes: faltantes.filter(([falta]) => falta).map(f => f[2]) };
   }
 
   function renderEstadoFormulario(ef) {
     const clase = ef.estado === 'LISTO' ? 'ok' : ef.estado === 'INCOMPLETO' ? 'gris' : 'bad';
     let html = `<div class="acciones">Estado del formulario: <span class="chip ${clase}">${ef.estado}</span></div>`;
+    if (ef.estado === 'INCOMPLETO') html = html.replace('</div>', ` <span class="sub" style="margin:0">Falta completar: <b>${ef.faltantes.join(', ')}</b></span></div>`);
     if (ef.estado === 'REVISAR DATOS') html += aviso('bad', ef.errores.map(esc).join('<br>'));
     $('estadoFormulario').innerHTML = html;
   }
