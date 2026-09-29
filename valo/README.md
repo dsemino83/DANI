@@ -20,6 +20,11 @@ Después de modificar el código, regenerar el archivo único con `python3 const
    (por ejemplo `userBank`, `acceleratedPaymentDate`, `yieldAmount`). También se acepta un archivo de interfaz
    de dos columnas `Campo | Columna` (Banco, Fecha, Monto). Sin interfaz se reconoce automáticamente el formato
    GetNet / Reporte. Las filas sin banco ni fecha (totales al pie) se ignoran y se avisa si el total no coincide.
+   **Esquema MELI (TXT por banco):** en la interfaz del cliente se elige "Usar esquema MELI". En Carga de lote se suben
+   varios TXT de cuotas a la vez (`CUOTA_<BANCO COBIS>_<aaaammdd>.txt`, ancho fijo: cabecera CUOTAS con cantidad, fecha,
+   CUIT del banco y total; detalle con vencimiento en [13,21) e importe en [21,41)). El banco de cada TXT se detecta con la
+   tabla **Bancos MELI** (nombre COBIS del archivo o CUIT de la cabecera). Cuotas ordenadas por nombre de banco y nombre
+   del titular sin comas, como el conversor MELI. Se controla que cantidad y total de la cabecera coincidan con el detalle.
 2. **Bancos** – tabla maestra precargada con la solapa Bancos del conversor (107 bancos).
    Se actualiza subiendo un Excel con `Banco, Nombre, CUIT, Jurisdiccion, Codigo Sucursal, Codigo Nº Credito`
    (modo *actualizar/agregar* o *reemplazar todo*), o editando banco por banco.
@@ -59,3 +64,4 @@ Después de modificar el código, regenerar el archivo único con `python3 const
 - `compartido/conversor-valo-compartido.html` – página publicada en claude.ai (generada por `construir.py`).
 - `motor.js` – cálculo de Cuotas/Créditos y formato de los CSV (sin dependencias del navegador).
 - `bancos-iniciales.js` – carga masiva inicial de Bancos.
+- `bancos-meli-iniciales.js` – carga inicial de Bancos MELI (Banco_meli.xlsx).

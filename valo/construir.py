@@ -43,7 +43,7 @@ def script_compartido(m):
     src = m.group(1)
     if src.startswith("vendor/xlsx"):
         return f'<script src="{SHEETJS_CDN}"></script>'
-    if src == "bancos-iniciales.js":
+    if src in ("bancos-iniciales.js", "bancos-meli-iniciales.js"):
         return ""
     return script_en_linea(src)
 

@@ -337,6 +337,58 @@
     return res;
   }
 
+  // ------------------------------------------------------------- TXT MELI
+
+  // TXT de cuotas por banco (ancho fijo). Nombre: CUOTA_<NOMBRE COBIS>_<aaaammdd>.txt
+  //   Cabecera: [0,6) "CUOTAS" · [6,12) cantidad · [12,20) fecha ddmmaaaa · [20,23) · [23,34) CUIT del banco · [34,54) total
+  //   Detalle:  [0,13) · [13,21) vencimiento aaaammdd · [21,41) importe
+  function leerTxtMeli(nombreArchivo, texto) {
+    if (texto.charCodeAt(0) === 0xFEFF) texto = texto.slice(1);
+    const lineas = texto.split(/\r?\n/).filter(l => l.trim() !== '');
+    const res = { archivo: nombreArchivo, cobis: '', cuit: '', cantidad: null, total: null, filas: [], errores: [] };
+    const m = String(nombreArchivo).match(/^CUOTA_(.+)_(\d{8})\.[^.]+$/i);
+    if (m) res.cobis = m[1].replace(/_/g, ' ').trim();
+    if (!lineas.length) { res.errores.push('El archivo está vacío.'); return res; }
+    const cab = lineas[0];
+    if (cab.slice(0, 6).toUpperCase() !== 'CUOTAS') res.errores.push('La primera línea no es una cabecera CUOTAS.');
+    else {
+      res.cantidad = Number(cab.slice(6, 12));
+      res.cuit = cab.slice(23, 34);
+      res.total = Number(cab.slice(34, 54));
+    }
+    lineas.slice(1).forEach((l, i) => {
+      const f = l.slice(13, 21), imp = l.slice(21, 41);
+      if (!/^\d{8}$/.test(f) || !/^\d+$/.test(imp.trim())) { res.errores.push(`Línea ${i + 2}: formato inválido.`); return; }
+      res.filas.push({ fecha: partesASerial(+f.slice(0, 4), +f.slice(4, 6), +f.slice(6, 8)), monto: Number(imp) });
+    });
+    if (res.cantidad != null && res.cantidad !== res.filas.length) res.errores.push(`La cabecera dice ${res.cantidad} registros y el archivo tiene ${res.filas.length}.`);
+    const suma = res.filas.reduce((s, f) => s + f.monto, 0);
+    if (res.total != null && Math.abs(res.total - suma) > 0.5) res.errores.push(`El total de la cabecera (${res.total}) no coincide con la suma de las líneas (${suma}).`);
+    return res;
+  }
+
+  // Busca el banco de un TXT en la tabla MELI: por nombre COBIS del archivo y, si no, por el CUIT de la cabecera.
+  function bancoMeliDeTxt(txt, bancosMeli) {
+    const n = normalizar(txt.cobis);
+    let b = n ? bancosMeli.find(x => x.cobis && normalizar(x.cobis) === n) : null;
+    let por = 'nombre';
+    if (!b && txt.cuit) { b = bancosMeli.find(x => String(x.cuit) === String(txt.cuit)); por = 'cuit'; }
+    return b ? { banco: b, por, cuitDistinto: !!(txt.cuit && String(b.cuit) !== String(txt.cuit)) } : null;
+  }
+
+  // Tabla de bancos para generar Cuotas/Créditos con el esquema MELI: número, CUIT y sucursal de la tabla MELI;
+  // nombre del banco de la tabla general por CUIT (como el conversor MELI) o, si no está, el de la tabla MELI.
+  function bancosParaMeli(bancosMeli, bancosGenerales) {
+    return bancosMeli.filter(b => b.numero != null && b.numero !== '').map(b => {
+      const g = (bancosGenerales || []).find(x => String(x.cuit) === String(b.cuit));
+      return {
+        codigo: Number(b.numero), nombre: g ? g.nombre : b.nombre, cuit: String(b.cuit),
+        jurisdiccion: b.sucursal != null && b.sucursal !== '' ? (b.pcia || 'Sin dato') : 'Prueba',
+        sucursal: b.sucursal == null || b.sucursal === '' ? null : Number(b.sucursal), codCredito: String(b.numero),
+      };
+    });
+  }
+
   // ------------------------------------------------------------------- Bancos
 
   // Un banco está completo cuando tiene provincia real, sucursal, CUIT y código de crédito.
@@ -408,7 +460,12 @@
   // ------------------------------------------------------------------ Cuotas
 
   // params: { tipoAccion, secuencia, lote, periodo, tasa, negocio, cedente }
-  function generarCuotas(reporte, bancos, params, hoy) {
+  // opciones.orden: 'codigo' (GetNet: por código de banco) o 'nombre' (MELI: por nombre de banco, como el conversor MELI).
+  function generarCuotas(reporte, bancos, params, hoy, opciones) {
+    const porNombre = opciones && opciones.orden === 'nombre';
+    const nombreDe = new Map();
+    reporte.forEach(r => { if (r.COD_BANCO != null && !nombreDe.has(r.COD_BANCO)) nombreDe.set(r.COD_BANCO, String(r.NOMBRE_BANCO || '').toUpperCase()); });
+    const ordenTexto = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
     const porCodigo = new Map();
     bancos.forEach(b => { if (!porCodigo.has(Number(b.codigo))) porCodigo.set(Number(b.codigo), b); });
     const sufijo = hoyDDMMYY(hoy);
@@ -421,7 +478,8 @@
       if (!grupos.has(k)) grupos.set(k, { banco: r.COD_BANCO, fecha: r.FECHA_VENCIMIENTO, suma: 0 });
       grupos.get(k).suma += r.MONTO || 0;
     });
-    const orden = [...grupos.values()].sort((a, b) => a.banco - b.banco || a.fecha - b.fecha);
+    const orden = [...grupos.values()].sort((a, b) =>
+      (porNombre ? ordenTexto(nombreDe.get(a.banco), nombreDe.get(b.banco)) : 0) || a.banco - b.banco || a.fecha - b.fecha);
 
     let bancoAnterior = null, numero = 0;
     const filas = orden.map(g => {
@@ -457,7 +515,9 @@
 
   // ---------------------------------------------------------------- Creditos
 
-  function generarCreditos(cuotas, bancos, params) {
+  // opciones.nombre: 'recortado' (GetNet: LEFT(nombre,30)) o 'sinComas' (MELI: SUBSTITUTE(nombre,",","")).
+  function generarCreditos(cuotas, bancos, params, opciones) {
+    const sinComas = opciones && opciones.nombre === 'sinComas';
     const grupos = new Map();
     cuotas.filas.forEach(c => {
       if (c.credito === '') return;
@@ -474,7 +534,7 @@
       const capital = round2(g.capital), valor = round2(g.valor);
       return {
         credito: g.credito, tipo: FIJOS.tipoIdentificacion, cuit: g.cuit,
-        nombre: banco ? String(banco.nombre || '').slice(0, 30) : '',
+        nombre: !banco ? '' : sinComas ? String(banco.nombre || '').replace(/,/g, '') : String(banco.nombre || '').slice(0, 30),
         capital, plan: g.plan, tna: 0, tnaPunitorio: 0, importe: round2(g.importe),
         fechaAlta: g.fecha, fechaPrimerVto: g.fecha, fechaPrimerImpago: g.fecha,
         cuotasRestantes: g.plan, montoCedido: valor, sucursal: g.sucursal,
@@ -575,6 +635,7 @@
 
   const api = {
     PROVINCIAS, FIJOS, COLS_REPORTE, FORMATOS, COLUMNAS_MONTO, CAMPOS_INTERFAZ,
+    leerTxtMeli, bancoMeliDeTxt, bancosParaMeli,
     leerCsv, encabezadosEjemplo, leerDefinicionInterfaz, sugerirColumna, detectarHojaInterfaz,
     normalizar, provinciaPorNombre, round2, aNumero, aFechaSerial, aCodigoBanco,
     fechaDDMMYY, fechaYYYYMMDD, fechaLegible, hoyDDMMYY,

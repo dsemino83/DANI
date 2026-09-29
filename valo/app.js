@@ -132,11 +132,15 @@
         Sin interfaz se reconoce automáticamente el formato GetNet / Reporte.</p>
         <div class="acciones" style="margin-top:10px">
           <button class="btn" type="button" data-escribe id="${uid}Btn">${interfaz ? 'Cambiar archivo de interfaz' : 'Cargar archivo de interfaz'}</button>
+          ${interfaz && interfaz.tipo === 'meli-txt' ? '' : `<button class="btn" type="button" data-escribe id="${uid}Meli">Usar esquema MELI (TXT por banco)</button>`}
           ${interfaz ? `<button class="btn peligro" type="button" data-escribe id="${uid}Quitar">Quitar interfaz</button>` : ''}
           <span class="sub" style="margin:0">${interfaz ? 'Interfaz: <b>' + esc(interfaz.nombre) + '</b>' : 'Interfaz: automática (GetNet / Reporte)'}</span>
           <input type="file" id="${uid}Archivo" accept=".xlsx,.xls,.xlsm,.csv,.txt" class="oculto">
         </div>`;
-      if (interfaz) {
+      if (interfaz && interfaz.tipo === 'meli-txt') {
+        html += aviso('ok', 'Esquema <b>MELI</b>: en Carga de lote se suben los TXT de cuotas de cada banco (<code>CUOTA_&lt;BANCO&gt;_&lt;fecha&gt;.txt</code>), varios a la vez. ' +
+          'El banco se detecta por el nombre del archivo o el CUIT de la cabecera, con la tabla <b>Bancos MELI</b>.');
+      } else if (interfaz) {
         html += '<div class="grid">' + M.CAMPOS_INTERFAZ.map(c => {
           const valor = interfaz[c.id] || '';
           const idx = ejemplo ? columnas.indexOf(valor) : -1;
@@ -148,6 +152,8 @@
       }
       caja.innerHTML = html;
       caja.querySelector('#' + uid + 'Btn').onclick = () => caja.querySelector('#' + uid + 'Archivo').click();
+      const botonMeli = caja.querySelector('#' + uid + 'Meli');
+      if (botonMeli) botonMeli.onclick = () => { interfaz = { tipo: 'meli-txt', nombre: 'MELI (TXT por banco)' }; columnas = []; ejemplo = null; render(); };
       const quitar = caja.querySelector('#' + uid + 'Quitar');
       if (quitar) quitar.onclick = () => { interfaz = null; columnas = []; ejemplo = null; render(); };
       caja.querySelector('#' + uid + 'Archivo').onchange = async e => {
@@ -197,11 +203,16 @@
     // Devuelve { interfaz } o { error }.
     function leer() {
       if (!interfaz) return { interfaz: null };
+      if (interfaz.tipo === 'meli-txt') {
+        const out = { tipo: 'meli-txt', nombre: 'MELI (TXT por banco)', columnas: [] };
+        M.CAMPOS_INTERFAZ.forEach(c => { out[c.id] = null; });
+        return { interfaz: out };
+      }
       const faltan = M.CAMPOS_INTERFAZ.filter(c => c.requerido && !interfaz[c.id]).map(c => c.nombre);
       if (faltan.length) return { error: 'En la interfaz falta elegir: ' + faltan.join(', ') + '.' };
       const elegidas = M.CAMPOS_INTERFAZ.map(c => interfaz[c.id]).filter(Boolean);
       if (new Set(elegidas).size !== elegidas.length) return { error: 'En la interfaz, cada dato tiene que venir de una columna distinta.' };
-      const out = { nombre: interfaz.nombre, columnas: columnas.slice() };
+      const out = { tipo: null, nombre: interfaz.nombre, columnas: columnas.slice() };
       M.CAMPOS_INTERFAZ.forEach(c => { out[c.id] = interfaz[c.id] || null; });
       return { interfaz: out };
     }
@@ -271,7 +282,8 @@
       return `<tr>
         <td>${esc(c.negocio)}</td><td>${esc(c.cuit)}</td><td>${esc(c.nombre)}</td>
         <td class="num">${c.ultimaSecuencia}</td><td class="num">${c.ultimaSecuencia + 1}</td><td class="num">${n}</td>
-        <td>${c.interfaz ? `<span title="Banco: ${esc(c.interfaz.banco)} · Fecha: ${esc(c.interfaz.fecha)} · Monto: ${esc(c.interfaz.monto)}">${esc(c.interfaz.nombre)}</span>` : '<span class="chip gris">Automática</span>'}</td>
+        <td>${!c.interfaz ? '<span class="chip gris">Automática</span>' : c.interfaz.tipo === 'meli-txt' ? '<span class="chip ok">MELI · TXT</span>'
+          : `<span title="Banco: ${esc(c.interfaz.banco)} · Fecha: ${esc(c.interfaz.fecha)} · Monto: ${esc(c.interfaz.monto)}">${esc(c.interfaz.nombre)}</span>`}</td>
         ${compartido ? `<td>${esc(quien(c.creadoPor))}</td>` : ''}
         <td><button class="btn chico" data-escribe data-editar-cliente="${c.id}">Editar</button>
         ${n ? '' : `<button class="btn chico peligro" data-escribe data-borrar-cliente="${c.id}">Borrar</button>`}</td></tr>`;
@@ -524,6 +536,88 @@
     return { modo, lista, leidos: leidos.length, actualizados, nuevos, ignorados };
   }
 
+  // ============================================================ BANCOS MELI
+
+  function renderBancosMeli() {
+    const lista = datos().bancosMeli || [];
+    const q = M.normalizar($('mBuscar').value);
+    const vis = lista.filter(b => !q || M.normalizar([b.cobis, b.nombre, b.cuit, b.numero].join(' ')).includes(q));
+    const incompletos = lista.filter(b => b.sucursal == null || b.sucursal === '' || !/^\d{11}$/.test(String(b.cuit))).length;
+    $('mResumen').textContent = `${lista.length} bancos · ${incompletos} incompletos`;
+    if (!lista.length) { $('tablaBancosMeli').innerHTML = '<div class="vacio">La tabla está vacía. Cargá el Excel Banco MELI.</div>'; return; }
+    $('tablaBancosMeli').innerHTML = `<table><thead><tr><th>Banco COBIS</th><th>Nombre</th><th>Pcia</th><th>CUIT</th><th class="num">MIS</th>
+      <th class="num">Nº banco</th><th class="num">Cód. sucursal</th><th class="num">Prefijo crédito</th><th>Estado</th></tr></thead><tbody>${vis.map(b => {
+        const ok = b.sucursal != null && b.sucursal !== '' && /^\d{11}$/.test(String(b.cuit)) && b.numero != null;
+        return `<tr><td>${esc(b.cobis) || '<span class="chip gris">sin nombre COBIS</span>'}</td><td>${esc(b.nombre)}</td><td>${esc(b.pcia)}</td><td>${esc(b.cuit)}</td>
+          <td class="num">${esc(b.mis)}</td><td class="num">${esc(b.numero)}</td><td class="num">${b.sucursal == null || b.sucursal === '' ? '#N/D' : esc(b.sucursal)}</td>
+          <td class="num">${b.numero != null ? M.prefijoBanco(b.numero) : ''}</td><td>${ok ? '<span class="chip ok">OK</span>' : '<span class="chip warn">Incompleto</span>'}</td></tr>`;
+      }).join('')}</tbody></table>`;
+  }
+  $('mBuscar').addEventListener('input', renderBancosMeli);
+
+  function importarBancosMeli(filas, modo, actuales) {
+    const alias = {
+      cobis: ['banco cobis', 'nombre cobis', 'cobis'], nombre: ['banco impuestos', 'nombre', 'nombre banco'], pcia: ['pcia', 'provincia'],
+      cuit: ['cuit'], mis: ['mis'], numero: ['banco numero', 'numero banco', 'nro banco', 'n banco', 'numero'], sucursal: ['codigo sucursal', 'cod sucursal', 'sucursal'],
+      jurisdiccion: ['jurisdiccion'],
+    };
+    let fila = -1, cols = {};
+    for (let i = 0; i < Math.min(filas.length, 10) && fila < 0; i++) {
+      const enc = (filas[i] || []).map(M.normalizar);
+      const c = {};
+      Object.entries(alias).forEach(([k, l]) => { const idx = enc.findIndex(h => l.includes(h)); if (idx > -1) c[k] = idx; });
+      if (c.numero != null && c.cuit != null) { fila = i; cols = c; }
+    }
+    if (fila < 0) throw new Error('No se encontraron los encabezados "BANCO numero" y "CUIT" (formato Banco MELI).');
+    // Código de sucursal: columna propia, o la columna sin título a la derecha de "Jurisdiccion" (como en Banco MELI), o la provincia.
+    const colSuc = cols.sucursal != null ? cols.sucursal : cols.jurisdiccion != null ? cols.jurisdiccion + 1 : null;
+    const leidos = [];
+    filas.slice(fila + 1).forEach(r => {
+      if (!r) return;
+      const numero = M.aCodigoBanco(r[cols.numero]);
+      if (numero == null) return;
+      const pcia = cols.pcia != null && r[cols.pcia] != null ? String(r[cols.pcia]).trim() : '';
+      let suc = colSuc != null ? M.aNumero(r[colSuc]) : null;
+      if (suc == null) { const p = M.provinciaPorNombre(pcia); suc = p ? p.codigo : null; }
+      const cuitCrudo = r[cols.cuit];
+      leidos.push({ cobis: cols.cobis != null && r[cols.cobis] != null ? String(r[cols.cobis]).trim() : '', nombre: cols.nombre != null && r[cols.nombre] != null ? String(r[cols.nombre]).trim() : '',
+        pcia, cuit: typeof cuitCrudo === 'number' ? String(Math.round(cuitCrudo)) : soloDigitos(cuitCrudo), mis: cols.mis != null ? r[cols.mis] : null,
+        numero, sucursal: suc == null ? null : Math.round(suc) });
+    });
+    if (!leidos.length) throw new Error('El archivo no tiene filas de bancos.');
+    let lista = [], actualizados = 0, nuevos = 0;
+    if (modo === 'reemplazar') lista = leidos;
+    else {
+      lista = clonar(actuales);
+      leidos.forEach(b => { const ex = lista.find(x => Number(x.numero) === b.numero); if (ex) { Object.assign(ex, b); actualizados++; } else { lista.push(b); nuevos++; } });
+    }
+    return { modo, lista, leidos: leidos.length, actualizados, nuevos };
+  }
+
+  $('btnCargarBancosMeli').addEventListener('click', () => $('archivoBancosMeli').click());
+  $('archivoBancosMeli').addEventListener('change', async e => {
+    const file = e.target.files[0];
+    e.target.value = '';
+    if (!file) return;
+    try {
+      const hojas = await leerHojas(file);
+      const res = importarBancosMeli(hojas[0].filas, $('mModo').value, datos().bancosMeli || []);
+      if (!await intentar(() => almacen.guardarBancosMeli(res.lista))) return;
+      $('resultadoBancosMeli').innerHTML = aviso('ok', `${res.leidos} bancos leídos. ` + (res.modo === 'reemplazar' ? `La tabla quedó con ${res.lista.length} bancos.` : `${res.actualizados} actualizados, ${res.nuevos} nuevos.`));
+    } catch (err) {
+      $('resultadoBancosMeli').innerHTML = aviso('bad', esc(err.message || err));
+    }
+  });
+  $('btnDescargarBancosMeli').addEventListener('click', () => {
+    const aoa = [['Banco COBIS', 'Banco Impuestos', 'Pcia', 'CUIT', 'MIS', 'BANCO numero', 'Codigo Sucursal']]
+      .concat((datos().bancosMeli || []).map(b => [b.cobis, b.nombre, b.pcia, /^\d+$/.test(b.cuit) ? Number(b.cuit) : b.cuit, b.mis, Number(b.numero), b.sucursal == null ? '' : Number(b.sucursal)]));
+    const ws = XLSX.utils.aoa_to_sheet(aoa);
+    ws['!cols'] = [{ wch: 32 }, { wch: 40 }, { wch: 18 }, { wch: 14 }, { wch: 8 }, { wch: 13 }, { wch: 15 }];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Bancos MELI');
+    descargarLibro('Bancos_MELI.xlsx', wb);
+  });
+
   // ============================================================ LOTE
 
   function periodoActual() {
@@ -634,21 +728,32 @@
   zona.addEventListener('dragleave', () => zona.classList.remove('encima'));
   zona.addEventListener('drop', e => {
     e.preventDefault(); zona.classList.remove('encima');
-    if (e.dataTransfer.files[0]) cargarArchivoLote(e.dataTransfer.files[0]);
+    if (e.dataTransfer.files.length) cargarArchivoLote(e.dataTransfer.files);
   });
   $('archivoLote').addEventListener('change', e => {
-    const f = e.target.files[0];
+    const fs = [...e.target.files];
     e.target.value = '';
-    if (f) cargarArchivoLote(f);
+    if (fs.length) cargarArchivoLote(fs);
   });
 
-  async function cargarArchivoLote(file) {
+  async function cargarArchivoLote(lista) {
+    const files = [...lista];
+    const file = files[0];
     try {
-      $('motivoBloqueo').textContent = 'Leyendo ' + file.name + '…';
-      const crudas = await leerHojas(file);
-      const conc = crudas.find(h => M.normalizar(h.hoja).startsWith('conciliacion'));
-      archivo = { nombre: file.name, crudas, hojas: [], conciliacion: conc ? M.leerConciliacion(conc.filas) : null, interfazDe: undefined };
-      $('aNombre').value = file.name;
+      $('motivoBloqueo').textContent = 'Leyendo ' + (files.length > 1 ? files.length + ' archivos' : file.name) + '…';
+      // TXT de cuotas por banco (esquema MELI): todos los archivos empiezan con la cabecera CUOTAS.
+      const txts = files.every(f => /\.txt$/i.test(f.name))
+        ? await Promise.all(files.map(async f => ({ nombre: f.name, texto: await f.text() }))) : null;
+      if (txts && txts.every(t => /^\uFEFF?CUOTAS/i.test(t.texto))) {
+        archivo = { nombre: files.length > 1 ? `${files.length} archivos TXT` : file.name, txtMeli: txts.map(t => M.leerTxtMeli(t.nombre, t.texto)),
+          crudas: [], hojas: [], conciliacion: null, interfazDe: undefined };
+      } else {
+        if (files.length > 1) throw new Error('Para este formato se carga un solo archivo. Solo el esquema MELI admite varios TXT a la vez.');
+        const crudas = await leerHojas(file);
+        const conc = crudas.find(h => M.normalizar(h.hoja).startsWith('conciliacion'));
+        archivo = { nombre: file.name, crudas, hojas: [], conciliacion: conc ? M.leerConciliacion(conc.filas) : null, interfazDe: undefined };
+      }
+      $('aNombre').value = archivo.nombre;
       $('aMonto').innerHTML = Object.entries(M.COLUMNAS_MONTO).map(([k, v]) => `<option value="${k}">${esc(v)}</option>`).join('');
       // Tipo de acción: si el nombre del archivo lo indica, se toma de ahí.
       const n = M.normalizar(file.name);
@@ -673,6 +778,17 @@
     const claveInterfaz = JSON.stringify(interfaz);
     if (archivo.interfazDe === claveInterfaz) return archivo.errorHojas || null;
     archivo.interfazDe = claveInterfaz;
+    const esMeli = !!(interfaz && interfaz.tipo === 'meli-txt');
+    if (archivo.txtMeli || esMeli) {
+      archivo.interfaz = interfaz;
+      const cant = archivo.txtMeli ? archivo.txtMeli.reduce((s, t) => s + t.filas.length, 0) : 0;
+      archivo.hojas = archivo.txtMeli && esMeli ? [{ hoja: 'TXT MELI', formato: 'meli', cantidad: cant, filas: [] }] : [];
+      archivo.errorHojas = !esMeli
+        ? `Estos TXT son del esquema MELI y ${c ? c.nombre : 'el cliente'} no usa esa interfaz. Elegí el cliente MELI o cambiale la interfaz en Clientes.`
+        : !archivo.txtMeli ? `${c.nombre} usa el esquema MELI: cargá los TXT de cuotas por banco (CUOTA_<BANCO>_<fecha>.txt). Podés elegir varios a la vez.` : null;
+      $('aHoja').innerHTML = archivo.hojas.map((h, i) => `<option value="${i}">TXT de cuotas MELI — ${archivo.txtMeli.length} archivos (${fmtEntero(h.cantidad)} filas)</option>`).join('');
+      return archivo.errorHojas;
+    }
     const hojas = archivo.crudas.map(h => Object.assign(
       interfaz ? M.detectarHojaInterfaz(h.hoja, h.filas, interfaz) : M.detectarHoja(h.hoja, h.filas), { filas: h.filas }));
     const utiles = hojas.filter(h => h.formato && M.normalizar(h.hoja) !== 'glosario');
@@ -716,12 +832,18 @@
     }
     const hoja = archivo.hojas[Number($('aHoja').value) || 0];
     $('aMontoCaja').classList.toggle('oculto', hoja.formato !== 'getnet');
-    const reporte = M.armarReporte(hoja.filas, hoja, { columnaMonto: $('aMonto').value, interfaz: archivo.interfaz });
+    let reporte, bancosUso = datos().bancos, meli = null;
+    if (hoja.formato === 'meli') {
+      meli = armarReporteMeli();
+      reporte = meli.reporte;
+      bancosUso = M.bancosParaMeli(datos().bancosMeli, datos().bancos);
+    } else reporte = M.armarReporte(hoja.filas, hoja, { columnaMonto: $('aMonto').value, interfaz: archivo.interfaz });
     const errores = M.controlarReporte(reporte);
-    const cb = M.controlarBancos(reporte, datos().bancos);
+    const cb = M.controlarBancos(reporte, bancosUso);
     const total = M.round2(reporte.reduce((s, r) => s + (r.MONTO || 0), 0));
     const fechas = reporte.map(r => r.FECHA_VENCIMIENTO).filter(f => f != null);
-    preparado = { reporte, errores, cb, total, hoja };
+    preparado = { reporte, errores, cb, total, hoja, bancosUso,
+      opcCuotas: meli ? { orden: 'nombre' } : null, opcCreditos: meli ? { nombre: 'sinComas' } : null };
 
     let html = `<div class="kpis">
       <div class="kpi"><b>${fmtEntero(reporte.length)}</b><span>filas del reporte</span></div>
@@ -742,6 +864,7 @@
         ? aviso('warn', `Se ignoró ${reporte.ignoradas === 1 ? 'una fila' : reporte.ignoradas + ' filas'} sin banco ni fecha (total al pie). Atención: ese total ($ ${fmtMonto(pie)}) no coincide con la suma de los cupones ($ ${fmtMonto(total)}); revisá el archivo con el cliente.`)
         : aviso('ok', `Se ignoró ${reporte.ignoradas === 1 ? 'una fila' : reporte.ignoradas + ' filas'} sin banco ni fecha${pie != null ? ' (total al pie, coincide con la suma)' : ''}.`);
     }
+    if (meli) html += meli.html;
     if (errores.length) html += aviso('bad', `<b>El archivo tiene ${errores.length} filas con datos inválidos:</b><ul>${errores.slice(0, 8).map(e => `<li>${esc(e)}</li>`).join('')}${errores.length > 8 ? '<li>…</li>' : ''}</ul>`);
     $('resumenArchivo').innerHTML = html;
 
@@ -749,13 +872,15 @@
       $('controlBancos').innerHTML = aviso('bad', `<b>ACTUALIZAR BANCOS:</b> ${cb.conProblemas.length} bancos del archivo no están completos en la tabla Bancos. Corregilos para poder procesar.`) +
         `<div class="tabla-caja"><table><thead><tr><th class="num">Cód.</th><th>Nombre en el archivo</th><th class="num">Filas</th><th>Problema</th><th></th></tr></thead><tbody>${
           cb.conProblemas.map(d => `<tr><td class="num">${d.codigo}</td><td>${esc(d.nombreArchivo)}</td><td class="num">${d.filas}</td>
-          <td>${esc(d.problemas.join(' · '))}</td><td><button class="btn chico" data-escribe data-arreglar-banco="${d.codigo}">${d.banco ? 'Editar banco' : 'Agregar banco'}</button></td></tr>`).join('')}</tbody></table></div>`;
+          <td>${esc(d.problemas.join(' · '))}</td><td>${meli ? '<button class="btn chico" data-ir="bancosmeli">Ir a Bancos MELI</button>' : `<button class="btn chico" data-escribe data-arreglar-banco="${d.codigo}">${d.banco ? 'Editar banco' : 'Agregar banco'}</button>`}</td></tr>`).join('')}</tbody></table></div>`;
     } else {
       $('controlBancos').innerHTML = cb.detalle.length ? aviso('ok', `Mapeo de bancos OK: los ${cb.detalle.length} bancos del archivo tienen CUIT, provincia y sucursal.`) : '';
     }
     if (!reporte.length) bloqueos.push('el archivo no tiene filas');
     if (errores.length) bloqueos.push('corregí las filas inválidas del archivo');
     if (cb.conProblemas.length) bloqueos.push('completá los bancos marcados');
+    if (meli && meli.sinBanco.length) bloqueos.push('hay TXT sin banco en la tabla Bancos MELI');
+    if (meli && meli.conErrores.length) bloqueos.push('hay TXT con errores de formato');
     const choques = M.prefijosRepetidos(cb.detalle.map(d => d.codigo));
     if (choques.length) {
       $('controlBancos').innerHTML += aviso('bad', '<b>Números de crédito repetidos:</b> ' + choques.map(c =>
@@ -764,6 +889,27 @@
     }
     mostrarBloqueo(bloqueos);
     aplicarPermisos();
+  }
+
+  // Reporte a partir de los TXT MELI: detecta el banco de cada archivo en la tabla Bancos MELI.
+  function armarReporteMeli() {
+    const reporte = [], sinBanco = [], conErrores = [], filasTabla = [];
+    archivo.txtMeli.forEach(t => {
+      const m = M.bancoMeliDeTxt(t, datos().bancosMeli);
+      if (t.errores.length) conErrores.push(t);
+      if (!m) sinBanco.push(t);
+      else t.filas.forEach(f => reporte.push({ ID_LOTE: t.archivo, COD_BANCO: Number(m.banco.numero), NOMBRE_BANCO: t.cobis || m.banco.cobis,
+        MONTO: f.monto, FECHA_VENCIMIENTO: f.fecha, PLAZO: null, TNA: null, TEA: null, CFT: null }));
+      filasTabla.push(`<tr><td>${esc(t.archivo)}</td><td>${m ? `<b>${esc(m.banco.numero)}</b> · ${esc(m.banco.nombre || m.banco.cobis)}` : '<span class="chip bad">Sin banco</span>'}</td>
+        <td>${m ? (m.por === 'nombre' ? 'Nombre del archivo' : 'CUIT de la cabecera') : ''}${m && m.cuitDistinto ? ' <span class="chip warn" title="El CUIT de la cabecera no coincide con el de la tabla">CUIT distinto</span>' : ''}</td>
+        <td>${esc(t.cuit)}</td><td class="num">${fmtEntero(t.filas.length)}</td><td class="num">${fmtMonto(t.filas.reduce((s, f) => s + f.monto, 0))}</td>
+        <td>${t.errores.length ? `<span class="chip bad" title="${esc(t.errores.join(' · '))}">${esc(t.errores[0])}</span>` : '<span class="chip ok">OK</span>'}</td></tr>`);
+    });
+    let html = `<h3>Archivos TXT (${archivo.txtMeli.length})</h3><div class="tabla-caja" style="max-height:320px"><table><thead><tr><th>Archivo</th><th>Banco detectado</th><th>Detectado por</th>
+      <th>CUIT cabecera</th><th class="num">Registros</th><th class="num">Total</th><th>Control</th></tr></thead><tbody>${filasTabla.join('')}</tbody></table></div>`;
+    if (sinBanco.length) html += aviso('bad', `<b>${sinBanco.length} TXT sin banco:</b> ${esc(sinBanco.map(t => t.archivo).join(', '))}. Agregalos en la solapa Bancos MELI (nombre COBIS o CUIT). <button class="btn chico" type="button" data-ir="bancosmeli">Ir a Bancos MELI</button>`);
+    if (conErrores.length) html += aviso('bad', `<b>${conErrores.length} TXT con errores:</b><ul>${conErrores.map(t => `<li>${esc(t.archivo)}: ${esc(t.errores.join(' · '))}</li>`).join('')}</ul>`);
+    return { reporte, sinBanco, conErrores, html };
   }
 
   function mostrarBloqueo(bloqueos) {
@@ -812,8 +958,8 @@
       }
       if (erroresSecuencia(c.id, p.secuencia).length) throw new Error(`La secuencia ${p.secuencia} ya fue usada por este cliente.`);
       const hoy = new Date();
-      const cuotas = M.generarCuotas(prep.reporte, datos().bancos, p, hoy);
-      const creditos = M.generarCreditos(cuotas, datos().bancos, p);
+      const cuotas = M.generarCuotas(prep.reporte, prep.bancosUso, p, hoy, prep.opcCuotas);
+      const creditos = M.generarCreditos(cuotas, prep.bancosUso, p, prep.opcCreditos);
       const txtCuotas = M.txtCuotas(cuotas), txtCreditos = M.txtCreditos(creditos);
       resultado = { cuotas, creditos, txtCuotas, txtCreditos };
       return {
@@ -821,8 +967,8 @@
         cambiosCliente: { ultimaSecuencia: Math.max(fresco.ultimaSecuencia, p.secuencia), tasa: p.tasa },
         lote: {
           id: nuevoId(), clienteId: c.id, fecha: hoy.toISOString(), archivo: archivoActual.nombre, hoja: prep.hoja.hoja,
-          columnaMonto: prep.hoja.formato === 'getnet' ? columnaMonto : prep.hoja.formato === 'interfaz' ? archivoActual.interfaz.monto : 'MONTO', firma,
-          interfaz: prep.hoja.formato === 'interfaz' ? archivoActual.interfaz.nombre : null,
+          columnaMonto: prep.hoja.formato === 'getnet' ? columnaMonto : prep.hoja.formato === 'interfaz' ? archivoActual.interfaz.monto : prep.hoja.formato === 'meli' ? 'importe TXT' : 'MONTO', firma,
+          interfaz: prep.hoja.formato === 'interfaz' ? archivoActual.interfaz.nombre : prep.hoja.formato === 'meli' ? 'MELI (TXT por banco)' : null,
           tipoAccion: p.tipoAccion, secuencia: p.secuencia, lote: p.lote, periodo: p.periodo, tasa: p.tasa,
           secuenciaAnterior: fresco.ultimaSecuencia, filas: prep.reporte.length,
           cantCuotas: cuotas.filas.length, cantCreditos: creditos.filas.length, total: cuotas.encabezado.totalCapital,
@@ -1043,6 +1189,7 @@
     renderSelectClientes();
     renderClientes();
     renderBancos();
+    renderBancosMeli();
     renderHistorial();
     actualizarFormulario();
     aplicarPermisos();

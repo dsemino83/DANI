@@ -33,6 +33,7 @@
       if (e && Array.isArray(e.clientes) && Array.isArray(e.bancos) && Array.isArray(e.lotes)) datos = e;
     } catch (err) { /* sin almacenamiento: se trabaja en memoria */ }
     if (!datos) datos = { version: 1, clientes: [], bancos: clonar(root.VALO_BANCOS_INICIALES || []), lotes: [] };
+    if (!Array.isArray(datos.bancosMeli)) datos.bancosMeli = clonar(root.VALO_BANCOS_MELI_INICIALES || []);
 
     function guardar() {
       try { localStorage.setItem(CLAVE, JSON.stringify(datos)); return true; } catch (err) { return false; }
@@ -52,6 +53,7 @@
       async borrarCliente(id) { datos.clientes = datos.clientes.filter(c => c.id !== id); cambiar(); },
       async guardarBancos(lista) { datos.bancos = clonar(lista); cambiar(); },
       async bancosOriginales() { return clonar(root.VALO_BANCOS_INICIALES || []); },
+      async guardarBancosMeli(lista) { datos.bancosMeli = clonar(lista); cambiar(); },
       async registrarLote(clienteId, construir) {
         const c = datos.clientes.find(x => x.id === clienteId);
         const r = construir(clonar(c));
@@ -90,8 +92,8 @@
     const holder = 'pestana-' + nuevoId();
     const usuarioId = user ? await user.id() : null;
     const puede = user ? await user.can('data.write') : null;
-    const datos = { clientes: [], bancos: [], lotes: [] };
-    const listo = { clientes: false, bancos: false, lotes: false };
+    const datos = { clientes: [], bancos: [], bancosMeli: [], lotes: [] };
+    const listo = { clientes: false, bancos: false, lotes: false, bancosMeli: false };
     const api = {
       modo: 'compartido',
       datos,
@@ -102,7 +104,7 @@
       error: null,
     };
     const alError = e => { api.error = e; ev.emitir(); };
-    const emitirSiListo = () => { if (listo.clientes && listo.bancos && listo.lotes) ev.emitir(); };
+    const emitirSiListo = () => { if (listo.clientes && listo.bancos && listo.lotes && listo.bancosMeli) ev.emitir(); };
 
     db.collection('clientes').onSnapshot(s => {
       datos.clientes = s.docs.map(d => Object.assign({ id: d.id }, d.data()))
@@ -112,6 +114,10 @@
     db.collection('lotes').orderBy('fecha', 'asc').onSnapshot(s => {
       datos.lotes = s.docs.map(d => Object.assign({ id: d.id }, d.data()));
       listo.lotes = true; emitirSiListo();
+    }, alError);
+    db.doc('maestros/bancosMeli').onSnapshot(s => {
+      datos.bancosMeli = s.exists && Array.isArray(s.data().lista) ? clonar(s.data().lista) : [];
+      listo.bancosMeli = true; emitirSiListo();
     }, alError);
     db.doc('maestros/bancos').onSnapshot(s => {
       datos.bancos = s.exists && Array.isArray(s.data().lista) ? clonar(s.data().lista) : [];
@@ -155,6 +161,9 @@
       async borrarCliente(id) { await escribir(() => db.doc('clientes/' + id).delete()); },
       async guardarBancos(lista) {
         await escribir(() => db.doc('maestros/bancos').set({ lista: clonar(lista), actualizado: new Date().toISOString(), actualizadoPor: usuarioId }));
+      },
+      async guardarBancosMeli(lista) {
+        await escribir(() => db.doc('maestros/bancosMeli').set({ lista: clonar(lista), actualizado: new Date().toISOString(), actualizadoPor: usuarioId }));
       },
       async bancosOriginales() {
         const s = await db.doc('maestros/bancosOriginales').get();
