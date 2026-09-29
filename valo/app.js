@@ -618,6 +618,183 @@
     descargarLibro('Bancos_MELI.xlsx', wb);
   });
 
+  // ============================================================ CARTERA (BI)
+
+  const CLAVE_CARTERA = 'valo-cartera-config';
+  let cartera = null; // { fuente, encabezados, datos, numericas }
+  let carteraResultado = null;
+  let carteraCfg = {};
+  try { carteraCfg = JSON.parse(localStorage.getItem(CLAVE_CARTERA) || '{}') || {}; } catch (e) { carteraCfg = {}; }
+  const guardarCfgCartera = () => { try { localStorage.setItem(CLAVE_CARTERA, JSON.stringify(carteraCfg)); } catch (e) { /* opcional */ } };
+  const negociosClientes = () => datos().clientes.map(c => String(c.negocio).trim()).filter(Boolean);
+
+  const zonaC = $('zonaCartera');
+  zonaC.addEventListener('click', () => $('archivoCartera').click());
+  zonaC.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); $('archivoCartera').click(); } });
+  zonaC.addEventListener('dragover', e => { e.preventDefault(); zonaC.classList.add('encima'); });
+  zonaC.addEventListener('dragleave', () => zonaC.classList.remove('encima'));
+  zonaC.addEventListener('drop', e => { e.preventDefault(); zonaC.classList.remove('encima'); if (e.dataTransfer.files[0]) cargarCartera(e.dataTransfer.files[0]); });
+  $('archivoCartera').addEventListener('change', e => { const f = e.target.files[0]; e.target.value = ''; if (f) cargarCartera(f); });
+
+  async function cargarCartera(file) {
+    try {
+      $('carteraEstado').innerHTML = aviso('ok', 'Leyendo ' + esc(file.name) + '…');
+      const hojas = await leerHojas(file);
+      const hoja = hojas.find(h => { try { M.leerCartera(h.filas); return true; } catch (e) { return false; } });
+      if (!hoja) throw new Error('El archivo no tiene las columnas del reporte (por ejemplo "ficuo doc titular" y "Estado Cuota").');
+      usarDatosCartera(file.name, M.leerCartera(hoja.filas));
+    } catch (err) {
+      $('carteraEstado').innerHTML = aviso('bad', esc(err.message || err));
+    }
+  }
+
+  function usarDatosCartera(fuente, leido) {
+    cartera = Object.assign({ fuente }, leido, { numericas: M.columnasNumericasCartera(leido.encabezados, leido.datos) });
+    const enc = cartera.encabezados;
+    const elegir = (clave, tipo) => (carteraCfg[clave] && enc.includes(carteraCfg[clave]) ? carteraCfg[clave] : M.sugerirColumnaCartera(tipo, enc));
+    carteraCfg.colTitular = elegir('colTitular', 'titular');
+    carteraCfg.colTipoDoc = elegir('colTipoDoc', 'tipoDoc');
+    carteraCfg.colNegocio = elegir('colNegocio', 'negocio');
+    carteraCfg.colCredito = elegir('colCredito', 'credito');
+    carteraCfg.colEstado = elegir('colEstado', 'estado');
+    carteraCfg.colPeriodo = elegir('colPeriodo', 'periodo');
+    if (!Array.isArray(carteraCfg.sumar) || !carteraCfg.sumar.some(c => cartera.numericas.includes(c))) carteraCfg.sumar = cartera.numericas.slice();
+    carteraCfg.periodo = '';
+    $('carteraEstado').innerHTML = aviso('ok', `${esc(fuente)}: ${fmtEntero(cartera.datos.length)} filas, ${enc.length} columnas.`);
+    $('cardCarteraConfig').classList.remove('oculto');
+    $('cardCarteraResultado').classList.remove('oculto');
+    renderCartera();
+  }
+
+  function opcionesColumna(sel, valor, vacia) {
+    sel.innerHTML = (vacia ? '<option value="">—</option>' : '') + cartera.encabezados.map(h => `<option ${h === valor ? 'selected' : ''}>${esc(h)}</option>`).join('');
+  }
+
+  function renderCartera() {
+    if (!cartera) return;
+    const cfg = carteraCfg;
+    opcionesColumna($('kTitular'), cfg.colTitular);
+    opcionesColumna($('kTipoDoc'), cfg.colTipoDoc, true);
+    opcionesColumna($('kNegocio'), cfg.colNegocio, true);
+    opcionesColumna($('kCredito'), cfg.colCredito, true);
+    opcionesColumna($('kEstado'), cfg.colEstado, true);
+    opcionesColumna($('kPeriodoCol'), cfg.colPeriodo, true);
+    const negocios = negociosClientes();
+    $('carteraFuente').textContent = `Fuente: ${cartera.fuente} · Negocios de Clientes: ${negocios.join(', ') || '(ninguno)'}`;
+    // Negocio: cuántas filas coinciden con los negocios de Clientes.
+    if (cfg.colNegocio) {
+      const vals = M.valoresDistintos(cartera.datos, cfg.colNegocio);
+      const coinciden = vals.filter(v => negocios.some(n => n === v.valor || (!isNaN(Number(n)) && Number(n) === Number(v.valor))));
+      $('kNegocioAyuda').textContent = coinciden.length ? `Coinciden: ${coinciden.map(v => v.valor).join(', ')}` : `Ningún valor coincide con Clientes (hay: ${vals.slice(0, 6).map(v => v.valor).join(', ')}${vals.length > 6 ? '…' : ''})`;
+    } else $('kNegocioAyuda').textContent = 'Sin columna de negocio no se filtra por Clientes.';
+    // Periodo: por defecto el más reciente.
+    const periodos = cfg.colPeriodo ? M.valoresDistintos(cartera.datos, cfg.colPeriodo).filter(v => v.valor !== '') : [];
+    if (cfg.periodo === '' && periodos.length) cfg.periodo = periodos[periodos.length - 1].valor;
+    $('kPeriodo').innerHTML = '<option value="">Todos</option>' + periodos.map(v => `<option value="${esc(v.valor)}" ${v.valor === String(cfg.periodo) ? 'selected' : ''}>${esc(v.valor)} (${fmtEntero(v.cantidad)})</option>`).join('');
+    $('kPeriodo').disabled = !cfg.colPeriodo;
+    // Estados: se marcan los pagos (por defecto, los que dicen PAG o CANCEL).
+    const colDesc = M.sugerirColumnaCartera('estadoDesc', cartera.encabezados);
+    const estados = cfg.colEstado ? M.valoresDistintos(cartera.datos, cfg.colEstado) : [];
+    const desc = {};
+    if (colDesc) cartera.datos.forEach(r => { const k = String(r[cfg.colEstado] ?? '').trim(); if (!(k in desc)) desc[k] = String(r[colDesc] ?? '').trim(); });
+    if (!Array.isArray(cfg.estadosExcluidos)) cfg.estadosExcluidos = estados.filter(e => /pag|cancel/i.test(e.valor + ' ' + (desc[e.valor] || ''))).map(e => e.valor);
+    $('kEstados').innerHTML = estados.length ? estados.map(e => `<label class="check"><input type="checkbox" data-estado="${esc(e.valor)}" ${cfg.estadosExcluidos.includes(e.valor) ? 'checked' : ''}>
+      ${esc(e.valor || '(vacío)')}${desc[e.valor] ? ' · ' + esc(desc[e.valor]) : ''} <span class="sub" style="margin:0">(${fmtEntero(e.cantidad)})</span></label>`).join('') : '<span class="sub">Elegí la columna de estado.</span>';
+    $('kSumar').innerHTML = cartera.numericas.map(c => `<label class="check"><input type="checkbox" data-sumar="${esc(c)}" ${cfg.sumar.includes(c) ? 'checked' : ''}> ${esc(c)}</label>`).join('') || '<span class="sub">No se encontraron columnas numéricas.</span>';
+    calcularCartera();
+  }
+
+  function calcularCartera() {
+    const cfg = carteraCfg;
+    guardarCfgCartera();
+    const negocios = negociosClientes();
+    const sumar = cartera.numericas.filter(c => cfg.sumar.includes(c));
+    const res = M.agruparCartera(cartera.datos, Object.assign({}, cfg, { negocios, sumar }));
+    carteraResultado = Object.assign(res, { sumar });
+    let html = '';
+    if (!cfg.estadosExcluidos.length) html += aviso('warn', 'No hay ningún estado marcado como pago: se están incluyendo todas las cuotas. Marcá qué códigos de "Estado de cuota" corresponden a cuota paga.');
+    if (!cfg.colNegocio) html += aviso('warn', 'No elegiste la columna de Nº de negocio: no se filtra por los negocios de Clientes.');
+    html += `<p class="sub">${fmtEntero(res.leidas)} filas leídas · ${fmtEntero(res.otrosPeriodos)} de otros periodos · ${fmtEntero(res.otrosNegocios)} de negocios que no están en Clientes · ${fmtEntero(res.pagas)} cuotas pagas excluidas · <b>${fmtEntero(res.usadas)} cuotas impagas</b></p>`;
+    const principal = sumar.find(c => /saldo capital/i.test(c)) || sumar[0];
+    html += '<div class="kpis">' + Object.entries(res.porNegocio).map(([neg, pn]) => `<div class="kpi"><b>${principal ? '$ ' + fmtMonto(pn.sumas[principal]) : fmtEntero(pn.cuotas)}</b>
+      <span>Negocio ${esc(neg || '—')} · ${fmtEntero(pn.titulares)} titulares · ${fmtEntero(pn.cuotas)} cuotas${principal ? ' · ' + esc(principal) : ''}</span></div>`).join('') + '</div>';
+    $('carteraResumen').innerHTML = html;
+    const LIMITE = 2000;
+    $('tablaCartera').innerHTML = res.grupos.length ? `<table><thead><tr><th>Titular</th>${cfg.colTipoDoc ? '<th>Tipo doc.</th>' : ''}${cfg.colNegocio ? '<th>Negocio</th>' : ''}
+      <th class="num">Créditos</th><th class="num">Cuotas impagas</th>${sumar.map(c => `<th class="num">${esc(c)}</th>`).join('')}</tr></thead><tbody>
+      <tr class="enc"><td>TOTAL (${fmtEntero(res.grupos.length)} titulares)</td>${cfg.colTipoDoc ? '<td></td>' : ''}${cfg.colNegocio ? '<td></td>' : ''}<td class="num"></td><td class="num">${fmtEntero(res.usadas)}</td>
+      ${sumar.map(c => `<td class="num">${fmtMonto(res.totales[c])}</td>`).join('')}</tr>
+      ${res.grupos.slice(0, LIMITE).map(g => `<tr><td>${esc(g.titular)}</td>${cfg.colTipoDoc ? `<td>${esc(g.tipoDoc)}</td>` : ''}${cfg.colNegocio ? `<td>${esc(g.negocio)}</td>` : ''}
+        <td class="num">${fmtEntero(g.creditos)}</td><td class="num">${fmtEntero(g.cuotas)}</td>${sumar.map(c => `<td class="num">${fmtMonto(g.sumas[c])}</td>`).join('')}</tr>`).join('')}</tbody></table>`
+      + (res.grupos.length > LIMITE ? `<div class="vacio">Se muestran ${LIMITE} de ${fmtEntero(res.grupos.length)} titulares; el Excel trae todos.</div>` : '')
+      : '<div class="vacio">No quedan cuotas con los filtros elegidos.</div>';
+  }
+
+  [['kTitular', 'colTitular'], ['kTipoDoc', 'colTipoDoc'], ['kNegocio', 'colNegocio'], ['kCredito', 'colCredito'], ['kEstado', 'colEstado'], ['kPeriodoCol', 'colPeriodo']]
+    .forEach(([id, clave]) => $(id).addEventListener('change', () => {
+      carteraCfg[clave] = $(id).value;
+      if (clave === 'colEstado') carteraCfg.estadosExcluidos = null;
+      if (clave === 'colPeriodo') carteraCfg.periodo = '';
+      renderCartera();
+    }));
+  $('kPeriodo').addEventListener('change', () => { carteraCfg.periodo = $('kPeriodo').value; calcularCartera(); });
+  $('kEstados').addEventListener('change', e => {
+    const v = e.target.dataset.estado;
+    if (v == null) return;
+    const set = new Set(carteraCfg.estadosExcluidos || []);
+    e.target.checked ? set.add(v) : set.delete(v);
+    carteraCfg.estadosExcluidos = [...set];
+    calcularCartera();
+  });
+  $('kSumar').addEventListener('change', e => {
+    const v = e.target.dataset.sumar;
+    if (v == null) return;
+    const set = new Set(carteraCfg.sumar || []);
+    e.target.checked ? set.add(v) : set.delete(v);
+    carteraCfg.sumar = [...set];
+    calcularCartera();
+  });
+
+  $('btnCarteraExcel').addEventListener('click', () => {
+    if (!carteraResultado) return;
+    const cfg = carteraCfg, r = carteraResultado;
+    const enc = ['Titular'].concat(cfg.colTipoDoc ? ['Tipo doc.'] : [], cfg.colNegocio ? ['Negocio'] : [], ['Créditos', 'Cuotas impagas'], r.sumar);
+    const aoa = [enc].concat(r.grupos.map(g => [g.titular].concat(cfg.colTipoDoc ? [g.tipoDoc] : [], cfg.colNegocio ? [g.negocio] : [], [g.creditos, g.cuotas], r.sumar.map(c => g.sumas[c]))));
+    aoa.push(['TOTAL'].concat(cfg.colTipoDoc ? [''] : [], cfg.colNegocio ? [''] : [], ['', r.usadas], r.sumar.map(c => r.totales[c])));
+    const ws = XLSX.utils.aoa_to_sheet(aoa);
+    ws['!cols'] = enc.map(h => ({ wch: Math.max(12, h.length + 2) }));
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Cartera por titular');
+    descargarLibro(`Cartera_por_titular_${cfg.periodo || 'todos'}.xlsx`, wb);
+  });
+
+  // Consulta directa al BI (ClickHouse). Funciona solo desde la red de VALO y si el BI acepta pedidos de esta página.
+  $('btnConsultarBI').addEventListener('click', async () => {
+    const negocios = negociosClientes();
+    const endpoint = $('carteraEndpoint').value.trim();
+    const colNegocio = carteraCfg.colNegocio || 'Serie';
+    const datosBI = [];
+    try {
+      $('carteraEstado').innerHTML = aviso('ok', 'Consultando el BI…');
+      for (let desde = 0; ; desde += 5000) {
+        const u = new URL(endpoint);
+        u.searchParams.set('database', 'BI_CLIC');
+        const r = await fetch(u, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+          body: M.sqlCartera('CreditoCarteraEspejoDetalleHistorico', colNegocio, negocios, '', 5000, desde) });
+        if (!r.ok) throw new Error(await r.text());
+        const lote = (await r.text()).trim().split('\n').filter(Boolean).map(JSON.parse);
+        datosBI.push(...lote);
+        $('carteraEstado').innerHTML = aviso('ok', `Consultando el BI… ${fmtEntero(datosBI.length)} filas`);
+        if (lote.length < 5000) break;
+      }
+      const encabezados = datosBI.length ? Object.keys(datosBI[0]) : [];
+      usarDatosCartera(`BI directo (negocios ${negocios.join(', ')} por columna ${colNegocio})`, { encabezados, datos: datosBI });
+    } catch (err) {
+      $('carteraEstado').innerHTML = aviso('bad', 'No se pudo consultar el BI desde esta página (' + esc(err.message || err) + '). ' +
+        'El BI solo responde dentro de la red de VALO y puede no aceptar pedidos de otras páginas. Exportá el reporte a CSV o Excel desde el BI y cargalo acá.');
+    }
+  });
+
   // ============================================================ LOTE
 
   function periodoActual() {
@@ -1190,6 +1367,7 @@
     renderClientes();
     renderBancos();
     renderBancosMeli();
+    if (cartera) renderCartera();
     renderHistorial();
     actualizarFormulario();
     aplicarPermisos();

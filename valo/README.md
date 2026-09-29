@@ -45,6 +45,12 @@ Después de modificar el código, regenerar el archivo único con `python3 const
    con totales por tipo, re-descarga de los CSV, exportación a Excel y anulación del último lote de cada cliente
    (devuelve la secuencia).
 
+5. **Cartera** – agrupa por titular el reporte *CreditoCarteraEspejoDetalle* del BI (tabla ClickHouse
+   `BI_CLIC.CreditoCarteraEspejoDetalleHistorico`): se sube el export CSV/Excel del BI (o, desde la versión local dentro de
+   la red de VALO, se consulta directo si el BI lo permite). Filtra periodo (por defecto el último), negocios de Clientes
+   (columna elegible, por defecto `Serie`) y excluye los estados de cuota marcados como pagos. Suma los importes por titular,
+   sin fechas, y descarga Excel.
+
 ## Datos
 
 - **Versión compartida (recomendada):** página publicada en claude.ai (`compartido/conversor-valo-compartido.html`).

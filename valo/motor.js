@@ -389,6 +389,117 @@
     });
   }
 
+  // -------------------------------------------------------- CARTERA (BI)
+
+  // Export de CreditoCarteraEspejoDetalleHistorico (BI ClickHouse): CSV con ';' o Excel.
+  // Columnas que no se suman aunque sean números (igual que los totales del BI).
+  const CARTERA_NO_SUMAR = ['periodo', 'serie', 'credito', 'sucursal', 'lote', 'ficuo doc titular', 'ficuo tipodoc titular', 'cuota', 'estado cuota', 'familia', 'motivo'];
+
+  // Encabezados y filas como objetos, a partir de filas (array de arrays).
+  function leerCartera(filas) {
+    let fila = -1;
+    for (let i = 0; i < Math.min(filas.length, 15) && fila < 0; i++) {
+      const enc = (filas[i] || []).map(normalizar);
+      if (enc.some(h => h.includes('titular')) || enc.includes('estado cuota')) fila = i;
+    }
+    if (fila < 0) throw new Error('No se encontró la fila de encabezados (se esperan columnas como "ficuo doc titular" y "Estado Cuota").');
+    const encabezados = filas[fila].map(h => (h == null ? '' : String(h).trim()));
+    const datos = filas.slice(fila + 1).filter(r => r && r.some(c => c != null && String(c).trim() !== ''))
+      .map(r => { const o = {}; encabezados.forEach((h, i) => { if (h) o[h] = r[i]; }); return o; });
+    return { encabezados: encabezados.filter(Boolean), datos };
+  }
+
+  function sugerirColumnaCartera(tipo, encabezados) {
+    const n = encabezados.map(normalizar);
+    const buscar = lista => { for (const x of lista) { const i = n.indexOf(x); if (i > -1) return encabezados[i]; } return ''; };
+    const contiene = t => { const i = n.findIndex(h => h.includes(t)); return i > -1 ? encabezados[i] : ''; };
+    if (tipo === 'titular') return buscar(['ficuo doc titular', 'titular', 'doc titular']) || contiene('titular');
+    if (tipo === 'tipoDoc') return buscar(['ficuo tipodoc titular']) || contiene('tipodoc');
+    if (tipo === 'estado') return buscar(['estado cuota', 'estado']);
+    if (tipo === 'estadoDesc') return buscar(['estado cuota desc', 'estado desc', 'estado cuota descripcion']);
+    if (tipo === 'periodo') return buscar(['periodo']);
+    if (tipo === 'negocio') return buscar(['negocio', 'nro negocio', 'n negocio', 'numero negocio', 'serie', 'familia']);
+    if (tipo === 'credito') return buscar(['credito', 'nro credito']);
+    return '';
+  }
+
+  // Columnas a sumar: numéricas en todas las filas con dato, sin fechas ni identificadores.
+  function columnasNumericasCartera(encabezados, datos) {
+    const muestra = datos.slice(0, 2000);
+    return encabezados.filter(h => {
+      const n = normalizar(h);
+      if (CARTERA_NO_SUMAR.includes(n) || /(^| )id$/.test(n) || /vencimiento|fecha/.test(n)) return false;
+      let hay = false;
+      for (const r of muestra) {
+        const v = r[h];
+        if (v == null || String(v).trim() === '') continue;
+        if (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}/.test(v.trim())) return false;
+        if (aNumero(v) == null) return false;
+        hay = true;
+      }
+      return hay;
+    });
+  }
+
+  const valorTexto = v => (v == null ? '' : String(v).trim());
+  const mismoNegocio = (v, negocios) => {
+    const t = valorTexto(v);
+    return negocios.some(n => n === t || (t !== '' && !isNaN(Number(t)) && !isNaN(Number(n)) && Number(n) === Number(t)));
+  };
+
+  // Agrupa por titular: filtra periodo, negocios de Clientes y excluye los estados de cuota pagos.
+  function agruparCartera(datos, cfg) {
+    const excluidos = new Set((cfg.estadosExcluidos || []).map(String));
+    const res = { leidas: datos.length, otrosPeriodos: 0, otrosNegocios: 0, pagas: 0, usadas: 0, grupos: [], totales: {}, porNegocio: {} };
+    const grupos = new Map();
+    cfg.sumar.forEach(c => { res.totales[c] = 0; });
+    datos.forEach(r => {
+      if (cfg.colPeriodo && cfg.periodo !== '' && cfg.periodo != null && valorTexto(r[cfg.colPeriodo]) !== String(cfg.periodo)) { res.otrosPeriodos++; return; }
+      if (cfg.colNegocio && !mismoNegocio(r[cfg.colNegocio], cfg.negocios)) { res.otrosNegocios++; return; }
+      if (cfg.colEstado && excluidos.has(valorTexto(r[cfg.colEstado]))) { res.pagas++; return; }
+      res.usadas++;
+      const titular = valorTexto(r[cfg.colTitular]) || '(sin titular)';
+      const negocio = cfg.colNegocio ? valorTexto(r[cfg.colNegocio]) : '';
+      const k = titular + '|' + negocio;
+      if (!grupos.has(k)) {
+        const g = { titular, tipoDoc: cfg.colTipoDoc ? valorTexto(r[cfg.colTipoDoc]) : '', negocio, cuotas: 0, creditos: new Set(), sumas: {} };
+        cfg.sumar.forEach(c => { g.sumas[c] = 0; });
+        grupos.set(k, g);
+      }
+      const g = grupos.get(k);
+      g.cuotas++;
+      if (cfg.colCredito) g.creditos.add(valorTexto(r[cfg.colCredito]));
+      if (!res.porNegocio[negocio]) res.porNegocio[negocio] = { titulares: new Set(), cuotas: 0, sumas: Object.fromEntries(cfg.sumar.map(c => [c, 0])) };
+      const pn = res.porNegocio[negocio];
+      pn.titulares.add(titular); pn.cuotas++;
+      cfg.sumar.forEach(c => { const v = aNumero(r[c]) || 0; g.sumas[c] += v; res.totales[c] += v; pn.sumas[c] += v; });
+    });
+    res.grupos = [...grupos.values()].map(g => {
+      Object.keys(g.sumas).forEach(c => { g.sumas[c] = round2(g.sumas[c]); });
+      return Object.assign(g, { creditos: g.creditos.size });
+    }).sort((a, b) => (a.negocio < b.negocio ? -1 : a.negocio > b.negocio ? 1 : 0) || (a.titular < b.titular ? -1 : a.titular > b.titular ? 1 : 0));
+    Object.keys(res.totales).forEach(c => { res.totales[c] = round2(res.totales[c]); });
+    Object.values(res.porNegocio).forEach(pn => { pn.titulares = pn.titulares.size; Object.keys(pn.sumas).forEach(c => { pn.sumas[c] = round2(pn.sumas[c]); }); });
+    return res;
+  }
+
+  // Valores distintos de una columna con su cantidad (para elegir periodo y estados).
+  function valoresDistintos(datos, col) {
+    const m = new Map();
+    datos.forEach(r => { const v = valorTexto(r[col]); m.set(v, (m.get(v) || 0) + 1); });
+    return [...m.entries()].map(([valor, cantidad]) => ({ valor, cantidad }))
+      .sort((a, b) => (!isNaN(Number(a.valor)) && !isNaN(Number(b.valor)) ? Number(a.valor) - Number(b.valor) : a.valor < b.valor ? -1 : 1));
+  }
+
+  // SQL para consultar el BI directo (tabla del reporte CreditoCarteraEspejoDetalle).
+  function sqlCartera(tabla, colNegocio, negocios, periodo, limite, desde) {
+    const lista = negocios.map(n => (isNaN(Number(n)) ? `'${String(n).replace(/'/g, "''")}'` : Number(n))).join(', ');
+    const w = ['1=1'];
+    if (colNegocio && negocios.length) w.push(`\`${colNegocio}\` IN (${lista})`);
+    if (periodo) w.push(`periodo=${Number(periodo)}`);
+    return `SELECT * FROM ${tabla} WHERE ${w.join(' AND ')} LIMIT ${limite} OFFSET ${desde} FORMAT JSONEachRow`;
+  }
+
   // ------------------------------------------------------------------- Bancos
 
   // Un banco está completo cuando tiene provincia real, sucursal, CUIT y código de crédito.
@@ -636,6 +747,7 @@
   const api = {
     PROVINCIAS, FIJOS, COLS_REPORTE, FORMATOS, COLUMNAS_MONTO, CAMPOS_INTERFAZ,
     leerTxtMeli, bancoMeliDeTxt, bancosParaMeli,
+    leerCartera, sugerirColumnaCartera, columnasNumericasCartera, agruparCartera, valoresDistintos, sqlCartera,
     leerCsv, encabezadosEjemplo, leerDefinicionInterfaz, sugerirColumna, detectarHojaInterfaz,
     normalizar, provinciaPorNombre, round2, aNumero, aFechaSerial, aCodigoBanco,
     fechaDDMMYY, fechaYYYYMMDD, fechaLegible, hoyDDMMYY,
