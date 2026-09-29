@@ -1,3 +1,1011 @@
+<title>Conversor VALO GetNet</title>
+<style>
+  :root {
+    --bg: #f4f6f9; --panel: #ffffff; --panel-2: #f8fafc; --text: #1c2430; --muted: #5d6b7e;
+    --line: #dde3ea; --accent: #1f5fbf; --accent-2: #e8f0fc; --accent-text: #ffffff;
+    --ok: #1d7a46; --ok-bg: #e6f4ec; --warn: #9a6100; --warn-bg: #fdf3e1; --bad: #b3261e; --bad-bg: #fbe9e8;
+    --shadow: 0 1px 2px rgba(16, 24, 40, .06), 0 1px 3px rgba(16, 24, 40, .08);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #10141a; --panel: #171d25; --panel-2: #1c232d; --text: #e4e9f0; --muted: #98a4b3;
+      --line: #2a3340; --accent: #6ea2f0; --accent-2: #1b2b44; --accent-text: #0c1320;
+      --ok: #5fcf8f; --ok-bg: #16301f; --warn: #f0b95a; --warn-bg: #33270f; --bad: #f28b82; --bad-bg: #3a1a18;
+      --shadow: none; color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #10141a; --panel: #171d25; --panel-2: #1c232d; --text: #e4e9f0; --muted: #98a4b3;
+    --line: #2a3340; --accent: #6ea2f0; --accent-2: #1b2b44; --accent-text: #0c1320;
+    --ok: #5fcf8f; --ok-bg: #16301f; --warn: #f0b95a; --warn-bg: #33270f; --bad: #f28b82; --bad-bg: #3a1a18;
+    --shadow: none; color-scheme: dark;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  header { background: var(--panel); border-bottom: 1px solid var(--line); }
+  .barra { max-width: 1200px; margin: 0 auto; padding: 14px 16px 0; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; }
+  #estadoBase .chip { cursor: default; }
+  .barra h1 { font-size: 18px; margin: 0; flex: 1 1 auto; }
+  .barra h1 small { color: var(--muted); font-weight: 400; font-size: 13px; margin-left: 6px; }
+  nav { max-width: 1200px; margin: 0 auto; padding: 0 16px; display: flex; gap: 4px; overflow-x: auto; }
+  nav button { background: none; border: 0; border-bottom: 3px solid transparent; padding: 12px 14px; font: inherit; font-weight: 600; color: var(--muted); cursor: pointer; white-space: nowrap; }
+  nav button[aria-selected="true"] { color: var(--accent); border-bottom-color: var(--accent); }
+  main { max-width: 1200px; margin: 0 auto; padding: 20px 16px 60px; }
+  section.vista { display: none; }
+  section.vista.activa { display: block; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--shadow); padding: 18px; margin-bottom: 18px; }
+  .card h2 { font-size: 16px; margin: 0 0 4px; }
+  .card h3 { font-size: 14px; margin: 16px 0 8px; }
+  .sub { color: var(--muted); margin: 0 0 14px; }
+  .grid { display: grid; gap: 12px 16px; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); }
+  label.campo { display: flex; flex-direction: column; gap: 4px; font-weight: 600; font-size: 13px; }
+  label.campo span.ayuda { font-weight: 400; color: var(--muted); font-size: 12px; }
+  input, select { font: inherit; color: var(--text); background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; min-width: 0; width: 100%; }
+  input:focus, select:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+  input[readonly] { background: var(--panel-2); color: var(--muted); }
+  .btn { display: inline-flex; align-items: center; gap: 6px; font: inherit; font-weight: 600; border-radius: 6px; padding: 8px 14px; border: 1px solid var(--line); background: var(--panel); color: var(--text); cursor: pointer; text-decoration: none; }
+  .btn:hover { border-color: var(--accent); }
+  .btn.primario { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
+  .btn.peligro { color: var(--bad); }
+  .btn.peligro-lleno { background: var(--bad); border-color: var(--bad); color: var(--panel); }
+  #confMensaje td { border: 0; padding: 3px 12px 3px 0; }
+  .btn.chico { padding: 4px 9px; font-size: 12px; }
+  .btn:disabled { opacity: .45; cursor: not-allowed; }
+  .acciones { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 14px; }
+  .segmento { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+  .segmento label { padding: 8px 16px; cursor: pointer; font-weight: 600; }
+  .segmento label { position: relative; }
+  .segmento input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+  .segmento label:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: -2px; }
+  .segmento label:has(input:checked) { background: var(--accent); color: var(--accent-text); }
+  .tabla-caja { overflow: auto; max-height: 480px; border: 1px solid var(--line); border-radius: 8px; }
+  table { border-collapse: collapse; width: 100%; font-size: 13px; }
+  th, td { padding: 7px 10px; border-bottom: 1px solid var(--line); text-align: left; white-space: nowrap; }
+  th { position: sticky; top: 0; background: var(--panel-2); font-size: 12px; color: var(--muted); font-weight: 600; z-index: 1; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  tr.enc td { background: var(--accent-2); font-weight: 600; }
+  .aviso { border-radius: 8px; padding: 10px 14px; margin: 12px 0; border: 1px solid transparent; }
+  .aviso.ok { background: var(--ok-bg); color: var(--ok); }
+  .aviso.warn { background: var(--warn-bg); color: var(--warn); }
+  .aviso.bad { background: var(--bad-bg); color: var(--bad); }
+  .aviso ul { margin: 6px 0 0; padding-left: 20px; }
+  .chip { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 12px; font-weight: 600; }
+  .chip.ok { background: var(--ok-bg); color: var(--ok); }
+  .chip.warn { background: var(--warn-bg); color: var(--warn); }
+  .chip.bad { background: var(--bad-bg); color: var(--bad); }
+  .chip.gris { background: var(--panel-2); color: var(--muted); border: 1px solid var(--line); }
+  .kpis { display: grid; gap: 10px; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); margin: 12px 0; }
+  .kpi { background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; }
+  .kpi b { display: block; font-size: 18px; font-variant-numeric: tabular-nums; }
+  .kpi span { color: var(--muted); font-size: 12px; }
+  .zona { border: 2px dashed var(--line); border-radius: 10px; padding: 22px; text-align: center; color: var(--muted); cursor: pointer; }
+  .zona.encima { border-color: var(--accent); background: var(--accent-2); }
+  .zona strong { color: var(--text); }
+  .oculto { display: none !important; }
+  .fila-flex { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .fila-flex .crece { flex: 1 1 220px; }
+  .pestanas { display: flex; gap: 6px; margin: 14px 0 8px; flex-wrap: wrap; }
+  .pestanas button { font: inherit; font-size: 13px; padding: 6px 12px; border-radius: 999px; border: 1px solid var(--line); background: var(--panel); color: var(--text); cursor: pointer; }
+  .pestanas button[aria-selected="true"] { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
+  dialog { border: 1px solid var(--line); border-radius: 12px; background: var(--panel); color: var(--text); padding: 0; width: min(560px, calc(100vw - 32px)); }
+  dialog::backdrop { background: rgba(10, 15, 25, .45); }
+  dialog form { padding: 20px; }
+  dialog h2 { margin: 0 0 14px; font-size: 16px; }
+  #toast { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); background: var(--text); color: var(--bg); padding: 10px 18px; border-radius: 8px; font-weight: 600; opacity: 0; pointer-events: none; transition: opacity .2s; max-width: calc(100vw - 32px); z-index: 10; }
+  #toast.visible { opacity: 1; }
+  .vacio { color: var(--muted); padding: 18px; text-align: center; }
+  code { font-size: 12px; background: var(--panel-2); padding: 1px 5px; border-radius: 4px; }
+</style>
+<header>
+  <div class="barra">
+    <h1>Conversor VALO · GetNet <small>Cesión de cupones → Cuotas y Créditos</small></h1>
+    <span id="estadoBase"><span class="chip gris">Conectando…</span></span>
+    <button class="btn chico" id="btnRespaldo" data-solo-local type="button" title="Descarga clientes, secuencias, bancos e historial">Descargar respaldo</button>
+    <button class="btn chico" id="btnRestaurar" data-solo-local data-escribe type="button" title="Restaura un respaldo descargado">Restaurar respaldo</button>
+    <input type="file" id="archivoRespaldo" accept=".json,application/json" class="oculto">
+  </div>
+  <nav role="tablist">
+    <button role="tab" data-vista="lote" aria-selected="true">Carga de lote</button>
+    <button role="tab" data-vista="clientes" aria-selected="false">Clientes</button>
+    <button role="tab" data-vista="bancos" aria-selected="false">Bancos</button>
+    <button role="tab" data-vista="historial" aria-selected="false">Historial</button>
+  </nav>
+</header>
+
+<main>
+  <div id="errorCarga" class="aviso bad">
+    <b>La página no terminó de cargar.</b> Si abriste <code>index.html</code> suelto, usá el archivo único
+    <code>Conversor-VALO.html</code> (trae todo adentro), o abrí <code>index.html</code> dentro de la carpeta <code>valo</code> completa.
+  </div>
+  <div id="errorBase"></div>
+  <div id="cargandoBase" class="vacio">Cargando clientes, bancos e historial…</div>
+  <div id="avisoSoloLectura" class="aviso warn oculto">Tenés acceso de solo lectura: podés ver clientes, bancos e historial y descargar TXT, pero no cargar ni modificar datos. Pedile al dueño de la página que te comparta como Colaborador o Editor.</div>
+  <div id="contenido" class="oculto">
+  <!-- ============================================================ LOTE -->
+  <section class="vista activa" id="vista-lote">
+    <div id="sinClientes" class="aviso warn oculto">
+      No hay clientes dados de alta. Antes de cargar un archivo hay que hacer la apertura del cliente
+      (Nº de negocio, CUIT del cedente y nombre).
+      <div class="acciones"><button class="btn primario" type="button" data-ir="clientes">Ir a Clientes</button></div>
+    </div>
+
+    <div class="card" id="cardFormulario">
+      <h2>1. Formulario del lote</h2>
+      <p class="sub">Secuencia y lote se completan solos según el cliente y el tipo de acción.</p>
+      <div class="grid">
+        <label class="campo">Cliente (cedente)
+          <select id="fCliente"></select>
+        </label>
+        <div class="campo" style="display:flex;flex-direction:column;gap:4px;font-weight:600;font-size:13px">Tipo de acción
+          <div class="segmento" role="radiogroup">
+            <label><input type="radio" name="fTipo" value="Alta" checked>Alta</label>
+            <label><input type="radio" name="fTipo" value="Revolving">Revolving</label>
+          </div>
+        </div>
+        <label class="campo">Periodo <span class="ayuda">yyyymm</span>
+          <input id="fPeriodo" inputmode="numeric" maxlength="6">
+        </label>
+        <label class="campo">Tasa de descuento
+          <input id="fTasa" inputmode="decimal">
+        </label>
+        <label class="campo">Secuencia
+          <input id="fSecuencia" inputmode="numeric" readonly>
+          <span class="ayuda"><label><input type="checkbox" id="fSecuenciaManual" style="width:auto"> editar a mano</label></span>
+        </label>
+        <label class="campo">Lote
+          <input id="fLote" readonly>
+          <span class="ayuda" id="fLoteAyuda"></span>
+        </label>
+        <label class="campo">Nº de negocio
+          <input id="fNegocio" readonly>
+        </label>
+        <label class="campo">Cedente (CUIT)
+          <input id="fCedente" readonly>
+        </label>
+      </div>
+      <div id="estadoFormulario"></div>
+    </div>
+
+    <div class="card" id="cardArchivo">
+      <h2>2. Archivo del cliente</h2>
+      <p class="sub">Adjuntá el Excel que envía el cliente (ej. <code>01. VALO_Cesion_Cupones_….xlsx</code>). Se toma como la solapa Reporte del conversor.</p>
+      <div class="zona" id="zonaLote" tabindex="0">
+        <strong>Cargar lote</strong><br>Arrastrá el archivo acá o hacé clic para elegirlo (.xlsx / .xls / .csv)
+      </div>
+      <input type="file" id="archivoLote" accept=".xlsx,.xls,.xlsm,.csv" class="oculto">
+      <div id="detalleArchivo" class="oculto">
+        <div class="grid" style="margin-top:14px">
+          <label class="campo">Archivo <input id="aNombre" readonly></label>
+          <label class="campo">Hoja a usar <select id="aHoja"></select></label>
+          <label class="campo" id="aMontoCaja">Columna para MONTO <select id="aMonto"></select>
+            <span class="ayuda">El conversor usa vlu_transaction_amount.</span></label>
+        </div>
+        <div id="resumenArchivo"></div>
+        <div id="controlBancos"></div>
+      </div>
+      <div class="acciones">
+        <button class="btn primario" id="btnProcesar" type="button" disabled>Procesar lote y generar TXT</button>
+        <span id="motivoBloqueo" class="sub" style="margin:0"></span>
+      </div>
+    </div>
+
+    <div class="card oculto" id="cardResultado">
+      <h2>3. Resultado</h2>
+      <p class="sub" id="resultadoSub"></p>
+      <div class="acciones" id="descargasResultado" style="margin-top:0"></div>
+      <div id="controlesResultado"></div>
+      <div class="pestanas" role="tablist" id="pestanasResultado">
+        <button type="button" data-tabla="cuotas" aria-selected="true">Cuotas</button>
+        <button type="button" data-tabla="creditos" aria-selected="false">Créditos</button>
+        <button type="button" data-tabla="reporte" aria-selected="false">Reporte</button>
+      </div>
+      <div class="tabla-caja" id="tablaResultado"></div>
+    </div>
+  </section>
+
+  <!-- ======================================================== CLIENTES -->
+  <section class="vista" id="vista-clientes">
+    <div class="card">
+      <h2>Apertura de cliente</h2>
+      <p class="sub">Sin la apertura del cliente no se puede dar de alta un archivo. La secuencia se lleva por cedente y arranca en 1.</p>
+      <form id="formCliente" autocomplete="off">
+        <div class="grid">
+          <label class="campo">Nº de negocio <input id="cNegocio" required></label>
+          <label class="campo">CUIT del cedente <span class="ayuda">11 dígitos, sin guiones</span><input id="cCuit" inputmode="numeric" maxlength="13" required></label>
+          <label class="campo">Nombre del cedente <input id="cNombre" required></label>
+          <label class="campo">Última secuencia ya usada <span class="ayuda">Opcional. 0 = el primer lote sale con 1</span><input id="cSecuencia" inputmode="numeric" value="0"></label>
+        </div>
+        <div class="acciones"><button class="btn primario" data-escribe type="submit">Dar de alta cliente</button></div>
+        <div id="errorCliente"></div>
+      </form>
+    </div>
+    <div class="card">
+      <h2>Clientes</h2>
+      <div class="tabla-caja" id="tablaClientes"></div>
+    </div>
+  </section>
+
+  <!-- ========================================================== BANCOS -->
+  <section class="vista" id="vista-bancos">
+    <div class="card">
+      <h2>Bancos</h2>
+      <p class="sub">Tabla maestra que completa CUIT, sucursal, nombre y código de crédito. Arranca con la carga masiva de la solapa Bancos del conversor; para actualizarla subí un Excel con las columnas
+        <code>Banco</code> <code>Nombre</code> <code>CUIT</code> <code>Jurisdiccion</code> <code>Codigo Sucursal</code> <code>Codigo Nº Credito</code>.</p>
+      <div class="fila-flex">
+        <label class="campo" style="flex-direction:row;align-items:center;gap:8px">Modo de carga
+          <select id="bModo" style="width:auto">
+            <option value="actualizar">Actualizar existentes y agregar nuevos</option>
+            <option value="reemplazar">Reemplazar toda la tabla</option>
+          </select>
+        </label>
+        <button class="btn primario" id="btnCargarBancos" data-escribe type="button">Cargar Excel de bancos</button>
+        <input type="file" id="archivoBancos" accept=".xlsx,.xls,.xlsm,.csv" class="oculto">
+        <button class="btn" id="btnDescargarBancos" type="button">Descargar Excel de bancos</button>
+        <button class="btn" id="btnNuevoBanco" data-escribe type="button">Agregar banco</button>
+        <button class="btn peligro" id="btnBancosOriginales" data-escribe type="button">Volver a la carga original</button>
+      </div>
+      <div id="resultadoBancos"></div>
+      <div class="fila-flex" style="margin:14px 0 10px">
+        <input id="bBuscar" class="crece" placeholder="Buscar por código, nombre o CUIT">
+        <label style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="bSoloIncompletos" style="width:auto"> Solo incompletos</label>
+        <span id="bResumen" class="sub" style="margin:0"></span>
+      </div>
+      <div class="tabla-caja" id="tablaBancos"></div>
+    </div>
+  </section>
+
+  <!-- ======================================================= HISTORIAL -->
+  <section class="vista" id="vista-historial">
+    <div class="card">
+      <h2>Historial de lotes</h2>
+      <p class="sub">Podés volver a descargar los TXT de cualquier lote. Anular el último lote de un cliente devuelve su secuencia al número anterior.</p>
+      <div class="fila-flex" style="margin-bottom:10px">
+        <label class="campo" style="flex-direction:row;align-items:center;gap:8px">Cliente <select id="hCliente" style="width:auto"></select></label>
+        <label class="campo" style="flex-direction:row;align-items:center;gap:8px">Tipo de acción
+          <select id="hTipo" style="width:auto"><option value="">Todos</option><option>Alta</option><option>Revolving</option></select></label>
+        <label style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="hAnulados" style="width:auto" checked> Mostrar anulados</label>
+        <button class="btn" id="btnExportarHistorial" type="button" style="margin-left:auto">Exportar historial a Excel</button>
+      </div>
+      <div class="kpis" id="hResumen"></div>
+      <div class="tabla-caja" id="tablaHistorial"></div>
+    </div>
+  </section>
+  </div>
+</main>
+
+<dialog id="dlgBanco">
+  <form method="dialog" id="formBanco">
+    <h2 id="dlgBancoTitulo">Banco</h2>
+    <div class="grid" style="grid-template-columns:1fr 1fr">
+      <label class="campo">Código de banco <input id="dCodigo" inputmode="numeric" required></label>
+      <label class="campo">CUIT <input id="dCuit" inputmode="numeric" maxlength="13" required></label>
+      <label class="campo" style="grid-column:1/-1">Nombre <input id="dNombre" required></label>
+      <label class="campo">Jurisdicción <select id="dJurisdiccion"></select></label>
+      <label class="campo">Código sucursal <input id="dSucursal" inputmode="numeric"></label>
+      <label class="campo">Código Nº crédito <span class="ayuda">Por defecto: últimos 4 dígitos del código</span><input id="dCodCredito" inputmode="numeric"></label>
+    </div>
+    <div id="dError"></div>
+    <div class="acciones">
+      <button class="btn primario" value="guardar" id="dGuardar">Guardar</button>
+      <button class="btn" value="cancelar" formnovalidate>Cancelar</button>
+      <button class="btn peligro" value="borrar" id="dBorrar" formnovalidate style="margin-left:auto">Borrar banco</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="dlgCliente">
+  <form method="dialog" id="formEditarCliente">
+    <h2>Editar cliente</h2>
+    <div class="grid" style="grid-template-columns:1fr 1fr">
+      <label class="campo">Nº de negocio <input id="eNegocio" required></label>
+      <label class="campo">CUIT del cedente <input id="eCuit" inputmode="numeric" maxlength="13" required></label>
+      <label class="campo" style="grid-column:1/-1">Nombre <input id="eNombre" required></label>
+      <label class="campo">Última secuencia usada <input id="eSecuencia" inputmode="numeric"></label>
+    </div>
+    <div id="eError"></div>
+    <div class="acciones">
+      <button class="btn primario" value="guardar" id="eGuardar">Guardar</button>
+      <button class="btn" value="cancelar" formnovalidate>Cancelar</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="dlgConfirmar">
+  <div style="padding:20px">
+    <h2 id="confTitulo">Confirmar</h2>
+    <div id="confMensaje"></div>
+    <div class="acciones">
+      <button class="btn primario" type="button" id="confAceptar">Confirmar</button>
+      <button class="btn" type="button" id="confCancelar">Cancelar</button>
+    </div>
+  </div>
+</dialog>
+
+<div id="toast" role="status"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+
+<script>
+// Motor de cálculo del Conversor GetNet (VALO).
+// Replica las fórmulas de las solapas Reporte → Cuotas → Creditos del libro
+// "Conversor GetNet.xlsx" y el formato de salida de GenerarCuotas.py y
+// GenerarCreditos.py. No depende del navegador: se puede probar con Node.
+(function (root) {
+  'use strict';
+
+  // Tabla de provincias (Bancos!N:Q): Jurisdicción → Código Sucursal.
+  const PROVINCIAS = [
+    ['Capital Federal', 1], ['Buenos Aires', 2], ['Catamarca', 3], ['Córdoba', 4],
+    ['Corrientes', 5], ['Chaco', 6], ['Chubut', 7], ['Entre Ríos', 8], ['Formosa', 9],
+    ['Jujuy', 10], ['La Pampa', 11], ['La Rioja', 12], ['Mendoza', 13], ['Misiones', 14],
+    ['Neuquén', 15], ['Río Negro', 16], ['Salta', 17], ['San Juan', 18], ['San Luis', 19],
+    ['Santa Cruz', 20], ['Santa Fé', 21], ['Santiago del Estero', 22], ['TDF', 23], ['Tucumán', 24],
+  ].map(([nombre, codigo]) => ({ nombre, codigo }));
+
+  // Valores fijos del conversor.
+  const FIJOS = { cesionario: 198, motivo: 1, tipoIdentificacion: 8 };
+
+  const COLS_REPORTE = ['ID_LOTE', 'COD_BANCO', 'NOMBRE_BANCO', 'MONTO', 'FECHA_VENCIMIENTO', 'PLAZO', 'TNA', 'TEA', 'CFT'];
+
+  // ---------------------------------------------------------------- utilidades
+
+  function normalizar(texto) {
+    return String(texto == null ? '' : texto)
+      .normalize('NFD').replace(/[̀-ͯ]/g, '')
+      .toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+  }
+
+  function provinciaPorNombre(nombre) {
+    const n = normalizar(nombre);
+    if (!n) return null;
+    return PROVINCIAS.find(p => normalizar(p.nombre) === n) ||
+      (n === 'caba' || n === 'ciudad autonoma de buenos aires' ? PROVINCIAS[0] : null) ||
+      (n === 'tierra del fuego' ? PROVINCIAS[22] : null);
+  }
+
+  // ROUND(x, 2) de Excel: redondeo decimal "mitad lejos de cero".
+  function round2(x) {
+    if (!isFinite(x)) return x;
+    const s = Math.sign(x);
+    return s * Math.round(parseFloat((Math.abs(x) * 100).toPrecision(15))) / 100;
+  }
+
+  // str() de Python para los valores que leen los scripts (int / float / str).
+  function pyStr(v) {
+    if (v == null) return '';
+    if (typeof v === 'number') return String(v);
+    return String(v);
+  }
+
+  // Número float de pandas (float64): los enteros se escriben con ".0".
+  function pyFloat(v) {
+    return Number.isInteger(v) ? v.toFixed(1) : String(v);
+  }
+
+  // Comillas mínimas, como csv.writer / DataFrame.to_csv.
+  function celdaCsv(texto) {
+    return /[",\r\n]/.test(texto) ? '"' + texto.replace(/"/g, '""') + '"' : texto;
+  }
+
+  function lineaCsv(celdas) {
+    return celdas.map(celdaCsv).join(',');
+  }
+
+  // Fechas como número de serie de Excel (entero de días).
+  const EPOCA = Date.UTC(1899, 11, 30);
+
+  function serialAPartes(serial) {
+    const d = new Date(EPOCA + Math.floor(serial) * 86400000);
+    return { y: d.getUTCFullYear(), m: d.getUTCMonth() + 1, d: d.getUTCDate() };
+  }
+
+  function partesASerial(y, m, d) {
+    return Math.round((Date.UTC(y, m - 1, d) - EPOCA) / 86400000);
+  }
+
+  const dos = n => String(n).padStart(2, '0');
+
+  function fechaDDMMYY(serial) {
+    const p = serialAPartes(serial);
+    return dos(p.d) + dos(p.m) + dos(p.y % 100);
+  }
+
+  function fechaYYYYMMDD(serial) {
+    const p = serialAPartes(serial);
+    return p.y + '/' + dos(p.m) + '/' + dos(p.d);
+  }
+
+  function fechaLegible(serial) {
+    const p = serialAPartes(serial);
+    return dos(p.d) + '/' + dos(p.m) + '/' + p.y;
+  }
+
+  function hoyDDMMYY(fecha) {
+    const f = fecha || new Date();
+    return dos(f.getDate()) + dos(f.getMonth() + 1) + dos(f.getFullYear() % 100);
+  }
+
+  // Convierte lo que venga en la celda (serie, Date, texto) a serie entera.
+  function aFechaSerial(v) {
+    if (v == null || v === '') return null;
+    if (typeof v === 'number' && isFinite(v)) return Math.floor(v);
+    if (v instanceof Date && !isNaN(v)) return partesASerial(v.getFullYear(), v.getMonth() + 1, v.getDate());
+    const s = String(v).trim();
+    let m = s.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})/);
+    if (m) return partesASerial(+m[1], +m[2], +m[3]);
+    m = s.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{2,4})/);
+    if (m) {
+      let y = +m[3];
+      if (y < 100) y += 2000;
+      return partesASerial(y, +m[2], +m[1]);
+    }
+    if (/^\d+(\.\d+)?$/.test(s)) return Math.floor(parseFloat(s));
+    return null;
+  }
+
+  // Convierte montos: número, "779880.0", "1.234.567,89", "1,234,567.89".
+  function aNumero(v) {
+    if (v == null || v === '') return null;
+    if (typeof v === 'number') return isFinite(v) ? v : null;
+    let s = String(v).trim().replace(/\s|\$/g, '');
+    if (!s) return null;
+    const coma = s.lastIndexOf(','), punto = s.lastIndexOf('.');
+    if (coma > -1 && punto > -1) {
+      s = coma > punto ? s.replace(/\./g, '').replace(',', '.') : s.replace(/,/g, '');
+    } else if (coma > -1) {
+      s = /,\d{3}$/.test(s) && s.split(',').length > 2 ? s.replace(/,/g, '') : s.replace(',', '.');
+    }
+    const n = Number(s);
+    return isFinite(n) ? n : null;
+  }
+
+  function aCodigoBanco(v) {
+    const n = aNumero(v);
+    return n == null ? null : Math.round(n);
+  }
+
+  // ------------------------------------------------------ lectura del archivo
+
+  // Formatos reconocidos en las hojas del archivo del cliente.
+  const FORMATOS = {
+    getnet: {
+      nombre: 'Cupones GetNet',
+      requeridas: ['cod_entidad_bancaria', 'dat_reconciliation_estimated_date'],
+    },
+    reporte: {
+      nombre: 'Reporte (formato conversor)',
+      requeridas: ['cod_banco', 'fecha_vencimiento', 'monto'],
+    },
+  };
+
+  const COLUMNAS_MONTO = {
+    vlu_transaction_amount: 'vlu_transaction_amount (monto de la transacción)',
+    vlu_installment_amount: 'vlu_installment_amount (monto de la cuota)',
+  };
+
+  const clave = h => normalizar(h).replace(/ /g, '_');
+
+  // filas = array de arrays (sheet_to_json con header:1).
+  function detectarHoja(nombre, filas) {
+    for (let i = 0; i < Math.min(filas.length, 15); i++) {
+      const enc = (filas[i] || []).map(clave);
+      for (const [id, f] of Object.entries(FORMATOS)) {
+        if (f.requeridas.every(r => enc.includes(r))) {
+          const datos = filas.slice(i + 1).filter(r => r && r.some(c => c != null && c !== ''));
+          return { hoja: nombre, formato: id, filaEncabezado: i, encabezados: enc, cantidad: datos.length };
+        }
+      }
+    }
+    return { hoja: nombre, formato: null, cantidad: 0 };
+  }
+
+  // Devuelve las filas de tblReporte a partir de la hoja elegida.
+  function armarReporte(filas, deteccion, opciones) {
+    const enc = deteccion.encabezados;
+    const col = n => enc.indexOf(n);
+    const salida = [];
+    const datos = filas.slice(deteccion.filaEncabezado + 1);
+    const tomar = (r, n) => (col(n) > -1 ? r[col(n)] : null);
+    datos.forEach(r => {
+      if (!r || !r.some(c => c != null && c !== '')) return;
+      if (deteccion.formato === 'getnet') {
+        const campoMonto = (opciones && opciones.columnaMonto) || 'vlu_transaction_amount';
+        salida.push({
+          ID_LOTE: tomar(r, 'idt_transaction_identifier'),
+          COD_BANCO: aCodigoBanco(tomar(r, 'cod_entidad_bancaria')),
+          NOMBRE_BANCO: tomar(r, 'entidad_bancaria'),
+          MONTO: aNumero(tomar(r, campoMonto)),
+          FECHA_VENCIMIENTO: aFechaSerial(tomar(r, 'dat_reconciliation_estimated_date')),
+          PLAZO: aNumero(tomar(r, 'num_installment_number')),
+          TNA: null, TEA: null, CFT: null,
+        });
+      } else {
+        salida.push({
+          ID_LOTE: tomar(r, 'id_lote'),
+          COD_BANCO: aCodigoBanco(tomar(r, 'cod_banco')),
+          NOMBRE_BANCO: tomar(r, 'nombre_banco'),
+          MONTO: aNumero(tomar(r, 'monto')),
+          FECHA_VENCIMIENTO: aFechaSerial(tomar(r, 'fecha_vencimiento')),
+          PLAZO: aNumero(tomar(r, 'plazo')),
+          TNA: aNumero(tomar(r, 'tna')), TEA: aNumero(tomar(r, 'tea')), CFT: aNumero(tomar(r, 'cft')),
+        });
+      }
+    });
+    return salida;
+  }
+
+  // Busca en la hoja "Conciliacion" del cliente el importe Bruto, si existe.
+  function leerConciliacion(filas) {
+    const res = {};
+    (filas || []).forEach(r => {
+      if (!r || r[0] == null) return;
+      const k = normalizar(r[0]);
+      if (k === 'bruto') res.bruto = aNumero(r[1]);
+      if (k === 'fecha cesion') res.fechaCesion = aFechaSerial(r[1]);
+    });
+    return res;
+  }
+
+  // ------------------------------------------------------------------- Bancos
+
+  // Un banco está completo cuando tiene provincia real, sucursal, CUIT y código de crédito.
+  function problemasBanco(b) {
+    const p = [];
+    if (!b) return ['No existe en la tabla Bancos'];
+    if (!b.nombre) p.push('Falta el nombre');
+    if (!/^\d{11}$/.test(String(b.cuit || ''))) p.push('CUIT inválido');
+    if (!b.jurisdiccion || normalizar(b.jurisdiccion) === 'prueba') p.push('Jurisdicción = Prueba');
+    if (b.sucursal == null || b.sucursal === '' || !isFinite(Number(b.sucursal))) p.push('Código Sucursal #N/D');
+    if (b.codCredito == null || String(b.codCredito).trim() === '' || !/^\d+$/.test(String(b.codCredito).trim())) p.push('Código Nº Crédito vacío');
+    return p;
+  }
+
+  function codigoCreditoPorDefecto(codigo) {
+    return String(codigo).slice(-4); // =RIGHT(A2,4)
+  }
+
+  // Valida que cada COD_BANCO del reporte exista y esté completo (Instrucciones!B8:D8).
+  function controlarBancos(reporte, bancos) {
+    const porCodigo = new Map(bancos.map(b => [Number(b.codigo), b]));
+    const usados = new Map();
+    reporte.forEach(r => {
+      if (r.COD_BANCO == null) return;
+      if (!usados.has(r.COD_BANCO)) usados.set(r.COD_BANCO, { codigo: r.COD_BANCO, nombreArchivo: r.NOMBRE_BANCO, filas: 0, monto: 0 });
+      const u = usados.get(r.COD_BANCO);
+      u.filas++;
+      u.monto += r.MONTO || 0;
+    });
+    const detalle = [...usados.values()].sort((a, b) => a.codigo - b.codigo).map(u => {
+      const banco = porCodigo.get(u.codigo);
+      return Object.assign(u, { banco, problemas: problemasBanco(banco) });
+    });
+    return { detalle, conProblemas: detalle.filter(d => d.problemas.length) };
+  }
+
+  // Controles de las filas de origen.
+  function controlarReporte(reporte) {
+    const errores = [];
+    reporte.forEach((r, i) => {
+      const fila = i + 2;
+      if (r.COD_BANCO == null) errores.push(`Fila ${fila}: COD_BANCO vacío`);
+      if (r.FECHA_VENCIMIENTO == null) errores.push(`Fila ${fila}: FECHA_VENCIMIENTO vacía o inválida`);
+      if (r.MONTO == null) errores.push(`Fila ${fila}: MONTO no numérico`);
+    });
+    return errores;
+  }
+
+  // ------------------------------------------------------------------ Cuotas
+
+  // params: { tipoAccion, secuencia, lote, periodo, tasa, negocio, cedente }
+  function generarCuotas(reporte, bancos, params, hoy) {
+    const porCodigo = new Map();
+    bancos.forEach(b => { if (!porCodigo.has(Number(b.codigo))) porCodigo.set(Number(b.codigo), b); });
+    const sufijo = hoyDDMMYY(hoy);
+
+    // SORT(UNIQUE(FILTER(COD_BANCO, FECHA_VENCIMIENTO))) + SUMIFS(MONTO)
+    const grupos = new Map();
+    reporte.forEach(r => {
+      if (r.COD_BANCO == null || r.FECHA_VENCIMIENTO == null) return;
+      const k = r.COD_BANCO + '|' + r.FECHA_VENCIMIENTO;
+      if (!grupos.has(k)) grupos.set(k, { banco: r.COD_BANCO, fecha: r.FECHA_VENCIMIENTO, suma: 0 });
+      grupos.get(k).suma += r.MONTO || 0;
+    });
+    const orden = [...grupos.values()].sort((a, b) => a.banco - b.banco || a.fecha - b.fecha);
+
+    let bancoAnterior = null, numero = 0;
+    const filas = orden.map(g => {
+      numero = g.banco === bancoAnterior ? numero + 1 : 1;
+      bancoAnterior = g.banco;
+      const b = porCodigo.get(g.banco);
+      const suc = b && b.sucursal != null && b.sucursal !== '' ? Number(b.sucursal) : '';
+      const cuit = b && b.cuit ? String(b.cuit) : '';
+      const codCred = b && b.codCredito != null && String(b.codCredito).trim() !== '' ? String(b.codCredito).trim() : '';
+      const credito = codCred === '' ? '' : (/^\d+(\.\d+)?$/.test(codCred) ? String(Math.round(Number(codCred))) : codCred) + sufijo;
+      const m = round2(g.suma);
+      return {
+        sucursal: suc, tipo: FIJOS.tipoIdentificacion, cuit, credito, cuota: numero,
+        fecha: g.fecha, importe: m, factor: 1, capital: m, valor: m, interes: 0,
+        codBanco: g.banco,
+      };
+    });
+
+    const encabezado = {
+      tipoArchivo: 'CUOTAS',
+      tipoAccion: String(params.tipoAccion || '').toUpperCase(),
+      cantidad: filas.length,
+      secuencia: params.secuencia,
+      cesionario: FIJOS.cesionario,
+      negocio: String(params.negocio),
+      cedente: String(params.cedente),
+      totalCapital: round2(filas.reduce((s, f) => s + f.capital, 0)),
+      totalValor: round2(filas.reduce((s, f) => s + f.valor, 0)),
+      totalInteres: round2(filas.reduce((s, f) => s + f.interes, 0)),
+    };
+    return { encabezado, filas };
+  }
+
+  // ---------------------------------------------------------------- Creditos
+
+  function generarCreditos(cuotas, bancos, params) {
+    const grupos = new Map();
+    cuotas.filas.forEach(c => {
+      if (c.credito === '') return;
+      if (!grupos.has(c.credito)) {
+        // XLOOKUP devuelve el primer registro del crédito en Cuotas.
+        grupos.set(c.credito, { credito: c.credito, cuit: c.cuit, sucursal: c.sucursal, importe: c.importe, fecha: c.fecha, capital: 0, valor: 0, interes: 0, plan: 0 });
+      }
+      const g = grupos.get(c.credito);
+      g.capital += c.capital; g.valor += c.valor; g.interes += c.interes; g.plan++;
+    });
+    const ordenTexto = (a, b) => (a < b ? -1 : a > b ? 1 : 0); // SORT de textos
+    const filas = [...grupos.values()].sort((a, b) => ordenTexto(a.credito, b.credito)).map(g => {
+      const banco = bancos.find(b => String(b.cuit) === String(g.cuit));
+      const capital = round2(g.capital), valor = round2(g.valor);
+      return {
+        credito: g.credito, tipo: FIJOS.tipoIdentificacion, cuit: g.cuit,
+        nombre: banco ? String(banco.nombre || '').slice(0, 30) : '',
+        capital, plan: g.plan, tna: 0, tnaPunitorio: 0, importe: round2(g.importe),
+        fechaAlta: g.fecha, fechaPrimerVto: g.fecha, fechaPrimerImpago: g.fecha,
+        cuotasRestantes: g.plan, montoCedido: valor, sucursal: g.sucursal,
+        saldoCapital: round2(capital), valorActual: round2(valor), interes: round2(g.interes),
+      };
+    });
+    const encabezado = {
+      tipoArchivo: 'CREDITOS',
+      tipoAccion: String(params.tipoAccion || '').toUpperCase(),
+      motivo: FIJOS.motivo,
+      cantidad: filas.length,
+      periodo: Number(params.periodo),
+      secuencia: params.secuencia,
+      lote: params.lote,
+      cesionario: String(FIJOS.cesionario),
+      negocio: String(params.negocio),
+      cedente: String(params.cedente),
+      totalCapital: round2(filas.reduce((s, f) => s + f.saldoCapital, 0)),
+      tasa: round2(Number(params.tasa)),
+      totalValor: round2(filas.reduce((s, f) => s + f.valorActual, 0)),
+      totalInteres: round2(filas.reduce((s, f) => s + f.interes, 0)),
+    };
+    return { encabezado, filas };
+  }
+
+  // ------------------------------------------------------------ Archivos TXT
+
+  const BOM = '﻿';
+  const FIN = '\r\n';
+
+  // Emula la inferencia de tipos de pandas por columna al escribir el CSV.
+  function formatearColumnaPandas(valores) {
+    const hayTexto = valores.some(v => typeof v === 'string');
+    const numeros = valores.filter(v => typeof v === 'number');
+    if (hayTexto || numeros.length === 0) return valores.map(pyStr);
+    const esFloat = valores.some(v => v == null) || numeros.some(v => !Number.isInteger(v));
+    return valores.map(v => (v == null ? '' : esFloat ? pyFloat(v) : String(v)));
+  }
+
+  // Igual a GenerarCuotas.py: encabezado = fila 2 de Cuotas, detalle desde la fila 6, 13 columnas.
+  function txtCuotas(cuotas) {
+    const e = cuotas.encabezado;
+    const enc = [e.tipoArchivo, e.tipoAccion, e.cantidad, e.secuencia, e.cesionario, e.negocio, e.cedente,
+      e.totalCapital, e.totalValor, e.totalInteres, null, null, null];
+    const filas = cuotas.filas.map(f => [f.sucursal, f.tipo, f.cuit === '' ? '' : Number(f.cuit), f.credito, f.cuota,
+      fechaYYYYMMDD(f.fecha), f.importe, f.factor, f.capital, f.valor, f.interes, null, null]);
+    // Los CUIT se imprimen tal cual (11 dígitos) aunque sean números.
+    const columnas = enc.map((_, c) => formatearColumnaPandas(filas.map(f => f[c])));
+    const lineas = [lineaCsv(enc.map(pyStr))];
+    filas.forEach((f, i) => lineas.push(lineaCsv(columnas.map(col => col[i]))));
+    return BOM + lineas.join(FIN) + FIN;
+  }
+
+  // Igual a GenerarCreditos.py: filas 1, 4 y 7+ de Creditos, 18 columnas.
+  function txtCreditos(creditos) {
+    const e = creditos.encabezado;
+    const ancho = 18;
+    const completar = arr => arr.concat(Array(Math.max(0, ancho - arr.length)).fill(null));
+    const lineas = [
+      completar(['CAP', 'TD', 'CAPADESC', 'INTADESC']),
+      completar([e.tipoArchivo, e.tipoAccion, e.motivo, e.cantidad, e.periodo, e.secuencia, e.lote, e.cesionario,
+        e.negocio, e.cedente, e.totalCapital, e.tasa, e.totalValor, e.totalInteres]),
+    ];
+    creditos.filas.forEach(f => lineas.push([f.credito, f.tipo, f.cuit === '' ? '' : Number(f.cuit), f.nombre, f.capital,
+      f.plan, f.tna, f.tnaPunitorio, f.importe, fechaDDMMYY(f.fechaAlta), fechaDDMMYY(f.fechaPrimerVto),
+      fechaDDMMYY(f.fechaPrimerImpago), f.cuotasRestantes, f.montoCedido, f.sucursal, f.saldoCapital,
+      f.valorActual, f.interes]));
+    return BOM + lineas.map(l => lineaCsv(l.map(pyStr))).join(FIN) + FIN;
+  }
+
+  function nombreArchivo(tipo, hoy, extension) {
+    return (tipo === 'cuotas' ? 'CuotasGetNet' : 'CreditosGetNet') + hoyDDMMYY(hoy) + '.' + (extension || 'txt');
+  }
+
+  // ---------------------------------------------------- Formulario / secuencia
+
+  // Reglas de Formulario!C13 y de la numeración por cedente.
+  function calcularSecuenciaLote(ultimaSecuencia, tipoAccion) {
+    const secuencia = (Number(ultimaSecuencia) || 0) + 1;
+    return { secuencia, lote: tipoAccion === 'Alta' ? secuencia : 0 };
+  }
+
+  function validarFormulario(p) {
+    const errores = [];
+    const periodo = Number(p.periodo);
+    if (!/^\d{6}$/.test(String(p.periodo || '')) || periodo % 100 < 1 || periodo % 100 > 12) errores.push('PERIODO debe tener formato yyyymm con mes entre 01 y 12.');
+    if (!Number.isInteger(Number(p.secuencia)) || Number(p.secuencia) < 1) errores.push('SECUENCIA debe ser un entero mayor o igual a 1.');
+    if (p.tipoAccion === 'Alta') {
+      if (!Number.isInteger(Number(p.lote)) || Number(p.lote) < 1) errores.push('LOTE de un Alta debe ser un entero mayor o igual a 1.');
+    } else if (p.tipoAccion === 'Revolving') {
+      if (Number(p.lote) !== 0) errores.push('LOTE de un Revolving debe ser 0.');
+    } else errores.push('TIPO DE ACCIÓN debe ser Alta o Revolving.');
+    if (p.tasa === '' || p.tasa == null || !isFinite(Number(p.tasa)) || Number(p.tasa) < 0) errores.push('TASA DE DESCUENTO debe ser un número mayor o igual a 0.');
+    if (!String(p.negocio || '').trim()) errores.push('Nº DE NEGOCIO es obligatorio.');
+    if (!/^\d{11}$/.test(String(p.cedente || ''))) errores.push('CEDENTE debe ser un CUIT de 11 dígitos sin separadores.');
+    return errores;
+  }
+
+  const api = {
+    PROVINCIAS, FIJOS, COLS_REPORTE, FORMATOS, COLUMNAS_MONTO,
+    normalizar, provinciaPorNombre, round2, aNumero, aFechaSerial, aCodigoBanco,
+    fechaDDMMYY, fechaYYYYMMDD, fechaLegible, hoyDDMMYY,
+    detectarHoja, armarReporte, leerConciliacion,
+    problemasBanco, codigoCreditoPorDefecto, controlarBancos, controlarReporte,
+    generarCuotas, generarCreditos, txtCuotas, txtCreditos, nombreArchivo,
+    calcularSecuenciaLote, validarFormulario,
+  };
+  root.ValoMotor = api;
+  if (typeof module !== 'undefined') module.exports = api;
+})(typeof window !== 'undefined' ? window : globalThis);
+
+</script>
+<script>
+// Almacenamiento del Conversor VALO.
+// - Modo "compartido": base de datos compartida de la página publicada en claude.ai (capacidad db).
+//   Todos los usuarios ven los mismos clientes, secuencias, bancos e historial, en vivo.
+// - Modo "local": el navegador (localStorage), para el archivo abierto fuera de claude.ai.
+(function (root) {
+  'use strict';
+
+  const clonar = x => JSON.parse(JSON.stringify(x));
+  const nuevoId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+  const TROZO = 60000; // caracteres por documento de TXT (los documentos admiten hasta 256 KiB)
+
+  function trozos(texto) {
+    const partes = [];
+    for (let i = 0; i < texto.length; i += TROZO) partes.push(texto.slice(i, i + TROZO));
+    return partes.length ? partes : [''];
+  }
+
+  // Emisor simple de cambios.
+  function emisor() {
+    const fns = [];
+    return { on: fn => fns.push(fn), emitir: () => fns.forEach(fn => { try { fn(); } catch (e) { console.error(e); } }) };
+  }
+
+  // ================================================================ LOCAL
+
+  function crearLocal() {
+    const CLAVE = 'valo-conversor-v1';
+    const ev = emisor();
+    let datos;
+    try {
+      const txt = localStorage.getItem(CLAVE);
+      const e = txt && JSON.parse(txt);
+      if (e && Array.isArray(e.clientes) && Array.isArray(e.bancos) && Array.isArray(e.lotes)) datos = e;
+    } catch (err) { /* sin almacenamiento: se trabaja en memoria */ }
+    if (!datos) datos = { version: 1, clientes: [], bancos: clonar(root.VALO_BANCOS_INICIALES || []), lotes: [] };
+
+    function guardar() {
+      try { localStorage.setItem(CLAVE, JSON.stringify(datos)); return true; } catch (err) { return false; }
+    }
+    const cambiar = () => { const ok = guardar(); ev.emitir(); return ok; };
+
+    return {
+      modo: 'local',
+      get datos() { return datos; },
+      bancosCargados: true,
+      puedeEscribir: true,
+      usuarioId: null,
+      alCambiar: ev.on,
+      guardarDisponible: guardar,
+      async crearCliente(c) { const n = Object.assign({ id: nuevoId() }, c); datos.clientes.push(n); cambiar(); return n; },
+      async actualizarCliente(id, cambios) { Object.assign(datos.clientes.find(c => c.id === id), cambios); cambiar(); },
+      async borrarCliente(id) { datos.clientes = datos.clientes.filter(c => c.id !== id); cambiar(); },
+      async guardarBancos(lista) { datos.bancos = clonar(lista); cambiar(); },
+      async bancosOriginales() { return clonar(root.VALO_BANCOS_INICIALES || []); },
+      async registrarLote(clienteId, construir) {
+        const c = datos.clientes.find(x => x.id === clienteId);
+        const r = construir(clonar(c));
+        const lote = Object.assign({}, r.lote, { txtCuotas: r.txtCuotas, txtCreditos: r.txtCreditos });
+        datos.lotes.push(lote);
+        Object.assign(c, r.cambiosCliente);
+        let aviso = null;
+        if (!guardar()) {
+          delete lote.txtCuotas; delete lote.txtCreditos;
+          aviso = guardar() ? 'Sin espacio para guardar los TXT en el historial: descargalos ahora.'
+            : 'No se pudo guardar en este navegador. Descargá los TXT ahora.';
+        }
+        ev.emitir();
+        return { lote, aviso };
+      },
+      async anularLote(loteId, cambios) {
+        const l = datos.lotes.find(x => x.id === loteId);
+        Object.assign(l, cambios);
+        const c = datos.clientes.find(x => x.id === l.clienteId);
+        if (c) c.ultimaSecuencia = l.secuenciaAnterior;
+        cambiar();
+      },
+      async leerTxt(lote) {
+        return lote.txtCuotas && lote.txtCreditos ? { cuotas: lote.txtCuotas, creditos: lote.txtCreditos } : null;
+      },
+      async nombres() { return {}; },
+      exportar() { return clonar(datos); },
+      async importar(nuevo) { datos = nuevo; cambiar(); },
+    };
+  }
+
+  // =========================================================== COMPARTIDO
+
+  async function crearCompartido(db, user) {
+    const ev = emisor();
+    const holder = 'pestana-' + nuevoId();
+    const usuarioId = user ? await user.id() : null;
+    const puede = user ? await user.can('data.write') : null;
+    const datos = { clientes: [], bancos: [], lotes: [] };
+    const listo = { clientes: false, bancos: false, lotes: false };
+    const api = {
+      modo: 'compartido',
+      datos,
+      bancosCargados: false,
+      puedeEscribir: puede, // true / false / null (no informado: se decide al escribir)
+      usuarioId,
+      alCambiar: ev.on,
+      error: null,
+    };
+    const alError = e => { api.error = e; ev.emitir(); };
+    const emitirSiListo = () => { if (listo.clientes && listo.bancos && listo.lotes) ev.emitir(); };
+
+    db.collection('clientes').onSnapshot(s => {
+      datos.clientes = s.docs.map(d => Object.assign({ id: d.id }, d.data()))
+        .sort((a, b) => String(a.creado || '').localeCompare(String(b.creado || '')));
+      listo.clientes = true; emitirSiListo();
+    }, alError);
+    db.collection('lotes').orderBy('fecha', 'asc').onSnapshot(s => {
+      datos.lotes = s.docs.map(d => Object.assign({ id: d.id }, d.data()));
+      listo.lotes = true; emitirSiListo();
+    }, alError);
+    db.doc('maestros/bancos').onSnapshot(s => {
+      datos.bancos = s.exists && Array.isArray(s.data().lista) ? clonar(s.data().lista) : [];
+      api.bancosCargados = s.exists;
+      listo.bancos = true; emitirSiListo();
+    }, alError);
+
+    // Reintenta una vez los cortes transitorios.
+    async function escribir(fn) {
+      try { return await fn(); } catch (e) {
+        if (e && e.code === 'unavailable') { await new Promise(r => setTimeout(r, 400 + Math.random() * 600)); return fn(); }
+        throw traducir(e);
+      }
+    }
+    function traducir(e) {
+      const code = e && e.code;
+      if (code === 'invalid_argument' && api.puedeEscribir !== true) { api.puedeEscribir = false; ev.emitir(); return new Error('Tu acceso a esta página es de solo lectura: pedile al dueño que te comparta como Colaborador o Editor.'); }
+      if (code === 'quota_exceeded') return new Error('La base compartida está llena (' + (e.message || 'límite alcanzado') + ').');
+      if (code === 'resource_exhausted') return new Error('Demasiadas operaciones seguidas. Esperá unos segundos y probá de nuevo.');
+      if (code === 'revoked' || code === 'not_granted') return new Error('Se perdió el acceso a la base compartida. Recargá la página.');
+      return e instanceof Error ? e : new Error((e && e.message) || String(e));
+    }
+
+    async function conBloqueo(clienteId, fn) {
+      const ref = db.doc('clientes/' + clienteId);
+      const r = await escribir(() => ref.acquire({ holder, ttlMs: 15000 }));
+      if (!r.acquired) throw new Error('Otro usuario está procesando un lote de este cliente en este momento. Esperá unos segundos y probá de nuevo.');
+      const snap = await ref.get();
+      if (!snap.exists) throw new Error('El cliente ya no existe.');
+      return fn(ref, Object.assign({ id: clienteId }, snap.data()));
+    }
+
+    Object.assign(api, {
+      async crearCliente(c) {
+        const id = nuevoId();
+        const cuerpo = Object.assign({}, c, { creadoPor: usuarioId });
+        await escribir(() => db.doc('clientes/' + id).set(cuerpo));
+        return Object.assign({ id }, cuerpo);
+      },
+      async actualizarCliente(id, cambios) { await escribir(() => db.doc('clientes/' + id).update(cambios)); },
+      async borrarCliente(id) { await escribir(() => db.doc('clientes/' + id).delete()); },
+      async guardarBancos(lista) {
+        await escribir(() => db.doc('maestros/bancos').set({ lista: clonar(lista), actualizado: new Date().toISOString(), actualizadoPor: usuarioId }));
+      },
+      async bancosOriginales() {
+        const s = await db.doc('maestros/bancosOriginales').get();
+        return s.exists && Array.isArray(s.data().lista) ? clonar(s.data().lista) : null;
+      },
+      // construir(clienteFresco) → { lote, txtCuotas, txtCreditos, cambiosCliente }; se ejecuta con el cliente bloqueado
+      // y releído de la base, así dos usuarios no pueden tomar la misma secuencia.
+      async registrarLote(clienteId, construir) {
+        return conBloqueo(clienteId, async (ref, fresco) => {
+          const r = construir(fresco);
+          const lote = Object.assign({}, r.lote, { usuarioId });
+          const pCu = trozos(r.txtCuotas), pCr = trozos(r.txtCreditos);
+          for (let i = 0; i < pCu.length; i++) await escribir(() => db.doc(`lotesTxt/${lote.id}_cuotas_${i}`).set({ texto: pCu[i] }));
+          for (let i = 0; i < pCr.length; i++) await escribir(() => db.doc(`lotesTxt/${lote.id}_creditos_${i}`).set({ texto: pCr[i] }));
+          lote.txtPartes = { cuotas: pCu.length, creditos: pCr.length };
+          const { id, ...cuerpo } = lote;
+          await escribir(() => db.doc('lotes/' + id).set(cuerpo));
+          await escribir(() => ref.update(r.cambiosCliente));
+          return { lote, aviso: null };
+        });
+      },
+      async anularLote(loteId, cambios) {
+        const lote = datos.lotes.find(l => l.id === loteId);
+        await conBloqueo(lote.clienteId, async ref => {
+          const vigentes = (await db.collection('lotes').where('clienteId', '==', lote.clienteId).get()).docs
+            .map(d => Object.assign({ id: d.id }, d.data())).filter(l => !l.anulado)
+            .sort((a, b) => String(a.fecha).localeCompare(String(b.fecha)));
+          if (!vigentes.length || vigentes[vigentes.length - 1].id !== loteId) throw new Error('Solo se puede anular el último lote vigente del cliente (alguien procesó otro lote).');
+          await escribir(() => db.doc('lotes/' + loteId).update(Object.assign({}, cambios, { anuladoPor: usuarioId })));
+          await escribir(() => ref.update({ ultimaSecuencia: lote.secuenciaAnterior }));
+        });
+      },
+      async leerTxt(lote) {
+        if (!lote.txtPartes) return null;
+        const leer = async (tipo, n) => {
+          let t = '';
+          for (let i = 0; i < n; i++) {
+            const s = await db.doc(`lotesTxt/${lote.id}_${tipo}_${i}`).get();
+            if (!s.exists) return null;
+            t += s.data().texto;
+          }
+          return t;
+        };
+        const cuotas = await leer('cuotas', lote.txtPartes.cuotas);
+        const creditos = await leer('creditos', lote.txtPartes.creditos);
+        return cuotas != null && creditos != null ? { cuotas, creditos } : null;
+      },
+      async nombres(ids) {
+        if (!user || !ids.length) return {};
+        const ps = await user.profiles(ids);
+        const res = {};
+        Object.keys(ps).forEach(id => { res[id] = ps[id].name || ''; });
+        return res;
+      },
+    });
+    return api;
+  }
+
+  // Elige el modo: dentro de claude.ai usa la base compartida; fuera, el navegador.
+  async function iniciar() {
+    const claude = root.claude;
+    if (!claude || typeof claude.use !== 'function') return crearLocal();
+    const [db, user] = await Promise.all([claude.use('db'), claude.use('user')]);
+    if (!db) return { modo: 'sin-conexion' };
+    return crearCompartido(db, user);
+  }
+
+  root.ValoAlmacen = { iniciar, crearLocal };
+})(typeof window !== 'undefined' ? window : globalThis);
+
+</script>
+<script>
 // Interfaz del Conversor VALO GetNet: clientes, bancos, carga de lote e historial.
 // Los datos se guardan a través de ValoAlmacen: base compartida (página publicada en claude.ai)
 // o el navegador (archivo abierto localmente).
@@ -924,3 +1932,5 @@
 
   iniciar();
 })();
+
+</script>

@@ -16,19 +16,20 @@
       --bg: #10141a; --panel: #171d25; --panel-2: #1c232d; --text: #e4e9f0; --muted: #98a4b3;
       --line: #2a3340; --accent: #6ea2f0; --accent-2: #1b2b44; --accent-text: #0c1320;
       --ok: #5fcf8f; --ok-bg: #16301f; --warn: #f0b95a; --warn-bg: #33270f; --bad: #f28b82; --bad-bg: #3a1a18;
-      --shadow: none;
+      --shadow: none; color-scheme: dark;
     }
   }
   :root[data-theme="dark"] {
     --bg: #10141a; --panel: #171d25; --panel-2: #1c232d; --text: #e4e9f0; --muted: #98a4b3;
     --line: #2a3340; --accent: #6ea2f0; --accent-2: #1b2b44; --accent-text: #0c1320;
     --ok: #5fcf8f; --ok-bg: #16301f; --warn: #f0b95a; --warn-bg: #33270f; --bad: #f28b82; --bad-bg: #3a1a18;
-    --shadow: none;
+    --shadow: none; color-scheme: dark;
   }
   * { box-sizing: border-box; }
   body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
   header { background: var(--panel); border-bottom: 1px solid var(--line); }
   .barra { max-width: 1200px; margin: 0 auto; padding: 14px 16px 0; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; }
+  #estadoBase .chip { cursor: default; }
   .barra h1 { font-size: 18px; margin: 0; flex: 1 1 auto; }
   .barra h1 small { color: var(--muted); font-weight: 400; font-size: 13px; margin-left: 6px; }
   nav { max-width: 1200px; margin: 0 auto; padding: 0 16px; display: flex; gap: 4px; overflow-x: auto; }
@@ -51,6 +52,8 @@
   .btn:hover { border-color: var(--accent); }
   .btn.primario { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
   .btn.peligro { color: var(--bad); }
+  .btn.peligro-lleno { background: var(--bad); border-color: var(--bad); color: var(--panel); }
+  #confMensaje td { border: 0; padding: 3px 12px 3px 0; }
   .btn.chico { padding: 4px 9px; font-size: 12px; }
   .btn:disabled { opacity: .45; cursor: not-allowed; }
   .acciones { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 14px; }
@@ -103,8 +106,9 @@
 <header>
   <div class="barra">
     <h1>Conversor VALO · GetNet <small>Cesión de cupones → Cuotas y Créditos</small></h1>
-    <button class="btn chico" id="btnRespaldo" type="button" title="Descarga clientes, secuencias, bancos e historial">Descargar respaldo</button>
-    <button class="btn chico" id="btnRestaurar" type="button" title="Restaura un respaldo descargado">Restaurar respaldo</button>
+    <span id="estadoBase"><span class="chip gris">Conectando…</span></span>
+    <button class="btn chico" id="btnRespaldo" data-solo-local type="button" title="Descarga clientes, secuencias, bancos e historial">Descargar respaldo</button>
+    <button class="btn chico" id="btnRestaurar" data-solo-local data-escribe type="button" title="Restaura un respaldo descargado">Restaurar respaldo</button>
     <input type="file" id="archivoRespaldo" accept=".json,application/json" class="oculto">
   </div>
   <nav role="tablist">
@@ -120,6 +124,10 @@
     <b>La página no terminó de cargar.</b> Si abriste <code>index.html</code> suelto, usá el archivo único
     <code>Conversor-VALO.html</code> (trae todo adentro), o abrí <code>index.html</code> dentro de la carpeta <code>valo</code> completa.
   </div>
+  <div id="errorBase"></div>
+  <div id="cargandoBase" class="vacio">Cargando clientes, bancos e historial…</div>
+  <div id="avisoSoloLectura" class="aviso warn oculto">Tenés acceso de solo lectura: podés ver clientes, bancos e historial y descargar TXT, pero no cargar ni modificar datos. Pedile al dueño de la página que te comparta como Colaborador o Editor.</div>
+  <div id="contenido" class="oculto">
   <!-- ============================================================ LOTE -->
   <section class="vista activa" id="vista-lote">
     <div id="sinClientes" class="aviso warn oculto">
@@ -214,7 +222,7 @@
           <label class="campo">Nombre del cedente <input id="cNombre" required></label>
           <label class="campo">Última secuencia ya usada <span class="ayuda">Opcional. 0 = el primer lote sale con 1</span><input id="cSecuencia" inputmode="numeric" value="0"></label>
         </div>
-        <div class="acciones"><button class="btn primario" type="submit">Dar de alta cliente</button></div>
+        <div class="acciones"><button class="btn primario" data-escribe type="submit">Dar de alta cliente</button></div>
         <div id="errorCliente"></div>
       </form>
     </div>
@@ -237,11 +245,11 @@
             <option value="reemplazar">Reemplazar toda la tabla</option>
           </select>
         </label>
-        <button class="btn primario" id="btnCargarBancos" type="button">Cargar Excel de bancos</button>
+        <button class="btn primario" id="btnCargarBancos" data-escribe type="button">Cargar Excel de bancos</button>
         <input type="file" id="archivoBancos" accept=".xlsx,.xls,.xlsm,.csv" class="oculto">
         <button class="btn" id="btnDescargarBancos" type="button">Descargar Excel de bancos</button>
-        <button class="btn" id="btnNuevoBanco" type="button">Agregar banco</button>
-        <button class="btn peligro" id="btnBancosOriginales" type="button">Volver a la carga original</button>
+        <button class="btn" id="btnNuevoBanco" data-escribe type="button">Agregar banco</button>
+        <button class="btn peligro" id="btnBancosOriginales" data-escribe type="button">Volver a la carga original</button>
       </div>
       <div id="resultadoBancos"></div>
       <div class="fila-flex" style="margin:14px 0 10px">
@@ -269,6 +277,7 @@
       <div class="tabla-caja" id="tablaHistorial"></div>
     </div>
   </section>
+  </div>
 </main>
 
 <dialog id="dlgBanco">
@@ -308,11 +317,23 @@
   </form>
 </dialog>
 
+<dialog id="dlgConfirmar">
+  <div style="padding:20px">
+    <h2 id="confTitulo">Confirmar</h2>
+    <div id="confMensaje"></div>
+    <div class="acciones">
+      <button class="btn primario" type="button" id="confAceptar">Confirmar</button>
+      <button class="btn" type="button" id="confCancelar">Cancelar</button>
+    </div>
+  </div>
+</dialog>
+
 <div id="toast" role="status"></div>
 
 <script src="vendor/xlsx.full.min.js"></script>
 <script src="bancos-iniciales.js"></script>
 <script src="motor.js"></script>
+<script src="almacen.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

@@ -33,13 +33,20 @@ Después de modificar el código, regenerar el archivo único con `python3 const
 
 ## Datos
 
-Clientes, secuencias, bancos e historial quedan guardados en el navegador (localStorage).
-Usar **Descargar respaldo** / **Restaurar respaldo** para guardarlos o pasarlos a otra PC.
+- **Versión compartida (recomendada):** página publicada en claude.ai (`compartido/conversor-valo-compartido.html`).
+  Clientes, secuencias, bancos e historial (con los TXT) viven en una base compartida: todos los que abren el link
+  ven y usan los mismos datos, en vivo. Al generar un lote se bloquea el cliente y se relee su secuencia en la base,
+  así dos personas no pueden tomar el mismo número. El historial registra quién procesó cada lote.
+  Base: `clientes/*`, `lotes/*`, `lotesTxt/*` (TXT en partes), `maestros/bancos`, `maestros/bancosOriginales`.
+- **Versión local:** `Conversor-VALO.html` guarda todo en el navegador (localStorage).
+  Usar **Descargar respaldo** / **Restaurar respaldo** para guardarlos o pasarlos a otra PC.
 
 ## Archivos
 
 - `Conversor-VALO.html` – archivo único para usar (generado por `construir.py`).
 - `index.html` – interfaz (desarrollo).
 - `app.js` – pantallas, almacenamiento y carga de archivos.
+- `almacen.js` – guardado de datos: base compartida de claude.ai o navegador.
+- `compartido/conversor-valo-compartido.html` – página publicada en claude.ai (generada por `construir.py`).
 - `motor.js` – cálculo de Cuotas/Créditos y formato de los TXT (sin dependencias del navegador).
 - `bancos-iniciales.js` – carga masiva inicial de Bancos.

@@ -16,19 +16,20 @@
       --bg: #10141a; --panel: #171d25; --panel-2: #1c232d; --text: #e4e9f0; --muted: #98a4b3;
       --line: #2a3340; --accent: #6ea2f0; --accent-2: #1b2b44; --accent-text: #0c1320;
       --ok: #5fcf8f; --ok-bg: #16301f; --warn: #f0b95a; --warn-bg: #33270f; --bad: #f28b82; --bad-bg: #3a1a18;
-      --shadow: none;
+      --shadow: none; color-scheme: dark;
     }
   }
   :root[data-theme="dark"] {
     --bg: #10141a; --panel: #171d25; --panel-2: #1c232d; --text: #e4e9f0; --muted: #98a4b3;
     --line: #2a3340; --accent: #6ea2f0; --accent-2: #1b2b44; --accent-text: #0c1320;
     --ok: #5fcf8f; --ok-bg: #16301f; --warn: #f0b95a; --warn-bg: #33270f; --bad: #f28b82; --bad-bg: #3a1a18;
-    --shadow: none;
+    --shadow: none; color-scheme: dark;
   }
   * { box-sizing: border-box; }
   body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
   header { background: var(--panel); border-bottom: 1px solid var(--line); }
   .barra { max-width: 1200px; margin: 0 auto; padding: 14px 16px 0; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; }
+  #estadoBase .chip { cursor: default; }
   .barra h1 { font-size: 18px; margin: 0; flex: 1 1 auto; }
   .barra h1 small { color: var(--muted); font-weight: 400; font-size: 13px; margin-left: 6px; }
   nav { max-width: 1200px; margin: 0 auto; padding: 0 16px; display: flex; gap: 4px; overflow-x: auto; }
@@ -51,6 +52,8 @@
   .btn:hover { border-color: var(--accent); }
   .btn.primario { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
   .btn.peligro { color: var(--bad); }
+  .btn.peligro-lleno { background: var(--bad); border-color: var(--bad); color: var(--panel); }
+  #confMensaje td { border: 0; padding: 3px 12px 3px 0; }
   .btn.chico { padding: 4px 9px; font-size: 12px; }
   .btn:disabled { opacity: .45; cursor: not-allowed; }
   .acciones { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 14px; }
@@ -103,8 +106,9 @@
 <header>
   <div class="barra">
     <h1>Conversor VALO · GetNet <small>Cesión de cupones → Cuotas y Créditos</small></h1>
-    <button class="btn chico" id="btnRespaldo" type="button" title="Descarga clientes, secuencias, bancos e historial">Descargar respaldo</button>
-    <button class="btn chico" id="btnRestaurar" type="button" title="Restaura un respaldo descargado">Restaurar respaldo</button>
+    <span id="estadoBase"><span class="chip gris">Conectando…</span></span>
+    <button class="btn chico" id="btnRespaldo" data-solo-local type="button" title="Descarga clientes, secuencias, bancos e historial">Descargar respaldo</button>
+    <button class="btn chico" id="btnRestaurar" data-solo-local data-escribe type="button" title="Restaura un respaldo descargado">Restaurar respaldo</button>
     <input type="file" id="archivoRespaldo" accept=".json,application/json" class="oculto">
   </div>
   <nav role="tablist">
@@ -120,6 +124,10 @@
     <b>La página no terminó de cargar.</b> Si abriste <code>index.html</code> suelto, usá el archivo único
     <code>Conversor-VALO.html</code> (trae todo adentro), o abrí <code>index.html</code> dentro de la carpeta <code>valo</code> completa.
   </div>
+  <div id="errorBase"></div>
+  <div id="cargandoBase" class="vacio">Cargando clientes, bancos e historial…</div>
+  <div id="avisoSoloLectura" class="aviso warn oculto">Tenés acceso de solo lectura: podés ver clientes, bancos e historial y descargar TXT, pero no cargar ni modificar datos. Pedile al dueño de la página que te comparta como Colaborador o Editor.</div>
+  <div id="contenido" class="oculto">
   <!-- ============================================================ LOTE -->
   <section class="vista activa" id="vista-lote">
     <div id="sinClientes" class="aviso warn oculto">
@@ -214,7 +222,7 @@
           <label class="campo">Nombre del cedente <input id="cNombre" required></label>
           <label class="campo">Última secuencia ya usada <span class="ayuda">Opcional. 0 = el primer lote sale con 1</span><input id="cSecuencia" inputmode="numeric" value="0"></label>
         </div>
-        <div class="acciones"><button class="btn primario" type="submit">Dar de alta cliente</button></div>
+        <div class="acciones"><button class="btn primario" data-escribe type="submit">Dar de alta cliente</button></div>
         <div id="errorCliente"></div>
       </form>
     </div>
@@ -237,11 +245,11 @@
             <option value="reemplazar">Reemplazar toda la tabla</option>
           </select>
         </label>
-        <button class="btn primario" id="btnCargarBancos" type="button">Cargar Excel de bancos</button>
+        <button class="btn primario" id="btnCargarBancos" data-escribe type="button">Cargar Excel de bancos</button>
         <input type="file" id="archivoBancos" accept=".xlsx,.xls,.xlsm,.csv" class="oculto">
         <button class="btn" id="btnDescargarBancos" type="button">Descargar Excel de bancos</button>
-        <button class="btn" id="btnNuevoBanco" type="button">Agregar banco</button>
-        <button class="btn peligro" id="btnBancosOriginales" type="button">Volver a la carga original</button>
+        <button class="btn" id="btnNuevoBanco" data-escribe type="button">Agregar banco</button>
+        <button class="btn peligro" id="btnBancosOriginales" data-escribe type="button">Volver a la carga original</button>
       </div>
       <div id="resultadoBancos"></div>
       <div class="fila-flex" style="margin:14px 0 10px">
@@ -269,6 +277,7 @@
       <div class="tabla-caja" id="tablaHistorial"></div>
     </div>
   </section>
+  </div>
 </main>
 
 <dialog id="dlgBanco">
@@ -306,6 +315,17 @@
       <button class="btn" value="cancelar" formnovalidate>Cancelar</button>
     </div>
   </form>
+</dialog>
+
+<dialog id="dlgConfirmar">
+  <div style="padding:20px">
+    <h2 id="confTitulo">Confirmar</h2>
+    <div id="confMensaje"></div>
+    <div class="acciones">
+      <button class="btn primario" type="button" id="confAceptar">Confirmar</button>
+      <button class="btn" type="button" id="confCancelar">Cancelar</button>
+    </div>
+  </div>
 </dialog>
 
 <div id="toast" role="status"></div>
@@ -906,68 +926,308 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 
 </script>
 <script>
+// Almacenamiento del Conversor VALO.
+// - Modo "compartido": base de datos compartida de la página publicada en claude.ai (capacidad db).
+//   Todos los usuarios ven los mismos clientes, secuencias, bancos e historial, en vivo.
+// - Modo "local": el navegador (localStorage), para el archivo abierto fuera de claude.ai.
+(function (root) {
+  'use strict';
+
+  const clonar = x => JSON.parse(JSON.stringify(x));
+  const nuevoId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+  const TROZO = 60000; // caracteres por documento de TXT (los documentos admiten hasta 256 KiB)
+
+  function trozos(texto) {
+    const partes = [];
+    for (let i = 0; i < texto.length; i += TROZO) partes.push(texto.slice(i, i + TROZO));
+    return partes.length ? partes : [''];
+  }
+
+  // Emisor simple de cambios.
+  function emisor() {
+    const fns = [];
+    return { on: fn => fns.push(fn), emitir: () => fns.forEach(fn => { try { fn(); } catch (e) { console.error(e); } }) };
+  }
+
+  // ================================================================ LOCAL
+
+  function crearLocal() {
+    const CLAVE = 'valo-conversor-v1';
+    const ev = emisor();
+    let datos;
+    try {
+      const txt = localStorage.getItem(CLAVE);
+      const e = txt && JSON.parse(txt);
+      if (e && Array.isArray(e.clientes) && Array.isArray(e.bancos) && Array.isArray(e.lotes)) datos = e;
+    } catch (err) { /* sin almacenamiento: se trabaja en memoria */ }
+    if (!datos) datos = { version: 1, clientes: [], bancos: clonar(root.VALO_BANCOS_INICIALES || []), lotes: [] };
+
+    function guardar() {
+      try { localStorage.setItem(CLAVE, JSON.stringify(datos)); return true; } catch (err) { return false; }
+    }
+    const cambiar = () => { const ok = guardar(); ev.emitir(); return ok; };
+
+    return {
+      modo: 'local',
+      get datos() { return datos; },
+      bancosCargados: true,
+      puedeEscribir: true,
+      usuarioId: null,
+      alCambiar: ev.on,
+      guardarDisponible: guardar,
+      async crearCliente(c) { const n = Object.assign({ id: nuevoId() }, c); datos.clientes.push(n); cambiar(); return n; },
+      async actualizarCliente(id, cambios) { Object.assign(datos.clientes.find(c => c.id === id), cambios); cambiar(); },
+      async borrarCliente(id) { datos.clientes = datos.clientes.filter(c => c.id !== id); cambiar(); },
+      async guardarBancos(lista) { datos.bancos = clonar(lista); cambiar(); },
+      async bancosOriginales() { return clonar(root.VALO_BANCOS_INICIALES || []); },
+      async registrarLote(clienteId, construir) {
+        const c = datos.clientes.find(x => x.id === clienteId);
+        const r = construir(clonar(c));
+        const lote = Object.assign({}, r.lote, { txtCuotas: r.txtCuotas, txtCreditos: r.txtCreditos });
+        datos.lotes.push(lote);
+        Object.assign(c, r.cambiosCliente);
+        let aviso = null;
+        if (!guardar()) {
+          delete lote.txtCuotas; delete lote.txtCreditos;
+          aviso = guardar() ? 'Sin espacio para guardar los TXT en el historial: descargalos ahora.'
+            : 'No se pudo guardar en este navegador. Descargá los TXT ahora.';
+        }
+        ev.emitir();
+        return { lote, aviso };
+      },
+      async anularLote(loteId, cambios) {
+        const l = datos.lotes.find(x => x.id === loteId);
+        Object.assign(l, cambios);
+        const c = datos.clientes.find(x => x.id === l.clienteId);
+        if (c) c.ultimaSecuencia = l.secuenciaAnterior;
+        cambiar();
+      },
+      async leerTxt(lote) {
+        return lote.txtCuotas && lote.txtCreditos ? { cuotas: lote.txtCuotas, creditos: lote.txtCreditos } : null;
+      },
+      async nombres() { return {}; },
+      exportar() { return clonar(datos); },
+      async importar(nuevo) { datos = nuevo; cambiar(); },
+    };
+  }
+
+  // =========================================================== COMPARTIDO
+
+  async function crearCompartido(db, user) {
+    const ev = emisor();
+    const holder = 'pestana-' + nuevoId();
+    const usuarioId = user ? await user.id() : null;
+    const puede = user ? await user.can('data.write') : null;
+    const datos = { clientes: [], bancos: [], lotes: [] };
+    const listo = { clientes: false, bancos: false, lotes: false };
+    const api = {
+      modo: 'compartido',
+      datos,
+      bancosCargados: false,
+      puedeEscribir: puede, // true / false / null (no informado: se decide al escribir)
+      usuarioId,
+      alCambiar: ev.on,
+      error: null,
+    };
+    const alError = e => { api.error = e; ev.emitir(); };
+    const emitirSiListo = () => { if (listo.clientes && listo.bancos && listo.lotes) ev.emitir(); };
+
+    db.collection('clientes').onSnapshot(s => {
+      datos.clientes = s.docs.map(d => Object.assign({ id: d.id }, d.data()))
+        .sort((a, b) => String(a.creado || '').localeCompare(String(b.creado || '')));
+      listo.clientes = true; emitirSiListo();
+    }, alError);
+    db.collection('lotes').orderBy('fecha', 'asc').onSnapshot(s => {
+      datos.lotes = s.docs.map(d => Object.assign({ id: d.id }, d.data()));
+      listo.lotes = true; emitirSiListo();
+    }, alError);
+    db.doc('maestros/bancos').onSnapshot(s => {
+      datos.bancos = s.exists && Array.isArray(s.data().lista) ? clonar(s.data().lista) : [];
+      api.bancosCargados = s.exists;
+      listo.bancos = true; emitirSiListo();
+    }, alError);
+
+    // Reintenta una vez los cortes transitorios.
+    async function escribir(fn) {
+      try { return await fn(); } catch (e) {
+        if (e && e.code === 'unavailable') { await new Promise(r => setTimeout(r, 400 + Math.random() * 600)); return fn(); }
+        throw traducir(e);
+      }
+    }
+    function traducir(e) {
+      const code = e && e.code;
+      if (code === 'invalid_argument' && api.puedeEscribir !== true) { api.puedeEscribir = false; ev.emitir(); return new Error('Tu acceso a esta página es de solo lectura: pedile al dueño que te comparta como Colaborador o Editor.'); }
+      if (code === 'quota_exceeded') return new Error('La base compartida está llena (' + (e.message || 'límite alcanzado') + ').');
+      if (code === 'resource_exhausted') return new Error('Demasiadas operaciones seguidas. Esperá unos segundos y probá de nuevo.');
+      if (code === 'revoked' || code === 'not_granted') return new Error('Se perdió el acceso a la base compartida. Recargá la página.');
+      return e instanceof Error ? e : new Error((e && e.message) || String(e));
+    }
+
+    async function conBloqueo(clienteId, fn) {
+      const ref = db.doc('clientes/' + clienteId);
+      const r = await escribir(() => ref.acquire({ holder, ttlMs: 15000 }));
+      if (!r.acquired) throw new Error('Otro usuario está procesando un lote de este cliente en este momento. Esperá unos segundos y probá de nuevo.');
+      const snap = await ref.get();
+      if (!snap.exists) throw new Error('El cliente ya no existe.');
+      return fn(ref, Object.assign({ id: clienteId }, snap.data()));
+    }
+
+    Object.assign(api, {
+      async crearCliente(c) {
+        const id = nuevoId();
+        const cuerpo = Object.assign({}, c, { creadoPor: usuarioId });
+        await escribir(() => db.doc('clientes/' + id).set(cuerpo));
+        return Object.assign({ id }, cuerpo);
+      },
+      async actualizarCliente(id, cambios) { await escribir(() => db.doc('clientes/' + id).update(cambios)); },
+      async borrarCliente(id) { await escribir(() => db.doc('clientes/' + id).delete()); },
+      async guardarBancos(lista) {
+        await escribir(() => db.doc('maestros/bancos').set({ lista: clonar(lista), actualizado: new Date().toISOString(), actualizadoPor: usuarioId }));
+      },
+      async bancosOriginales() {
+        const s = await db.doc('maestros/bancosOriginales').get();
+        return s.exists && Array.isArray(s.data().lista) ? clonar(s.data().lista) : null;
+      },
+      // construir(clienteFresco) → { lote, txtCuotas, txtCreditos, cambiosCliente }; se ejecuta con el cliente bloqueado
+      // y releído de la base, así dos usuarios no pueden tomar la misma secuencia.
+      async registrarLote(clienteId, construir) {
+        return conBloqueo(clienteId, async (ref, fresco) => {
+          const r = construir(fresco);
+          const lote = Object.assign({}, r.lote, { usuarioId });
+          const pCu = trozos(r.txtCuotas), pCr = trozos(r.txtCreditos);
+          for (let i = 0; i < pCu.length; i++) await escribir(() => db.doc(`lotesTxt/${lote.id}_cuotas_${i}`).set({ texto: pCu[i] }));
+          for (let i = 0; i < pCr.length; i++) await escribir(() => db.doc(`lotesTxt/${lote.id}_creditos_${i}`).set({ texto: pCr[i] }));
+          lote.txtPartes = { cuotas: pCu.length, creditos: pCr.length };
+          const { id, ...cuerpo } = lote;
+          await escribir(() => db.doc('lotes/' + id).set(cuerpo));
+          await escribir(() => ref.update(r.cambiosCliente));
+          return { lote, aviso: null };
+        });
+      },
+      async anularLote(loteId, cambios) {
+        const lote = datos.lotes.find(l => l.id === loteId);
+        await conBloqueo(lote.clienteId, async ref => {
+          const vigentes = (await db.collection('lotes').where('clienteId', '==', lote.clienteId).get()).docs
+            .map(d => Object.assign({ id: d.id }, d.data())).filter(l => !l.anulado)
+            .sort((a, b) => String(a.fecha).localeCompare(String(b.fecha)));
+          if (!vigentes.length || vigentes[vigentes.length - 1].id !== loteId) throw new Error('Solo se puede anular el último lote vigente del cliente (alguien procesó otro lote).');
+          await escribir(() => db.doc('lotes/' + loteId).update(Object.assign({}, cambios, { anuladoPor: usuarioId })));
+          await escribir(() => ref.update({ ultimaSecuencia: lote.secuenciaAnterior }));
+        });
+      },
+      async leerTxt(lote) {
+        if (!lote.txtPartes) return null;
+        const leer = async (tipo, n) => {
+          let t = '';
+          for (let i = 0; i < n; i++) {
+            const s = await db.doc(`lotesTxt/${lote.id}_${tipo}_${i}`).get();
+            if (!s.exists) return null;
+            t += s.data().texto;
+          }
+          return t;
+        };
+        const cuotas = await leer('cuotas', lote.txtPartes.cuotas);
+        const creditos = await leer('creditos', lote.txtPartes.creditos);
+        return cuotas != null && creditos != null ? { cuotas, creditos } : null;
+      },
+      async nombres(ids) {
+        if (!user || !ids.length) return {};
+        const ps = await user.profiles(ids);
+        const res = {};
+        Object.keys(ps).forEach(id => { res[id] = ps[id].name || ''; });
+        return res;
+      },
+    });
+    return api;
+  }
+
+  // Elige el modo: dentro de claude.ai usa la base compartida; fuera, el navegador.
+  async function iniciar() {
+    const claude = root.claude;
+    if (!claude || typeof claude.use !== 'function') return crearLocal();
+    const [db, user] = await Promise.all([claude.use('db'), claude.use('user')]);
+    if (!db) return { modo: 'sin-conexion' };
+    return crearCompartido(db, user);
+  }
+
+  root.ValoAlmacen = { iniciar, crearLocal };
+})(typeof window !== 'undefined' ? window : globalThis);
+
+</script>
+<script>
 // Interfaz del Conversor VALO GetNet: clientes, bancos, carga de lote e historial.
-// Los datos quedan guardados en este navegador (localStorage); usar "Descargar respaldo" para resguardarlos.
+// Los datos se guardan a través de ValoAlmacen: base compartida (página publicada en claude.ai)
+// o el navegador (archivo abierto localmente).
 (function () {
   'use strict';
   const M = window.ValoMotor;
-  const CLAVE = 'valo-conversor-v1';
   const $ = id => document.getElementById(id);
   const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const fmtMonto = n => (n == null || n === '' ? '' : Number(n).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
   const fmtEntero = n => Number(n).toLocaleString('es-AR');
   const soloDigitos = s => String(s == null ? '' : s).replace(/\D/g, '');
   const nuevoId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+  const clonar = x => JSON.parse(JSON.stringify(x));
 
-  // ------------------------------------------------------------- estado
+  let almacen = null;
+  let descargas = null; // capacidad "downloads" de claude.ai, si está disponible
+  let nombresUsuarios = {};
+  const datos = () => almacen.datos;
 
-  function estadoInicial() {
-    return { version: 1, clientes: [], bancos: clonar(window.VALO_BANCOS_INICIALES), lotes: [] };
-  }
-  function clonar(x) { return JSON.parse(JSON.stringify(x)); }
-
-  function cargarEstado() {
-    try {
-      const txt = localStorage.getItem(CLAVE);
-      if (txt) {
-        const e = JSON.parse(txt);
-        if (e && Array.isArray(e.clientes) && Array.isArray(e.bancos) && Array.isArray(e.lotes)) return e;
-      }
-    } catch (err) { /* sin almacenamiento disponible: se trabaja en memoria */ }
-    return estadoInicial();
-  }
-
-  let estado = cargarEstado();
-
-  function guardar() {
-    try {
-      localStorage.setItem(CLAVE, JSON.stringify(estado));
-      return true;
-    } catch (err) {
-      return false;
-    }
-  }
+  // ------------------------------------------------------------- utilidades
 
   function toast(msg) {
     const t = $('toast');
     t.textContent = msg;
     t.classList.add('visible');
     clearTimeout(toast.h);
-    toast.h = setTimeout(() => t.classList.remove('visible'), 3200);
+    toast.h = setTimeout(() => t.classList.remove('visible'), 3600);
   }
 
   function aviso(tipo, html) {
     return `<div class="aviso ${tipo}">${html}</div>`;
   }
 
-  function descargar(nombre, contenido, tipo) {
-    const blob = contenido instanceof Blob ? contenido : new Blob([contenido], { type: tipo || 'text/plain;charset=utf-8' });
+  // Confirmación dentro de la página (claude.ai no muestra confirm()/alert()).
+  function confirmar(titulo, mensajeHtml, textoBoton, peligro) {
+    return new Promise(resolve => {
+      const dlg = $('dlgConfirmar');
+      $('confTitulo').textContent = titulo;
+      $('confMensaje').innerHTML = mensajeHtml;
+      $('confAceptar').textContent = textoBoton || 'Confirmar';
+      $('confAceptar').classList.toggle('peligro-lleno', !!peligro);
+      $('confCancelar').classList.toggle('oculto', textoBoton === null);
+      if (textoBoton === null) $('confAceptar').textContent = 'Entendido';
+      const cerrar = v => { dlg.close(); resolve(v); };
+      $('confAceptar').onclick = () => cerrar(true);
+      $('confCancelar').onclick = () => cerrar(false);
+      dlg.oncancel = e => { e.preventDefault(); cerrar(false); };
+      dlg.showModal();
+    });
+  }
+  const informar = (titulo, mensajeHtml) => confirmar(titulo, mensajeHtml, null);
+
+  async function descargar(nombre, contenido) {
+    const blob = contenido instanceof Blob ? contenido : new Blob([contenido], { type: 'text/plain;charset=utf-8' });
+    if (descargas) {
+      try {
+        await descargas.save({ filename: nombre, data: blob });
+      } catch (e) {
+        if (e && e.code !== 'declined') toast('No se pudo descargar ' + nombre + (e.message ? ': ' + e.message : ''));
+      }
+      return;
+    }
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
     a.download = nombre;
     document.body.appendChild(a);
     a.click();
     setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 500);
+  }
+
+  function descargarLibro(nombre, wb) {
+    const buf = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+    return descargar(nombre, new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
   }
 
   function leerLibro(file) {
@@ -978,14 +1238,25 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
     return XLSX.utils.sheet_to_json(ws, { header: 1, raw: true, defval: null, blankrows: false });
   }
 
+  // Ejecuta una escritura mostrando el error en pantalla si falla.
+  async function intentar(fn, mensajeOk) {
+    try {
+      const r = await fn();
+      if (mensajeOk) toast(mensajeOk);
+      return r === undefined ? true : r;
+    } catch (e) {
+      await informar('No se pudo guardar', esc(e.message || e));
+      return false;
+    }
+  }
+
+  const quien = id => (id && nombresUsuarios[id]) || '';
+
   // ------------------------------------------------------------- pestañas
 
   function irA(vista) {
     document.querySelectorAll('nav button').forEach(b => b.setAttribute('aria-selected', String(b.dataset.vista === vista)));
     document.querySelectorAll('section.vista').forEach(s => s.classList.toggle('activa', s.id === 'vista-' + vista));
-    if (vista === 'historial') renderHistorial();
-    if (vista === 'bancos') renderBancos();
-    if (vista === 'clientes') renderClientes();
   }
   document.querySelectorAll('nav button').forEach(b => b.addEventListener('click', () => irA(b.dataset.vista)));
   document.addEventListener('click', e => {
@@ -995,64 +1266,68 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 
   // ============================================================ CLIENTES
 
-  const clientePorId = id => estado.clientes.find(c => c.id === id);
-  const lotesDe = id => estado.lotes.filter(l => l.clienteId === id && !l.anulado);
+  const clientePorId = id => datos().clientes.find(c => c.id === id);
+  const lotesDe = id => datos().lotes.filter(l => l.clienteId === id && !l.anulado);
 
-  function validarCliente(datos, idActual) {
+  function validarCliente(d, idActual) {
     const errores = [];
-    if (!datos.negocio) errores.push('El Nº de negocio es obligatorio.');
-    if (!/^\d{11}$/.test(datos.cuit)) errores.push('El CUIT del cedente debe tener 11 dígitos.');
-    if (!datos.nombre) errores.push('El nombre es obligatorio.');
-    if (!Number.isInteger(datos.ultimaSecuencia) || datos.ultimaSecuencia < 0) errores.push('La última secuencia debe ser un entero mayor o igual a 0.');
-    const dup = estado.clientes.find(c => c.cuit === datos.cuit && c.id !== idActual);
-    if (dup) errores.push(`Ya existe un cliente con el CUIT ${datos.cuit} (${esc(dup.nombre)}).`);
+    if (!d.negocio) errores.push('El Nº de negocio es obligatorio.');
+    if (!/^\d{11}$/.test(d.cuit)) errores.push('El CUIT del cedente debe tener 11 dígitos.');
+    if (!d.nombre) errores.push('El nombre es obligatorio.');
+    if (!Number.isInteger(d.ultimaSecuencia) || d.ultimaSecuencia < 0) errores.push('La última secuencia debe ser un entero mayor o igual a 0.');
+    const dup = datos().clientes.find(c => c.cuit === d.cuit && c.id !== idActual);
+    if (dup) errores.push(`Ya existe un cliente con el CUIT ${d.cuit} (${esc(dup.nombre)}).`);
     return errores;
   }
 
-  $('formCliente').addEventListener('submit', e => {
+  $('formCliente').addEventListener('submit', async e => {
     e.preventDefault();
-    const datos = {
+    const d = {
       negocio: $('cNegocio').value.trim(),
       cuit: soloDigitos($('cCuit').value),
       nombre: $('cNombre').value.trim(),
       ultimaSecuencia: Number($('cSecuencia').value.trim() || 0),
     };
-    const errores = validarCliente(datos);
+    const errores = validarCliente(d);
     if (errores.length) {
       $('errorCliente').innerHTML = aviso('bad', errores.join('<br>'));
       return;
     }
-    const cliente = Object.assign({ id: nuevoId(), creado: new Date().toISOString(), tasa: '' }, datos);
-    estado.clientes.push(cliente);
-    guardar();
     $('errorCliente').innerHTML = '';
+    const boton = e.target.querySelector('button[type=submit]');
+    boton.disabled = true;
+    const cliente = await intentar(() => almacen.crearCliente(Object.assign({ creado: new Date().toISOString(), tasa: '' }, d)));
+    boton.disabled = false;
+    if (!cliente) return;
     e.target.reset();
     $('cSecuencia').value = '0';
-    renderClientes();
-    renderSelectClientes(cliente.id);
+    clientePendiente = cliente.id;
+    refrescar();
     toast(`Cliente ${cliente.nombre} dado de alta. Próxima secuencia: ${cliente.ultimaSecuencia + 1}`);
   });
 
   function renderClientes() {
     const caja = $('tablaClientes');
-    if (!estado.clientes.length) {
-      caja.innerHTML = '<div class="vacio">Todavía no hay clientes.</div>';
+    if (!datos().clientes.length) {
+      caja.innerHTML = '<div class="vacio">Todavía no hay clientes. Dalos de alta con el formulario de arriba.</div>';
       return;
     }
-    const filas = estado.clientes.map(c => {
+    const compartido = almacen.modo === 'compartido';
+    const filas = datos().clientes.map(c => {
       const n = lotesDe(c.id).length;
       return `<tr>
         <td>${esc(c.negocio)}</td><td>${esc(c.cuit)}</td><td>${esc(c.nombre)}</td>
         <td class="num">${c.ultimaSecuencia}</td><td class="num">${c.ultimaSecuencia + 1}</td><td class="num">${n}</td>
-        <td><button class="btn chico" data-editar-cliente="${c.id}">Editar</button>
-        ${n ? '' : `<button class="btn chico peligro" data-borrar-cliente="${c.id}">Borrar</button>`}</td></tr>`;
+        ${compartido ? `<td>${esc(quien(c.creadoPor))}</td>` : ''}
+        <td><button class="btn chico" data-escribe data-editar-cliente="${c.id}">Editar</button>
+        ${n ? '' : `<button class="btn chico peligro" data-escribe data-borrar-cliente="${c.id}">Borrar</button>`}</td></tr>`;
     }).join('');
     caja.innerHTML = `<table><thead><tr><th>Nº negocio</th><th>CUIT cedente</th><th>Nombre</th>
-      <th class="num">Última secuencia</th><th class="num">Próxima</th><th class="num">Lotes</th><th></th></tr></thead><tbody>${filas}</tbody></table>`;
+      <th class="num">Última secuencia</th><th class="num">Próxima</th><th class="num">Lotes</th>${compartido ? '<th>Alta por</th>' : ''}<th></th></tr></thead><tbody>${filas}</tbody></table>`;
   }
 
   let clienteEditando = null;
-  $('tablaClientes').addEventListener('click', e => {
+  $('tablaClientes').addEventListener('click', async e => {
     const ed = e.target.closest('[data-editar-cliente]');
     const bo = e.target.closest('[data-borrar-cliente]');
     if (ed) {
@@ -1064,33 +1339,29 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
     }
     if (bo) {
       const c = clientePorId(bo.dataset.borrarCliente);
-      if (confirm(`¿Borrar el cliente ${c.nombre}?`)) {
-        estado.clientes = estado.clientes.filter(x => x.id !== c.id);
-        guardar(); renderClientes(); renderSelectClientes();
+      if (await confirmar('Borrar cliente', `¿Borrar el cliente <b>${esc(c.nombre)}</b>?`, 'Borrar', true)) {
+        await intentar(() => almacen.borrarCliente(c.id), 'Cliente borrado');
       }
     }
   });
 
-  $('formEditarCliente').addEventListener('submit', e => {
-    if (e.submitter && e.submitter.value !== 'guardar') return;
-    const datos = {
+  $('formEditarCliente').addEventListener('submit', async e => {
+    e.preventDefault();
+    if (e.submitter && e.submitter.value !== 'guardar') { $('dlgCliente').close(); return; }
+    const d = {
       negocio: $('eNegocio').value.trim(), cuit: soloDigitos($('eCuit').value),
       nombre: $('eNombre').value.trim(), ultimaSecuencia: Number($('eSecuencia').value.trim() || 0),
     };
-    const errores = validarCliente(datos, clienteEditando.id);
+    const errores = validarCliente(d, clienteEditando.id);
     if (errores.length) {
-      e.preventDefault();
       $('eError').innerHTML = aviso('bad', errores.join('<br>'));
       return;
     }
-    if (datos.ultimaSecuencia !== clienteEditando.ultimaSecuencia &&
-      !confirm(`Vas a cambiar la última secuencia de ${clienteEditando.ultimaSecuencia} a ${datos.ultimaSecuencia}. ¿Continuar?`)) {
-      e.preventDefault();
-      return;
+    if (d.ultimaSecuencia !== clienteEditando.ultimaSecuencia) {
+      $('eError').innerHTML = '';
+      if (!await confirmar('Cambiar secuencia', `Vas a cambiar la última secuencia de <b>${clienteEditando.ultimaSecuencia}</b> a <b>${d.ultimaSecuencia}</b>. ¿Continuar?`, 'Cambiar')) return;
     }
-    Object.assign(clienteEditando, datos);
-    guardar(); renderClientes(); renderSelectClientes(clienteEditando.id);
-    toast('Cliente actualizado');
+    if (await intentar(() => almacen.actualizarCliente(clienteEditando.id, d), 'Cliente actualizado')) $('dlgCliente').close();
   });
 
   // ============================================================ BANCOS
@@ -1104,11 +1375,16 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
   }
 
   function renderBancos() {
+    const bancos = datos().bancos;
     const q = M.normalizar($('bBuscar').value);
     const soloInc = $('bSoloIncompletos').checked;
-    const incompletos = estado.bancos.filter(b => M.problemasBanco(b).length).length;
-    $('bResumen').textContent = `${estado.bancos.length} bancos · ${incompletos} incompletos (Prueba / #N/D)`;
-    const lista = estado.bancos.filter(b => {
+    const incompletos = bancos.filter(b => M.problemasBanco(b).length).length;
+    $('bResumen').textContent = `${bancos.length} bancos · ${incompletos} incompletos (Prueba / #N/D)`;
+    if (!bancos.length) {
+      $('tablaBancos').innerHTML = '<div class="vacio">La tabla de bancos está vacía. Cargá el Excel de bancos para poder procesar lotes.</div>';
+      return;
+    }
+    const lista = bancos.filter(b => {
       if (soloInc && !M.problemasBanco(b).length) return false;
       if (!q) return true;
       return M.normalizar([b.codigo, b.nombre, b.cuit].join(' ')).includes(q);
@@ -1124,18 +1400,18 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
         return `<tr><td class="num">${esc(b.codigo)}</td><td>${esc(b.nombre)}</td><td>${esc(b.cuit)}</td><td>${esc(b.jurisdiccion)}</td>
           <td class="num">${b.sucursal == null || b.sucursal === '' ? '#N/D' : esc(b.sucursal)}</td><td class="num">${esc(b.codCredito)}</td>
           <td>${p.length ? `<span class="chip warn" title="${esc(p.join(' · '))}">Incompleto</span>` : '<span class="chip ok">OK</span>'}</td>
-          <td><button class="btn chico" data-editar-banco="${esc(b.codigo)}">Editar</button></td></tr>`;
+          <td><button class="btn chico" data-escribe data-editar-banco="${esc(b.codigo)}">Editar</button></td></tr>`;
       }).join('')}</tbody></table>`;
   }
   $('bBuscar').addEventListener('input', renderBancos);
   $('bSoloIncompletos').addEventListener('change', renderBancos);
 
   // --- diálogo de banco
-  let bancoEditando = null;
+  let bancoEditando = null; // código del banco que se edita (null = nuevo)
   let alGuardarBanco = null;
 
   function abrirBanco(banco, sugerido, callback) {
-    bancoEditando = banco || null;
+    bancoEditando = banco ? Number(banco.codigo) : null;
     alGuardarBanco = callback || null;
     const b = banco || Object.assign({ codigo: '', nombre: '', cuit: '', jurisdiccion: 'Prueba', sucursal: null, codCredito: '' }, sugerido || {});
     $('dlgBancoTitulo').textContent = banco ? `Editar banco ${banco.codigo}` : 'Agregar banco';
@@ -1153,20 +1429,22 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
     $('dSucursal').value = p ? p.codigo : '';
   });
   $('dCodigo').addEventListener('input', () => {
-    if (!bancoEditando) $('dCodCredito').placeholder = M.codigoCreditoPorDefecto(soloDigitos($('dCodigo').value));
+    if (bancoEditando == null) $('dCodCredito').placeholder = M.codigoCreditoPorDefecto(soloDigitos($('dCodigo').value));
   });
 
-  $('formBanco').addEventListener('submit', e => {
+  $('formBanco').addEventListener('submit', async e => {
+    e.preventDefault();
     const accion = e.submitter ? e.submitter.value : 'guardar';
-    if (accion === 'cancelar') return;
+    if (accion === 'cancelar') { $('dlgBanco').close(); return; }
+    const lista = clonar(datos().bancos);
     if (accion === 'borrar') {
-      if (!confirm(`¿Borrar el banco ${bancoEditando.codigo}?`)) { e.preventDefault(); return; }
-      estado.bancos = estado.bancos.filter(b => b !== bancoEditando);
-      guardar(); renderBancos(); reevaluarArchivo();
+      $('dlgBanco').close();
+      if (!await confirmar('Borrar banco', `¿Borrar el banco <b>${bancoEditando}</b>?`, 'Borrar', true)) return;
+      await intentar(() => almacen.guardarBancos(lista.filter(b => Number(b.codigo) !== bancoEditando)), 'Banco borrado');
       return;
     }
     const codigo = soloDigitos($('dCodigo').value);
-    const datos = {
+    const d = {
       codigo: Number(codigo),
       nombre: $('dNombre').value.trim(),
       cuit: soloDigitos($('dCuit').value),
@@ -1176,45 +1454,45 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
     };
     const errores = [];
     if (!codigo) errores.push('El código de banco es obligatorio.');
-    if (!datos.nombre) errores.push('El nombre es obligatorio.');
-    if (!/^\d{11}$/.test(datos.cuit)) errores.push('El CUIT debe tener 11 dígitos.');
-    if (datos.sucursal != null && !Number.isInteger(datos.sucursal)) errores.push('El código de sucursal debe ser un número entero.');
-    const dup = estado.bancos.find(b => Number(b.codigo) === datos.codigo && b !== bancoEditando);
-    if (dup) errores.push(`El código ${datos.codigo} ya existe (${esc(dup.nombre)}).`);
+    if (!d.nombre) errores.push('El nombre es obligatorio.');
+    if (!/^\d{11}$/.test(d.cuit)) errores.push('El CUIT debe tener 11 dígitos.');
+    if (d.sucursal != null && !Number.isInteger(d.sucursal)) errores.push('El código de sucursal debe ser un número entero.');
+    const dup = lista.find(b => Number(b.codigo) === d.codigo && Number(b.codigo) !== bancoEditando);
+    if (dup) errores.push(`El código ${d.codigo} ya existe (${esc(dup.nombre)}).`);
     if (errores.length) {
-      e.preventDefault();
       $('dError').innerHTML = aviso('bad', errores.join('<br>'));
       return;
     }
-    if (bancoEditando) Object.assign(bancoEditando, datos);
-    else estado.bancos.push(datos);
-    guardar(); renderBancos();
-    toast(`Banco ${datos.codigo} guardado`);
-    if (alGuardarBanco) alGuardarBanco();
+    const idx = bancoEditando == null ? -1 : lista.findIndex(b => Number(b.codigo) === bancoEditando);
+    if (idx > -1) lista[idx] = d; else lista.push(d);
+    if (await intentar(() => almacen.guardarBancos(lista), `Banco ${d.codigo} guardado`)) {
+      $('dlgBanco').close();
+      if (alGuardarBanco) alGuardarBanco();
+    }
   });
 
   $('tablaBancos').addEventListener('click', e => {
     const b = e.target.closest('[data-editar-banco]');
-    if (b) abrirBanco(estado.bancos.find(x => String(x.codigo) === b.dataset.editarBanco));
+    if (b) abrirBanco(datos().bancos.find(x => String(x.codigo) === b.dataset.editarBanco));
   });
   $('btnNuevoBanco').addEventListener('click', () => abrirBanco(null));
 
-  $('btnBancosOriginales').addEventListener('click', () => {
-    if (!confirm('Se reemplaza la tabla de bancos por la carga original del conversor. Se pierden los cambios hechos. ¿Continuar?')) return;
-    estado.bancos = clonar(window.VALO_BANCOS_INICIALES);
-    guardar(); renderBancos(); reevaluarArchivo();
-    $('resultadoBancos').innerHTML = aviso('ok', `Tabla restaurada: ${estado.bancos.length} bancos.`);
+  $('btnBancosOriginales').addEventListener('click', async () => {
+    if (!await confirmar('Volver a la carga original', 'Se reemplaza la tabla de bancos por la carga original del conversor. Se pierden los cambios hechos a la tabla.', 'Reemplazar', true)) return;
+    const originales = await almacen.bancosOriginales();
+    if (!originales || !originales.length) { await informar('Sin carga original', 'No hay una carga original guardada. Usá "Cargar Excel de bancos".'); return; }
+    if (await intentar(() => almacen.guardarBancos(originales))) $('resultadoBancos').innerHTML = aviso('ok', `Tabla restaurada: ${originales.length} bancos.`);
   });
 
   $('btnDescargarBancos').addEventListener('click', () => {
     const aoa = [['Banco', 'Nombre', 'CUIT', 'Jurisdiccion', 'Codigo Sucursal', 'Codigo Nº Credito']]
-      .concat(estado.bancos.map(b => [Number(b.codigo), b.nombre, /^\d+$/.test(b.cuit) ? Number(b.cuit) : b.cuit,
+      .concat(datos().bancos.map(b => [Number(b.codigo), b.nombre, /^\d+$/.test(b.cuit) ? Number(b.cuit) : b.cuit,
         b.jurisdiccion, b.sucursal == null || b.sucursal === '' ? '#N/A' : Number(b.sucursal), String(b.codCredito)]));
     const ws = XLSX.utils.aoa_to_sheet(aoa);
     ws['!cols'] = [{ wch: 8 }, { wch: 34 }, { wch: 14 }, { wch: 18 }, { wch: 15 }, { wch: 17 }];
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Bancos');
-    XLSX.writeFile(wb, 'Bancos.xlsx');
+    descargarLibro('Bancos.xlsx', wb);
   });
 
   $('btnCargarBancos').addEventListener('click', () => $('archivoBancos').click());
@@ -1225,10 +1503,10 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
     try {
       const wb = await leerLibro(file);
       const nombreHoja = wb.SheetNames.find(n => M.normalizar(n) === 'bancos') || wb.SheetNames[0];
-      const res = importarBancos(filasHoja(wb.Sheets[nombreHoja]), $('bModo').value);
-      guardar(); renderBancos(); reevaluarArchivo();
+      const res = importarBancos(filasHoja(wb.Sheets[nombreHoja]), $('bModo').value, datos().bancos);
+      if (!await intentar(() => almacen.guardarBancos(res.lista))) return;
       const partes = [`Hoja <b>${esc(nombreHoja)}</b>: ${res.leidos} bancos leídos.`];
-      if (res.modo === 'reemplazar') partes.push(`La tabla quedó con ${estado.bancos.length} bancos.`);
+      if (res.modo === 'reemplazar') partes.push(`La tabla quedó con ${res.lista.length} bancos.`);
       else partes.push(`${res.actualizados} actualizados, ${res.nuevos} nuevos.`);
       if (res.ignorados.length) partes.push(`Se ignoraron ${res.ignorados.length} filas: ${esc(res.ignorados.slice(0, 5).join('; '))}${res.ignorados.length > 5 ? '…' : ''}`);
       $('resultadoBancos').innerHTML = aviso(res.ignorados.length ? 'warn' : 'ok', partes.join(' '));
@@ -1237,7 +1515,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
     }
   });
 
-  function importarBancos(filas, modo) {
+  function importarBancos(filas, modo, actuales) {
     const alias = {
       codigo: ['banco', 'cod banco', 'codigo banco', 'codigo de banco', 'codigo', 'cod'],
       nombre: ['nombre', 'nombre banco', 'denominacion'],
@@ -1273,18 +1551,19 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
         sucursal: suc == null ? null : Math.round(suc), codCredito: cc || M.codigoCreditoPorDefecto(codigo) });
     });
     if (!leidos.length) throw new Error('El archivo no tiene filas de bancos.');
-    let actualizados = 0, nuevos = 0;
+    let actualizados = 0, nuevos = 0, lista;
     if (modo === 'reemplazar') {
       const vistos = new Map();
       leidos.forEach(b => vistos.set(b.codigo, b)); // si un código se repite, queda el último
-      estado.bancos = [...vistos.values()];
+      lista = [...vistos.values()];
     } else {
+      lista = clonar(actuales);
       leidos.forEach(b => {
-        const ex = estado.bancos.find(x => Number(x.codigo) === b.codigo);
-        if (ex) { Object.assign(ex, b); actualizados++; } else { estado.bancos.push(b); nuevos++; }
+        const ex = lista.find(x => Number(x.codigo) === b.codigo);
+        if (ex) { Object.assign(ex, b); actualizados++; } else { lista.push(b); nuevos++; }
       });
     }
-    return { modo, leidos: leidos.length, actualizados, nuevos, ignorados };
+    return { modo, lista, leidos: leidos.length, actualizados, nuevos, ignorados };
   }
 
   // ============================================================ LOTE
@@ -1294,28 +1573,34 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
     return String(d.getFullYear()) + String(d.getMonth() + 1).padStart(2, '0');
   }
 
-  function renderSelectClientes(seleccion) {
+  let clientePendiente = null; // cliente recién creado para dejarlo seleccionado
+
+  function renderSelectClientes() {
     const sel = $('fCliente');
-    const previo = seleccion || sel.value;
-    const hay = estado.clientes.length > 0;
+    const previo = clientePendiente || sel.value;
+    clientePendiente = null;
+    const clientes = datos().clientes;
+    const hay = clientes.length > 0;
     $('sinClientes').classList.toggle('oculto', hay);
     $('cardFormulario').classList.toggle('oculto', !hay);
     $('cardArchivo').classList.toggle('oculto', !hay);
-    sel.innerHTML = hay ? '<option value="">Elegí un cliente…</option>' + estado.clientes.map(c =>
+    sel.innerHTML = hay ? '<option value="">Elegí un cliente…</option>' + clientes.map(c =>
       `<option value="${c.id}">${esc(c.nombre)} · Negocio ${esc(c.negocio)} · ${esc(c.cuit)}</option>`).join('') : '';
     if (previo && clientePorId(previo)) sel.value = previo;
-    else if (estado.clientes.length === 1) sel.value = estado.clientes[0].id;
+    else if (clientes.length === 1) sel.value = clientes[0].id;
     const hSel = $('hCliente');
     const hPrevio = hSel.value;
-    hSel.innerHTML = '<option value="">Todos</option>' + estado.clientes.map(c => `<option value="${c.id}">${esc(c.nombre)}</option>`).join('');
+    hSel.innerHTML = '<option value="">Todos</option>' + clientes.map(c => `<option value="${c.id}">${esc(c.nombre)}</option>`).join('');
     hSel.value = clientePorId(hPrevio) ? hPrevio : '';
-    alCambiarCliente();
+    if (sel.value !== clienteFormulario) alCambiarCliente();
   }
 
   const tipoAccion = () => document.querySelector('input[name="fTipo"]:checked').value;
+  let clienteFormulario = null;
 
   function alCambiarCliente() {
-    const c = clientePorId($('fCliente').value);
+    clienteFormulario = $('fCliente').value;
+    const c = clientePorId(clienteFormulario);
     $('fNegocio').value = c ? c.negocio : '';
     $('fCedente').value = c ? c.cuit : '';
     if (c && c.tasa !== '' && c.tasa != null) $('fTasa').value = c.tasa;
@@ -1325,6 +1610,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 
   function actualizarFormulario() {
     const c = clientePorId($('fCliente').value);
+    if (c) { $('fNegocio').value = c.negocio; $('fCedente').value = c.cuit; }
     const manual = $('fSecuenciaManual').checked;
     $('fSecuencia').readOnly = !manual;
     if (!manual) $('fSecuencia').value = c ? M.calcularSecuenciaLote(c.ultimaSecuencia, tipoAccion()).secuencia : '';
@@ -1346,15 +1632,17 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
     };
   }
 
+  function erroresSecuencia(clienteId, secuencia) {
+    const usada = lotesDe(clienteId).find(l => l.secuencia === secuencia);
+    return usada ? [`La secuencia ${secuencia} ya fue usada por este cliente (lote del ${new Date(usada.fecha).toLocaleDateString('es-AR')}).`] : [];
+  }
+
   function estadoFormulario() {
     const c = clientePorId($('fCliente').value);
     const p = parametros();
     const faltan = !c || !p.periodo || !p.tasa || !$('fSecuencia').value;
     const errores = c ? M.validarFormulario(Object.assign({}, p, { tasa: p.tasa === '' ? null : Number(p.tasa) })) : [];
-    if (c) {
-      const usada = lotesDe(c.id).find(l => l.secuencia === p.secuencia);
-      if (usada) errores.push(`La secuencia ${p.secuencia} ya fue usada por este cliente (lote del ${new Date(usada.fecha).toLocaleDateString('es-AR')}).`);
-    }
+    if (c) errores.push(...erroresSecuencia(c.id, p.secuencia));
     return { cliente: c, p, estado: faltan ? 'INCOMPLETO' : errores.length ? 'REVISAR DATOS' : 'LISTO', errores };
   }
 
@@ -1372,7 +1660,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 
   // --- archivo del cliente
   let archivo = null;   // { nombre, hojas: [{hoja, formato, cantidad, filas}], conciliacion }
-  let preparado = null; // { reporte, controlBancos, errores, total }
+  let preparado = null; // { reporte, cb, errores, total, hoja }
 
   const zona = $('zonaLote');
   zona.addEventListener('click', () => $('archivoLote').click());
@@ -1423,11 +1711,14 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
   $('aMonto').addEventListener('change', reevaluarArchivo);
 
   function reevaluarArchivo() {
+    if (!almacen || !almacen.datos) return;
     const ef = estadoFormulario();
     renderEstadoFormulario(ef);
     const bloqueos = [];
+    if (almacen.puedeEscribir === false) bloqueos.push('tu acceso es de solo lectura');
     if (!ef.cliente) bloqueos.push('elegí el cliente');
     else if (ef.estado !== 'LISTO') bloqueos.push('completá el formulario');
+    if (!datos().bancos.length) bloqueos.push('cargá la tabla de bancos');
     if (!archivo) {
       preparado = null;
       bloqueos.push('cargá el archivo del cliente');
@@ -1438,7 +1729,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
     $('aMontoCaja').classList.toggle('oculto', hoja.formato !== 'getnet');
     const reporte = M.armarReporte(hoja.filas, hoja, { columnaMonto: $('aMonto').value });
     const errores = M.controlarReporte(reporte);
-    const cb = M.controlarBancos(reporte, estado.bancos);
+    const cb = M.controlarBancos(reporte, datos().bancos);
     const total = M.round2(reporte.reduce((s, r) => s + (r.MONTO || 0), 0));
     const fechas = reporte.map(r => r.FECHA_VENCIMIENTO).filter(f => f != null);
     preparado = { reporte, errores, cb, total, hoja };
@@ -1463,7 +1754,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
       $('controlBancos').innerHTML = aviso('bad', `<b>ACTUALIZAR BANCOS:</b> ${cb.conProblemas.length} bancos del archivo no están completos en la tabla Bancos. Corregilos para poder procesar.`) +
         `<div class="tabla-caja"><table><thead><tr><th class="num">Cód.</th><th>Nombre en el archivo</th><th class="num">Filas</th><th>Problema</th><th></th></tr></thead><tbody>${
           cb.conProblemas.map(d => `<tr><td class="num">${d.codigo}</td><td>${esc(d.nombreArchivo)}</td><td class="num">${d.filas}</td>
-          <td>${esc(d.problemas.join(' · '))}</td><td><button class="btn chico" data-arreglar-banco="${d.codigo}">${d.banco ? 'Editar banco' : 'Agregar banco'}</button></td></tr>`).join('')}</tbody></table></div>`;
+          <td>${esc(d.problemas.join(' · '))}</td><td><button class="btn chico" data-escribe data-arreglar-banco="${d.codigo}">${d.banco ? 'Editar banco' : 'Agregar banco'}</button></td></tr>`).join('')}</tbody></table></div>`;
     } else {
       $('controlBancos').innerHTML = cb.detalle.length ? aviso('ok', `Mapeo de bancos OK: los ${cb.detalle.length} bancos del archivo tienen CUIT, provincia, sucursal y código de crédito.`) : '';
     }
@@ -1471,10 +1762,11 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
     if (errores.length) bloqueos.push('corregí las filas inválidas del archivo');
     if (cb.conProblemas.length) bloqueos.push('completá los bancos marcados');
     mostrarBloqueo(bloqueos);
+    aplicarPermisos();
   }
 
   function mostrarBloqueo(bloqueos) {
-    $('btnProcesar').disabled = bloqueos.length > 0;
+    $('btnProcesar').disabled = procesando || bloqueos.length > 0;
     $('motivoBloqueo').textContent = bloqueos.length ? 'Para procesar: ' + bloqueos.join(', ') + '.' : '';
   }
 
@@ -1482,56 +1774,77 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
     const b = e.target.closest('[data-arreglar-banco]');
     if (!b) return;
     const codigo = Number(b.dataset.arreglarBanco);
-    const existente = estado.bancos.find(x => Number(x.codigo) === codigo);
+    const existente = datos().bancos.find(x => Number(x.codigo) === codigo);
     const det = preparado.cb.detalle.find(d => d.codigo === codigo);
-    abrirBanco(existente, { codigo, nombre: String(det.nombreArchivo || '').slice(0, 30), codCredito: M.codigoCreditoPorDefecto(codigo) }, reevaluarArchivo);
+    abrirBanco(existente, { codigo, nombre: String(det.nombreArchivo || '').slice(0, 30), codCredito: M.codigoCreditoPorDefecto(codigo) });
   });
 
   // --- procesar
-  $('btnProcesar').addEventListener('click', () => {
+  let procesando = false;
+
+  $('btnProcesar').addEventListener('click', async () => {
     const ef = estadoFormulario();
     if (ef.estado !== 'LISTO' || !preparado || preparado.errores.length || preparado.cb.conProblemas.length) { reevaluarArchivo(); return; }
     const c = ef.cliente;
     const p = Object.assign({}, ef.p, { tasa: Number(ef.p.tasa) });
+    const manual = $('fSecuenciaManual').checked;
     const firma = [archivo.nombre, preparado.hoja.hoja, preparado.reporte.length, preparado.total].join('|');
     const repetido = lotesDe(c.id).find(l => l.firma === firma);
-    if (repetido && !confirm(`Este archivo ya se procesó para ${c.nombre} con la secuencia ${repetido.secuencia}. ¿Procesarlo igual con la secuencia ${p.secuencia}?`)) return;
-    if (!confirm(`Se va a generar el lote de ${c.nombre}:\n\nTipo: ${p.tipoAccion}\nSecuencia: ${p.secuencia}\nLote: ${p.lote}\nPeriodo: ${p.periodo}\nTasa: ${p.tasa}\n\n¿Confirmar?`)) return;
+    let mensaje = `<table style="width:auto"><tbody>
+      <tr><td>Cliente</td><td><b>${esc(c.nombre)}</b></td></tr><tr><td>Tipo de acción</td><td><b>${p.tipoAccion}</b></td></tr>
+      <tr><td>Secuencia</td><td><b>${p.secuencia}</b></td></tr><tr><td>Lote</td><td><b>${p.lote}</b></td></tr>
+      <tr><td>Periodo</td><td>${esc(p.periodo)}</td></tr><tr><td>Tasa</td><td>${p.tasa}</td></tr>
+      <tr><td>Total</td><td>$ ${fmtMonto(preparado.total)}</td></tr></tbody></table>`;
+    if (repetido) mensaje = aviso('warn', `Este archivo ya se procesó para ${esc(c.nombre)} con la secuencia ${repetido.secuencia}.`) + mensaje;
+    if (!await confirmar('Generar lote', mensaje, 'Generar TXT')) return;
 
-    const hoy = new Date();
-    const cuotas = M.generarCuotas(preparado.reporte, estado.bancos, p, hoy);
-    const creditos = M.generarCreditos(cuotas, estado.bancos, p);
-    const lote = {
-      id: nuevoId(), clienteId: c.id, fecha: hoy.toISOString(), archivo: archivo.nombre, hoja: preparado.hoja.hoja,
-      columnaMonto: preparado.hoja.formato === 'getnet' ? $('aMonto').value : 'MONTO', firma,
-      tipoAccion: p.tipoAccion, secuencia: p.secuencia, lote: p.lote, periodo: p.periodo, tasa: p.tasa,
-      secuenciaAnterior: c.ultimaSecuencia, filas: preparado.reporte.length,
-      cantCuotas: cuotas.filas.length, cantCreditos: creditos.filas.length, total: cuotas.encabezado.totalCapital,
-      nombreCuotas: M.nombreArchivo('cuotas', hoy), nombreCreditos: M.nombreArchivo('creditos', hoy),
-      txtCuotas: M.txtCuotas(cuotas), txtCreditos: M.txtCreditos(creditos),
-    };
-    estado.lotes.push(lote);
-    c.ultimaSecuencia = Math.max(c.ultimaSecuencia, p.secuencia);
-    c.tasa = p.tasa;
-    if (!guardar()) {
-      // Sin espacio: se conserva el registro del lote sin el contenido de los TXT.
-      delete lote.txtCuotas; delete lote.txtCreditos;
-      if (!guardar()) alert('No se pudo guardar en este navegador. Descargá los TXT ahora y hacé un respaldo.');
-      else toast('Sin espacio para guardar los TXT en el historial: descargalos ahora.');
-    }
-    mostrarResultado(lote, cuotas, creditos, preparado.reporte, preparado.total, { txtCuotas: M.txtCuotas(cuotas), txtCreditos: M.txtCreditos(creditos) });
+    procesando = true;
+    $('btnProcesar').disabled = true;
+    $('btnProcesar').textContent = 'Procesando…';
+    const archivoActual = archivo, prep = preparado, columnaMonto = $('aMonto').value;
+    let resultado = null;
+    const r = await intentar(() => almacen.registrarLote(c.id, fresco => {
+      // Se recalcula con el cliente releído de la base: si otro usuario procesó un lote mientras tanto, se frena.
+      const esperada = M.calcularSecuenciaLote(fresco.ultimaSecuencia, p.tipoAccion).secuencia;
+      if (!manual && esperada !== p.secuencia) {
+        throw new Error(`Otro usuario procesó un lote de ${fresco.nombre} recién: la próxima secuencia ahora es ${esperada}. El formulario ya se actualizó; revisalo y volvé a generar.`);
+      }
+      if (erroresSecuencia(c.id, p.secuencia).length) throw new Error(`La secuencia ${p.secuencia} ya fue usada por este cliente.`);
+      const hoy = new Date();
+      const cuotas = M.generarCuotas(prep.reporte, datos().bancos, p, hoy);
+      const creditos = M.generarCreditos(cuotas, datos().bancos, p);
+      const txtCuotas = M.txtCuotas(cuotas), txtCreditos = M.txtCreditos(creditos);
+      resultado = { cuotas, creditos, txtCuotas, txtCreditos };
+      return {
+        txtCuotas, txtCreditos,
+        cambiosCliente: { ultimaSecuencia: Math.max(fresco.ultimaSecuencia, p.secuencia), tasa: p.tasa },
+        lote: {
+          id: nuevoId(), clienteId: c.id, fecha: hoy.toISOString(), archivo: archivoActual.nombre, hoja: prep.hoja.hoja,
+          columnaMonto: prep.hoja.formato === 'getnet' ? columnaMonto : 'MONTO', firma,
+          tipoAccion: p.tipoAccion, secuencia: p.secuencia, lote: p.lote, periodo: p.periodo, tasa: p.tasa,
+          secuenciaAnterior: fresco.ultimaSecuencia, filas: prep.reporte.length,
+          cantCuotas: cuotas.filas.length, cantCreditos: creditos.filas.length, total: cuotas.encabezado.totalCapital,
+          nombreCuotas: M.nombreArchivo('cuotas', hoy), nombreCreditos: M.nombreArchivo('creditos', hoy),
+        },
+      };
+    }));
+    procesando = false;
+    $('btnProcesar').textContent = 'Procesar lote y generar TXT';
+    if (!r) { refrescar(); return; }
+    if (r.aviso) toast(r.aviso);
+    mostrarResultado(r.lote, resultado, prep.reporte, prep.total);
     // El archivo ya procesado se descarta para evitar cargarlo dos veces por error.
     archivo = null; preparado = null;
     $('detalleArchivo').classList.add('oculto');
     $('fSecuenciaManual').checked = false;
-    actualizarFormulario();
-    renderClientes();
-    toast(`Lote generado: secuencia ${lote.secuencia}`);
+    refrescar();
+    toast(`Lote generado: secuencia ${r.lote.secuencia}`);
   });
 
   let resultadoActual = null;
 
-  function mostrarResultado(lote, cuotas, creditos, reporte, totalMonto, textos) {
+  function mostrarResultado(lote, res, reporte, totalMonto) {
+    const { cuotas, creditos } = res;
     resultadoActual = { cuotas, creditos, reporte };
     const c = clientePorId(lote.clienteId);
     $('cardResultado').classList.remove('oculto');
@@ -1542,8 +1855,8 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
     $('descargasResultado').onclick = e => {
       const b = e.target.closest('[data-descarga]');
       if (!b) return;
-      if (b.dataset.descarga === 'cuotas') descargar(lote.nombreCuotas, textos.txtCuotas);
-      else descargar(lote.nombreCreditos, textos.txtCreditos);
+      if (b.dataset.descarga === 'cuotas') descargar(lote.nombreCuotas, res.txtCuotas);
+      else descargar(lote.nombreCreditos, res.txtCreditos);
     };
     const ce = cuotas.encabezado, re = creditos.encabezado;
     const combinaciones = new Set(reporte.filter(r => r.COD_BANCO != null && r.FECHA_VENCIMIENTO != null).map(r => r.COD_BANCO + '|' + r.FECHA_VENCIMIENTO)).size;
@@ -1605,36 +1918,39 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 
   // ============================================================ HISTORIAL
 
+  function lotesFiltrados() {
+    const cli = $('hCliente').value, tipo = $('hTipo').value, anulados = $('hAnulados').checked;
+    return datos().lotes.filter(l => (!cli || l.clienteId === cli) && (!tipo || l.tipoAccion === tipo) && (anulados || !l.anulado));
+  }
+
   function renderHistorial() {
-    const lista = lotesFiltrados().slice().reverse();
+    const lista = lotesFiltrados().slice().sort((a, b) => String(b.fecha).localeCompare(String(a.fecha)));
     const vigentes = lista.filter(l => !l.anulado);
     const porTipo = t => vigentes.filter(l => l.tipoAccion === t);
     const kpi = (t, arr) => `<div class="kpi"><b>${fmtEntero(arr.length)}</b><span>${t} · $ ${fmtMonto(arr.reduce((s, l) => s + (l.total || 0), 0))}</span></div>`;
     $('hResumen').innerHTML = kpi('lotes vigentes', vigentes) + kpi('Alta', porTipo('Alta')) + kpi('Revolving', porTipo('Revolving'));
     if (!lista.length) {
-      $('tablaHistorial').innerHTML = '<div class="vacio">Todavía no se procesó ningún lote.</div>';
+      $('tablaHistorial').innerHTML = '<div class="vacio">Todavía no se procesó ningún lote. Los lotes aparecen acá al generar sus TXT en "Carga de lote".</div>';
       return;
     }
+    const compartido = almacen.modo === 'compartido';
     const ultimos = new Map();
-    estado.clientes.forEach(c => {
-      const ls = lotesDe(c.id);
+    datos().clientes.forEach(c => {
+      const ls = lotesDe(c.id).sort((a, b) => String(a.fecha).localeCompare(String(b.fecha)));
       if (ls.length) ultimos.set(c.id, ls[ls.length - 1].id);
     });
     $('tablaHistorial').innerHTML = `<table><thead><tr><th>Fecha</th><th>Cliente</th><th>Archivo</th><th>Tipo</th><th class="num">Secuencia</th><th class="num">Lote</th>
-      <th class="num">Periodo</th><th class="num">Cuotas</th><th class="num">Créditos</th><th class="num">Total capital</th><th>TXT</th><th></th></tr></thead><tbody>${
+      <th class="num">Periodo</th><th class="num">Cuotas</th><th class="num">Créditos</th><th class="num">Total capital</th>${compartido ? '<th>Procesó</th>' : ''}<th>TXT</th><th></th></tr></thead><tbody>${
       lista.map(l => {
         const c = clientePorId(l.clienteId);
-        const tieneTxt = l.txtCuotas && l.txtCreditos;
+        const tieneTxt = compartido ? !!l.txtPartes : !!(l.txtCuotas && l.txtCreditos);
         return `<tr${l.anulado ? ' style="opacity:.55"' : ''}><td>${new Date(l.fecha).toLocaleString('es-AR')}</td><td>${esc(c ? c.nombre : '(borrado)')}</td>
           <td title="Hoja: ${esc(l.hoja)} · MONTO: ${esc(l.columnaMonto)}">${esc(l.archivo)}</td><td>${esc(l.tipoAccion)}</td><td class="num">${l.secuencia}</td><td class="num">${l.lote}</td>
           <td class="num">${esc(l.periodo)}</td><td class="num">${l.cantCuotas}</td><td class="num">${l.cantCreditos}</td><td class="num">${fmtMonto(l.total)}</td>
+          ${compartido ? `<td>${esc(quien(l.usuarioId))}</td>` : ''}
           <td>${tieneTxt ? `<button class="btn chico" data-h-cuotas="${l.id}">Cuotas</button> <button class="btn chico" data-h-creditos="${l.id}">Créditos</button>` : '<span class="chip gris">no guardado</span>'}</td>
-          <td>${l.anulado ? '<span class="chip gris">Anulado</span>' : ultimos.get(l.clienteId) === l.id ? `<button class="btn chico peligro" data-h-anular="${l.id}">Anular</button>` : ''}</td></tr>`;
+          <td>${l.anulado ? '<span class="chip gris">Anulado</span>' : ultimos.get(l.clienteId) === l.id ? `<button class="btn chico peligro" data-escribe data-h-anular="${l.id}">Anular</button>` : ''}</td></tr>`;
       }).join('')}</tbody></table>`;
-  }
-  function lotesFiltrados() {
-    const cli = $('hCliente').value, tipo = $('hTipo').value, anulados = $('hAnulados').checked;
-    return estado.lotes.filter(l => (!cli || l.clienteId === cli) && (!tipo || l.tipoAccion === tipo) && (anulados || !l.anulado));
   }
   ['hCliente', 'hTipo', 'hAnulados'].forEach(id => $(id).addEventListener('change', renderHistorial));
 
@@ -1643,42 +1959,50 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
     if (!lista.length) { toast('No hay lotes para exportar'); return; }
     const aoa = [['Fecha', 'Cliente', 'Nº negocio', 'CUIT cedente', 'Tipo de acción', 'Secuencia', 'Lote', 'Periodo', 'Tasa',
       'Archivo', 'Hoja', 'Columna MONTO', 'Filas reporte', 'Registros cuotas', 'Registros créditos', 'Total capital',
-      'TXT cuotas', 'TXT créditos', 'Estado']].concat(lista.map(l => {
+      'TXT cuotas', 'TXT créditos', 'Estado', 'Procesó']].concat(lista.map(l => {
       const c = clientePorId(l.clienteId) || {};
       return [new Date(l.fecha), c.nombre || '(borrado)', c.negocio || '', c.cuit || '', l.tipoAccion, l.secuencia, l.lote,
         Number(l.periodo), l.tasa, l.archivo, l.hoja, l.columnaMonto, l.filas, l.cantCuotas, l.cantCreditos, l.total,
-        l.nombreCuotas, l.nombreCreditos, l.anulado ? 'Anulado' : 'Vigente'];
+        l.nombreCuotas, l.nombreCreditos, l.anulado ? 'Anulado' : 'Vigente', quien(l.usuarioId)];
     }));
     const ws = XLSX.utils.aoa_to_sheet(aoa, { cellDates: true, dateNF: 'dd/mm/yyyy hh:mm' });
     ws['!cols'] = aoa[0].map((h, i) => ({ wch: i === 9 ? 40 : Math.max(10, h.length + 2) }));
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Lotes');
-    XLSX.writeFile(wb, 'Historial-lotes-VALO.xlsx');
+    descargarLibro('Historial-lotes-VALO.xlsx', wb);
   });
-  $('tablaHistorial').addEventListener('click', e => {
+
+  $('tablaHistorial').addEventListener('click', async e => {
     const b = e.target.closest('button');
     if (!b) return;
     const id = b.dataset.hCuotas || b.dataset.hCreditos || b.dataset.hAnular;
-    const l = estado.lotes.find(x => x.id === id);
+    const l = datos().lotes.find(x => x.id === id);
     if (!l) return;
-    if (b.dataset.hCuotas) descargar(l.nombreCuotas, l.txtCuotas);
-    if (b.dataset.hCreditos) descargar(l.nombreCreditos, l.txtCreditos);
+    if (b.dataset.hCuotas || b.dataset.hCreditos) {
+      b.disabled = true;
+      try {
+        const t = await almacen.leerTxt(l);
+        if (!t) toast('Los TXT de este lote no están guardados');
+        else if (b.dataset.hCuotas) await descargar(l.nombreCuotas, t.cuotas);
+        else await descargar(l.nombreCreditos, t.creditos);
+      } catch (err) {
+        toast('No se pudieron leer los TXT: ' + (err.message || err));
+      }
+      b.disabled = false;
+    }
     if (b.dataset.hAnular) {
       const c = clientePorId(l.clienteId);
-      if (!confirm(`¿Anular el lote con secuencia ${l.secuencia}? La última secuencia de ${c ? c.nombre : 'el cliente'} vuelve a ${l.secuenciaAnterior}.`)) return;
-      l.anulado = true;
-      if (c) c.ultimaSecuencia = l.secuenciaAnterior;
-      guardar(); renderHistorial(); renderClientes(); actualizarFormulario();
-      toast('Lote anulado');
+      if (!await confirmar('Anular lote', `¿Anular el lote con secuencia <b>${l.secuencia}</b>? La última secuencia de ${esc(c ? c.nombre : 'el cliente')} vuelve a <b>${l.secuenciaAnterior}</b>.`, 'Anular', true)) return;
+      await intentar(() => almacen.anularLote(l.id, { anulado: true, anuladoEn: new Date().toISOString() }), 'Lote anulado');
     }
   });
 
-  // ============================================================ RESPALDO
+  // ============================================================ RESPALDO (solo modo local)
 
   $('btnRespaldo').addEventListener('click', () => {
     const d = new Date();
     const f = d.getFullYear() + String(d.getMonth() + 1).padStart(2, '0') + String(d.getDate()).padStart(2, '0');
-    descargar(`respaldo-valo-${f}.json`, JSON.stringify(estado, null, 1), 'application/json');
+    descargar(`respaldo-valo-${f}.json`, JSON.stringify(almacen.exportar(), null, 1));
   });
   $('btnRestaurar').addEventListener('click', () => $('archivoRespaldo').click());
   $('archivoRespaldo').addEventListener('change', async e => {
@@ -1688,24 +2012,74 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
     try {
       const nuevo = JSON.parse(await file.text());
       if (!nuevo || !Array.isArray(nuevo.clientes) || !Array.isArray(nuevo.bancos) || !Array.isArray(nuevo.lotes)) throw new Error('formato inválido');
-      if (!confirm(`El respaldo tiene ${nuevo.clientes.length} clientes, ${nuevo.bancos.length} bancos y ${nuevo.lotes.length} lotes. Reemplaza los datos actuales. ¿Continuar?`)) return;
-      estado = nuevo;
-      guardar();
-      renderSelectClientes(); renderClientes(); renderBancos(); renderHistorial();
+      if (!await confirmar('Restaurar respaldo', `El respaldo tiene ${nuevo.clientes.length} clientes, ${nuevo.bancos.length} bancos y ${nuevo.lotes.length} lotes. Reemplaza los datos actuales.`, 'Restaurar', true)) return;
+      await almacen.importar(nuevo);
       toast('Respaldo restaurado');
     } catch (err) {
-      alert('No se pudo restaurar el respaldo: ' + (err.message || err));
+      informar('No se pudo restaurar', esc(err.message || err));
     }
   });
 
   // ============================================================ inicio
 
-  $('errorCarga').classList.add('oculto');
-  $('fPeriodo').value = periodoActual();
-  renderSelectClientes();
-  renderClientes();
-  renderBancos();
-  if (!guardar()) toast('Este navegador no permite guardar datos: usá "Descargar respaldo" al terminar.');
+  function aplicarPermisos() {
+    const soloLectura = almacen && almacen.puedeEscribir === false;
+    document.querySelectorAll('[data-escribe]').forEach(el => { el.disabled = soloLectura; });
+    $('avisoSoloLectura').classList.toggle('oculto', !soloLectura);
+  }
+
+  async function refrescar() {
+    if (almacen.error) {
+      $('estadoBase').innerHTML = '<span class="chip bad">Sin conexión</span>';
+      $('errorBase').innerHTML = aviso('bad', 'Se perdió la conexión con la base compartida. Recargá la página.');
+      return;
+    }
+    if (almacen.modo === 'compartido') {
+      const ids = [...new Set(datos().lotes.map(l => l.usuarioId).concat(datos().clientes.map(c => c.creadoPor)).filter(Boolean))];
+      nombresUsuarios = await almacen.nombres(ids);
+    }
+    renderSelectClientes();
+    renderClientes();
+    renderBancos();
+    renderHistorial();
+    actualizarFormulario();
+    aplicarPermisos();
+  }
+
+  async function iniciar() {
+    $('fPeriodo').value = periodoActual();
+    try {
+      almacen = await window.ValoAlmacen.iniciar();
+    } catch (e) {
+      almacen = { modo: 'sin-conexion' };
+    }
+    $('errorCarga').classList.add('oculto');
+    if (almacen.modo === 'sin-conexion') {
+      $('estadoBase').innerHTML = '<span class="chip bad">Sin base</span>';
+      $('errorBase').innerHTML = aviso('bad', 'No se pudo abrir la base compartida. Iniciá sesión en claude.ai y volvé a abrir el link de la página.');
+      $('cargandoBase').classList.add('oculto');
+      return;
+    }
+    if (window.claude && typeof window.claude.use === 'function') descargas = await window.claude.use('downloads');
+    const compartido = almacen.modo === 'compartido';
+    $('estadoBase').innerHTML = compartido
+      ? '<span class="chip ok" title="Clientes, secuencias, bancos e historial se comparten con todos los usuarios de esta página">Base compartida</span>'
+      : '<span class="chip gris" title="Los datos quedan solo en este navegador">Datos en este navegador</span>';
+    document.querySelectorAll('[data-solo-local]').forEach(el => el.classList.toggle('oculto', compartido));
+    let primera = true;
+    almacen.alCambiar(() => {
+      if (primera) { primera = false; $('cargandoBase').classList.add('oculto'); $('contenido').classList.remove('oculto'); }
+      refrescar();
+    });
+    if (!compartido) {
+      $('cargandoBase').classList.add('oculto');
+      $('contenido').classList.remove('oculto');
+      refrescar();
+      if (!almacen.guardarDisponible()) toast('Este navegador no permite guardar datos: usá "Descargar respaldo" al terminar.');
+    }
+  }
+
+  iniciar();
 })();
 
 </script>
