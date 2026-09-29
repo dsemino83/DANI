@@ -37,7 +37,7 @@
   .card h2 { font-size: 16px; margin: 0 0 4px; }
   .card h3 { font-size: 14px; margin: 16px 0 8px; }
   .sub { color: var(--muted); margin: 0 0 14px; }
-  .grid { display: grid; gap: 12px 16px; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); }
+  .grid { display: grid; align-items: start; gap: 12px 16px; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); }
   label.campo { display: flex; flex-direction: column; gap: 4px; font-weight: 600; font-size: 13px; }
   label.campo span.ayuda { font-weight: 400; color: var(--muted); font-size: 12px; }
   input, select { font: inherit; color: var(--text); background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; min-width: 0; width: 100%; }
@@ -142,8 +142,9 @@
             <label><input type="radio" name="fTipo" value="Revolving">Revolving</label>
           </div>
         </div>
-        <label class="campo">Periodo <span class="ayuda">yyyymm</span>
+        <label class="campo">Periodo 
           <input id="fPeriodo" inputmode="numeric" maxlength="6">
+            <span class="ayuda">yyyymm</span>
         </label>
         <label class="campo">Tasa de descuento
           <input id="fTasa" inputmode="decimal">
@@ -211,9 +212,11 @@
       <form id="formCliente" autocomplete="off">
         <div class="grid">
           <label class="campo">Nº de negocio <input id="cNegocio" required></label>
-          <label class="campo">CUIT del cedente <span class="ayuda">11 dígitos, sin guiones</span><input id="cCuit" inputmode="numeric" maxlength="13" required></label>
+          <label class="campo">CUIT del cedente <input id="cCuit" inputmode="numeric" maxlength="13" required>
+            <span class="ayuda">11 dígitos, sin guiones</span></label>
           <label class="campo">Nombre del cedente <input id="cNombre" required></label>
-          <label class="campo">Última secuencia ya usada <span class="ayuda">Opcional. 0 = el primer lote sale con 1</span><input id="cSecuencia" inputmode="numeric" value="0"></label>
+          <label class="campo">Última secuencia ya usada <input id="cSecuencia" inputmode="numeric" value="0">
+            <span class="ayuda">Opcional. 0 = el primer lote sale con 1</span></label>
         </div>
         <div class="acciones"><button class="btn primario" data-escribe type="submit">Dar de alta cliente</button></div>
         <div id="errorCliente"></div>
@@ -282,7 +285,8 @@
       <label class="campo" style="grid-column:1/-1">Nombre <input id="dNombre" required></label>
       <label class="campo">Jurisdicción <select id="dJurisdiccion"></select></label>
       <label class="campo">Código sucursal <input id="dSucursal" inputmode="numeric"></label>
-      <label class="campo">Código Nº crédito <span class="ayuda">Por defecto: últimos 4 dígitos del código</span><input id="dCodCredito" inputmode="numeric"></label>
+      <label class="campo">Código Nº crédito <input id="dCodCredito" inputmode="numeric">
+            <span class="ayuda">Por defecto: últimos 4 dígitos del código</span></label>
     </div>
     <div id="dError"></div>
     <div class="acciones">
