@@ -3,11 +3,11 @@
 Página web que reemplaza el flujo manual del libro **Conversor GetNet.xlsx** + los scripts
 `GenerarCuotas.py` y `GenerarCreditos.py`.
 
-**En internet:** https://dsemino83.github.io/DANI/valo/ (GitHub Pages publicando la rama `VALO`).
+**En internet:** https://dsemino83.github.io/DANI/valo/ redirige a la base compartida en claude.ai (https://claude.ai/artifact/62SNb4MoRSHQr9ke5kfqYa).
 
 **Para usarla: abrir `Conversor-VALO.html`** (un solo archivo con todo adentro; se puede descargar suelto y abrir con doble clic, sin internet).
 
-`index.html` es la versión de desarrollo y solo funciona dentro de la carpeta `valo` completa.
+`pagina.html` es la versión de desarrollo (fuente de las otras dos) y solo funciona dentro de la carpeta `valo` completa.
 Después de modificar el código, regenerar el archivo único con `python3 construir.py`.
 
 ## Flujo
@@ -53,7 +53,7 @@ Después de modificar el código, regenerar el archivo único con `python3 const
 ## Archivos
 
 - `Conversor-VALO.html` – archivo único para usar (generado por `construir.py`).
-- `index.html` – interfaz (desarrollo).
+- `pagina.html` – interfaz (desarrollo).
 - `app.js` – pantallas, almacenamiento y carga de archivos.
 - `almacen.js` – guardado de datos: base compartida de claude.ai o navegador.
 - `compartido/conversor-valo-compartido.html` – página publicada en claude.ai (generada por `construir.py`).

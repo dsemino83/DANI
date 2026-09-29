@@ -1,11 +1,11 @@
-"""Genera las dos versiones de un solo archivo a partir de index.html y los .js:
+"""Genera las dos versiones de un solo archivo a partir de pagina.html y los .js:
 
 - Conversor-VALO.html: para abrir localmente (datos en el navegador). Trae todo adentro.
 - compartido/conversor-valo-compartido.html: la página que se publica en claude.ai con la base
   compartida. Sin <html>/<head>/<body> (los agrega la publicación), SheetJS desde cdnjs y sin la
   tabla de bancos embebida (vive en la base: maestros/bancos y maestros/bancosOriginales).
 
-Uso: python3 construir.py   (volver a ejecutarlo después de modificar index.html o algún .js)
+Uso: python3 construir.py   (volver a ejecutarlo después de modificar pagina.html o algún .js)
 """
 import os
 import re
@@ -31,7 +31,7 @@ def script_en_linea(nombre):
     return "<script>\n" + leer(nombre).replace("</script", "<\\/script") + "\n</script>"
 
 
-fuente = leer("index.html")
+fuente = leer("pagina.html")
 
 # Versión local: todo embebido.
 local = re.sub(r'<script src="([^"?]+)(?:\?[^"]*)?"></script>', lambda m: script_en_linea(m.group(1)), fuente)
