@@ -1,0 +1,309 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Conversor VALO GetNet</title>
+<style>
+  :root {
+    --bg: #f4f6f9; --panel: #ffffff; --panel-2: #f8fafc; --text: #1c2430; --muted: #5d6b7e;
+    --line: #dde3ea; --accent: #1f5fbf; --accent-2: #e8f0fc; --accent-text: #ffffff;
+    --ok: #1d7a46; --ok-bg: #e6f4ec; --warn: #9a6100; --warn-bg: #fdf3e1; --bad: #b3261e; --bad-bg: #fbe9e8;
+    --shadow: 0 1px 2px rgba(16, 24, 40, .06), 0 1px 3px rgba(16, 24, 40, .08);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #10141a; --panel: #171d25; --panel-2: #1c232d; --text: #e4e9f0; --muted: #98a4b3;
+      --line: #2a3340; --accent: #6ea2f0; --accent-2: #1b2b44; --accent-text: #0c1320;
+      --ok: #5fcf8f; --ok-bg: #16301f; --warn: #f0b95a; --warn-bg: #33270f; --bad: #f28b82; --bad-bg: #3a1a18;
+      --shadow: none;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #10141a; --panel: #171d25; --panel-2: #1c232d; --text: #e4e9f0; --muted: #98a4b3;
+    --line: #2a3340; --accent: #6ea2f0; --accent-2: #1b2b44; --accent-text: #0c1320;
+    --ok: #5fcf8f; --ok-bg: #16301f; --warn: #f0b95a; --warn-bg: #33270f; --bad: #f28b82; --bad-bg: #3a1a18;
+    --shadow: none;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  header { background: var(--panel); border-bottom: 1px solid var(--line); }
+  .barra { max-width: 1200px; margin: 0 auto; padding: 14px 16px 0; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; }
+  .barra h1 { font-size: 18px; margin: 0; flex: 1 1 auto; }
+  .barra h1 small { color: var(--muted); font-weight: 400; font-size: 13px; margin-left: 6px; }
+  nav { max-width: 1200px; margin: 0 auto; padding: 0 16px; display: flex; gap: 4px; overflow-x: auto; }
+  nav button { background: none; border: 0; border-bottom: 3px solid transparent; padding: 12px 14px; font: inherit; font-weight: 600; color: var(--muted); cursor: pointer; white-space: nowrap; }
+  nav button[aria-selected="true"] { color: var(--accent); border-bottom-color: var(--accent); }
+  main { max-width: 1200px; margin: 0 auto; padding: 20px 16px 60px; }
+  section.vista { display: none; }
+  section.vista.activa { display: block; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--shadow); padding: 18px; margin-bottom: 18px; }
+  .card h2 { font-size: 16px; margin: 0 0 4px; }
+  .card h3 { font-size: 14px; margin: 16px 0 8px; }
+  .sub { color: var(--muted); margin: 0 0 14px; }
+  .grid { display: grid; gap: 12px 16px; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); }
+  label.campo { display: flex; flex-direction: column; gap: 4px; font-weight: 600; font-size: 13px; }
+  label.campo span.ayuda { font-weight: 400; color: var(--muted); font-size: 12px; }
+  input, select { font: inherit; color: var(--text); background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; min-width: 0; width: 100%; }
+  input:focus, select:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+  input[readonly] { background: var(--panel-2); color: var(--muted); }
+  .btn { display: inline-flex; align-items: center; gap: 6px; font: inherit; font-weight: 600; border-radius: 6px; padding: 8px 14px; border: 1px solid var(--line); background: var(--panel); color: var(--text); cursor: pointer; text-decoration: none; }
+  .btn:hover { border-color: var(--accent); }
+  .btn.primario { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
+  .btn.peligro { color: var(--bad); }
+  .btn.chico { padding: 4px 9px; font-size: 12px; }
+  .btn:disabled { opacity: .45; cursor: not-allowed; }
+  .acciones { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 14px; }
+  .segmento { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+  .segmento label { padding: 8px 16px; cursor: pointer; font-weight: 600; }
+  .segmento label { position: relative; }
+  .segmento input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+  .segmento label:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: -2px; }
+  .segmento label:has(input:checked) { background: var(--accent); color: var(--accent-text); }
+  .tabla-caja { overflow: auto; max-height: 480px; border: 1px solid var(--line); border-radius: 8px; }
+  table { border-collapse: collapse; width: 100%; font-size: 13px; }
+  th, td { padding: 7px 10px; border-bottom: 1px solid var(--line); text-align: left; white-space: nowrap; }
+  th { position: sticky; top: 0; background: var(--panel-2); font-size: 12px; color: var(--muted); font-weight: 600; z-index: 1; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  tr.enc td { background: var(--accent-2); font-weight: 600; }
+  .aviso { border-radius: 8px; padding: 10px 14px; margin: 12px 0; border: 1px solid transparent; }
+  .aviso.ok { background: var(--ok-bg); color: var(--ok); }
+  .aviso.warn { background: var(--warn-bg); color: var(--warn); }
+  .aviso.bad { background: var(--bad-bg); color: var(--bad); }
+  .aviso ul { margin: 6px 0 0; padding-left: 20px; }
+  .chip { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 12px; font-weight: 600; }
+  .chip.ok { background: var(--ok-bg); color: var(--ok); }
+  .chip.warn { background: var(--warn-bg); color: var(--warn); }
+  .chip.bad { background: var(--bad-bg); color: var(--bad); }
+  .chip.gris { background: var(--panel-2); color: var(--muted); border: 1px solid var(--line); }
+  .kpis { display: grid; gap: 10px; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); margin: 12px 0; }
+  .kpi { background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; }
+  .kpi b { display: block; font-size: 18px; font-variant-numeric: tabular-nums; }
+  .kpi span { color: var(--muted); font-size: 12px; }
+  .zona { border: 2px dashed var(--line); border-radius: 10px; padding: 22px; text-align: center; color: var(--muted); cursor: pointer; }
+  .zona.encima { border-color: var(--accent); background: var(--accent-2); }
+  .zona strong { color: var(--text); }
+  .oculto { display: none !important; }
+  .fila-flex { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .fila-flex .crece { flex: 1 1 220px; }
+  .pestanas { display: flex; gap: 6px; margin: 14px 0 8px; flex-wrap: wrap; }
+  .pestanas button { font: inherit; font-size: 13px; padding: 6px 12px; border-radius: 999px; border: 1px solid var(--line); background: var(--panel); color: var(--text); cursor: pointer; }
+  .pestanas button[aria-selected="true"] { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
+  dialog { border: 1px solid var(--line); border-radius: 12px; background: var(--panel); color: var(--text); padding: 0; width: min(560px, calc(100vw - 32px)); }
+  dialog::backdrop { background: rgba(10, 15, 25, .45); }
+  dialog form { padding: 20px; }
+  dialog h2 { margin: 0 0 14px; font-size: 16px; }
+  #toast { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); background: var(--text); color: var(--bg); padding: 10px 18px; border-radius: 8px; font-weight: 600; opacity: 0; pointer-events: none; transition: opacity .2s; max-width: calc(100vw - 32px); z-index: 10; }
+  #toast.visible { opacity: 1; }
+  .vacio { color: var(--muted); padding: 18px; text-align: center; }
+  code { font-size: 12px; background: var(--panel-2); padding: 1px 5px; border-radius: 4px; }
+</style>
+</head>
+<body>
+<header>
+  <div class="barra">
+    <h1>Conversor VALO · GetNet <small>Cesión de cupones → Cuotas y Créditos</small></h1>
+    <button class="btn chico" id="btnRespaldo" type="button" title="Descarga clientes, secuencias, bancos e historial">Descargar respaldo</button>
+    <button class="btn chico" id="btnRestaurar" type="button" title="Restaura un respaldo descargado">Restaurar respaldo</button>
+    <input type="file" id="archivoRespaldo" accept=".json,application/json" class="oculto">
+  </div>
+  <nav role="tablist">
+    <button role="tab" data-vista="lote" aria-selected="true">Carga de lote</button>
+    <button role="tab" data-vista="clientes" aria-selected="false">Clientes</button>
+    <button role="tab" data-vista="bancos" aria-selected="false">Bancos</button>
+    <button role="tab" data-vista="historial" aria-selected="false">Historial</button>
+  </nav>
+</header>
+
+<main>
+  <!-- ============================================================ LOTE -->
+  <section class="vista activa" id="vista-lote">
+    <div id="sinClientes" class="aviso warn oculto">
+      No hay clientes dados de alta. Antes de cargar un archivo hay que hacer la apertura del cliente
+      (Nº de negocio, CUIT del cedente y nombre).
+      <div class="acciones"><button class="btn primario" type="button" data-ir="clientes">Ir a Clientes</button></div>
+    </div>
+
+    <div class="card" id="cardFormulario">
+      <h2>1. Formulario del lote</h2>
+      <p class="sub">Secuencia y lote se completan solos según el cliente y el tipo de acción.</p>
+      <div class="grid">
+        <label class="campo">Cliente (cedente)
+          <select id="fCliente"></select>
+        </label>
+        <div class="campo" style="display:flex;flex-direction:column;gap:4px;font-weight:600;font-size:13px">Tipo de acción
+          <div class="segmento" role="radiogroup">
+            <label><input type="radio" name="fTipo" value="Alta" checked>Alta</label>
+            <label><input type="radio" name="fTipo" value="Revolving">Revolving</label>
+          </div>
+        </div>
+        <label class="campo">Periodo <span class="ayuda">yyyymm</span>
+          <input id="fPeriodo" inputmode="numeric" maxlength="6">
+        </label>
+        <label class="campo">Tasa de descuento
+          <input id="fTasa" inputmode="decimal">
+        </label>
+        <label class="campo">Secuencia
+          <input id="fSecuencia" inputmode="numeric" readonly>
+          <span class="ayuda"><label><input type="checkbox" id="fSecuenciaManual" style="width:auto"> editar a mano</label></span>
+        </label>
+        <label class="campo">Lote
+          <input id="fLote" readonly>
+          <span class="ayuda" id="fLoteAyuda"></span>
+        </label>
+        <label class="campo">Nº de negocio
+          <input id="fNegocio" readonly>
+        </label>
+        <label class="campo">Cedente (CUIT)
+          <input id="fCedente" readonly>
+        </label>
+      </div>
+      <div id="estadoFormulario"></div>
+    </div>
+
+    <div class="card" id="cardArchivo">
+      <h2>2. Archivo del cliente</h2>
+      <p class="sub">Adjuntá el Excel que envía el cliente (ej. <code>01. VALO_Cesion_Cupones_….xlsx</code>). Se toma como la solapa Reporte del conversor.</p>
+      <div class="zona" id="zonaLote" tabindex="0">
+        <strong>Cargar lote</strong><br>Arrastrá el archivo acá o hacé clic para elegirlo (.xlsx / .xls / .csv)
+      </div>
+      <input type="file" id="archivoLote" accept=".xlsx,.xls,.xlsm,.csv" class="oculto">
+      <div id="detalleArchivo" class="oculto">
+        <div class="grid" style="margin-top:14px">
+          <label class="campo">Archivo <input id="aNombre" readonly></label>
+          <label class="campo">Hoja a usar <select id="aHoja"></select></label>
+          <label class="campo" id="aMontoCaja">Columna para MONTO <select id="aMonto"></select>
+            <span class="ayuda">El conversor usa vlu_transaction_amount.</span></label>
+        </div>
+        <div id="resumenArchivo"></div>
+        <div id="controlBancos"></div>
+      </div>
+      <div class="acciones">
+        <button class="btn primario" id="btnProcesar" type="button" disabled>Procesar lote y generar TXT</button>
+        <span id="motivoBloqueo" class="sub" style="margin:0"></span>
+      </div>
+    </div>
+
+    <div class="card oculto" id="cardResultado">
+      <h2>3. Resultado</h2>
+      <p class="sub" id="resultadoSub"></p>
+      <div class="acciones" id="descargasResultado" style="margin-top:0"></div>
+      <div id="controlesResultado"></div>
+      <div class="pestanas" role="tablist" id="pestanasResultado">
+        <button type="button" data-tabla="cuotas" aria-selected="true">Cuotas</button>
+        <button type="button" data-tabla="creditos" aria-selected="false">Créditos</button>
+        <button type="button" data-tabla="reporte" aria-selected="false">Reporte</button>
+      </div>
+      <div class="tabla-caja" id="tablaResultado"></div>
+    </div>
+  </section>
+
+  <!-- ======================================================== CLIENTES -->
+  <section class="vista" id="vista-clientes">
+    <div class="card">
+      <h2>Apertura de cliente</h2>
+      <p class="sub">Sin la apertura del cliente no se puede dar de alta un archivo. La secuencia se lleva por cedente y arranca en 1.</p>
+      <form id="formCliente" autocomplete="off">
+        <div class="grid">
+          <label class="campo">Nº de negocio <input id="cNegocio" required></label>
+          <label class="campo">CUIT del cedente <span class="ayuda">11 dígitos, sin guiones</span><input id="cCuit" inputmode="numeric" maxlength="13" required></label>
+          <label class="campo">Nombre del cedente <input id="cNombre" required></label>
+          <label class="campo">Última secuencia ya usada <span class="ayuda">Opcional. 0 = el primer lote sale con 1</span><input id="cSecuencia" inputmode="numeric" value="0"></label>
+        </div>
+        <div class="acciones"><button class="btn primario" type="submit">Dar de alta cliente</button></div>
+        <div id="errorCliente"></div>
+      </form>
+    </div>
+    <div class="card">
+      <h2>Clientes</h2>
+      <div class="tabla-caja" id="tablaClientes"></div>
+    </div>
+  </section>
+
+  <!-- ========================================================== BANCOS -->
+  <section class="vista" id="vista-bancos">
+    <div class="card">
+      <h2>Bancos</h2>
+      <p class="sub">Tabla maestra que completa CUIT, sucursal, nombre y código de crédito. Arranca con la carga masiva de la solapa Bancos del conversor; para actualizarla subí un Excel con las columnas
+        <code>Banco</code> <code>Nombre</code> <code>CUIT</code> <code>Jurisdiccion</code> <code>Codigo Sucursal</code> <code>Codigo Nº Credito</code>.</p>
+      <div class="fila-flex">
+        <label class="campo" style="flex-direction:row;align-items:center;gap:8px">Modo de carga
+          <select id="bModo" style="width:auto">
+            <option value="actualizar">Actualizar existentes y agregar nuevos</option>
+            <option value="reemplazar">Reemplazar toda la tabla</option>
+          </select>
+        </label>
+        <button class="btn primario" id="btnCargarBancos" type="button">Cargar Excel de bancos</button>
+        <input type="file" id="archivoBancos" accept=".xlsx,.xls,.xlsm,.csv" class="oculto">
+        <button class="btn" id="btnDescargarBancos" type="button">Descargar Excel de bancos</button>
+        <button class="btn" id="btnNuevoBanco" type="button">Agregar banco</button>
+        <button class="btn peligro" id="btnBancosOriginales" type="button">Volver a la carga original</button>
+      </div>
+      <div id="resultadoBancos"></div>
+      <div class="fila-flex" style="margin:14px 0 10px">
+        <input id="bBuscar" class="crece" placeholder="Buscar por código, nombre o CUIT">
+        <label style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="bSoloIncompletos" style="width:auto"> Solo incompletos</label>
+        <span id="bResumen" class="sub" style="margin:0"></span>
+      </div>
+      <div class="tabla-caja" id="tablaBancos"></div>
+    </div>
+  </section>
+
+  <!-- ======================================================= HISTORIAL -->
+  <section class="vista" id="vista-historial">
+    <div class="card">
+      <h2>Historial de lotes</h2>
+      <p class="sub">Podés volver a descargar los TXT de cualquier lote. Anular el último lote de un cliente devuelve su secuencia al número anterior.</p>
+      <div class="fila-flex" style="margin-bottom:10px">
+        <label class="campo" style="flex-direction:row;align-items:center;gap:8px">Cliente <select id="hCliente" style="width:auto"></select></label>
+      </div>
+      <div class="tabla-caja" id="tablaHistorial"></div>
+    </div>
+  </section>
+</main>
+
+<dialog id="dlgBanco">
+  <form method="dialog" id="formBanco">
+    <h2 id="dlgBancoTitulo">Banco</h2>
+    <div class="grid" style="grid-template-columns:1fr 1fr">
+      <label class="campo">Código de banco <input id="dCodigo" inputmode="numeric" required></label>
+      <label class="campo">CUIT <input id="dCuit" inputmode="numeric" maxlength="13" required></label>
+      <label class="campo" style="grid-column:1/-1">Nombre <input id="dNombre" required></label>
+      <label class="campo">Jurisdicción <select id="dJurisdiccion"></select></label>
+      <label class="campo">Código sucursal <input id="dSucursal" inputmode="numeric"></label>
+      <label class="campo">Código Nº crédito <span class="ayuda">Por defecto: últimos 4 dígitos del código</span><input id="dCodCredito" inputmode="numeric"></label>
+    </div>
+    <div id="dError"></div>
+    <div class="acciones">
+      <button class="btn primario" value="guardar" id="dGuardar">Guardar</button>
+      <button class="btn" value="cancelar" formnovalidate>Cancelar</button>
+      <button class="btn peligro" value="borrar" id="dBorrar" formnovalidate style="margin-left:auto">Borrar banco</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="dlgCliente">
+  <form method="dialog" id="formEditarCliente">
+    <h2>Editar cliente</h2>
+    <div class="grid" style="grid-template-columns:1fr 1fr">
+      <label class="campo">Nº de negocio <input id="eNegocio" required></label>
+      <label class="campo">CUIT del cedente <input id="eCuit" inputmode="numeric" maxlength="13" required></label>
+      <label class="campo" style="grid-column:1/-1">Nombre <input id="eNombre" required></label>
+      <label class="campo">Última secuencia usada <input id="eSecuencia" inputmode="numeric"></label>
+    </div>
+    <div id="eError"></div>
+    <div class="acciones">
+      <button class="btn primario" value="guardar" id="eGuardar">Guardar</button>
+      <button class="btn" value="cancelar" formnovalidate>Cancelar</button>
+    </div>
+  </form>
+</dialog>
+
+<div id="toast" role="status"></div>
+
+<script src="vendor/xlsx.full.min.js"></script>
+<script src="bancos-iniciales.js"></script>
+<script src="motor.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
