@@ -53,6 +53,11 @@
   .btn.primario { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
   .btn.peligro { color: var(--bad); }
   .btn.peligro-lleno { background: var(--bad); border-color: var(--bad); color: var(--panel); }
+  .interfaz-caja { margin-top: 16px; padding: 14px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel-2); }
+  .interfaz-caja h3 { margin: 0 0 4px; font-size: 14px; }
+  .interfaz-caja .grid { margin-top: 12px; }
+  .ejemplo { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+  #dlgCliente { width: min(760px, calc(100vw - 32px)); }
   #confMensaje td { border: 0; padding: 3px 12px 3px 0; }
   .btn.chico { padding: 4px 9px; font-size: 12px; }
   .btn:disabled { opacity: .45; cursor: not-allowed; }
@@ -105,7 +110,7 @@
 <body>
 <header>
   <div class="barra">
-    <h1>Conversor VALO · GetNet <small>Cesión de cupones → Cuotas y Créditos · <span id="versionPagina">versión 2026-09-29.2</span></small></h1>
+    <h1>Conversor VALO · GetNet <small>Cuotas y Créditos · <span id="versionPagina">versión 2026-09-29.3</span></small></h1>
     <span id="estadoBase"><span class="chip gris">Conectando…</span></span>
     <button class="btn chico" id="btnRespaldo" data-solo-local type="button" title="Descarga clientes, secuencias, bancos e historial">Descargar respaldo</button>
     <button class="btn chico" id="btnRestaurar" data-solo-local data-escribe type="button" title="Restaura un respaldo descargado">Restaurar respaldo</button>
@@ -225,6 +230,7 @@
           <label class="campo">Última secuencia ya usada <input id="cSecuencia" inputmode="numeric" value="0">
             <span class="ayuda">Opcional. 0 = el primer lote sale con 1</span></label>
         </div>
+        <div class="interfaz-caja" id="cInterfaz"></div>
         <div class="acciones"><button class="btn primario" data-escribe type="submit">Dar de alta cliente</button></div>
         <div id="errorCliente"></div>
       </form>
@@ -313,6 +319,7 @@
       <label class="campo" style="grid-column:1/-1">Nombre <input id="eNombre" required></label>
       <label class="campo">Última secuencia usada <input id="eSecuencia" inputmode="numeric"></label>
     </div>
+    <div class="interfaz-caja" id="eInterfaz"></div>
     <div id="eError"></div>
     <div class="acciones">
       <button class="btn primario" value="guardar" id="eGuardar">Guardar</button>
@@ -335,9 +342,9 @@
 <div id="toast" role="status"></div>
 
 <script src="vendor/xlsx.full.min.js"></script>
-<script src="bancos-iniciales.js?v=2026-09-29.2"></script>
-<script src="motor.js?v=2026-09-29.2"></script>
-<script src="almacen.js?v=2026-09-29.2"></script>
-<script src="app.js?v=2026-09-29.2"></script>
+<script src="bancos-iniciales.js?v=2026-09-29.3"></script>
+<script src="motor.js?v=2026-09-29.3"></script>
+<script src="almacen.js?v=2026-09-29.3"></script>
+<script src="app.js?v=2026-09-29.3"></script>
 </body>
 </html>

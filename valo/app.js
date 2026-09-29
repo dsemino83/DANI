@@ -78,6 +78,13 @@
     return file.arrayBuffer().then(buf => XLSX.read(buf, { type: 'array' }));
   }
 
+  // Devuelve las hojas de un archivo como [{hoja, filas}]. Los CSV se leen como texto (fechas dd/mm/aaaa intactas).
+  async function leerHojas(file) {
+    if (/\.(csv|txt)$/i.test(file.name)) return [{ hoja: file.name.replace(/\.[^.]+$/, ''), filas: M.leerCsv(await file.text()) }];
+    const wb = await leerLibro(file);
+    return wb.SheetNames.map(n => ({ hoja: n, filas: filasHoja(wb.Sheets[n]) }));
+  }
+
   function filasHoja(ws) {
     return XLSX.utils.sheet_to_json(ws, { header: 1, raw: true, defval: null, blankrows: false });
   }
@@ -108,6 +115,104 @@
     if (b) irA(b.dataset.ir);
   });
 
+  // ============================================================ INTERFAZ POR CLIENTE
+
+  // Editor de la interfaz de un cliente: se sube un archivo de ejemplo del cliente (o un archivo de interfaz
+  // con dos columnas Campo | Columna) y se elige qué columna corresponde a banco, fecha de vencimiento y monto.
+  function crearEditorInterfaz(caja) {
+    let interfaz = null;   // interfaz guardada o elegida
+    let columnas = [];     // encabezados del archivo de ejemplo
+    let ejemplo = null;    // primera fila de datos, para mostrar valores de muestra
+    const uid = caja.id;
+
+    function render() {
+      const opciones = actual => '<option value="">—</option>' + columnas.map(c => `<option ${c === actual ? 'selected' : ''}>${esc(c)}</option>`).join('');
+      let html = `<h3>Interfaz del archivo del cliente</h3>
+        <p class="sub" style="margin:0">Subí un archivo de ejemplo del cliente (Excel o CSV) y elegí qué columna tiene cada dato.
+        Sin interfaz se reconoce automáticamente el formato GetNet / Reporte.</p>
+        <div class="acciones" style="margin-top:10px">
+          <button class="btn" type="button" data-escribe id="${uid}Btn">${interfaz ? 'Cambiar archivo de interfaz' : 'Cargar archivo de interfaz'}</button>
+          ${interfaz ? `<button class="btn peligro" type="button" data-escribe id="${uid}Quitar">Quitar interfaz</button>` : ''}
+          <span class="sub" style="margin:0">${interfaz ? 'Interfaz: <b>' + esc(interfaz.nombre) + '</b>' : 'Interfaz: automática (GetNet / Reporte)'}</span>
+          <input type="file" id="${uid}Archivo" accept=".xlsx,.xls,.xlsm,.csv,.txt" class="oculto">
+        </div>`;
+      if (interfaz) {
+        html += '<div class="grid">' + M.CAMPOS_INTERFAZ.map(c => {
+          const valor = interfaz[c.id] || '';
+          const idx = ejemplo ? columnas.indexOf(valor) : -1;
+          const muestra = idx > -1 && ejemplo[idx] != null && ejemplo[idx] !== '' ? 'Ej.: ' + esc(ejemplo[idx]) : '';
+          return `<label class="campo">${esc(c.nombre)}${c.requerido ? ' *' : ''}
+            <select data-campo="${c.id}">${opciones(valor)}</select>
+            <span class="ayuda ejemplo">${muestra || (c.requerido ? '' : 'Opcional')}</span></label>`;
+        }).join('') + '</div>';
+      }
+      caja.innerHTML = html;
+      caja.querySelector('#' + uid + 'Btn').onclick = () => caja.querySelector('#' + uid + 'Archivo').click();
+      const quitar = caja.querySelector('#' + uid + 'Quitar');
+      if (quitar) quitar.onclick = () => { interfaz = null; columnas = []; ejemplo = null; render(); };
+      caja.querySelector('#' + uid + 'Archivo').onchange = async e => {
+        const f = e.target.files[0];
+        e.target.value = '';
+        if (f) await cargar(f);
+      };
+      caja.querySelectorAll('select[data-campo]').forEach(sel => sel.onchange = () => {
+        interfaz[sel.dataset.campo] = sel.value;
+        render();
+      });
+    }
+
+    async function cargar(file) {
+      try {
+        const hojas = await leerHojas(file);
+        const def = hojas.map(h => M.leerDefinicionInterfaz(h.filas)).find(Boolean);
+        if (def) {
+          // Archivo de interfaz: Campo | Columna.
+          columnas = [...new Set([def.banco, def.fecha, def.monto, def.nombreBanco, def.id].filter(Boolean))];
+          ejemplo = null;
+          interfaz = Object.assign({ nombre: file.name }, def);
+        } else {
+          const hoja = hojas.find(h => M.encabezadosEjemplo(h.filas).length >= 3);
+          if (!hoja) throw new Error('No se encontraron encabezados de columnas en el archivo.');
+          columnas = M.encabezadosEjemplo(hoja.filas);
+          const fEnc = hoja.filas.findIndex(r => r && M.encabezadosEjemplo([r]).length >= 2);
+          const enc = (hoja.filas[fEnc] || []).map(c => (c == null ? '' : String(c).trim()));
+          const datosFila = hoja.filas.slice(fEnc + 1).find(r => r && r.some(c => c != null && c !== ''));
+          ejemplo = datosFila ? columnas.map(c => datosFila[enc.indexOf(c)]) : null;
+          interfaz = { nombre: file.name };
+          M.CAMPOS_INTERFAZ.forEach(c => { interfaz[c.id] = M.sugerirColumna(c.id, columnas); });
+        }
+        render();
+      } catch (err) {
+        toast('No se pudo leer el archivo de interfaz: ' + (err.message || err));
+      }
+    }
+
+    function fijar(valor) {
+      interfaz = valor ? Object.assign({}, valor) : null;
+      columnas = valor ? (valor.columnas || [valor.banco, valor.fecha, valor.monto, valor.nombreBanco, valor.id].filter(Boolean)) : [];
+      ejemplo = null;
+      render();
+    }
+
+    // Devuelve { interfaz } o { error }.
+    function leer() {
+      if (!interfaz) return { interfaz: null };
+      const faltan = M.CAMPOS_INTERFAZ.filter(c => c.requerido && !interfaz[c.id]).map(c => c.nombre);
+      if (faltan.length) return { error: 'En la interfaz falta elegir: ' + faltan.join(', ') + '.' };
+      const elegidas = M.CAMPOS_INTERFAZ.map(c => interfaz[c.id]).filter(Boolean);
+      if (new Set(elegidas).size !== elegidas.length) return { error: 'En la interfaz, cada dato tiene que venir de una columna distinta.' };
+      const out = { nombre: interfaz.nombre, columnas: columnas.slice() };
+      M.CAMPOS_INTERFAZ.forEach(c => { out[c.id] = interfaz[c.id] || null; });
+      return { interfaz: out };
+    }
+
+    render();
+    return { fijar, leer };
+  }
+
+  const editorAlta = crearEditorInterfaz($('cInterfaz'));
+  const editorEdicion = crearEditorInterfaz($('eInterfaz'));
+
   // ============================================================ CLIENTES
 
   const clientePorId = id => datos().clientes.find(c => c.id === id);
@@ -133,10 +238,13 @@
       ultimaSecuencia: Number($('cSecuencia').value.trim() || 0),
     };
     const errores = validarCliente(d);
+    const ri = editorAlta.leer();
+    if (ri.error) errores.push(ri.error);
     if (errores.length) {
       $('errorCliente').innerHTML = aviso('bad', errores.join('<br>'));
       return;
     }
+    d.interfaz = ri.interfaz;
     $('errorCliente').innerHTML = '';
     const boton = e.target.querySelector('button[type=submit]');
     boton.disabled = true;
@@ -145,6 +253,7 @@
     if (!cliente) return;
     e.target.reset();
     $('cSecuencia').value = '0';
+    editorAlta.fijar(null);
     clientePendiente = cliente.id;
     refrescar();
     toast(`Cliente ${cliente.nombre} dado de alta. Próxima secuencia: ${cliente.ultimaSecuencia + 1}`);
@@ -162,12 +271,13 @@
       return `<tr>
         <td>${esc(c.negocio)}</td><td>${esc(c.cuit)}</td><td>${esc(c.nombre)}</td>
         <td class="num">${c.ultimaSecuencia}</td><td class="num">${c.ultimaSecuencia + 1}</td><td class="num">${n}</td>
+        <td>${c.interfaz ? `<span title="Banco: ${esc(c.interfaz.banco)} · Fecha: ${esc(c.interfaz.fecha)} · Monto: ${esc(c.interfaz.monto)}">${esc(c.interfaz.nombre)}</span>` : '<span class="chip gris">Automática</span>'}</td>
         ${compartido ? `<td>${esc(quien(c.creadoPor))}</td>` : ''}
         <td><button class="btn chico" data-escribe data-editar-cliente="${c.id}">Editar</button>
         ${n ? '' : `<button class="btn chico peligro" data-escribe data-borrar-cliente="${c.id}">Borrar</button>`}</td></tr>`;
     }).join('');
     caja.innerHTML = `<table><thead><tr><th>Nº negocio</th><th>CUIT cedente</th><th>Nombre</th>
-      <th class="num">Última secuencia</th><th class="num">Próxima</th><th class="num">Lotes</th>${compartido ? '<th>Alta por</th>' : ''}<th></th></tr></thead><tbody>${filas}</tbody></table>`;
+      <th class="num">Última secuencia</th><th class="num">Próxima</th><th class="num">Lotes</th><th>Interfaz</th>${compartido ? '<th>Alta por</th>' : ''}<th></th></tr></thead><tbody>${filas}</tbody></table>`;
   }
 
   let clienteEditando = null;
@@ -179,6 +289,7 @@
       clienteEditando = c;
       $('eNegocio').value = c.negocio; $('eCuit').value = c.cuit; $('eNombre').value = c.nombre;
       $('eSecuencia').value = c.ultimaSecuencia; $('eError').innerHTML = '';
+      editorEdicion.fijar(c.interfaz || null);
       $('dlgCliente').showModal();
     }
     if (bo) {
@@ -197,10 +308,13 @@
       nombre: $('eNombre').value.trim(), ultimaSecuencia: Number($('eSecuencia').value.trim() || 0),
     };
     const errores = validarCliente(d, clienteEditando.id);
+    const ri = editorEdicion.leer();
+    if (ri.error) errores.push(ri.error);
     if (errores.length) {
       $('eError').innerHTML = aviso('bad', errores.join('<br>'));
       return;
     }
+    d.interfaz = ri.interfaz;
     if (d.ultimaSecuencia !== clienteEditando.ultimaSecuencia) {
       $('eError').innerHTML = '';
       if (!await confirmar('Cambiar secuencia', `Vas a cambiar la última secuencia de <b>${clienteEditando.ultimaSecuencia}</b> a <b>${d.ultimaSecuencia}</b>. ¿Continuar?`, 'Cambiar')) return;
@@ -523,19 +637,11 @@
 
   async function cargarArchivoLote(file) {
     try {
-      const wb = await leerLibro(file);
-      const hojas = wb.SheetNames.map(n => {
-        const filas = filasHoja(wb.Sheets[n]);
-        return Object.assign(M.detectarHoja(n, filas), { filas });
-      });
-      const utiles = hojas.filter(h => h.formato && M.normalizar(h.hoja) !== 'glosario');
-      if (!utiles.length) throw new Error('No se encontró una hoja con los datos esperados (columnas cod_entidad_bancaria / dat_reconciliation_estimated_date, o COD_BANCO / MONTO / FECHA_VENCIMIENTO).');
-      const conc = hojas.find(h => M.normalizar(h.hoja).startsWith('conciliacion'));
-      archivo = { nombre: file.name, hojas: utiles, conciliacion: conc ? M.leerConciliacion(conc.filas) : null };
-      // Por defecto: la hoja de cupones GetNet con más filas; si no hay, la hoja Reporte.
-      const porDefecto = utiles.filter(h => h.formato === 'getnet').sort((a, b) => b.cantidad - a.cantidad)[0] || utiles[0];
+      $('motivoBloqueo').textContent = 'Leyendo ' + file.name + '…';
+      const crudas = await leerHojas(file);
+      const conc = crudas.find(h => M.normalizar(h.hoja).startsWith('conciliacion'));
+      archivo = { nombre: file.name, crudas, hojas: [], conciliacion: conc ? M.leerConciliacion(conc.filas) : null, interfazDe: undefined };
       $('aNombre').value = file.name;
-      $('aHoja').innerHTML = utiles.map((h, i) => `<option value="${i}" ${h === porDefecto ? 'selected' : ''}>${esc(h.hoja)} — ${M.FORMATOS[h.formato].nombre} (${fmtEntero(h.cantidad)} filas)</option>`).join('');
       $('aMonto').innerHTML = Object.entries(M.COLUMNAS_MONTO).map(([k, v]) => `<option value="${k}">${esc(v)}</option>`).join('');
       // Tipo de acción: si el nombre del archivo lo indica, se toma de ahí.
       const n = M.normalizar(file.name);
@@ -550,6 +656,28 @@
       $('motivoBloqueo').innerHTML = `<span style="color:var(--bad)">${esc(err.message || err)}</span>`;
       $('btnProcesar').disabled = true;
     }
+  }
+
+  // Detecta las hojas útiles según la interfaz del cliente elegido (o el formato automático).
+  // Devuelve un mensaje de error si el archivo no coincide.
+  function prepararHojas() {
+    const c = clientePorId($('fCliente').value);
+    const interfaz = (c && c.interfaz) || null;
+    const claveInterfaz = JSON.stringify(interfaz);
+    if (archivo.interfazDe === claveInterfaz) return archivo.errorHojas || null;
+    archivo.interfazDe = claveInterfaz;
+    const hojas = archivo.crudas.map(h => Object.assign(
+      interfaz ? M.detectarHojaInterfaz(h.hoja, h.filas, interfaz) : M.detectarHoja(h.hoja, h.filas), { filas: h.filas }));
+    const utiles = hojas.filter(h => h.formato && M.normalizar(h.hoja) !== 'glosario');
+    archivo.hojas = utiles;
+    archivo.interfaz = interfaz;
+    archivo.errorHojas = utiles.length ? null : interfaz
+      ? `El archivo no tiene las columnas de la interfaz de ${c.nombre} (${interfaz.banco}, ${interfaz.fecha}, ${interfaz.monto}). Revisá el archivo o la interfaz del cliente.`
+      : 'No se encontró una hoja con los datos esperados (columnas cod_entidad_bancaria / dat_reconciliation_estimated_date, o COD_BANCO / MONTO / FECHA_VENCIMIENTO). Si el cliente usa otro formato, cargale una interfaz en Clientes.';
+    // Por defecto: la hoja con más filas (en automático, la de cupones GetNet).
+    const porDefecto = (interfaz ? utiles : utiles.filter(h => h.formato === 'getnet')).slice().sort((a, b) => b.cantidad - a.cantidad)[0] || utiles[0];
+    $('aHoja').innerHTML = utiles.map((h, i) => `<option value="${i}" ${h === porDefecto ? 'selected' : ''}>${esc(h.hoja)} — ${interfaz ? 'Interfaz ' + esc(interfaz.nombre) : M.FORMATOS[h.formato].nombre} (${fmtEntero(h.cantidad)} filas)</option>`).join('');
+    return archivo.errorHojas;
   }
   $('aHoja').addEventListener('change', reevaluarArchivo);
   $('aMonto').addEventListener('change', reevaluarArchivo);
@@ -569,9 +697,19 @@
       mostrarBloqueo(bloqueos);
       return;
     }
+    const errorHojas = prepararHojas();
+    if (errorHojas) {
+      preparado = null;
+      $('resumenArchivo').innerHTML = aviso('bad', esc(errorHojas));
+      $('controlBancos').innerHTML = '';
+      $('aMontoCaja').classList.add('oculto');
+      bloqueos.push('el archivo no coincide con el formato del cliente');
+      mostrarBloqueo(bloqueos);
+      return;
+    }
     const hoja = archivo.hojas[Number($('aHoja').value) || 0];
     $('aMontoCaja').classList.toggle('oculto', hoja.formato !== 'getnet');
-    const reporte = M.armarReporte(hoja.filas, hoja, { columnaMonto: $('aMonto').value });
+    const reporte = M.armarReporte(hoja.filas, hoja, { columnaMonto: $('aMonto').value, interfaz: archivo.interfaz });
     const errores = M.controlarReporte(reporte);
     const cb = M.controlarBancos(reporte, datos().bancos);
     const total = M.round2(reporte.reduce((s, r) => s + (r.MONTO || 0), 0));
@@ -590,6 +728,12 @@
         ? aviso('ok', `El total coincide con el Bruto de la hoja Conciliación ($ ${fmtMonto(bruto)}).`)
         : aviso('warn', `Atención: el total MONTO ($ ${fmtMonto(total)}) no coincide con el Bruto de la hoja Conciliación ($ ${fmtMonto(bruto)}).` +
           (Math.abs(bruto - cuotas) < 0.01 && $('aMonto').value !== 'vlu_installment_amount' ? ' El Bruto coincide con la suma de <b>vlu_installment_amount</b>; revisá la columna elegida para MONTO.' : ''));
+    }
+    if (reporte.ignoradas) {
+      const pie = (reporte.totalesPie || [])[0];
+      html += pie != null && Math.abs(pie - total) >= 0.01
+        ? aviso('warn', `Se ignoró ${reporte.ignoradas === 1 ? 'una fila' : reporte.ignoradas + ' filas'} sin banco ni fecha (total al pie). Atención: ese total ($ ${fmtMonto(pie)}) no coincide con la suma de los cupones ($ ${fmtMonto(total)}); revisá el archivo con el cliente.`)
+        : aviso('ok', `Se ignoró ${reporte.ignoradas === 1 ? 'una fila' : reporte.ignoradas + ' filas'} sin banco ni fecha${pie != null ? ' (total al pie, coincide con la suma)' : ''}.`);
     }
     if (errores.length) html += aviso('bad', `<b>El archivo tiene ${errores.length} filas con datos inválidos:</b><ul>${errores.slice(0, 8).map(e => `<li>${esc(e)}</li>`).join('')}${errores.length > 8 ? '<li>…</li>' : ''}</ul>`);
     $('resumenArchivo').innerHTML = html;
@@ -664,7 +808,8 @@
         cambiosCliente: { ultimaSecuencia: Math.max(fresco.ultimaSecuencia, p.secuencia), tasa: p.tasa },
         lote: {
           id: nuevoId(), clienteId: c.id, fecha: hoy.toISOString(), archivo: archivoActual.nombre, hoja: prep.hoja.hoja,
-          columnaMonto: prep.hoja.formato === 'getnet' ? columnaMonto : 'MONTO', firma,
+          columnaMonto: prep.hoja.formato === 'getnet' ? columnaMonto : prep.hoja.formato === 'interfaz' ? archivoActual.interfaz.monto : 'MONTO', firma,
+          interfaz: prep.hoja.formato === 'interfaz' ? archivoActual.interfaz.nombre : null,
           tipoAccion: p.tipoAccion, secuencia: p.secuencia, lote: p.lote, periodo: p.periodo, tasa: p.tasa,
           secuenciaAnterior: fresco.ultimaSecuencia, filas: prep.reporte.length,
           cantCuotas: cuotas.filas.length, cantCreditos: creditos.filas.length, total: cuotas.encabezado.totalCapital,

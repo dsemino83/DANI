@@ -148,7 +148,25 @@
       nombre: 'Reporte (formato conversor)',
       requeridas: ['cod_banco', 'fecha_vencimiento', 'monto'],
     },
+    interfaz: {
+      nombre: 'Interfaz del cliente',
+      requeridas: [],
+    },
   };
+
+  // Campos que define la interfaz de un cliente (qué columna del archivo del cliente usar para cada dato).
+  const CAMPOS_INTERFAZ = [
+    { id: 'banco', nombre: 'Código de banco', requerido: true,
+      sugeridas: ['userbank', 'cod_entidad_bancaria', 'cod_banco', 'codigo_banco', 'banco', 'bank'] },
+    { id: 'fecha', nombre: 'Fecha de vencimiento', requerido: true,
+      sugeridas: ['acceleratedpaymentdate', 'dat_reconciliation_estimated_date', 'fecha_vencimiento', 'fecha_de_vencimiento', 'fecha_pago', 'paymentdate'] },
+    { id: 'monto', nombre: 'Monto', requerido: true,
+      sugeridas: ['yieldamount', 'vlu_transaction_amount', 'monto', 'importe', 'amount'] },
+    { id: 'nombreBanco', nombre: 'Nombre del banco', requerido: false,
+      sugeridas: ['entidad_bancaria', 'nombre_banco', 'bankname'] },
+    { id: 'id', nombre: 'Identificador', requerido: false,
+      sugeridas: ['id', 'idt_transaction_identifier', 'id_lote', 'installmentid', 'transactionid'] },
+  ];
 
   const COLUMNAS_MONTO = {
     vlu_transaction_amount: 'vlu_transaction_amount (monto de la transacción)',
@@ -156,6 +174,84 @@
   };
 
   const clave = h => normalizar(h).replace(/ /g, '_');
+
+  // Lector de CSV (separador , o ; y comillas). Devuelve filas como texto; descarta las filas vacías
+  // (",,,,") para no cargar en memoria archivos con miles de renglones en blanco.
+  function leerCsv(texto) {
+    if (texto.charCodeAt(0) === 0xFEFF) texto = texto.slice(1);
+    const primera = texto.slice(0, texto.indexOf('\n') > -1 ? texto.indexOf('\n') : texto.length);
+    const sep = (primera.split(';').length > primera.split(',').length) ? ';' : ',';
+    const filas = [];
+    let fila = [], campo = '', comillas = false;
+    const cerrarFila = () => {
+      fila.push(campo); campo = '';
+      if (fila.some(c => c.trim() !== '')) filas.push(fila);
+      fila = [];
+    };
+    for (let i = 0; i < texto.length; i++) {
+      const ch = texto[i];
+      if (comillas) {
+        if (ch === '"') {
+          if (texto[i + 1] === '"') { campo += '"'; i++; } else comillas = false;
+        } else campo += ch;
+      } else if (ch === '"') comillas = true;
+      else if (ch === sep) { fila.push(campo); campo = ''; }
+      else if (ch === '\n') cerrarFila();
+      else if (ch !== '\r') campo += ch;
+    }
+    if (campo !== '' || fila.length) cerrarFila();
+    return filas;
+  }
+
+  // Encabezados de un archivo de ejemplo: la primera fila (entre las 20 primeras) con al menos 2 textos.
+  function encabezadosEjemplo(filas) {
+    for (let i = 0; i < Math.min(filas.length, 20); i++) {
+      const r = (filas[i] || []).map(c => (c == null ? '' : String(c).trim()));
+      if (r.filter(c => c && isNaN(Number(c))).length >= 2) return r.filter(Boolean);
+    }
+    return [];
+  }
+
+  // Si el archivo es una definición de interfaz (dos columnas: Campo | Columna), la devuelve.
+  function leerDefinicionInterfaz(filas) {
+    const alias = {
+      banco: ['banco', 'cod banco', 'codigo banco', 'codigo de banco', 'cod_banco'],
+      fecha: ['fecha', 'fecha vencimiento', 'fecha de vencimiento', 'fecha_vencimiento', 'vencimiento'],
+      monto: ['monto', 'importe'],
+      nombreBanco: ['nombre banco', 'nombre del banco', 'nombre_banco'],
+      id: ['id', 'identificador', 'id_lote'],
+    };
+    const res = {};
+    (filas || []).slice(0, 30).forEach(r => {
+      if (!r || r[0] == null || r[1] == null || String(r[1]).trim() === '') return;
+      const k = normalizar(r[0]);
+      Object.keys(alias).forEach(campo => { if (alias[campo].includes(k)) res[campo] = String(r[1]).trim(); });
+    });
+    return res.banco && res.fecha && res.monto ? res : null;
+  }
+
+  function sugerirColumna(campo, encabezados) {
+    const def = CAMPOS_INTERFAZ.find(c => c.id === campo);
+    const claves = encabezados.map(clave);
+    for (const s of def.sugeridas) {
+      const i = claves.indexOf(s);
+      if (i > -1) return encabezados[i];
+    }
+    return '';
+  }
+
+  // Busca en la hoja la fila de encabezados que tiene las columnas de la interfaz del cliente.
+  function detectarHojaInterfaz(nombre, filas, interfaz) {
+    const req = [interfaz.banco, interfaz.fecha, interfaz.monto].map(clave);
+    for (let i = 0; i < Math.min(filas.length, 20); i++) {
+      const enc = (filas[i] || []).map(clave);
+      if (req.every(r => enc.includes(r))) {
+        const datos = filas.slice(i + 1).filter(r => r && r.some(c => c != null && c !== ''));
+        return { hoja: nombre, formato: 'interfaz', filaEncabezado: i, encabezados: enc, cantidad: datos.length };
+      }
+    }
+    return { hoja: nombre, formato: null, cantidad: 0 };
+  }
 
   // filas = array de arrays (sheet_to_json con header:1).
   function detectarHoja(nombre, filas) {
@@ -178,9 +274,30 @@
     const salida = [];
     const datos = filas.slice(deteccion.filaEncabezado + 1);
     const tomar = (r, n) => (col(n) > -1 ? r[col(n)] : null);
+    const vacio = v => v == null || String(v).trim() === '';
+    let ignoradas = 0;
+    const totalesPie = [];
     datos.forEach(r => {
       if (!r || !r.some(c => c != null && c !== '')) return;
-      if (deteccion.formato === 'getnet') {
+      if (deteccion.formato === 'interfaz') {
+        const it = opciones.interfaz;
+        const k = n => (n ? clave(n) : '');
+        // Filas sin banco ni fecha (por ejemplo, una fila de totales al pie) no son cupones.
+        if (vacio(tomar(r, k(it.banco))) && vacio(tomar(r, k(it.fecha)))) {
+          ignoradas++;
+          const pie = aNumero(tomar(r, k(it.monto)));
+          if (pie != null) totalesPie.push(pie);
+          return;
+        }
+        salida.push({
+          ID_LOTE: it.id ? tomar(r, k(it.id)) : null,
+          COD_BANCO: aCodigoBanco(tomar(r, k(it.banco))),
+          NOMBRE_BANCO: it.nombreBanco ? tomar(r, k(it.nombreBanco)) : null,
+          MONTO: aNumero(tomar(r, k(it.monto))),
+          FECHA_VENCIMIENTO: aFechaSerial(tomar(r, k(it.fecha))),
+          PLAZO: null, TNA: null, TEA: null, CFT: null,
+        });
+      } else if (deteccion.formato === 'getnet') {
         const campoMonto = (opciones && opciones.columnaMonto) || 'vlu_transaction_amount';
         salida.push({
           ID_LOTE: tomar(r, 'idt_transaction_identifier'),
@@ -203,6 +320,8 @@
         });
       }
     });
+    salida.ignoradas = ignoradas;
+    salida.totalesPie = totalesPie;
     return salida;
   }
 
@@ -435,7 +554,8 @@
   }
 
   const api = {
-    PROVINCIAS, FIJOS, COLS_REPORTE, FORMATOS, COLUMNAS_MONTO,
+    PROVINCIAS, FIJOS, COLS_REPORTE, FORMATOS, COLUMNAS_MONTO, CAMPOS_INTERFAZ,
+    leerCsv, encabezadosEjemplo, leerDefinicionInterfaz, sugerirColumna, detectarHojaInterfaz,
     normalizar, provinciaPorNombre, round2, aNumero, aFechaSerial, aCodigoBanco,
     fechaDDMMYY, fechaYYYYMMDD, fechaLegible, hoyDDMMYY,
     detectarHoja, armarReporte, leerConciliacion,

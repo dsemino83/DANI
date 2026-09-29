@@ -15,6 +15,11 @@ Después de modificar el código, regenerar el archivo único con `python3 const
 1. **Clientes** – apertura del cliente: Nº de negocio, CUIT del cedente (11 dígitos) y nombre.
    Opcionalmente, la última secuencia ya usada (0 = el primer lote sale con secuencia 1).
    Sin cliente abierto no se puede cargar ningún archivo.
+   **Interfaz por cliente:** en el alta (o en Editar) se puede subir un archivo de ejemplo del cliente
+   (Excel o CSV) y elegir qué columna trae el código de banco, la fecha de vencimiento y el monto
+   (por ejemplo `userBank`, `acceleratedPaymentDate`, `yieldAmount`). También se acepta un archivo de interfaz
+   de dos columnas `Campo | Columna` (Banco, Fecha, Monto). Sin interfaz se reconoce automáticamente el formato
+   GetNet / Reporte. Las filas sin banco ni fecha (totales al pie) se ignoran y se avisa si el total no coincide.
 2. **Bancos** – tabla maestra precargada con la solapa Bancos del conversor (107 bancos).
    Se actualiza subiendo un Excel con `Banco, Nombre, CUIT, Jurisdiccion, Codigo Sucursal, Codigo Nº Credito`
    (modo *actualizar/agregar* o *reemplazar todo*), o editando banco por banco.
