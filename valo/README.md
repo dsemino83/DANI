@@ -1,4 +1,4 @@
-# Conversor VALO · GetNet
+# VALO - EPORTFOLIO (Conversor GetNet)
 
 Página web que reemplaza el flujo manual del libro **Conversor GetNet.xlsx** + los scripts
 `GenerarCuotas.py` y `GenerarCreditos.py`.
