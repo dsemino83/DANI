@@ -123,9 +123,11 @@
     box-shadow: 0 6px 0 #D99A00, 0 12px 26px rgba(0,0,0,.3); pointer-events: none;
     transition: transform .25s, opacity .25s; }
   .aviso.ver { opacity: 1; transform: translateX(-50%) scale(1); }
-  #aviso-sonido.ver { pointer-events: auto; }
+  #aviso-sonido.ver, #aviso-mic.ver.toca { pointer-events: auto; cursor: pointer; }
+  #aviso-mic.toca { background: #FFFFFF; animation: brillo 1.2s ease-in-out infinite; }
+  @keyframes brillo { 50% { box-shadow: 0 6px 0 #D99A00, 0 0 0 12px rgba(255,210,63,.55); } }
   #aviso-mic.ver svg { animation: latido 1s ease-in-out infinite; }
-  #escenario[data-pantalla="mision"] .aviso { left: 330px; }
+  #escenario[data-pantalla="mision"] .aviso { left: 600px; bottom: auto; top: 140px; }
   #escenario[data-pantalla="inicio"] .aviso { left: 890px; bottom: 28px; }
   #escenario[data-pantalla="final"] .aviso { bottom: auto; top: 24px; }
   #escenario[data-pantalla="foto"] .aviso, #escenario[data-pantalla="chau"] .aviso { display: none; }
@@ -266,7 +268,7 @@
 
     <div id="aviso-mic" class="aviso" aria-live="polite">
       <svg width="34" height="34" viewBox="0 0 34 34"><rect x="11" y="3" width="12" height="19" rx="6" fill="#1753C9"/><path d="M6 15a11 11 0 0 0 22 0M17 26v5M11 31h12" stroke="#1753C9" stroke-width="3.5" stroke-linecap="round" fill="none"/></svg>
-      Decí «sí»
+      <span id="aviso-mic-texto">Decí «sí»</span>
     </div>
     <button id="aviso-sonido" class="aviso">
       <svg width="34" height="34" viewBox="0 0 54 54"><path d="M8 20h9l12-10v34L17 34H8z" fill="#1753C9"/><path d="M36 18q6 9 0 18M42 12q11 15 0 30" stroke="#1753C9" stroke-width="5" stroke-linecap="round" fill="none"/></svg>
@@ -1652,11 +1654,14 @@
      Usa el reconocimiento de voz del navegador (Chrome, Edge, Safari). Si no hay micrófono o no
      dan permiso, el juego sigue como antes: pasa solo de paso y se puede tocar la flecha. */
   var Reconocedor = window.SpeechRecognition || window.webkitSpeechRecognition;
-  var mic = { rec: null, quiere: false, activo: false, fallo: !Reconocedor };
-  function micUsable() { return vozActiva && !mic.fallo; }
+  // sinApi: el navegador no tiene reconocimiento de voz (no hay nada que hacer).
+  // bloqueado: no se pudo encender (permiso, o Chrome pide que se toque la pantalla antes):
+  //            se muestra «Tocá para activar el micrófono» y el toque lo vuelve a intentar.
+  var mic = { rec: null, quiere: false, activo: false, sinApi: !Reconocedor, bloqueado: false, idioma: 'es-AR', espera: null };
+  function micUsable() { return vozActiva && !mic.sinApi && !mic.bloqueado; }
   function esSi(t) {
     t = t.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
-    return /(^|[^a-z])(si+|listo|lista|dale|vamos|seguimos|sigamos|terminamos|ok|okey)([^a-z]|$)/.test(t);
+    return /(^|[^a-z])(si+|sip|ci|c|listo|lista|dale|vamos|seguimos|sigamos|terminamos|ok|okey|claro|bueno)([^a-z]|$)/.test(t);
   }
   function accionSi() {
     if (estado.pantalla === 'inicio') { if (!$('config').classList.contains('ver')) empezarMision(); }
@@ -1664,44 +1669,79 @@
     else if (estado.pantalla === 'mision') agarrarCepillo();
     else if (estado.pantalla === 'paso' && estado.completado) siguiente();
   }
+  // Cartel del micrófono: escuchando, bloqueado (se toca para activarlo) o lo último que oyó.
+  var textoMic = $('aviso-mic-texto');
+  function cartelMic(modo, oido) {
+    var c = $('aviso-mic');
+    c.classList.toggle('ver', modo !== 'oculto');
+    c.classList.toggle('toca', modo === 'bloqueado');
+    if (modo === 'escuchando') textoMic.textContent = 'Decí «sí»';
+    if (modo === 'bloqueado') textoMic.textContent = 'Tocá para activar el micrófono';
+    if (modo === 'oido') textoMic.textContent = 'Escuché: «' + oido + '»';
+  }
+  function marcarBloqueado() {
+    mic.bloqueado = true; mic.activo = false;
+    var esperaba = mic.quiere; mic.quiere = false;
+    if (esperaba && (estado.pantalla === 'inicio' || estado.pantalla === 'mision' || estado.pantalla === 'final')) cartelMic('bloqueado');
+    else cartelMic('oculto');
+    // Sin micrófono, el paso terminado sigue solo como antes.
+    if (estado.pantalla === 'paso' && estado.completado) setTimeout(function () {
+      if (estado.pantalla === 'paso' && estado.completado) siguiente();
+    }, 800);
+  }
   function crearReconocedor() {
     var r = new Reconocedor();
-    r.lang = 'es-AR'; r.continuous = true; r.interimResults = true; r.maxAlternatives = 3;
-    r.onstart = function () { mic.activo = true; $('aviso-mic').classList.add('ver'); };
+    r.lang = mic.idioma; r.continuous = true; r.interimResults = true; r.maxAlternatives = 3;
+    r.onstart = function () { mic.activo = true; clearTimeout(mic.espera); cartelMic('escuchando'); };
     r.onresult = function (ev) {
-      if (tReloj() < hablandoHasta) return; // no reaccionar a la voz del propio juego
+      if (tReloj() < hablandoHasta + 0.4) return; // no reaccionar a la voz del propio juego
       for (var i = ev.resultIndex; i < ev.results.length; i++) {
         for (var j = 0; j < ev.results[i].length; j++) {
-          if (esSi(ev.results[i][j].transcript)) { escuchar(false); accionSi(); return; }
+          var oido = ev.results[i][j].transcript;
+          if (esSi(oido)) { cartelMic('oido', oido.trim()); escuchar(false); accionSi(); return; }
         }
+        if (ev.results[i][0]) cartelMic('oido', ev.results[i][0].transcript.trim());
       }
     };
     r.onerror = function (ev) {
-      if (ev.error === 'not-allowed' || ev.error === 'service-not-allowed' || ev.error === 'audio-capture') {
-        mic.fallo = true; mic.quiere = false;
-        // Sin micrófono, el paso terminado sigue solo como antes.
-        if (estado.pantalla === 'paso' && estado.completado) setTimeout(function () {
-          if (estado.pantalla === 'paso' && estado.completado) siguiente();
-        }, 800);
-      }
+      if (ev.error === 'language-not-supported' && mic.idioma !== 'es-ES') { mic.idioma = 'es-ES'; mic.rec = null; return; }
+      if (ev.error === 'not-allowed' || ev.error === 'service-not-allowed' || ev.error === 'audio-capture' || ev.error === 'network') marcarBloqueado();
     };
     r.onend = function () {
-      mic.activo = false; $('aviso-mic').classList.remove('ver');
-      if (mic.quiere && !mic.fallo) setTimeout(function () { if (mic.quiere) escuchar(true); }, 250);
+      mic.activo = false;
+      if (!mic.bloqueado) cartelMic('oculto');
+      if (mic.quiere && !mic.bloqueado) setTimeout(function () { if (mic.quiere) escuchar(true); }, 250);
     };
     return r;
   }
+  function encender() {
+    try { mic.rec = mic.rec || crearReconocedor(); mic.rec.start(); } catch (e) {}
+    // Si en 2 s no arrancó, se considera bloqueado (se ofrece tocar para activarlo).
+    clearTimeout(mic.espera);
+    mic.espera = setTimeout(function () { if (mic.quiere && !mic.activo) marcarBloqueado(); }, 2000);
+  }
   function escuchar(si) {
     mic.quiere = si && micUsable();
-    if (mic.fallo) return;
-    if (mic.quiere && !mic.activo) {
-      try { mic.rec = mic.rec || crearReconocedor(); mic.rec.start(); } catch (e) {}
-    } else if (!mic.quiere && mic.activo) {
-      try { mic.rec.abort(); } catch (e) {}
-    }
+    if (mic.sinApi) return;
+    if (!si && mic.bloqueado) cartelMic('oculto');
+    if (mic.bloqueado) return;
+    if (mic.quiere && !mic.activo) encender();
+    else if (!mic.quiere && mic.activo) { try { mic.rec.abort(); } catch (e) {} }
   }
+  // Tocar el cartel bloqueado lo vuelve a intentar dentro del toque (lo que pide Chrome).
+  $('aviso-mic').addEventListener('click', function (ev) {
+    if (!$('aviso-mic').classList.contains('toca')) return;
+    ev.stopPropagation();
+    mic.bloqueado = false;
+    mic.quiere = vozActiva;
+    encender();
+  });
   // Espera el «sí» en una pantalla, si sigue siendo la misma cuando termina de hablar.
-  function esperarSi(pantalla) { if (estado.pantalla === pantalla) escuchar(true); }
+  function esperarSi(pantalla) {
+    if (estado.pantalla !== pantalla) return;
+    if (mic.bloqueado && vozActiva && pantalla !== 'paso') { mic.quiere = true; cartelMic('bloqueado'); return; }
+    escuchar(true);
+  }
 
   // Saludo de la pantalla principal. Los navegadores no dejan hablar antes del primer toque,
   // así que suena con el primer toque en la pantalla (y al volver al inicio).
@@ -1748,6 +1788,12 @@
   $('btn-voz').onclick = function () { var p = PASOS[estado.paso]; hablar(p.l1 + ' ' + p.l2, p.id); };
   $('btn-volver').onclick = function () { mostrar('inicio'); saludar(); };
   $('btn-config').onclick = function () { abrirConfig(true); };
+  // App instalada: pedir pantalla vertical en el primer toque (Android lo permite en apps instaladas).
+  document.addEventListener('pointerdown', function trabarVertical() {
+    document.removeEventListener('pointerdown', trabarVertical, true);
+    var instalada = window.matchMedia && (matchMedia('(display-mode: standalone)').matches || matchMedia('(display-mode: fullscreen)').matches);
+    try { if (instalada && screen.orientation && screen.orientation.lock) screen.orientation.lock('portrait').catch(function () {}); } catch (e) {}
+  }, true);
   // Casita: vuelve al menú principal sin salir de la aplicación.
   $('btn-casa').onclick = function () { mostrar('inicio'); saludar(); };
   // Salir: apaga todo y cierra la app si el sistema lo permite; si no, queda la despedida.
