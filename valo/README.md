@@ -41,8 +41,9 @@ Después de modificar el código, regenerar el archivo único con `python3 const
      (`ID_LOTE, COD_BANCO, NOMBRE_BANCO, MONTO, FECHA_VENCIMIENTO, …`).
    - Controles previos: formulario LISTO, filas válidas, y todos los bancos usados completos
      (sin *Prueba* ni *#N/D*). Si algo falla no deja procesar.
-   - Número de crédito: 3 dígitos del código de banco (con ceros a la izquierda; si tiene más de 3, los 3 últimos)
-     + fecha de generación ddmmyy + secuencia del lote. Ej.: banco 11, 29/09/2026, secuencia 158 → `011290926158`.
+   - Número de crédito: código de banco (si tiene más de 3 dígitos, los 3 últimos) + fecha de generación ddmmyy +
+     secuencia del lote, **sin ceros adelante**. Ej.: banco 11, 29/09/2026, secuencia 158 → `11290926158`.
+   - Nombre del banco en Créditos: máximo 30 caracteres (en MELI, además, sin comas).
    - Genera Cuotas y Créditos con las mismas reglas del conversor y descarga
      `Cuotas<Cliente><ddmmaa>.csv` y `Creditos<Cliente><ddmmaa>.csv` (CSV UTF-8), con el mismo contenido que los scripts Python.
 4. **Historial** – registro de todos los CSV generados, filtrable por cliente y por tipo de acción (Alta / Revolving),

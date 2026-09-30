@@ -1011,8 +1011,9 @@ try {
     return String(Math.round(Number(codigo))).padStart(3, '0').slice(-3);
   }
 
+  // Sin ceros adelante: banco 7 → "7" + ddmmaa + secuencia (los ceros de relleno del banco se quitan).
   function numeroCredito(codigoBanco, fechaDDMMYY, secuencia) {
-    return prefijoBanco(codigoBanco) + fechaDDMMYY + String(secuencia);
+    return (prefijoBanco(codigoBanco) + fechaDDMMYY + String(secuencia)).replace(/^0+(?=\d)/, '');
   }
 
   // Bancos del lote que comparten los mismos 3 dígitos (darían el mismo número de crédito).
@@ -1118,7 +1119,7 @@ try {
 
   // ---------------------------------------------------------------- Creditos
 
-  // opciones.nombre: 'recortado' (GetNet: LEFT(nombre,30)) o 'sinComas' (MELI: SUBSTITUTE(nombre,",","")).
+  // opciones.nombre: 'recortado' (GetNet: LEFT(nombre,30)) o 'sinComas' (MELI: SUBSTITUTE(nombre,",","")); siempre máx. 30 caracteres.
   function generarCreditos(cuotas, bancos, params, opciones) {
     const sinComas = opciones && opciones.nombre === 'sinComas';
     const grupos = new Map();
@@ -1137,7 +1138,7 @@ try {
       const capital = round2(g.capital), valor = round2(g.valor);
       return {
         credito: g.credito, tipo: FIJOS.tipoIdentificacion, cuit: g.cuit,
-        nombre: !banco ? '' : sinComas ? String(banco.nombre || '').replace(/,/g, '') : String(banco.nombre || '').slice(0, 30),
+        nombre: !banco ? '' : sinComas ? String(banco.nombre || '').replace(/,/g, '').slice(0, 30) : String(banco.nombre || '').slice(0, 30),
         capital, plan: g.plan, tna: 0, tnaPunitorio: 0, importe: round2(g.importe),
         fechaAlta: g.fecha, fechaPrimerVto: g.fecha, fechaPrimerImpago: g.fecha,
         cuotasRestantes: g.plan, montoCedido: valor, sucursal: g.sucursal,
