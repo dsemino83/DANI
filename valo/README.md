@@ -5,6 +5,10 @@ Página web que reemplaza el flujo manual del libro **Conversor GetNet.xlsx** + 
 
 **En internet:** https://dsemino83.github.io/DANI/valo/ redirige a la base compartida en claude.ai (https://claude.ai/artifact/62SNb4MoRSHQr9ke5kfqYa).
 
+**Sitio propio (en preparación):** https://dsemino83.github.io/DANI/valo/web/ — misma página con la base compartida en
+Supabase (usuario y contraseña, descargas directas para todos). Configuración: `supabase/INSTRUCCIONES.md` y
+`supabase/esquema.sql`; conexión en `supabase-config.js`; se genera con `construir.py` (`web/index.html`).
+
 **Para usarla: abrir `Conversor-VALO.html`** (un solo archivo con todo adentro; se puede descargar suelto y abrir con doble clic, sin internet).
 
 `pagina.html` es la versión de desarrollo (fuente de las otras dos) y solo funciona dentro de la carpeta `valo` completa.

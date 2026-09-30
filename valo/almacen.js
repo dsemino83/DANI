@@ -230,8 +230,184 @@
     return api;
   }
 
-  // Elige el modo: dentro de claude.ai usa la base compartida; fuera, el navegador.
+  // ============================================================ SUPABASE
+  // Sitio propio (GitHub Pages) con la base en Supabase. Se arma una capa con la misma forma que la base de
+  // claude.ai (doc / collection / onSnapshot / acquire) para reutilizar crearCompartido sin cambios.
+
+  const COLECCIONES_VIVAS = ['clientes', 'lotes', 'maestros'];
+  const coleccionDe = path => String(path).split('/')[0];
+  const padreDe = path => String(path).split('/').slice(0, -1).join('/');
+
+  function errorSupabase(error) {
+    if (!error) return null;
+    const code = error.code === '42501' ? 'invalid_argument' : /fetch|network|Failed to/i.test(error.message || '') ? 'unavailable' : error.code;
+    const e = new Error(error.message || 'Error de la base');
+    e.code = code;
+    return e;
+  }
+
+  function crearDbSupabase(sb) {
+    const cache = new Map(); // path → data (solo colecciones vivas)
+    const oyentes = new Set();
+    const avisar = () => oyentes.forEach(fn => { try { fn(); } catch (e) { console.error(e); } });
+    let cargado = null;
+
+    async function leerColeccion(col) {
+      const filas = [];
+      for (let desde = 0; ; desde += 1000) {
+        const { data, error } = await sb.from('docs').select('path,data').eq('coleccion', col).order('path').range(desde, desde + 999);
+        if (error) throw errorSupabase(error);
+        filas.push(...data);
+        if (data.length < 1000) break;
+      }
+      return filas;
+    }
+    async function recargar() {
+      const todas = await Promise.all(COLECCIONES_VIVAS.map(leerColeccion));
+      cache.clear();
+      todas.flat().forEach(f => cache.set(f.path, f.data));
+      avisar();
+    }
+    function asegurar() {
+      if (!cargado) {
+        cargado = recargar();
+        sb.channel('valo-docs')
+          .on('postgres_changes', { event: '*', schema: 'public', table: 'docs' }, ev => {
+            const fila = ev.eventType === 'DELETE' ? ev.old : ev.new;
+            if (!fila || !fila.path || !COLECCIONES_VIVAS.includes(coleccionDe(fila.path))) return;
+            if (ev.eventType === 'DELETE') cache.delete(fila.path);
+            else if (fila.data) cache.set(fila.path, fila.data);
+            else return recargar().catch(() => {});
+            avisar();
+          })
+          .subscribe(estado => { if (estado === 'SUBSCRIBED') recargar().catch(() => {}); });
+        // Por las dudas (reconexiones, pestaña dormida): se relee al volver a la pestaña.
+        if (typeof document !== 'undefined') document.addEventListener('visibilitychange', () => { if (!document.hidden) recargar().catch(() => {}); });
+      }
+      return cargado;
+    }
+    const snapDoc = path => ({ id: path.split('/').pop(), exists: cache.has(path), data: () => clonar(cache.get(path)) });
+    const docsDe = col => [...cache.keys()].filter(k => padreDe(k) === col).sort().map(snapDoc);
+
+    function doc(path) {
+      const viva = COLECCIONES_VIVAS.includes(coleccionDe(path));
+      return {
+        id: path.split('/').pop(), path,
+        async get() {
+          const { data, error } = await sb.from('docs').select('data').eq('path', path).maybeSingle();
+          if (error) throw errorSupabase(error);
+          return { id: path.split('/').pop(), exists: !!data, data: () => data && clonar(data.data) };
+        },
+        async set(d) {
+          const { error } = await sb.from('docs').upsert({ path, coleccion: coleccionDe(path), data: d, actualizado: new Date().toISOString() });
+          if (error) throw errorSupabase(error);
+          if (viva) { cache.set(path, clonar(d)); avisar(); }
+        },
+        async update(cambios) {
+          const { error } = await sb.rpc('doc_update', { p_path: path, p_patch: cambios });
+          if (error) throw errorSupabase(error);
+          if (viva && cache.has(path)) { cache.set(path, Object.assign(clonar(cache.get(path)), clonar(cambios))); avisar(); }
+        },
+        async delete() {
+          const { error } = await sb.from('docs').delete().eq('path', path);
+          if (error) throw errorSupabase(error);
+          if (viva) { cache.delete(path); avisar(); }
+        },
+        async acquire({ holder, ttlMs }) {
+          const { data, error } = await sb.rpc('adquirir', { p_path: path, p_holder: holder, p_ttl_ms: ttlMs || 15000 });
+          if (error) throw errorSupabase(error);
+          return { acquired: data === true };
+        },
+        onSnapshot(fn, alError) {
+          const l = () => fn(snapDoc(path));
+          oyentes.add(l);
+          asegurar().then(l, e => alError && alError(e));
+          return () => oyentes.delete(l);
+        },
+      };
+    }
+    function collection(col, filtros = [], orden = null) {
+      const correr = docs => {
+        let r = docs.filter(d => filtros.every(([f, op, v]) => op !== '==' || d.data()[f] === v));
+        if (orden) r = r.sort((a, b) => String(a.data()[orden[0]] ?? '').localeCompare(String(b.data()[orden[0]] ?? '')) * (orden[1] === 'desc' ? -1 : 1));
+        return { docs: r, size: r.length, empty: !r.length };
+      };
+      return {
+        where: (f, op, v) => collection(col, filtros.concat([[f, op, v]]), orden),
+        orderBy: (f, dir) => collection(col, filtros, [f, dir || 'asc']),
+        async get() {
+          const filas = await leerColeccion(col);
+          return correr(filas.map(f => ({ id: f.path.split('/').pop(), exists: true, data: () => clonar(f.data) })));
+        },
+        onSnapshot(fn, alError) {
+          const l = () => fn(correr(docsDe(col)));
+          oyentes.add(l);
+          asegurar().then(l, e => alError && alError(e));
+          return () => oyentes.delete(l);
+        },
+        doc: id => doc(col + '/' + id),
+      };
+    }
+    // Importación masiva (migración desde claude.ai): [{ path, data }].
+    async function importar(docs, progreso) {
+      for (let i = 0; i < docs.length; i += 100) {
+        const lote = docs.slice(i, i + 100).map(d => ({ path: d.path, coleccion: coleccionDe(d.path), data: d.data, actualizado: new Date().toISOString() }));
+        const { error } = await sb.from('docs').upsert(lote);
+        if (error) throw errorSupabase(error);
+        if (progreso) progreso(Math.min(i + 100, docs.length), docs.length);
+      }
+      await recargar();
+    }
+    return { doc, collection, importar };
+  }
+
+  function crearUsuarioSupabase(sb, sesion) {
+    const u = sesion.user;
+    return {
+      async id() { return u.id; },
+      async can() {
+        const { data, error } = await sb.rpc('es_valo');
+        return error ? null : data === true;
+      },
+      async profiles(ids) {
+        const { data } = await sb.from('perfiles').select('id,nombre,email').in('id', ids);
+        const res = {};
+        (data || []).forEach(p => { res[p.id] = { id: p.id, name: p.nombre || p.email || '' }; });
+        return res;
+      },
+    };
+  }
+
+  async function iniciarSupabase(cfg) {
+    const sb = root.supabase.createClient(cfg.url, cfg.anonKey, { auth: { persistSession: true, autoRefreshToken: true } });
+    const { data } = await sb.auth.getSession();
+    const sesion = data && data.session;
+    const cuenta = {
+      async ingresar(email, clave) {
+        const { error } = await sb.auth.signInWithPassword({ email: String(email).trim(), password: clave });
+        if (error) throw new Error(/invalid/i.test(error.message) ? 'Correo o contraseña incorrectos.' : error.message);
+      },
+      async salir() { await sb.auth.signOut(); },
+      async cambiarClave(nueva) {
+        const { error } = await sb.auth.updateUser({ password: nueva });
+        if (error) throw new Error(error.message);
+      },
+    };
+    if (!sesion) return Object.assign({ modo: 'login' }, cuenta);
+    const email = sesion.user.email || '';
+    sb.from('perfiles').upsert({ id: sesion.user.id, email, nombre: email.split('@')[0] }).then(() => {}, () => {});
+    const db = crearDbSupabase(sb);
+    const api = await crearCompartido(db, crearUsuarioSupabase(sb, sesion));
+    return Object.assign(api, cuenta, { proveedor: 'supabase', descargaLibre: true, email, importarDocs: db.importar });
+  }
+
+  // Elige el modo: sitio propio con Supabase; dentro de claude.ai, su base compartida; si no, el navegador.
   async function iniciar() {
+    if (root.VALO_WEB) {
+      const cfg = root.VALO_SUPABASE;
+      if (!cfg || !cfg.url || !cfg.anonKey || !root.supabase) return { modo: 'sin-configurar' };
+      return iniciarSupabase(cfg);
+    }
     const claude = root.claude;
     if (!claude || typeof claude.use !== 'function') return crearLocal();
     const [db, user] = await Promise.all([claude.use('db'), claude.use('user')]);

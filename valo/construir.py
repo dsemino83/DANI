@@ -1,6 +1,8 @@
 """Genera las dos versiones de un solo archivo a partir de pagina.html y los .js:
 
 - Conversor-VALO.html: para abrir localmente (datos en el navegador). Trae todo adentro.
+- web/index.html: el sitio propio (GitHub Pages) con la base compartida en Supabase (usuario y contraseña).
+  Trae todo adentro, más la librería de Supabase y supabase-config.js.
 - compartido/conversor-valo-compartido.html: la página que se publica en claude.ai con la base
   compartida. Sin <html>/<head>/<body> (los agrega la publicación), SheetJS desde cdnjs y sin la
   tabla de bancos embebida (vive en la base: maestros/bancos y maestros/bancosOriginales).
@@ -53,3 +55,18 @@ estilo = re.search(r"<style>.*?</style>", fuente, re.S).group(0)
 cuerpo = re.search(r"<body>(.*)</body>", fuente, re.S).group(1)
 cuerpo = re.sub(r'<script src="([^"?]+)(?:\?[^"]*)?"></script>', script_compartido, cuerpo)
 escribir(os.path.join("compartido", "conversor-valo-compartido.html"), titulo + "\n" + estilo + "\n" + cuerpo.strip() + "\n")
+
+
+# Versión web (GitHub Pages + Supabase).
+def script_web(m):
+    src = m.group(1)
+    if src in ("bancos-iniciales.js", "bancos-meli-iniciales.js"):
+        return ""
+    if src == "almacen.js":
+        return ("<script>window.VALO_WEB = true;</script>\n" + script_en_linea("supabase-config.js") + "\n"
+                + script_en_linea("vendor/supabase.js") + "\n" + script_en_linea(src))
+    return script_en_linea(src)
+
+
+web = re.sub(r'<script src="([^"?]+)(?:\?[^"]*)?"></script>', script_web, fuente)
+escribir(os.path.join("web", "index.html"), web)

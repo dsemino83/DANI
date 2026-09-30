@@ -66,7 +66,7 @@
       }
     }
     // En claude.ai sin la capacidad de descargas (invitados de otra organización): el navegador no baja nada.
-    if (almacen && almacen.modo === 'compartido') return descargaBloqueada(nombre, blob, alt, 'las descargas de esta página son solo para los miembros de su organización');
+    if (almacen && almacen.modo === 'compartido' && !almacen.descargaLibre) return descargaBloqueada(nombre, blob, alt, 'las descargas de esta página son solo para los miembros de su organización');
     descargaDirecta(nombre, blob);
   }
 
@@ -1539,17 +1539,44 @@
     $('errorCarga').classList.add('oculto');
     if (almacen.modo === 'sin-conexion') {
       $('estadoBase').innerHTML = '<span class="chip bad">Sin base</span>';
-      $('errorBase').innerHTML = aviso('bad', 'No se pudo abrir la base compartida. Iniciá sesión en claude.ai y volvé a abrir el link de la página.');
+      $('errorBase').innerHTML = aviso('bad', window.VALO_WEB ? 'No se pudo conectar con la base compartida. Revisá la conexión y recargá la página.'
+        : 'No se pudo abrir la base compartida. Iniciá sesión en claude.ai y volvé a abrir el link de la página.');
       $('cargandoBase').classList.add('oculto');
       return;
     }
+    if (almacen.modo === 'sin-configurar') {
+      $('estadoBase').innerHTML = '<span class="chip bad">Sin base</span>';
+      $('errorBase').innerHTML = aviso('bad', 'Falta configurar la base de datos (Supabase) de este sitio.');
+      $('cargandoBase').classList.add('oculto');
+      return;
+    }
+    if (almacen.modo === 'login') {
+      $('estadoBase').innerHTML = '<span class="chip gris">Sin sesión</span>';
+      $('cargandoBase').classList.add('oculto');
+      $('cardLogin').classList.remove('oculto');
+      $('loginEmail').focus();
+      $('formLogin').addEventListener('submit', async e => {
+        e.preventDefault();
+        $('btnLogin').disabled = true;
+        $('loginError').innerHTML = '';
+        try {
+          await almacen.ingresar($('loginEmail').value, $('loginClave').value);
+          location.reload();
+        } catch (err) {
+          $('loginError').innerHTML = aviso('bad', esc(err.message || err));
+          $('btnLogin').disabled = false;
+        }
+      });
+      return;
+    }
+    if (almacen.proveedor === 'supabase') iniciarWeb();
     if (window.claude && typeof window.claude.use === 'function') descargas = await window.claude.use('downloads');
     const compartido = almacen.modo === 'compartido';
     $('estadoBase').innerHTML = compartido
       ? '<span class="chip ok" title="Clientes, secuencias, bancos e historial se comparten con todos los usuarios de esta página">Base compartida</span>'
       : '<span class="chip gris" title="Los datos quedan solo en este navegador">Datos en este navegador</span>';
     document.querySelectorAll('[data-solo-local]').forEach(el => el.classList.toggle('oculto', compartido));
-    if (compartido && !descargas) $('errorBase').innerHTML = aviso('warn', 'Tu usuario no puede descargar archivos desde esta página (claude.ai las permite solo a los miembros de la organización dueña). Cuando descargues, se te va a ofrecer copiar el contenido para pegarlo en el Bloc de notas o en Excel.');
+    if (compartido && !descargas && !almacen.descargaLibre) $('errorBase').innerHTML = aviso('warn', 'Tu usuario no puede descargar archivos desde esta página (claude.ai las permite solo a los miembros de la organización dueña). Cuando descargues, se te va a ofrecer copiar el contenido para pegarlo en el Bloc de notas o en Excel.');
     let primera = true;
     almacen.alCambiar(() => {
       aplicarCfgCompartida();
@@ -1562,6 +1589,39 @@
       refrescar();
       if (!almacen.guardarDisponible()) toast('Este navegador no permite guardar datos: usá "Descargar respaldo" al terminar.');
     }
+  }
+
+  // Sitio propio (Supabase): usuario, contraseña, salir e importación de los datos de claude.ai.
+  function iniciarWeb() {
+    document.querySelectorAll('[data-solo-web]').forEach(el => el.classList.remove('oculto'));
+    $('webUsuario').textContent = almacen.email;
+    $('btnSalir').addEventListener('click', async () => { await almacen.salir(); location.reload(); });
+    $('btnCambiarClave').addEventListener('click', async () => {
+      const ok = await confirmar('Cambiar contraseña', '<label class="campo">Nueva contraseña (mínimo 8 caracteres) <input id="nuevaClave" type="password" autocomplete="new-password"></label>', 'Cambiar');
+      const nueva = ok ? document.getElementById('nuevaClave').value : '';
+      if (!ok) return;
+      if (nueva.length < 8) return informar('Cambiar contraseña', 'La contraseña tiene que tener al menos 8 caracteres.');
+      try { await almacen.cambiarClave(nueva); toast('Contraseña cambiada'); } catch (e) { informar('No se pudo cambiar la contraseña', esc(e.message || e)); }
+    });
+    $('btnImportarMigracion').addEventListener('click', () => $('archivoMigracion').click());
+    $('archivoMigracion').addEventListener('change', async e => {
+      const f = e.target.files[0];
+      e.target.value = '';
+      if (!f) return;
+      try {
+        const j = JSON.parse(await f.text());
+        const docs = (Array.isArray(j) ? j : j.docs || []).filter(d => d && typeof d.path === 'string' && d.data && typeof d.data === 'object');
+        if (!docs.length) throw new Error('el archivo no tiene datos para importar');
+        const cuenta = c => docs.filter(d => d.path.startsWith(c + '/')).length;
+        if (!await confirmar('Importar datos', `El archivo trae <b>${cuenta('clientes')}</b> clientes, <b>${cuenta('lotes')}</b> lotes del historial y <b>${cuenta('maestros')}</b> tablas maestras (bancos, Bancos MELI, configuración de Cartera). ` +
+          'Los registros con la misma clave se reemplazan.', 'Importar')) return;
+        await almacen.importarDocs(docs, (n, total) => { $('estadoBase').innerHTML = `<span class="chip gris">Importando ${n} de ${total}…</span>`; });
+        $('estadoBase').innerHTML = '<span class="chip ok">Base compartida</span>';
+        toast('Datos importados');
+      } catch (err) {
+        informar('No se pudo importar', esc(err.message || err));
+      }
+    });
   }
 
   iniciar();
