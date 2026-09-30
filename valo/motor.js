@@ -420,6 +420,11 @@
     if (tipo === 'periodo') return buscar(['periodo']);
     if (tipo === 'negocio') return buscar(['negocio', 'nro negocio', 'n negocio', 'numero negocio', 'serie', 'familia']);
     if (tipo === 'credito') return buscar(['credito', 'nro credito']);
+    if (tipo === 'capital') return buscar(['ficuo capital', 'capital']) || contiene('capital');
+    if (tipo === 'intDto') return buscar(['ficuo saldo int a dto', 'saldo int a dto', 'ficuo saldo int a desc', 'saldo int a descuento'])
+      || contiene('int a dto') || contiene('int a desc');
+    if (tipo === 'intDev') return buscar(['ficuo int dev a cobrar', 'int dev a cobrar', 'ficuo int dev cobrar'])
+      || contiene('dev a cobrar') || contiene('int dev') || contiene('int deveng');
     return '';
   }
 
@@ -450,7 +455,8 @@
   // Agrupa por titular: filtra periodo, negocios de Clientes y excluye los estados de cuota pagos.
   function agruparCartera(datos, cfg) {
     const excluidos = new Set((cfg.estadosExcluidos || []).map(String));
-    const res = { leidas: datos.length, otrosPeriodos: 0, otrosNegocios: 0, pagas: 0, usadas: 0, grupos: [], totales: {}, porNegocio: {} };
+    const res = { leidas: datos.length, otrosPeriodos: 0, otrosNegocios: 0, pagas: 0, usadas: 0, grupos: [], totales: {}, porNegocio: {},
+      calcTotales: { capital: 0, intDto: 0, intDev: 0 } };
     const grupos = new Map();
     cfg.sumar.forEach(c => { res.totales[c] = 0; });
     datos.forEach(r => {
@@ -462,24 +468,37 @@
       const negocio = cfg.colNegocio ? valorTexto(r[cfg.colNegocio]) : '';
       const k = titular + '|' + negocio;
       if (!grupos.has(k)) {
-        const g = { titular, tipoDoc: cfg.colTipoDoc ? valorTexto(r[cfg.colTipoDoc]) : '', negocio, cuotas: 0, creditos: new Set(), sumas: {} };
+        const g = { titular, ente: cfg.ente ? cfg.ente(titular) : '', tipoDoc: cfg.colTipoDoc ? valorTexto(r[cfg.colTipoDoc]) : '', negocio,
+          cuotas: 0, creditos: new Set(), sumas: {}, capital: 0, intDto: 0, intDev: 0 };
         cfg.sumar.forEach(c => { g.sumas[c] = 0; });
         grupos.set(k, g);
       }
       const g = grupos.get(k);
       g.cuotas++;
       if (cfg.colCredito) g.creditos.add(valorTexto(r[cfg.colCredito]));
-      if (!res.porNegocio[negocio]) res.porNegocio[negocio] = { titulares: new Set(), cuotas: 0, sumas: Object.fromEntries(cfg.sumar.map(c => [c, 0])) };
+      if (!res.porNegocio[negocio]) res.porNegocio[negocio] = { titulares: new Set(), cuotas: 0, valor: 0, sumas: Object.fromEntries(cfg.sumar.map(c => [c, 0])) };
       const pn = res.porNegocio[negocio];
       pn.titulares.add(titular); pn.cuotas++;
+      // Valor = FICUO CAPITAL + (− FICUO SALDO INT A DTO + INT DEV A COBRAR)
+      const calc = cfg.calc || {};
+      const cap = calc.capital ? aNumero(r[calc.capital]) || 0 : 0;
+      const dto = calc.intDto ? aNumero(r[calc.intDto]) || 0 : 0;
+      const dev = calc.intDev ? aNumero(r[calc.intDev]) || 0 : 0;
+      g.capital += cap; g.intDto += dto; g.intDev += dev;
+      res.calcTotales.capital += cap; res.calcTotales.intDto += dto; res.calcTotales.intDev += dev;
+      pn.valor += cap - dto + dev;
       cfg.sumar.forEach(c => { const v = aNumero(r[c]) || 0; g.sumas[c] += v; res.totales[c] += v; pn.sumas[c] += v; });
     });
     res.grupos = [...grupos.values()].map(g => {
       Object.keys(g.sumas).forEach(c => { g.sumas[c] = round2(g.sumas[c]); });
-      return Object.assign(g, { creditos: g.creditos.size });
+      return Object.assign(g, { creditos: g.creditos.size, capital: round2(g.capital), intDto: round2(g.intDto), intDev: round2(g.intDev),
+        valor: round2(g.capital - g.intDto + g.intDev) });
     }).sort((a, b) => (a.negocio < b.negocio ? -1 : a.negocio > b.negocio ? 1 : 0) || (a.titular < b.titular ? -1 : a.titular > b.titular ? 1 : 0));
     Object.keys(res.totales).forEach(c => { res.totales[c] = round2(res.totales[c]); });
-    Object.values(res.porNegocio).forEach(pn => { pn.titulares = pn.titulares.size; Object.keys(pn.sumas).forEach(c => { pn.sumas[c] = round2(pn.sumas[c]); }); });
+    const ct = res.calcTotales;
+    ct.valor = round2(ct.capital - ct.intDto + ct.intDev);
+    ['capital', 'intDto', 'intDev'].forEach(k => { ct[k] = round2(ct[k]); });
+    Object.values(res.porNegocio).forEach(pn => { pn.titulares = pn.titulares.size; pn.valor = round2(pn.valor); Object.keys(pn.sumas).forEach(c => { pn.sumas[c] = round2(pn.sumas[c]); }); });
     return res;
   }
 
@@ -515,10 +534,21 @@
     const colEstado = cfg.colEstado || 'Estado Cuota';
     if (cfg.estadosPagos && cfg.estadosPagos.length) w.push(`toString(${id(colEstado)}) NOT IN (${cfg.estadosPagos.map(lit).join(', ')})`);
     const titular = id(cfg.colTitular || 'ficuo doc titular');
-    const importes = (cfg.importes && cfg.importes.length ? cfg.importes : IMPORTES_CARTERA)
-      .map(c => `round(sum(toFloat64(ifNull(${id(c)}, 0))), 2) AS ${id('Suma ' + c)}`);
-    return `SELECT toString(${titular}) AS Titular, any(toString(${id(cfg.colTipoDoc || 'ficuo tipodoc titular')})) AS ${id('Tipo doc')}, ${neg} AS Negocio, ` +
-      `uniqExact(${id(cfg.colCredito || 'Crédito')}) AS Creditos, count() AS ${id('Cuotas impagas')}, ${importes.join(', ')} ` +
+    const s = c => `sum(toFloat64(ifNull(${id(c)}, 0)))`;
+    const importes = (cfg.importes || []).map(c => `round(${s(c)}, 2) AS ${id('Suma ' + c)}`);
+    const calc = cfg.calc || {};
+    if (calc.capital && calc.intDto && calc.intDev) {
+      importes.unshift(`round(${s(calc.capital)}, 2) AS ${id('Capital')}`, `round(${s(calc.intDto)}, 2) AS ${id('Saldo int a dto')}`,
+        `round(${s(calc.intDev)}, 2) AS ${id('Int dev a cobrar')}`,
+        `round(${s(calc.capital)} - ${s(calc.intDto)} + ${s(calc.intDev)}, 2) AS ${id('Valor (capital - int a dto + int dev)')}`);
+    }
+    // Ente: nombre del banco según el CUIT del titular (tabla Bancos MELI / Bancos).
+    const entes = (cfg.entes || []).filter(e => e[0] && e[1]);
+    const ente = entes.length
+      ? `multiIf(${entes.map(e => `replaceRegexpAll(toString(${titular}), '[^0-9]', '') = ${lit(e[0])}, ${lit(e[1])}`).join(', ')}, '')`
+      : "''";
+    return `SELECT toString(${titular}) AS Titular, ${ente} AS Ente, ${neg} AS Negocio, ` +
+      `count() AS ${id('Cuotas impagas')}${importes.length ? ', ' + importes.join(', ') : ''} ` +
       `FROM ${TABLA_CARTERA} WHERE ${w.join(' AND ')} GROUP BY Titular, Negocio ORDER BY Negocio, Titular FORMAT JSONEachRow`;
   }
 
