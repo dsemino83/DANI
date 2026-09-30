@@ -50,23 +50,23 @@
   }
   const informar = (titulo, mensajeHtml) => confirmar(titulo, mensajeHtml, null);
 
-  async function descargar(nombre, contenido, conservarNombre) {
+  // alternativa: { texto, como } para copiar si claude.ai no deja descargar (texto plano o tabla para pegar en Excel).
+  async function descargar(nombre, contenido, conservarNombre, alternativa) {
     if (!conservarNombre) nombre = nombre.replace(/\.txt$/i, '.csv');
     const blob = contenido instanceof Blob ? contenido : new Blob([contenido], { type: (/\.csv$/i.test(nombre) ? 'text/csv' : 'text/plain') + ';charset=utf-8' });
+    const alt = alternativa || (contenido instanceof Blob ? null : { texto: contenido, como: 'archivo' });
     if (descargas) {
       try {
         await descargas.save({ filename: nombre, data: blob });
         return;
       } catch (e) {
         if (e && (e.code === 'declined' || e.code === 'rate_limited')) return;
-        // Descarga no permitida para este usuario (p. ej. no es miembro de la organización de la página):
-        // se intenta la descarga común del navegador y, si es texto, se ofrece copiar el contenido.
-        descargaDirecta(nombre, blob);
-        if (!(contenido instanceof Blob)) await ofrecerCopia(nombre, contenido, e);
-        else toast('No se pudo descargar ' + nombre + (e && e.message ? ': ' + e.message : '') + '. Pedile al dueño de la página que te sume a su organización de claude.ai.');
-        return;
+        // Descarga no permitida (p. ej. el usuario no es miembro de la organización dueña de la página).
+        return descargaBloqueada(nombre, blob, alt, e && e.message);
       }
     }
+    // En claude.ai sin la capacidad de descargas (invitados de otra organización): el navegador no baja nada.
+    if (almacen && almacen.modo === 'compartido') return descargaBloqueada(nombre, blob, alt, 'las descargas de esta página son solo para los miembros de su organización');
     descargaDirecta(nombre, blob);
   }
 
@@ -79,24 +79,32 @@
     setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 500);
   }
 
-  async function ofrecerCopia(nombre, texto, e) {
-    const id = 'copia' + Date.now();
+  async function descargaBloqueada(nombre, blob, alt, motivo) {
+    try { descargaDirecta(nombre, blob); } catch (err) { /* sin descarga del navegador */ }
+    if (!alt) { toast('No se pudo descargar ' + nombre + '. Pedile al dueño de la página que te sume a su organización de claude.ai.'); return; }
+    const texto = String(alt.texto).replace(/^\ufeff/, '');
+    const excel = alt.como === 'excel';
+    const caja = `<textarea readonly style="width:100%;height:180px;font-family:monospace;font-size:12px;white-space:pre">${esc(texto)}</textarea>`;
     const ok = await confirmar('Descarga bloqueada',
-      `<p>claude.ai no permitió descargar <b>${esc(nombre)}</b>${e && e.message ? ' (' + esc(e.message) + ')' : ''}. ` +
-      `Si el navegador no lo bajó igual, copiá el contenido, pegalo en el Bloc de notas y guardalo como <b>${esc(nombre)}</b> (codificación UTF-8).</p>` +
-      `<textarea id="${id}" readonly style="width:100%;height:160px;font-family:monospace;font-size:12px">${esc(texto.replace(/^\ufeff/, ''))}</textarea>`,
-      'Copiar contenido');
+      `<p>claude.ai no permitió descargar <b>${esc(nombre)}</b>${motivo ? ' (' + esc(motivo) + ')' : ''}.</p>` +
+      (excel ? `<p>Copiá la tabla y pegala en una hoja nueva de Excel (celda A1).</p>`
+        : `<p>Copiá el contenido, pegalo en el Bloc de notas y guardalo como <b>${esc(nombre)}</b> (codificación UTF-8).</p>`) + caja,
+      excel ? 'Copiar tabla' : 'Copiar contenido');
     if (!ok) return;
-    try { await navigator.clipboard.writeText(texto.replace(/^\ufeff/, '')); toast('Contenido copiado'); }
+    try { await navigator.clipboard.writeText(texto); toast(excel ? 'Tabla copiada: pegala en Excel' : 'Contenido copiado'); }
     catch (err) {
-      await informar('Copiá el contenido', `<p>Seleccioná todo el texto (Ctrl+A) y copialo (Ctrl+C).</p>` +
-        `<textarea readonly style="width:100%;height:200px;font-family:monospace;font-size:12px">${esc(texto.replace(/^\ufeff/, ''))}</textarea>`);
+      await informar('Copiá el contenido', `<p>Hacé clic en el recuadro, seleccioná todo (Ctrl+A) y copialo (Ctrl+C).</p>` + caja);
     }
   }
 
   function descargarLibro(nombre, wb) {
     const buf = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
-    return descargar(nombre, new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
+    // Alternativa: la primera hoja separada por tabulaciones (se pega directo en Excel), con coma decimal.
+    const ws = wb.Sheets[wb.SheetNames[0]];
+    const filas = XLSX.utils.sheet_to_json(ws, { header: 1, raw: true, defval: '' });
+    const celda = v => v instanceof Date ? v.toLocaleDateString('es-AR') : typeof v === 'number' ? String(v).replace('.', ',') : String(v).replace(/[\t\r\n]+/g, ' ');
+    const tsv = filas.map(f => f.map(celda).join('\t')).join('\r\n');
+    return descargar(nombre, new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), true, { texto: tsv, como: 'excel' });
   }
 
   function leerLibro(file) {
@@ -1541,6 +1549,7 @@
       ? '<span class="chip ok" title="Clientes, secuencias, bancos e historial se comparten con todos los usuarios de esta página">Base compartida</span>'
       : '<span class="chip gris" title="Los datos quedan solo en este navegador">Datos en este navegador</span>';
     document.querySelectorAll('[data-solo-local]').forEach(el => el.classList.toggle('oculto', compartido));
+    if (compartido && !descargas) $('errorBase').innerHTML = aviso('warn', 'Tu usuario no puede descargar archivos desde esta página (claude.ai las permite solo a los miembros de la organización dueña). Cuando descargues, se te va a ofrecer copiar el contenido para pegarlo en el Bloc de notas o en Excel.');
     let primera = true;
     almacen.alCambiar(() => {
       aplicarCfgCompartida();
