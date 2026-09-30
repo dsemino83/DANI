@@ -940,6 +940,7 @@
   async function llamarFlujo(cuerpo) {
     const url = $('flujoUrl').value.trim();
     if (!/^https:\/\//i.test(url)) throw new Error('Falta la dirección del flujo (HTTP POST URL de Power Automate).');
+    if (!$('flujoClave').value) throw new Error('Falta la clave compartida con el flujo (la misma de la variable ClaveCompartida del flujo).');
     const ctl = new AbortController();
     const reloj = setTimeout(() => ctl.abort(), 180000);
     let r;
@@ -954,6 +955,8 @@
     const texto = await r.text();
     let j = null;
     try { j = JSON.parse(texto); } catch (e) { /* respuesta no JSON */ }
+    if (r.status === 401 && /OAuth authorization scheme|authentication scheme/i.test(texto))
+      throw new Error('Power Automate rechazó el pedido: el disparador del flujo exige iniciar sesión con Microsoft. En el flujo, disparador "Cuando se recibe una solicitud HTTP" → "Quién puede desencadenar el flujo" = Cualquiera; guardá y copiá la HTTP URL nueva (termina en &sig=…).');
     if (!r.ok && !(j && j.resultados)) throw new Error(`El flujo respondió HTTP ${r.status}: ${(j && (j.mensaje || j.error && (j.error.message || j.error))) || texto.slice(0, 300)}`);
     if (!j) throw new Error('El flujo respondió algo que no es JSON: ' + texto.slice(0, 300));
     return j;

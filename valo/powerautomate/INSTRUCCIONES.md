@@ -41,6 +41,10 @@ En cada uno: **Crear conector** → pestaña **Probar** → **Nueva conexión** 
 - Método: **POST**. Quién puede desencadenar el flujo: **Cualquiera** (la seguridad la da la clave compartida).
 - Sin esquema (la página manda el cuerpo como texto).
 - Al guardar el flujo aparece la **HTTP POST URL**: copiarla en la página (Cartera → Envío directo a la API → Dirección del flujo).
+  Tiene que terminar en `&sp=...&sv=1.0&sig=...`. Si termina en `?api-version=1` y la página muestra
+  *"The OAuth authorization scheme is required"*, el disparador quedó en "Cualquier usuario del inquilino": cambiarlo a
+  **Cualquiera**, guardar y copiar la URL nueva. Si la opción *Cualquiera* no está disponible, la bloqueó el administrador
+  de Power Platform (política de disparadores HTTP anónimos).
 
 ### 2.2 Datos del pedido
 1. **Redactar** (Compose) `Pedido`: expresión `json(triggerBody())`
