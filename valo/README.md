@@ -70,6 +70,8 @@ Después de modificar el código, regenerar el archivo único con `python3 const
    PC de la red: obtiene el token OAuth2, valida el tipo de crédito contra el catálogo, simula por defecto y con `-Enviar`
    ingresa las operaciones con saldo > 0 (con `-Reemplazar` antes cancela las vigentes del mismo tipo). El client_secret
    se pide la primera vez y queda cifrado en esa PC (nunca en la página). Deja `NoCobis_resultado_<fecha>.csv`.
+   *Probar conexión con la API* baja `probar-api-nocobis.ps1`: solo consulta (red, token, catálogo con el tipo CCASR y
+   operaciones vigentes de un MIS) y no envía datos.
    Van todos los bancos de Bancos MELI (uno por MIS): con el valor a descuento si hay cartera
    para ese banco y en 0 si no hay equivalencia. Los titulares sin MIS en Bancos MELI quedan afuera (con aviso). Se pueden sumar importes adicionales. Descarga Excel.
 

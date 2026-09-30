@@ -752,6 +752,103 @@ Write-Host ("Listo: {0} ingresadas, {1} con error. Detalle en {2}" -f @($Resulta
 `;
   }
 
+  // Prueba de conexión con la API NO COBIS: solo consultas (red, token, catálogo y operaciones de un cliente).
+  function scriptPowerShellProbarNoCobis(cfg = {}) {
+    const base = cfg.baseUrl || 'http://gateway-api-microservicios-core-test.apps.closdesa.bvsa.local/riesgos';
+    const token = cfg.tokenUrl || 'https://ssohomo.valo.ar/auth/realms/COBIS-TEST/protocol/openid-connect/token';
+    const clientId = cfg.clientId || 'apiriesgos';
+    const tipo = cfg.tipoCredito || NO_COBIS.tipoCredito;
+    const cliente = cfg.cliente || 644;
+    return `# VALO - EPORTFOLIO · Prueba de conexión con la API NO COBIS (Orquestador de Riesgos)
+# SOLO CONSULTA: no ingresa ni cancela operaciones. Clic derecho -> "Ejecutar con PowerShell",
+# o: powershell -ExecutionPolicy Bypass -File probar-api-nocobis.ps1
+# Usa la misma clave guardada que nocobis-api.ps1 (nocobis-credencial.txt en esta carpeta); si no está, la pide.
+param(
+  [string]$BaseUrl = '${base}',
+  [string]$TokenUrl = '${token}',
+  [string]$ClientId = '${clientId}',
+  [string]$TipoCredito = '${tipo}',
+  [long]$Cliente = ${cliente},
+  [switch]$OlvidarClave,
+  [switch]$SinPausa
+)
+$ErrorActionPreference = 'Stop'
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+$Carpeta = if ($PSScriptRoot) { $PSScriptRoot } else { (Get-Location).Path }
+$script:Ok = $true
+function Paso([string]$Titulo, [scriptblock]$Accion) {
+  Write-Host ''
+  Write-Host $Titulo -ForegroundColor Cyan
+  try { & $Accion; return $true }
+  catch {
+    $script:Ok = $false
+    $m = $_.Exception.Message
+    if ($_.ErrorDetails -and $_.ErrorDetails.Message) { $m = $_.ErrorDetails.Message }
+    try { if ($_.Exception.Response) { $m = ('HTTP {0}: {1}' -f [int]$_.Exception.Response.StatusCode, $m) } } catch {}
+    Write-Host ('  [ERROR] ' + (($m -replace '\\s+', ' ').Trim())) -ForegroundColor Red
+    if ($Titulo -like '3)*') { Write-Host '  Si la clave es incorrecta, volvé a ejecutar con -OlvidarClave para ingresarla de nuevo.' -ForegroundColor DarkYellow }
+    return $false
+  }
+}
+function Llega([string]$Url) {
+  $u = [Uri]$Url
+  $c = New-Object Net.Sockets.TcpClient
+  try {
+    $t = $c.BeginConnect($u.Host, $u.Port, $null, $null)
+    if (-not $t.AsyncWaitHandle.WaitOne(5000)) { throw ('sin respuesta de {0}:{1} (red, VPN o firewall)' -f $u.Host, $u.Port) }
+    $c.EndConnect($t)
+    Write-Host ('  [OK] {0}:{1} responde' -f $u.Host, $u.Port) -ForegroundColor Green
+  } finally { $c.Close() }
+}
+
+Write-Host 'Prueba de conexión con la API NO COBIS (solo consulta, no envía datos)' -ForegroundColor Yellow
+Write-Host ('API:   ' + $BaseUrl)
+Write-Host ('Token: ' + $TokenUrl)
+
+$red1 = Paso '1) Red: servidor de token' { Llega $TokenUrl }
+$red2 = Paso '2) Red: servidor de la API' { Llega $BaseUrl }
+
+$Token = $null
+if ($red1) {
+  Paso '3) Token (OAuth2 client credentials)' {
+    $ArchivoClave = Join-Path $Carpeta 'nocobis-credencial.txt'
+    if ($OlvidarClave -and (Test-Path $ArchivoClave)) { Remove-Item $ArchivoClave }
+    if (Test-Path $ArchivoClave) { $Seguro = Get-Content $ArchivoClave | ConvertTo-SecureString }
+    else {
+      $Seguro = Read-Host "  client_secret de '$ClientId' (se guarda cifrado en $ArchivoClave)" -AsSecureString
+      $Seguro | ConvertFrom-SecureString | Set-Content $ArchivoClave
+    }
+    $sec = (New-Object System.Net.NetworkCredential('', $Seguro)).Password
+    $r = Invoke-RestMethod -Method Post -Uri $TokenUrl -Body @{ client_id = $ClientId; client_secret = $sec; grant_type = 'client_credentials' } -ContentType 'application/x-www-form-urlencoded'
+    if (-not $r.access_token) { throw 'el servidor no devolvió access_token' }
+    $script:Token = $r.access_token
+    Write-Host ('  [OK] token obtenido (vence en {0} segundos)' -f $r.expires_in) -ForegroundColor Green
+  } | Out-Null
+} else { Write-Host ''; Write-Host '3) Token: no se prueba (no hay red hacia el servidor de token)' -ForegroundColor DarkYellow }
+
+if ($script:Token -and $red2) {
+  $h = @{ Authorization = 'Bearer ' + $script:Token }
+  Paso '4) API: catálogo NOCOBIS (GET /v1/nocobis/catalogo)' {
+    $cat = @(Invoke-RestMethod -Uri ($BaseUrl + '/v1/nocobis/catalogo') -Headers $h | ForEach-Object { $_ })
+    Write-Host ('  [OK] {0} tipos de crédito' -f $cat.Count) -ForegroundColor Green
+    foreach ($c in $cat) { Write-Host ('       {0,-12} {1}' -f $c.tipoCredito, $c.descripcion) }
+    if (@($cat | Where-Object { $_.tipoCredito -eq $TipoCredito }).Count) { Write-Host ('  [OK] el tipo {0} existe en el catálogo' -f $TipoCredito) -ForegroundColor Green }
+    else { $script:Ok = $false; Write-Host ('  [ATENCIÓN] el tipo {0} NO está en el catálogo: hay que usar otro código' -f $TipoCredito) -ForegroundColor Red }
+  } | Out-Null
+  Paso ('5) API: operaciones del cliente {0} (GET /v1/nocobis/operacion)' -f $Cliente) {
+    $ops = @(Invoke-RestMethod -Uri ($BaseUrl + '/v1/nocobis/operacion?cliente=' + $Cliente) -Headers $h | ForEach-Object { $_ })
+    Write-Host ('  [OK] {0} operaciones vigentes' -f $ops.Count) -ForegroundColor Green
+    foreach ($o in $ops) { Write-Host ('       operación {0} · {1} · saldo {2:N2} · {3} a {4}' -f $o.numeroOperacion, $o.tipoCredito, [double]$o.saldoCapital, $o.fechaAlta, $o.fechaVencimiento) }
+  } | Out-Null
+} else { Write-Host ''; Write-Host '4-5) API: no se prueba (falta el token o la red hacia la API)' -ForegroundColor DarkYellow }
+
+Write-Host ''
+if ($script:Ok) { Write-Host 'RESULTADO: conexión OK. No se envió ningún dato.' -ForegroundColor Green }
+else { Write-Host 'RESULTADO: hay problemas (ver los [ERROR] de arriba). No se envió ningún dato.' -ForegroundColor Red }
+if (-not $SinPausa) { Read-Host 'Enter para cerrar' | Out-Null }
+`;
+  }
+
   // Valores distintos de una columna con su cantidad (para elegir periodo y estados).
   function valoresDistintos(datos, col) {
     const m = new Map();
@@ -1143,7 +1240,7 @@ try {
     PROVINCIAS, FIJOS, COLS_REPORTE, FORMATOS, COLUMNAS_MONTO, CAMPOS_INTERFAZ,
     leerTxtMeli, bancoMeliDeTxt, bancosParaMeli,
     sqlExtraccionCartera, bookmarkletCartera, scriptPowerShellCartera, comandoTareaCartera, IMPORTES_CARTERA,
-    NO_COBIS, ultimoDiaHabil, fechasNoCobis, lineaNoCobis, txtNoCobis, loteApiNoCobis, scriptPowerShellNoCobis,
+    NO_COBIS, ultimoDiaHabil, fechasNoCobis, lineaNoCobis, txtNoCobis, loteApiNoCobis, scriptPowerShellNoCobis, scriptPowerShellProbarNoCobis,
     leerCartera, sugerirColumnaCartera, columnasNumericasCartera, agruparCartera, valoresDistintos, sqlCartera,
     leerCsv, encabezadosEjemplo, leerDefinicionInterfaz, sugerirColumna, detectarHojaInterfaz,
     normalizar, provinciaPorNombre, round2, aNumero, aFechaSerial, aCodigoBanco,

@@ -930,6 +930,14 @@
       if (t && t.filas.length) descargar(t.nombre.replace(/\.txt$/, '.json'), JSON.stringify(M.loteApiNoCobis(t), null, 1), true);
     } catch (e) { informar('No se pudo generar el lote para la API', esc(e.message || e)); }
   });
+  $('btnNoCobisProbar').addEventListener('click', () => {
+    const nombre = descargas ? 'probar-api-nocobis.ps1.txt' : 'probar-api-nocobis.ps1';
+    if (descargas) toast('Se descarga como .txt: renombralo a probar-api-nocobis.ps1');
+    // Cliente de prueba: el primer MIS con cartera (o el primero de Bancos MELI).
+    let cliente;
+    try { const t = infoNoCobis(); const f = t && (t.filas.find(x => x.conDatos) || t.filas[0]); if (f) cliente = Number(f.mis); } catch (e) { /* se usa el de ejemplo */ }
+    descargar(nombre, '\ufeff' + M.scriptPowerShellProbarNoCobis({ cliente }), true);
+  });
   $('btnNoCobisScript').addEventListener('click', () => {
     // claude.ai no permite descargar .ps1: ahí baja como .txt y hay que renombrarlo.
     const nombre = descargas ? 'nocobis-api.ps1.txt' : 'nocobis-api.ps1';
