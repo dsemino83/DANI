@@ -26,7 +26,7 @@ Después de modificar el código, regenerar el archivo único con `python3 const
    GetNet / Reporte. Las filas sin banco ni fecha (totales al pie) se ignoran y se avisa si el total no coincide.
    **Esquema MELI (TXT por banco):** en la interfaz del cliente se elige "Usar esquema MELI". En Carga de lote se suben
    varios TXT de cuotas a la vez (`CUOTA_<BANCO COBIS>_<aaaammdd>.txt`, ancho fijo: cabecera CUOTAS con cantidad, fecha,
-   CUIT del banco y total; detalle con vencimiento en [13,21) e importe en [21,41)). El banco de cada TXT se detecta con la
+   CUIT del banco y total; detalle con vencimiento en [13,21) e importe en centavos en [21,41), que se divide por 100). El banco de cada TXT se detecta con la
    tabla **Bancos MELI** (nombre COBIS del archivo o CUIT de la cabecera). Cuotas ordenadas por nombre de banco y nombre
    del titular sin comas, como el conversor MELI. Se controla que cantidad y total de la cabecera coincidan con el detalle.
 2. **Bancos** – tabla maestra precargada con la solapa Bancos del conversor (107 bancos).
@@ -72,6 +72,9 @@ Después de modificar el código, regenerar el archivo único con `python3 const
    se pide la primera vez y queda cifrado en esa PC (nunca en la página). Deja `NoCobis_resultado_<fecha>.csv`.
    *Probar conexión con la API* baja `probar-api-nocobis.ps1`: solo consulta (red, token, catálogo con el tipo CCASR y
    operaciones vigentes de un MIS) y no envía datos.
+   **Envío directo por Power Automate** (sitio propio y archivo local): la página manda el lote a un flujo de Power
+   Automate que, por el gateway de datos local, pide el token y llama a la API; muestra el número de operación o el
+   error de cada banco y registra el envío (colección `envios`). Configuración del flujo y conectores en `powerautomate/`.
    Van todos los bancos de Bancos MELI (uno por MIS): con el valor a descuento si hay cartera
    para ese banco y en 0 si no hay equivalencia. Los titulares sin MIS en Bancos MELI quedan afuera (con aviso). Se pueden sumar importes adicionales. Descarga Excel.
 

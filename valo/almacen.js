@@ -34,6 +34,7 @@
     } catch (err) { /* sin almacenamiento: se trabaja en memoria */ }
     if (!datos) datos = { version: 1, clientes: [], bancos: clonar(root.VALO_BANCOS_INICIALES || []), lotes: [] };
     if (!Array.isArray(datos.bancosMeli)) datos.bancosMeli = clonar(root.VALO_BANCOS_MELI_INICIALES || []);
+    if (!Array.isArray(datos.envios)) datos.envios = [];
 
     function guardar() {
       try { localStorage.setItem(CLAVE, JSON.stringify(datos)); return true; } catch (err) { return false; }
@@ -54,6 +55,8 @@
       async guardarBancos(lista) { datos.bancos = clonar(lista); cambiar(); },
       async bancosOriginales() { return clonar(root.VALO_BANCOS_INICIALES || []); },
       async guardarBancosMeli(lista) { datos.bancosMeli = clonar(lista); cambiar(); },
+      async guardarNocobisFlujo(cfg) { datos.nocobisFlujo = clonar(cfg); cambiar(); },
+      async registrarEnvio(e) { datos.envios.push(Object.assign({ id: nuevoId() }, clonar(e))); datos.envios = datos.envios.slice(-50); cambiar(); },
       async registrarLote(clienteId, construir) {
         const c = datos.clientes.find(x => x.id === clienteId);
         const r = construir(clonar(c));
@@ -92,7 +95,7 @@
     const holder = 'pestana-' + nuevoId();
     const usuarioId = user ? await user.id() : null;
     const puede = user ? await user.can('data.write') : null;
-    const datos = { clientes: [], bancos: [], bancosMeli: [], lotes: [], carteraCfg: null };
+    const datos = { clientes: [], bancos: [], bancosMeli: [], lotes: [], carteraCfg: null, nocobisFlujo: null };
     const listo = { clientes: false, bancos: false, lotes: false, bancosMeli: false };
     const api = {
       modo: 'compartido',
@@ -122,6 +125,11 @@
     // Configuración de la pestaña Cartera (columnas, estados pagos, etc.), la misma para todos.
     db.doc('maestros/carteraConfig').onSnapshot(s => {
       datos.carteraCfg = s.exists && s.data().cfg && typeof s.data().cfg === 'object' ? clonar(s.data().cfg) : null;
+      emitirSiListo();
+    }, alError);
+    // Conexión con el flujo de Power Automate para el envío NO COBIS (dirección y clave compartida).
+    db.doc('maestros/nocobisFlujo').onSnapshot(s => {
+      datos.nocobisFlujo = s.exists ? clonar(s.data()) : null;
       emitirSiListo();
     }, alError);
     db.doc('maestros/bancos').onSnapshot(s => {
@@ -166,6 +174,13 @@
       async borrarCliente(id) { await escribir(() => db.doc('clientes/' + id).delete()); },
       async guardarBancos(lista) {
         await escribir(() => db.doc('maestros/bancos').set({ lista: clonar(lista), actualizado: new Date().toISOString(), actualizadoPor: usuarioId }));
+      },
+      async guardarNocobisFlujo(cfg) {
+        await escribir(() => db.doc('maestros/nocobisFlujo').set(Object.assign(clonar(cfg), { actualizado: new Date().toISOString(), actualizadoPor: usuarioId })));
+      },
+      async registrarEnvio(e) {
+        const id = nuevoId();
+        await escribir(() => db.doc('envios/' + id).set(Object.assign(clonar(e), { usuarioId })));
       },
       async guardarCfgCartera(cfg) {
         await escribir(() => db.doc('maestros/carteraConfig').set({ cfg: clonar(cfg), actualizado: new Date().toISOString(), actualizadoPor: usuarioId }));

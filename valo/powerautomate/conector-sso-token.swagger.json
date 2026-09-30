@@ -1,0 +1,31 @@
+{
+  "swagger": "2.0",
+  "info": { "title": "VALO SSO Token", "description": "Token OAuth2 (client credentials) del SSO de VALO para la API del Orquestador de Riesgos.", "version": "1.0" },
+  "host": "ssohomo.valo.ar",
+  "basePath": "/auth/realms/COBIS-TEST/protocol/openid-connect",
+  "schemes": ["https"],
+  "consumes": ["application/x-www-form-urlencoded"],
+  "produces": ["application/json"],
+  "paths": {
+    "/token": {
+      "post": {
+        "operationId": "ObtenerToken",
+        "summary": "Obtener token",
+        "description": "Devuelve access_token (vence en expires_in segundos).",
+        "consumes": ["application/x-www-form-urlencoded"],
+        "parameters": [
+          { "name": "client_id", "in": "formData", "type": "string", "required": true, "default": "apiriesgos", "x-ms-summary": "client_id" },
+          { "name": "client_secret", "in": "formData", "type": "string", "required": true, "x-ms-summary": "client_secret" },
+          { "name": "grant_type", "in": "formData", "type": "string", "required": true, "default": "client_credentials", "x-ms-summary": "grant_type" }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "schema": { "type": "object", "properties": {
+              "access_token": { "type": "string" }, "token_type": { "type": "string" }, "expires_in": { "type": "integer" }, "scope": { "type": "string" } } }
+          }
+        }
+      }
+    }
+  }
+}

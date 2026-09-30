@@ -354,16 +354,16 @@
     else {
       res.cantidad = Number(cab.slice(6, 12));
       res.cuit = cab.slice(23, 34);
-      res.total = Number(cab.slice(34, 54));
+      res.total = round2(Number(cab.slice(34, 54)) / 100); // importes en centavos: se divide por 100
     }
     lineas.slice(1).forEach((l, i) => {
       const f = l.slice(13, 21), imp = l.slice(21, 41);
       if (!/^\d{8}$/.test(f) || !/^\d+$/.test(imp.trim())) { res.errores.push(`Línea ${i + 2}: formato inválido.`); return; }
-      res.filas.push({ fecha: partesASerial(+f.slice(0, 4), +f.slice(4, 6), +f.slice(6, 8)), monto: Number(imp) });
+      res.filas.push({ fecha: partesASerial(+f.slice(0, 4), +f.slice(4, 6), +f.slice(6, 8)), monto: round2(Number(imp) / 100) });
     });
     if (res.cantidad != null && res.cantidad !== res.filas.length) res.errores.push(`La cabecera dice ${res.cantidad} registros y el archivo tiene ${res.filas.length}.`);
     const suma = res.filas.reduce((s, f) => s + f.monto, 0);
-    if (res.total != null && Math.abs(res.total - suma) > 0.5) res.errores.push(`El total de la cabecera (${res.total}) no coincide con la suma de las líneas (${suma}).`);
+    if (res.total != null && Math.abs(res.total - suma) > 0.005) res.errores.push(`El total de la cabecera (${res.total}) no coincide con la suma de las líneas (${suma}).`);
     return res;
   }
 
