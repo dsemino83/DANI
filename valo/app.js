@@ -56,17 +56,42 @@
     if (descargas) {
       try {
         await descargas.save({ filename: nombre, data: blob });
+        return;
       } catch (e) {
-        if (e && e.code !== 'declined') toast('No se pudo descargar ' + nombre + (e.message ? ': ' + e.message : ''));
+        if (e && (e.code === 'declined' || e.code === 'rate_limited')) return;
+        // Descarga no permitida para este usuario (p. ej. no es miembro de la organización de la página):
+        // se intenta la descarga común del navegador y, si es texto, se ofrece copiar el contenido.
+        descargaDirecta(nombre, blob);
+        if (!(contenido instanceof Blob)) await ofrecerCopia(nombre, contenido, e);
+        else toast('No se pudo descargar ' + nombre + (e && e.message ? ': ' + e.message : '') + '. Pedile al dueño de la página que te sume a su organización de claude.ai.');
+        return;
       }
-      return;
     }
+    descargaDirecta(nombre, blob);
+  }
+
+  function descargaDirecta(nombre, blob) {
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
     a.download = nombre;
     document.body.appendChild(a);
     a.click();
     setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 500);
+  }
+
+  async function ofrecerCopia(nombre, texto, e) {
+    const id = 'copia' + Date.now();
+    const ok = await confirmar('Descarga bloqueada',
+      `<p>claude.ai no permitió descargar <b>${esc(nombre)}</b>${e && e.message ? ' (' + esc(e.message) + ')' : ''}. ` +
+      `Si el navegador no lo bajó igual, copiá el contenido, pegalo en el Bloc de notas y guardalo como <b>${esc(nombre)}</b> (codificación UTF-8).</p>` +
+      `<textarea id="${id}" readonly style="width:100%;height:160px;font-family:monospace;font-size:12px">${esc(texto.replace(/^\ufeff/, ''))}</textarea>`,
+      'Copiar contenido');
+    if (!ok) return;
+    try { await navigator.clipboard.writeText(texto.replace(/^\ufeff/, '')); toast('Contenido copiado'); }
+    catch (err) {
+      await informar('Copiá el contenido', `<p>Seleccioná todo el texto (Ctrl+A) y copialo (Ctrl+C).</p>` +
+        `<textarea readonly style="width:100%;height:200px;font-family:monospace;font-size:12px">${esc(texto.replace(/^\ufeff/, ''))}</textarea>`);
+    }
   }
 
   function descargarLibro(nombre, wb) {
@@ -625,7 +650,34 @@
   let carteraResultado = null;
   let carteraCfg = {};
   try { carteraCfg = JSON.parse(localStorage.getItem(CLAVE_CARTERA) || '{}') || {}; } catch (e) { carteraCfg = {}; }
-  const guardarCfgCartera = () => { try { localStorage.setItem(CLAVE_CARTERA, JSON.stringify(carteraCfg)); } catch (e) { /* opcional */ } };
+  // En la base compartida la configuración es una sola para todos (maestros/carteraConfig); el periodo elegido es de cada uno.
+  const cfgCompartible = c => { const { periodo, ...resto } = c; return JSON.stringify(resto); };
+  let cfgRemota = null; // última configuración compartida conocida (JSON)
+  let timerCfg = null;
+  function guardarCfgCartera() {
+    try { localStorage.setItem(CLAVE_CARTERA, JSON.stringify(carteraCfg)); } catch (e) { /* opcional */ }
+    if (!almacen || typeof almacen.guardarCfgCartera !== 'function' || almacen.puedeEscribir === false) return;
+    const json = cfgCompartible(carteraCfg);
+    if (json === cfgRemota) return;
+    clearTimeout(timerCfg);
+    timerCfg = setTimeout(() => {
+      if (json !== cfgCompartible(carteraCfg) || json === cfgRemota) return;
+      cfgRemota = json;
+      almacen.guardarCfgCartera(JSON.parse(json)).catch(() => { cfgRemota = null; });
+    }, 800);
+  }
+  // Aplica la configuración compartida cuando llega o cambia (otro usuario la modificó).
+  function aplicarCfgCompartida() {
+    const remota = datos().carteraCfg;
+    // Todavía no hay configuración compartida: se sube la de este navegador, si ya estaba armada.
+    if (!remota) { if (almacen.modo === 'compartido' && carteraCfg.colTitular) guardarCfgCartera(); return; }
+    const json = JSON.stringify(remota);
+    if (json === cfgRemota) return;
+    cfgRemota = json;
+    if (json === cfgCompartible(carteraCfg)) return;
+    carteraCfg = Object.assign(JSON.parse(json), { periodo: carteraCfg.periodo || '' });
+    if (cartera) renderCartera(); else renderExtraccion();
+  }
   // Ente: nombre del banco por el CUIT del titular (Bancos MELI primero, después Bancos).
   function mapaEntes() {
     // CUIT → { nombre, mis }: Bancos MELI manda; Bancos solo aporta el nombre (no tiene MIS).
@@ -1491,6 +1543,7 @@
     document.querySelectorAll('[data-solo-local]').forEach(el => el.classList.toggle('oculto', compartido));
     let primera = true;
     almacen.alCambiar(() => {
+      aplicarCfgCompartida();
       if (primera) { primera = false; $('cargandoBase').classList.add('oculto'); $('contenido').classList.remove('oculto'); }
       refrescar();
     });

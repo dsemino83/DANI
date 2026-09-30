@@ -92,7 +92,7 @@
     const holder = 'pestana-' + nuevoId();
     const usuarioId = user ? await user.id() : null;
     const puede = user ? await user.can('data.write') : null;
-    const datos = { clientes: [], bancos: [], bancosMeli: [], lotes: [] };
+    const datos = { clientes: [], bancos: [], bancosMeli: [], lotes: [], carteraCfg: null };
     const listo = { clientes: false, bancos: false, lotes: false, bancosMeli: false };
     const api = {
       modo: 'compartido',
@@ -118,6 +118,11 @@
     db.doc('maestros/bancosMeli').onSnapshot(s => {
       datos.bancosMeli = s.exists && Array.isArray(s.data().lista) ? clonar(s.data().lista) : [];
       listo.bancosMeli = true; emitirSiListo();
+    }, alError);
+    // Configuración de la pestaña Cartera (columnas, estados pagos, etc.), la misma para todos.
+    db.doc('maestros/carteraConfig').onSnapshot(s => {
+      datos.carteraCfg = s.exists && s.data().cfg && typeof s.data().cfg === 'object' ? clonar(s.data().cfg) : null;
+      emitirSiListo();
     }, alError);
     db.doc('maestros/bancos').onSnapshot(s => {
       datos.bancos = s.exists && Array.isArray(s.data().lista) ? clonar(s.data().lista) : [];
@@ -161,6 +166,9 @@
       async borrarCliente(id) { await escribir(() => db.doc('clientes/' + id).delete()); },
       async guardarBancos(lista) {
         await escribir(() => db.doc('maestros/bancos').set({ lista: clonar(lista), actualizado: new Date().toISOString(), actualizadoPor: usuarioId }));
+      },
+      async guardarCfgCartera(cfg) {
+        await escribir(() => db.doc('maestros/carteraConfig').set({ cfg: clonar(cfg), actualizado: new Date().toISOString(), actualizadoPor: usuarioId }));
       },
       async guardarBancosMeli(lista) {
         await escribir(() => db.doc('maestros/bancosMeli').set({ lista: clonar(lista), actualizado: new Date().toISOString(), actualizadoPor: usuarioId }));
