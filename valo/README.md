@@ -58,7 +58,8 @@ Después de modificar el código, regenerar el archivo único con `python3 const
    valor a descuento — MIS (10) · `CCASR` (10) · tasa `0100000000` · importe × 100 (14) · saldo interés y OCIF en ceros
    (12 + 12) · moneda `080` · `NO COBIS` (64) · fecha de concesión (hoy) · fecha de vencimiento · `1`. El vencimiento es
    el último día hábil del mes (lunes a viernes); si hoy ya es ese día (o es posterior), el último día hábil del mes
-   siguiente. Archivo `NoCobis<ddmmaa>.txt`, fin de línea CRLF. Los titulares sin MIS en Bancos MELI quedan afuera (con aviso). Se pueden sumar importes adicionales. Descarga Excel.
+   siguiente. Archivo `NoCobis<ddmmaa>.txt`, fin de línea CRLF. Van todos los bancos de Bancos MELI (uno por MIS): con el valor a descuento si hay cartera
+   para ese banco y en 0 si no hay equivalencia. Los titulares sin MIS en Bancos MELI quedan afuera (con aviso). Se pueden sumar importes adicionales. Descarga Excel.
 
    **Extracción automática:** la pestaña genera (con los negocios de Clientes y el estado "pago" elegido) un botón de
    favoritos que, tocado estando en el BI, consulta `/clickhouse/` y descarga `Cartera_por_titular` y `Cartera_detalle`

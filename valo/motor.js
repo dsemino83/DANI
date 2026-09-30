@@ -541,21 +541,35 @@
       + fechaBarra(fechas.concesion) + fechaBarra(fechas.vencimiento) + NO_COBIS.operacionAjustada;
   }
 
-  // grupos: resultado de agruparCartera (usa g.mis y g.valor). Los titulares sin MIS o con valor ≤ 0 quedan afuera.
-  function txtNoCobis(grupos, hoy = new Date(), feriados = []) {
+  // grupos: resultado de agruparCartera (usa g.mis y g.valor). bancosMeli: tabla Bancos MELI.
+  // Van todos los MIS de Bancos MELI: con el valor a descuento si hay cartera para ese banco, si no con 0.
+  // Los titulares sin MIS quedan afuera (aviso); un valor negativo se informa en 0 (aviso).
+  function txtNoCobis(grupos, hoy = new Date(), feriados = [], bancosMeli = []) {
     const fechas = fechasNoCobis(hoy, feriados);
-    const porMis = new Map();
-    const sinMis = [], sinValor = [];
+    const limpiar = v => String(v == null ? '' : v).replace(/\D/g, '').replace(/^0+(?=\d)/, '');
+    const porMis = new Map(), nombres = new Map();
+    const sinMis = [], negativos = [], bancosSinMis = [];
+    (bancosMeli || []).forEach(b => {
+      const mis = limpiar(b.mis);
+      if (!mis) { bancosSinMis.push(b); return; }
+      if (!porMis.has(mis)) { porMis.set(mis, 0); nombres.set(mis, b.nombre || b.cobis || ''); }
+    });
+    const conDatos = new Set();
     grupos.forEach(g => {
-      const mis = String(g.mis == null ? '' : g.mis).replace(/\D/g, '');
+      const mis = limpiar(g.mis);
       if (!mis) { sinMis.push(g); return; }
+      conDatos.add(mis);
+      if (!nombres.has(mis)) nombres.set(mis, g.ente || '');
       porMis.set(mis, round2((porMis.get(mis) || 0) + (Number(g.valor) || 0)));
     });
-    const filas = [...porMis.entries()].filter(([mis, valor]) => { if (valor > 0) return true; sinValor.push(mis); return false; })
-      .sort((a, b) => Number(a[0]) - Number(b[0]))
-      .map(([mis, valor]) => ({ mis, valor, linea: lineaNoCobis(mis, valor, fechas) }));
+    const filas = [...porMis.entries()].sort((a, b) => Number(a[0]) - Number(b[0])).map(([mis, valor]) => {
+      if (valor < 0) negativos.push(mis);
+      const v = valor > 0 ? valor : 0;
+      return { mis, nombre: nombres.get(mis) || '', valor: v, conDatos: conDatos.has(mis), linea: lineaNoCobis(mis, v, fechas) };
+    });
     return {
-      fechas, filas, sinMis, sinValor,
+      fechas, filas, sinMis, negativos, bancosSinMis,
+      conDatos: filas.filter(f => f.conDatos).length,
       total: round2(filas.reduce((t, f) => t + f.valor, 0)),
       texto: filas.map(f => f.linea).join('\r\n') + (filas.length ? '\r\n' : ''),
       nombre: 'NoCobis' + fechaBarra(fechas.concesion).replace(/\//g, '').replace(/(\d{4})(\d{2})(\d{2})$/, '$1$3') + '.txt',

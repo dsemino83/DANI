@@ -846,12 +846,13 @@
   // TXT NO COBIS: una línea por MIS con el valor a descuento; concesión hoy, vencimiento último día hábil del mes.
   function infoNoCobis() {
     if (!carteraResultado) return null;
-    const t = M.txtNoCobis(carteraResultado.grupos, new Date());
+    const t = M.txtNoCobis(carteraResultado.grupos, new Date(), [], datos().bancosMeli || []);
     const fd = d => d.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' });
-    let html = `<p class="sub">TXT NO COBIS: <b>${fmtEntero(t.filas.length)} líneas</b> (una por MIS) · total $ ${fmtMonto(t.total)} · ` +
+    let html = `<p class="sub">TXT NO COBIS: <b>${fmtEntero(t.filas.length)} líneas</b> (todos los MIS de Bancos MELI; ${fmtEntero(t.conDatos)} con cartera, ${fmtEntero(t.filas.length - t.conDatos)} en 0) · total $ ${fmtMonto(t.total)} · ` +
       `concesión ${fd(t.fechas.concesion)} · vencimiento ${fd(t.fechas.vencimiento)} · archivo ${esc(t.nombre)}</p>`;
     if (t.sinMis.length) html += aviso('warn', `${t.sinMis.length} titulares sin MIS quedan fuera del TXT (cargá su CUIT en Bancos MELI): ${esc(t.sinMis.slice(0, 5).map(g => g.titular).join(', '))}${t.sinMis.length > 5 ? '…' : ''}`);
-    if (t.sinValor.length) html += aviso('warn', `MIS con valor a descuento en cero o negativo, quedan fuera del TXT: ${esc(t.sinValor.join(', '))}`);
+    if (t.negativos.length) html += aviso('warn', `MIS con valor a descuento negativo, van en 0: ${esc(t.negativos.join(', '))}`);
+    if (t.bancosSinMis.length) html += aviso('warn', `${t.bancosSinMis.length} bancos de Bancos MELI no tienen MIS y no van al TXT: ${esc(t.bancosSinMis.slice(0, 5).map(b => b.nombre || b.cobis).join(', '))}${t.bancosSinMis.length > 5 ? '…' : ''}`);
     $('noCobisInfo').innerHTML = html;
     $('btnNoCobis').disabled = !t.filas.length;
     return t;
