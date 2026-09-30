@@ -64,6 +64,12 @@ Después de modificar el código, regenerar el archivo único con `python3 const
    el último día hábil del mes (lunes a viernes); si hoy ya es ese día (o es posterior), el último día hábil del mes
    siguiente. Archivo `NoCobis<ddmmaa>.txt`, fin de línea CRLF. La configuración de la pestaña (columnas, estados pagos, importes) se guarda en la base compartida
    (`maestros/carteraConfig`) y es la misma para todos; el periodo elegido es de cada usuario.
+   **NO COBIS por API** (Orquestador de Riesgos, `POST /v1/nocobis/ingreso`): el botón *Lote para la API (JSON)* baja
+   las mismas operaciones del TXT (cliente = MIS, CCASR, moneda 80, saldo capital = valor a descuento, interés y OCIF 0,
+   tasa 1, fechas de concesión y vencimiento) y *Script de envío a la API* baja `nocobis-api.ps1`, que se ejecuta en una
+   PC de la red: obtiene el token OAuth2, valida el tipo de crédito contra el catálogo, simula por defecto y con `-Enviar`
+   ingresa las operaciones con saldo > 0 (con `-Reemplazar` antes cancela las vigentes del mismo tipo). El client_secret
+   se pide la primera vez y queda cifrado en esa PC (nunca en la página). Deja `NoCobis_resultado_<fecha>.csv`.
    Van todos los bancos de Bancos MELI (uno por MIS): con el valor a descuento si hay cartera
    para ese banco y en 0 si no hay equivalencia. Los titulares sin MIS en Bancos MELI quedan afuera (con aviso). Se pueden sumar importes adicionales. Descarga Excel.
 

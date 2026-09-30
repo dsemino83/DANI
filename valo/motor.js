@@ -508,7 +508,7 @@
   // código cliente = MIS (10, ceros a la izq.) · tipo de crédito CCASR (10, espacios a la der.) · tasa 0100000000 (10)
   // · saldo de capital = valor a descuento × 100 (14, ceros) · saldo interés (12 ceros) · saldo OCIF (12 ceros)
   // · moneda 080 · módulo "NO COBIS" (64, espacios) · fecha concesión dd/mm/aaaa · fecha vencimiento dd/mm/aaaa · operación ajustada 1.
-  const NO_COBIS = { tipoCredito: 'CCASR', tasa: 100000000, moneda: 80, modulo: 'NO COBIS', operacionAjustada: 1 };
+  const NO_COBIS = { tipoCredito: 'CCASR', tasa: 100000000, tasaApi: 1, moneda: 80, modulo: 'NO COBIS', operacionAjustada: 1 };
   const ceros = (v, n) => String(v).padStart(n, '0');
   const fechaBarra = d => ceros(d.getDate(), 2) + '/' + ceros(d.getMonth() + 1, 2) + '/' + d.getFullYear();
   const claveDia = d => d.getFullYear() + '-' + ceros(d.getMonth() + 1, 2) + '-' + ceros(d.getDate(), 2);
@@ -574,6 +574,182 @@
       texto: filas.map(f => f.linea).join('\r\n') + (filas.length ? '\r\n' : ''),
       nombre: 'NoCobis' + fechaBarra(fechas.concesion).replace(/\//g, '').replace(/(\d{4})(\d{2})(\d{2})$/, '$1$3') + '.txt',
     };
+  }
+
+  // ------------------------------------------------ NO COBIS por API (Orquestador de Riesgos)
+  // Mismo contenido que el TXT, en el formato del endpoint POST /v1/nocobis/ingreso (una operación por MIS).
+  function loteApiNoCobis(t) {
+    const op = f => ({
+      cliente: Number(f.mis), banco: f.nombre, tipoCredito: NO_COBIS.tipoCredito, moneda: NO_COBIS.moneda,
+      saldoCapital: f.valor, saldoInteres: 0, saldoOcif: 0,
+      fechaConcesion: fechaBarra(t.fechas.concesion), fechaVencimiento: fechaBarra(t.fechas.vencimiento), tasaInteres: NO_COBIS.tasaApi,
+    });
+    return {
+      tipo: 'VALO NO COBIS', generado: new Date().toISOString(),
+      fechaConcesion: fechaBarra(t.fechas.concesion), fechaVencimiento: fechaBarra(t.fechas.vencimiento),
+      total: t.total, operaciones: t.filas.map(op),
+    };
+  }
+
+  // Script de PowerShell que envía el lote a la API desde una PC de la red de VALO.
+  // El client_secret NO va en la página ni en el script: se pide la primera vez y queda cifrado en esa PC (DPAPI).
+  function scriptPowerShellNoCobis(cfg = {}) {
+    const base = cfg.baseUrl || 'http://gateway-api-microservicios-core-test.apps.closdesa.bvsa.local/riesgos';
+    const token = cfg.tokenUrl || 'https://ssohomo.valo.ar/auth/realms/COBIS-TEST/protocol/openid-connect/token';
+    const clientId = cfg.clientId || 'apiriesgos';
+    return `# VALO - EPORTFOLIO · Envío de NO COBIS a la API del Orquestador de Riesgos (POST /v1/nocobis/ingreso)
+# Uso (PowerShell, desde una PC de la red de VALO):
+#   .\\nocobis-api.ps1                       -> SIMULA: valida el lote y el catálogo, muestra qué se enviaría. No envía nada.
+#   .\\nocobis-api.ps1 -Enviar               -> envía las operaciones con saldo > 0 (pide confirmación).
+#   .\\nocobis-api.ps1 -Enviar -Reemplazar   -> antes de ingresar, cancela las operaciones vigentes del mismo tipo de crédito de cada cliente.
+#   -Archivo <ruta>  lote NoCobis_*.json descargado de la página (por defecto el más nuevo de esta carpeta o de Descargas).
+#   -TipoCredito X   usa otro código del catálogo NOCOBIS en lugar del que trae el lote.
+#   -OlvidarClave    borra la clave guardada y la vuelve a pedir.
+# Deja NoCobis_resultado_<fecha>.csv con el resultado de cada operación (número de operación, avisos o error).
+param(
+  [string]$Archivo = '',
+  [switch]$Enviar,
+  [switch]$Reemplazar,
+  [switch]$Confirmado,
+  [switch]$OlvidarClave,
+  [string]$TipoCredito = '',
+  [string]$BaseUrl = '${base}',
+  [string]$TokenUrl = '${token}',
+  [string]$ClientId = '${clientId}'
+)
+$ErrorActionPreference = 'Stop'
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+$Carpeta = if ($PSScriptRoot) { $PSScriptRoot } else { (Get-Location).Path }
+
+# --- lote
+if (-not $Archivo) {
+  $cand = @(Get-ChildItem -Path $Carpeta, (Join-Path $HOME 'Downloads') -Filter 'NoCobis*.json' -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending)
+  if (-not $cand.Count) { throw 'No encontré ningún NoCobis*.json. Descargalo desde la pestaña Cartera o indicá -Archivo.' }
+  $Archivo = $cand[0].FullName
+}
+$Lote = [IO.File]::ReadAllText($Archivo, [Text.Encoding]::UTF8) | ConvertFrom-Json
+if ($Lote.tipo -ne 'VALO NO COBIS') { throw "El archivo $Archivo no es un lote NO COBIS de la página." }
+$Ops = @($Lote.operaciones)
+if ($TipoCredito) { foreach ($o in $Ops) { $o.tipoCredito = $TipoCredito } }
+Write-Host "Lote: $Archivo"
+Write-Host ("Concesión {0} · vencimiento {1} · {2} operaciones · total {3:N2}" -f $Lote.fechaConcesion, $Lote.fechaVencimiento, $Ops.Count, [double]$Lote.total)
+
+# --- credencial (client_secret) guardada cifrada para este usuario de Windows
+$ArchivoClave = Join-Path $Carpeta 'nocobis-credencial.txt'
+if ($OlvidarClave -and (Test-Path $ArchivoClave)) { Remove-Item $ArchivoClave }
+if (Test-Path $ArchivoClave) { $Seguro = Get-Content $ArchivoClave | ConvertTo-SecureString }
+else {
+  $Seguro = Read-Host "client_secret de '$ClientId' (se guarda cifrado en $ArchivoClave)" -AsSecureString
+  $Seguro | ConvertFrom-SecureString | Set-Content $ArchivoClave
+}
+$Secreto = (New-Object System.Net.NetworkCredential('', $Seguro)).Password
+
+# --- token OAuth2 (client credentials), reutilizado hasta que esté por vencer
+$script:Token = $null; $script:Vence = [DateTime]::MinValue
+function Obtener-Token([switch]$Forzar) {
+  if (-not $Forzar -and $script:Token -and (Get-Date) -lt $script:Vence) { return $script:Token }
+  $cuerpo = @{ client_id = $ClientId; client_secret = $Secreto; grant_type = 'client_credentials' }
+  try { $r = Invoke-RestMethod -Method Post -Uri $TokenUrl -Body $cuerpo -ContentType 'application/x-www-form-urlencoded' }
+  catch {
+    $d = Detalle-Error $_
+    throw ("No se pudo obtener el token (HTTP {0}: {1}). Si la clave es incorrecta, ejecutá con -OlvidarClave." -f $d.codigo, $d.texto)
+  }
+  $script:Token = $r.access_token
+  $script:Vence = (Get-Date).AddSeconds([Math]::Max(30, [int]$r.expires_in - 30))
+  return $script:Token
+}
+function Detalle-Error($e) {
+  $cod = 0; $txt = $e.Exception.Message
+  if ($e.Exception.Response) { try { $cod = [int]$e.Exception.Response.StatusCode } catch {} }
+  if ($e.ErrorDetails -and $e.ErrorDetails.Message) { $txt = $e.ErrorDetails.Message }
+  elseif ($e.Exception.Response -and $e.Exception.Response.GetResponseStream) {
+    try { $txt = (New-Object IO.StreamReader($e.Exception.Response.GetResponseStream())).ReadToEnd() } catch {}
+  }
+  return @{ codigo = $cod; texto = (($txt -replace '\\s+', ' ').Trim()) }
+}
+# Llama a la API; ante 401 renueva el token y reintenta una sola vez.
+function Llamar-Api([string]$Metodo, [string]$Ruta, $Cuerpo = $null) {
+  for ($i = 0; $i -lt 2; $i++) {
+    $h = @{ Authorization = 'Bearer ' + (Obtener-Token -Forzar:($i -gt 0)) }
+    try {
+      if ($Cuerpo -ne $null) {
+        $json = $Cuerpo | ConvertTo-Json -Depth 5 -Compress
+        $r = Invoke-RestMethod -Method $Metodo -Uri ($BaseUrl + $Ruta) -Headers $h -Body ([Text.Encoding]::UTF8.GetBytes($json)) -ContentType 'application/json; charset=utf-8'
+      } else { $r = Invoke-RestMethod -Method $Metodo -Uri ($BaseUrl + $Ruta) -Headers $h }
+      # Un array JSON sale elemento por elemento (PowerShell 7 lo devuelve como un solo objeto).
+      if ($r -is [array]) { return $r } else { return ,$r }
+    } catch {
+      $d = Detalle-Error $_
+      if ($d.codigo -eq 401 -and $i -eq 0) { continue }
+      throw ("HTTP {0}: {1}" -f $d.codigo, $d.texto)
+    }
+  }
+}
+
+# --- catálogo: el tipo de crédito tiene que existir
+$Catalogo = @(Llamar-Api 'Get' '/v1/nocobis/catalogo')
+$Tipos = @($Catalogo | ForEach-Object { $_.tipoCredito })
+$Faltan = @($Ops | ForEach-Object { $_.tipoCredito } | Sort-Object -Unique | Where-Object { $Tipos -notcontains $_ })
+if ($Faltan.Count) {
+  Write-Host ''
+  Write-Host ("El tipo de crédito {0} no está en el catálogo NOCOBIS. Tipos disponibles:" -f ($Faltan -join ', ')) -ForegroundColor Red
+  foreach ($c in $Catalogo) { Write-Host ("  {0,-12} {1}  ({2})" -f $c.tipoCredito, $c.descripcion, $c.producto) }
+  throw 'Volvé a ejecutar con -TipoCredito <código correcto>.'
+}
+
+$AIngresar = @($Ops | Where-Object { [double]$_.saldoCapital -gt 0 })
+Write-Host ("Se ingresan {0} operaciones (las {1} con saldo 0 no se envían)." -f $AIngresar.Count, ($Ops.Count - $AIngresar.Count))
+foreach ($o in $Ops) { Write-Host ("  cliente {0,-6} {1,-40} {2,-10} {3,20:N2}" -f $o.cliente, $o.banco, $o.tipoCredito, [double]$o.saldoCapital) }
+
+if ($Reemplazar) {
+  Write-Host 'Operaciones vigentes que se cancelarían (mismo cliente y tipo de crédito):'
+  foreach ($o in $Ops) {
+    $vig = @(Llamar-Api 'Get' ('/v1/nocobis/operacion?cliente=' + $o.cliente) | Where-Object { $_.tipoCredito -eq $o.tipoCredito })
+    foreach ($v in $vig) { Write-Host ("  cliente {0} · operación {1} · saldo {2:N2}" -f $o.cliente, $v.numeroOperacion, [double]$v.saldoCapital) }
+    $o | Add-Member -NotePropertyName vigentes -NotePropertyValue $vig -Force
+  }
+}
+
+if (-not $Enviar) { Write-Host ''; Write-Host 'SIMULACIÓN: no se envió nada. Para enviar, ejecutá con -Enviar.' -ForegroundColor Yellow; return }
+if (-not $Confirmado) {
+  $resp = Read-Host ("Escribí SI para enviar {0} operaciones a {1}" -f $AIngresar.Count, $BaseUrl)
+  if ($resp -ne 'SI') { Write-Host 'Cancelado.'; return }
+}
+
+# --- envío (sin reintentos automáticos: ante un error se registra y se sigue con la próxima)
+$Resultado = @()
+foreach ($o in $Ops) {
+  $fila = [ordered]@{ cliente = $o.cliente; banco = $o.banco; tipoCredito = $o.tipoCredito; saldoCapital = $o.saldoCapital; canceladas = ''; operacion = ''; resultado = ''; avisos = ''; error = '' }
+  try {
+    if ($Reemplazar) {
+      $canc = @()
+      foreach ($v in @($o.vigentes)) {
+        $rc = Llamar-Api 'Post' '/v1/nocobis/cancelar' @{ cliente = [long]$o.cliente; numeroOp = [long]$v.numeroOperacion }
+        $canc += $rc.operacion
+      }
+      $fila.canceladas = ($canc -join ' ')
+    }
+    if ([double]$o.saldoCapital -gt 0) {
+      $cuerpo = [ordered]@{
+        cliente = [long]$o.cliente; tipoCredito = [string]$o.tipoCredito; moneda = [int]$o.moneda
+        saldoCapital = [decimal]$o.saldoCapital; saldoInteres = [decimal]$o.saldoInteres; saldoOcif = [decimal]$o.saldoOcif
+        fechaConcesion = [string]$o.fechaConcesion; fechaVencimiento = [string]$o.fechaVencimiento; tasaInteres = [decimal]$o.tasaInteres
+      }
+      $r = Llamar-Api 'Post' '/v1/nocobis/ingreso' $cuerpo
+      $fila.operacion = $r.operacion; $fila.resultado = $r.resultado; $fila.avisos = (@($r.avisos) -join ' | ')
+      Write-Host ("OK   cliente {0}: operación {1} {2}" -f $o.cliente, $r.operacion, $fila.avisos) -ForegroundColor Green
+    } else { $fila.resultado = 'saldo 0: no se ingresa' }
+  } catch {
+    $fila.error = $_.Exception.Message
+    Write-Host ("ERROR cliente {0}: {1}" -f $o.cliente, $fila.error) -ForegroundColor Red
+  }
+  $Resultado += New-Object PSObject -Property $fila
+}
+$Salida = Join-Path $Carpeta ('NoCobis_resultado_' + (Get-Date -Format 'yyyyMMdd_HHmmss') + '.csv')
+$Resultado | Export-Csv -Path $Salida -NoTypeInformation -Delimiter ';' -Encoding UTF8
+Write-Host ''
+Write-Host ("Listo: {0} ingresadas, {1} con error. Detalle en {2}" -f @($Resultado | Where-Object { $_.operacion }).Count, @($Resultado | Where-Object { $_.error }).Count, $Salida)
+`;
   }
 
   // Valores distintos de una columna con su cantidad (para elegir periodo y estados).
@@ -967,7 +1143,7 @@ try {
     PROVINCIAS, FIJOS, COLS_REPORTE, FORMATOS, COLUMNAS_MONTO, CAMPOS_INTERFAZ,
     leerTxtMeli, bancoMeliDeTxt, bancosParaMeli,
     sqlExtraccionCartera, bookmarkletCartera, scriptPowerShellCartera, comandoTareaCartera, IMPORTES_CARTERA,
-    NO_COBIS, ultimoDiaHabil, fechasNoCobis, lineaNoCobis, txtNoCobis,
+    NO_COBIS, ultimoDiaHabil, fechasNoCobis, lineaNoCobis, txtNoCobis, loteApiNoCobis, scriptPowerShellNoCobis,
     leerCartera, sugerirColumnaCartera, columnasNumericasCartera, agruparCartera, valoresDistintos, sqlCartera,
     leerCsv, encabezadosEjemplo, leerDefinicionInterfaz, sugerirColumna, detectarHojaInterfaz,
     normalizar, provinciaPorNombre, round2, aNumero, aFechaSerial, aCodigoBanco,

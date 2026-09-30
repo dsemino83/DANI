@@ -885,7 +885,7 @@
   $('btnDescargarScript').addEventListener('click', () => {
     const nombre = descargas ? 'cartera-bi.ps1.txt' : 'cartera-bi.ps1';
     $('extNotaScript').textContent = descargas ? 'Se descarga como .txt: renombralo a cartera-bi.ps1.' : '';
-    descargar(nombre, M.scriptPowerShellCartera(cfgExtraccion(), $('extCarpeta').value, ENDPOINT_BI), true);
+    descargar(nombre, '\ufeff' + M.scriptPowerShellCartera(cfgExtraccion(), $('extCarpeta').value, ENDPOINT_BI), true);
   });
   ['extCarpeta', 'extHora'].forEach(idc => $(idc).addEventListener('input', renderExtraccion));
 
@@ -914,7 +914,7 @@
     if (t.negativos.length) html += aviso('warn', `MIS con valor a descuento negativo, van en 0: ${esc(t.negativos.join(', '))}`);
     if (t.bancosSinMis.length) html += aviso('warn', `${t.bancosSinMis.length} bancos de Bancos MELI no tienen MIS y no van al TXT: ${esc(t.bancosSinMis.slice(0, 5).map(b => b.nombre || b.cobis).join(', '))}${t.bancosSinMis.length > 5 ? '…' : ''}`);
     $('noCobisInfo').innerHTML = html;
-    $('btnNoCobis').disabled = !t.filas.length;
+    $('btnNoCobis').disabled = $('btnNoCobisApi').disabled = !t.filas.length;
     return t;
   }
   $('btnNoCobis').addEventListener('click', () => {
@@ -922,6 +922,19 @@
       const t = infoNoCobis();
       if (t && t.filas.length) descargar(t.nombre, t.texto, true);
     } catch (e) { informar('No se pudo generar el TXT NO COBIS', esc(e.message || e)); }
+  });
+
+  $('btnNoCobisApi').addEventListener('click', () => {
+    try {
+      const t = infoNoCobis();
+      if (t && t.filas.length) descargar(t.nombre.replace(/\.txt$/, '.json'), JSON.stringify(M.loteApiNoCobis(t), null, 1), true);
+    } catch (e) { informar('No se pudo generar el lote para la API', esc(e.message || e)); }
+  });
+  $('btnNoCobisScript').addEventListener('click', () => {
+    // claude.ai no permite descargar .ps1: ahí baja como .txt y hay que renombrarlo.
+    const nombre = descargas ? 'nocobis-api.ps1.txt' : 'nocobis-api.ps1';
+    if (descargas) toast('Se descarga como .txt: renombralo a nocobis-api.ps1');
+    descargar(nombre, '\ufeff' + M.scriptPowerShellNoCobis(), true);
   });
 
   // Consulta directa al BI (ClickHouse). Funciona solo desde la red de VALO y si el BI acepta pedidos de esta página.
