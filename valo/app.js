@@ -1326,7 +1326,7 @@
           tipoAccion: p.tipoAccion, secuencia: p.secuencia, lote: p.lote, periodo: p.periodo, tasa: p.tasa,
           secuenciaAnterior: fresco.ultimaSecuencia, filas: prep.reporte.length,
           cantCuotas: cuotas.filas.length, cantCreditos: creditos.filas.length, total: cuotas.encabezado.totalCapital,
-          nombreCuotas: M.nombreArchivo('cuotas', hoy), nombreCreditos: M.nombreArchivo('creditos', hoy),
+          nombreCuotas: M.nombreArchivo('cuotas', hoy, 'csv', c.nombre), nombreCreditos: M.nombreArchivo('creditos', hoy, 'csv', c.nombre),
         },
       };
     }));

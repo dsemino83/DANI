@@ -1208,8 +1208,10 @@ try {
     return BOM + lineas.map(l => lineaCsv(l.map(pyStr))).join(FIN) + FIN;
   }
 
-  function nombreArchivo(tipo, hoy, extension) {
-    return (tipo === 'cuotas' ? 'CuotasGetNet' : 'CreditosGetNet') + hoyDDMMYY(hoy) + '.' + (extension || 'csv');
+  // Cuotas<Cliente><ddmmaa>.csv / Creditos<Cliente><ddmmaa>.csv (nombre del cliente sin acentos, espacios ni símbolos).
+  function nombreArchivo(tipo, hoy, extension, cliente) {
+    const nombre = String(cliente || 'GetNet').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^A-Za-z0-9]+/g, '') || 'GetNet';
+    return (tipo === 'cuotas' ? 'Cuotas' : 'Creditos') + nombre + hoyDDMMYY(hoy) + '.' + (extension || 'csv');
   }
 
   // ---------------------------------------------------- Formulario / secuencia

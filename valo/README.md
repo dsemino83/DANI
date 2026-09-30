@@ -44,7 +44,7 @@ Después de modificar el código, regenerar el archivo único con `python3 const
    - Número de crédito: 3 dígitos del código de banco (con ceros a la izquierda; si tiene más de 3, los 3 últimos)
      + fecha de generación ddmmyy + secuencia del lote. Ej.: banco 11, 29/09/2026, secuencia 158 → `011290926158`.
    - Genera Cuotas y Créditos con las mismas reglas del conversor y descarga
-     `CuotasGetNet<ddmmyy>.csv` y `CreditosGetNet<ddmmyy>.csv` (CSV UTF-8), con el mismo contenido que los scripts Python.
+     `Cuotas<Cliente><ddmmaa>.csv` y `Creditos<Cliente><ddmmaa>.csv` (CSV UTF-8), con el mismo contenido que los scripts Python.
 4. **Historial** – registro de todos los CSV generados, filtrable por cliente y por tipo de acción (Alta / Revolving),
    con totales por tipo, re-descarga de los CSV, exportación a Excel y anulación del último lote de cada cliente
    (devuelve la secuencia).
