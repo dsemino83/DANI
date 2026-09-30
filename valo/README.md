@@ -50,9 +50,15 @@ Después de modificar el código, regenerar el archivo único con `python3 const
    la red de VALO, se consulta directo si el BI lo permite). Filtra periodo (por defecto el último), negocios de Clientes
    (columna elegible, por defecto `Serie`) y excluye los estados de cuota marcados como pagos. Agrupa solo por titular;
    vista por defecto, sin fechas:
-   **Titular | Ente | MIS | Cuotas impagas | Ficuo capital | Saldo int. a dto. | Int. dev. a cobrar | Valor a descuento**,
+   **Titular | Ente | MIS | Cuotas impagas | Ficuo saldo capital | Saldo int. a dto. | Int. dev. a cobrar | Valor a descuento**,
    donde *Ente* y *MIS* salen de cruzar el CUIT del titular con la tabla Bancos MELI (el ente, si no está, con Bancos) y
-   *Valor a descuento = FICUO CAPITAL − FICUO SALDO INT A DTO + INT DEV A COBRAR*. Se pueden sumar importes adicionales. Descarga Excel.
+   *Valor a descuento = FICUO SALDO CAPITAL − FICUO SALDO INT A DTO + INT DEV A COBRAR*.
+
+   **TXT NO COBIS** (diseño de la hoja "NO COBIS" del inventario Payway): una línea de 156 caracteres por MIS con el
+   valor a descuento — MIS (10) · `CCASR` (10) · tasa `0100000000` · importe × 100 (14) · saldo interés y OCIF en ceros
+   (12 + 12) · moneda `080` · `NO COBIS` (64) · fecha de concesión (hoy) · fecha de vencimiento · `1`. El vencimiento es
+   el último día hábil del mes (lunes a viernes); si hoy ya es ese día (o es posterior), el último día hábil del mes
+   siguiente. Archivo `NoCobis<ddmmaa>.txt`, fin de línea CRLF. Los titulares sin MIS en Bancos MELI quedan afuera (con aviso). Se pueden sumar importes adicionales. Descarga Excel.
 
    **Extracción automática:** la pestaña genera (con los negocios de Clientes y el estado "pago" elegido) un botón de
    favoritos que, tocado estando en el BI, consulta `/clickhouse/` y descarga `Cartera_por_titular` y `Cartera_detalle`

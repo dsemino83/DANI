@@ -420,7 +420,7 @@
     if (tipo === 'periodo') return buscar(['periodo']);
     if (tipo === 'negocio') return buscar(['negocio', 'nro negocio', 'n negocio', 'numero negocio', 'serie', 'familia']);
     if (tipo === 'credito') return buscar(['credito', 'nro credito']);
-    if (tipo === 'capital') return buscar(['ficuo capital', 'capital']) || contiene('capital');
+    if (tipo === 'capital') return buscar(['ficuo saldo capital', 'saldo capital']) || contiene('saldo capital') || buscar(['ficuo capital', 'capital']) || contiene('capital');
     if (tipo === 'intDto') return buscar(['ficuo saldo int a dto', 'saldo int a dto', 'ficuo saldo int a desc', 'saldo int a descuento'])
       || contiene('int a dto') || contiene('int a desc');
     if (tipo === 'intDev') return buscar(['ficuo int dev a cobrar', 'int dev a cobrar', 'ficuo int dev cobrar'])
@@ -480,7 +480,7 @@
       if (!res.porNegocio[negocio]) res.porNegocio[negocio] = { titulares: new Set(), cuotas: 0, valor: 0, sumas: Object.fromEntries(cfg.sumar.map(c => [c, 0])) };
       const pn = res.porNegocio[negocio];
       pn.titulares.add(titular); pn.cuotas++;
-      // Valor = FICUO CAPITAL + (− FICUO SALDO INT A DTO + INT DEV A COBRAR)
+      // Valor a descuento = FICUO SALDO CAPITAL + (− FICUO SALDO INT A DTO + INT DEV A COBRAR)
       const calc = cfg.calc || {};
       const cap = calc.capital ? aNumero(r[calc.capital]) || 0 : 0;
       const dto = calc.intDto ? aNumero(r[calc.intDto]) || 0 : 0;
@@ -501,6 +501,65 @@
     ['capital', 'intDto', 'intDev'].forEach(k => { ct[k] = round2(ct[k]); });
     Object.values(res.porNegocio).forEach(pn => { pn.titulares = pn.titulares.size; pn.valor = round2(pn.valor); Object.keys(pn.sumas).forEach(c => { pn.sumas[c] = round2(pn.sumas[c]); }); });
     return res;
+  }
+
+  // ------------------------------------------------------------ TXT NO COBIS
+  // Diseño (hoja "NO COBIS" del archivo de inventario Payway), 156 caracteres por línea, una por ente (MIS):
+  // código cliente = MIS (10, ceros a la izq.) · tipo de crédito CCASR (10, espacios a la der.) · tasa 0100000000 (10)
+  // · saldo de capital = valor a descuento × 100 (14, ceros) · saldo interés (12 ceros) · saldo OCIF (12 ceros)
+  // · moneda 080 · módulo "NO COBIS" (64, espacios) · fecha concesión dd/mm/aaaa · fecha vencimiento dd/mm/aaaa · operación ajustada 1.
+  const NO_COBIS = { tipoCredito: 'CCASR', tasa: 100000000, moneda: 80, modulo: 'NO COBIS', operacionAjustada: 1 };
+  const ceros = (v, n) => String(v).padStart(n, '0');
+  const fechaBarra = d => ceros(d.getDate(), 2) + '/' + ceros(d.getMonth() + 1, 2) + '/' + d.getFullYear();
+  const claveDia = d => d.getFullYear() + '-' + ceros(d.getMonth() + 1, 2) + '-' + ceros(d.getDate(), 2);
+
+  // Último día hábil (lunes a viernes, sin feriados) del mes de 'fecha' + 'desplazamiento' meses.
+  // feriados: lista opcional de fechas 'aaaa-mm-dd'.
+  function ultimoDiaHabil(fecha, desplazamiento = 0, feriados = []) {
+    const f = new Set(feriados);
+    const d = new Date(fecha.getFullYear(), fecha.getMonth() + desplazamiento + 1, 0);
+    while (d.getDay() === 0 || d.getDay() === 6 || f.has(claveDia(d))) d.setDate(d.getDate() - 1);
+    return d;
+  }
+
+  // Concesión = hoy; vencimiento = último día hábil del mes, o del mes siguiente si hoy ya es ese día.
+  function fechasNoCobis(hoy = new Date(), feriados = []) {
+    const concesion = new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate());
+    let vencimiento = ultimoDiaHabil(concesion, 0, feriados);
+    // Si hoy es el último día hábil (o ya pasó, p. ej. un sábado 31), vence el último día hábil del mes siguiente.
+    if (claveDia(vencimiento) <= claveDia(concesion)) vencimiento = ultimoDiaHabil(concesion, 1, feriados);
+    return { concesion, vencimiento };
+  }
+
+  function lineaNoCobis(mis, importe, fechas) {
+    const centavos = Math.round(Number(importe) * 100);
+    const codigo = String(mis).replace(/\D/g, '');
+    if (!codigo || codigo.length > 10) throw new Error(`MIS inválido: ${mis}`);
+    if (!(centavos >= 0) || String(centavos).length > 14) throw new Error(`Importe fuera de rango para el MIS ${mis}: ${importe}`);
+    return ceros(codigo, 10) + NO_COBIS.tipoCredito.padEnd(10, ' ') + ceros(NO_COBIS.tasa, 10) + ceros(centavos, 14)
+      + ceros(0, 12) + ceros(0, 12) + ceros(NO_COBIS.moneda, 3) + NO_COBIS.modulo.padEnd(64, ' ')
+      + fechaBarra(fechas.concesion) + fechaBarra(fechas.vencimiento) + NO_COBIS.operacionAjustada;
+  }
+
+  // grupos: resultado de agruparCartera (usa g.mis y g.valor). Los titulares sin MIS o con valor ≤ 0 quedan afuera.
+  function txtNoCobis(grupos, hoy = new Date(), feriados = []) {
+    const fechas = fechasNoCobis(hoy, feriados);
+    const porMis = new Map();
+    const sinMis = [], sinValor = [];
+    grupos.forEach(g => {
+      const mis = String(g.mis == null ? '' : g.mis).replace(/\D/g, '');
+      if (!mis) { sinMis.push(g); return; }
+      porMis.set(mis, round2((porMis.get(mis) || 0) + (Number(g.valor) || 0)));
+    });
+    const filas = [...porMis.entries()].filter(([mis, valor]) => { if (valor > 0) return true; sinValor.push(mis); return false; })
+      .sort((a, b) => Number(a[0]) - Number(b[0]))
+      .map(([mis, valor]) => ({ mis, valor, linea: lineaNoCobis(mis, valor, fechas) }));
+    return {
+      fechas, filas, sinMis, sinValor,
+      total: round2(filas.reduce((t, f) => t + f.valor, 0)),
+      texto: filas.map(f => f.linea).join('\r\n') + (filas.length ? '\r\n' : ''),
+      nombre: 'NoCobis' + fechaBarra(fechas.concesion).replace(/\//g, '').replace(/(\d{4})(\d{2})(\d{2})$/, '$1$3') + '.txt',
+    };
   }
 
   // Valores distintos de una columna con su cantidad (para elegir periodo y estados).
@@ -536,7 +595,7 @@
     const importes = (cfg.importes || []).map(c => `round(${s(c)}, 2) AS ${id('Suma ' + c)}`);
     const calc = cfg.calc || {};
     if (calc.capital && calc.intDto && calc.intDev) {
-      importes.unshift(`round(${s(calc.capital)}, 2) AS ${id('Capital')}`, `round(${s(calc.intDto)}, 2) AS ${id('Saldo int a dto')}`,
+      importes.unshift(`round(${s(calc.capital)}, 2) AS ${id('Saldo capital')}`, `round(${s(calc.intDto)}, 2) AS ${id('Saldo int a dto')}`,
         `round(${s(calc.intDev)}, 2) AS ${id('Int dev a cobrar')}`,
         `round(${s(calc.capital)} - ${s(calc.intDto)} + ${s(calc.intDev)}, 2) AS ${id('Valor a descuento')}`);
     }
@@ -894,6 +953,7 @@ try {
     PROVINCIAS, FIJOS, COLS_REPORTE, FORMATOS, COLUMNAS_MONTO, CAMPOS_INTERFAZ,
     leerTxtMeli, bancoMeliDeTxt, bancosParaMeli,
     sqlExtraccionCartera, bookmarkletCartera, scriptPowerShellCartera, comandoTareaCartera, IMPORTES_CARTERA,
+    NO_COBIS, ultimoDiaHabil, fechasNoCobis, lineaNoCobis, txtNoCobis,
     leerCartera, sugerirColumnaCartera, columnasNumericasCartera, agruparCartera, valoresDistintos, sqlCartera,
     leerCsv, encabezadosEjemplo, leerDefinicionInterfaz, sugerirColumna, detectarHojaInterfaz,
     normalizar, provinciaPorNombre, round2, aNumero, aFechaSerial, aCodigoBanco,
