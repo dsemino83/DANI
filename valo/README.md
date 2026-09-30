@@ -48,10 +48,11 @@ Después de modificar el código, regenerar el archivo único con `python3 const
 5. **Cartera** – agrupa por titular el reporte *CreditoCarteraEspejoDetalle* del BI (tabla ClickHouse
    `BI_CLIC.CreditoCarteraEspejoDetalleHistorico`): se sube el export CSV/Excel del BI (o, desde la versión local dentro de
    la red de VALO, se consulta directo si el BI lo permite). Filtra periodo (por defecto el último), negocios de Clientes
-   (columna elegible, por defecto `Serie`) y excluye los estados de cuota marcados como pagos. Vista por defecto, sin fechas:
-   **Titular | Ente | Negocio | Cuotas impagas | Ficuo capital | Saldo int. a dto. | Int. dev. a cobrar | Valor**, donde
-   *Ente* sale de cruzar el CUIT del titular con la tabla Bancos MELI (si no está, con Bancos) y
-   *Valor = FICUO CAPITAL − FICUO SALDO INT A DTO + INT DEV A COBRAR*. Se pueden sumar importes adicionales. Descarga Excel.
+   (columna elegible, por defecto `Serie`) y excluye los estados de cuota marcados como pagos. Agrupa solo por titular;
+   vista por defecto, sin fechas:
+   **Titular | Ente | MIS | Cuotas impagas | Ficuo capital | Saldo int. a dto. | Int. dev. a cobrar | Valor a descuento**,
+   donde *Ente* y *MIS* salen de cruzar el CUIT del titular con la tabla Bancos MELI (el ente, si no está, con Bancos) y
+   *Valor a descuento = FICUO CAPITAL − FICUO SALDO INT A DTO + INT DEV A COBRAR*. Se pueden sumar importes adicionales. Descarga Excel.
 
    **Extracción automática:** la pestaña genera (con los negocios de Clientes y el estado "pago" elegido) un botón de
    favoritos que, tocado estando en el BI, consulta `/clickhouse/` y descarga `Cartera_por_titular` y `Cartera_detalle`

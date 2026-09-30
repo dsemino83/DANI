@@ -628,9 +628,10 @@
   const guardarCfgCartera = () => { try { localStorage.setItem(CLAVE_CARTERA, JSON.stringify(carteraCfg)); } catch (e) { /* opcional */ } };
   // Ente: nombre del banco por el CUIT del titular (Bancos MELI primero, después Bancos).
   function mapaEntes() {
+    // CUIT → { nombre, mis }: Bancos MELI manda; Bancos solo aporta el nombre (no tiene MIS).
     const m = new Map();
-    (datos().bancos || []).forEach(b => { const c = soloDigitos(b.cuit); if (c && b.nombre) m.set(c, b.nombre); });
-    (datos().bancosMeli || []).forEach(b => { const c = soloDigitos(b.cuit); if (c && (b.nombre || b.cobis)) m.set(c, b.nombre || b.cobis); });
+    (datos().bancos || []).forEach(b => { const c = soloDigitos(b.cuit); if (c && b.nombre) m.set(c, { nombre: b.nombre, mis: '' }); });
+    (datos().bancosMeli || []).forEach(b => { const c = soloDigitos(b.cuit); if (c && (b.nombre || b.cobis)) m.set(c, { nombre: b.nombre || b.cobis, mis: b.mis == null ? '' : b.mis }); });
     return m;
   }
   const negociosClientes = () => datos().clientes.map(c => String(c.negocio).trim()).filter(Boolean);
@@ -728,28 +729,28 @@
     const entes = mapaEntes();
     const res = M.agruparCartera(cartera.datos, Object.assign({}, cfg, { negocios, sumar,
       calc: { capital: cfg.colCapital, intDto: cfg.colIntDto, intDev: cfg.colIntDev },
-      ente: t => entes.get(soloDigitos(t)) || '' }));
+      ente: t => entes.get(soloDigitos(t)) || null }));
     carteraResultado = Object.assign(res, { sumar });
     let html = '';
     if (!cfg.estadosExcluidos.length) html += aviso('warn', 'No hay ningún estado marcado como pago: se están incluyendo todas las cuotas. Marcá qué códigos de "Estado de cuota" corresponden a cuota paga.');
     if (!cfg.colNegocio) html += aviso('warn', 'No elegiste la columna de Nº de negocio: no se filtra por los negocios de Clientes.');
     const faltanCalc = [[cfg.colCapital, 'Ficuo capital'], [cfg.colIntDto, 'Ficuo saldo int. a dto.'], [cfg.colIntDev, 'Int. dev. a cobrar']].filter(x => !x[0]).map(x => x[1]);
-    if (faltanCalc.length) html += aviso('warn', 'Para el Valor falta elegir la columna: ' + faltanCalc.join(', ') + ' (se toma como 0).');
+    if (faltanCalc.length) html += aviso('warn', 'Para el Valor a descuento falta elegir la columna: ' + faltanCalc.join(', ') + ' (se toma como 0).');
     const sinEnte = res.grupos.filter(g => !g.ente).length;
     if (sinEnte) html += aviso('warn', `${sinEnte} titulares sin ente: su CUIT no está en Bancos MELI ni en Bancos.`);
     html += `<p class="sub">${fmtEntero(res.leidas)} filas leídas · ${fmtEntero(res.otrosPeriodos)} de otros periodos · ${fmtEntero(res.otrosNegocios)} de negocios que no están en Clientes · ${fmtEntero(res.pagas)} cuotas pagas excluidas · <b>${fmtEntero(res.usadas)} cuotas impagas</b></p>`;
-    html += '<div class="kpis">' + Object.entries(res.porNegocio).map(([neg, pn]) => `<div class="kpi"><b>$ ${fmtMonto(pn.valor)}</b>
-      <span>Negocio ${esc(neg || '—')} · ${fmtEntero(pn.titulares)} titulares · ${fmtEntero(pn.cuotas)} cuotas · Valor</span></div>`).join('') + '</div>';
+    html += `<div class="kpis"><div class="kpi"><b>$ ${fmtMonto(res.calcTotales.valor)}</b><span>Valor a descuento</span></div>
+      <div class="kpi"><b>${fmtEntero(res.grupos.length)}</b><span>titulares</span></div><div class="kpi"><b>${fmtEntero(res.usadas)}</b><span>cuotas impagas</span></div></div>`;
     $('carteraResumen').innerHTML = html;
     const LIMITE = 2000;
     const ct = res.calcTotales;
-    $('tablaCartera').innerHTML = res.grupos.length ? `<table><thead><tr><th>Titular</th><th>Ente</th>${cfg.colNegocio ? '<th>Negocio</th>' : ''}
+    $('tablaCartera').innerHTML = res.grupos.length ? `<table><thead><tr><th>Titular</th><th>Ente</th><th class="num">MIS</th>
       <th class="num">Cuotas impagas</th><th class="num">Ficuo capital</th><th class="num">Saldo int. a dto.</th><th class="num">Int. dev. a cobrar</th>
-      <th class="num">Valor</th>${sumar.map(c => `<th class="num">${esc(c)}</th>`).join('')}</tr></thead><tbody>
-      <tr class="enc"><td>TOTAL (${fmtEntero(res.grupos.length)} titulares)</td><td></td>${cfg.colNegocio ? '<td></td>' : ''}<td class="num">${fmtEntero(res.usadas)}</td>
+      <th class="num">Valor a descuento</th>${sumar.map(c => `<th class="num">${esc(c)}</th>`).join('')}</tr></thead><tbody>
+      <tr class="enc"><td>TOTAL (${fmtEntero(res.grupos.length)} titulares)</td><td></td><td></td><td class="num">${fmtEntero(res.usadas)}</td>
       <td class="num">${fmtMonto(ct.capital)}</td><td class="num">${fmtMonto(ct.intDto)}</td><td class="num">${fmtMonto(ct.intDev)}</td><td class="num"><b>${fmtMonto(ct.valor)}</b></td>
       ${sumar.map(c => `<td class="num">${fmtMonto(res.totales[c])}</td>`).join('')}</tr>
-      ${res.grupos.slice(0, LIMITE).map(g => `<tr><td>${esc(g.titular)}</td><td>${g.ente ? esc(g.ente) : '<span class="chip warn">sin ente</span>'}</td>${cfg.colNegocio ? `<td>${esc(g.negocio)}</td>` : ''}
+      ${res.grupos.slice(0, LIMITE).map(g => `<tr><td>${esc(g.titular)}</td><td>${g.ente ? esc(g.ente) : '<span class="chip warn">sin ente</span>'}</td><td class="num">${esc(g.mis)}</td>
         <td class="num">${fmtEntero(g.cuotas)}</td><td class="num">${fmtMonto(g.capital)}</td><td class="num">${fmtMonto(g.intDto)}</td><td class="num">${fmtMonto(g.intDev)}</td>
         <td class="num"><b>${fmtMonto(g.valor)}</b></td>${sumar.map(c => `<td class="num">${fmtMonto(g.sumas[c])}</td>`).join('')}</tr>`).join('')}</tbody></table>`
       + (res.grupos.length > LIMITE ? `<div class="vacio">Se muestran ${LIMITE} de ${fmtEntero(res.grupos.length)} titulares; el Excel trae todos.</div>` : '')
@@ -791,7 +792,7 @@
       estadosPagos: Array.isArray(c.estadosExcluidos) ? c.estadosExcluidos : [],
       importes: cartera && Array.isArray(c.sumar) ? c.sumar : [],
       calc: { capital: c.colCapital || 'ficuo capital', intDto: c.colIntDto || '', intDev: c.colIntDev || '' },
-      entes: [...mapaEntes().entries()],
+      entes: [...mapaEntes().entries()].map(([cuit, e]) => [cuit, e.nombre, e.mis]),
       colTitular: c.colTitular, colTipoDoc: c.colTipoDoc, colCredito: c.colCredito, colEstado: c.colEstado,
     };
   }
@@ -799,8 +800,8 @@
   function renderExtraccion() {
     const cfg = cfgExtraccion();
     let html = `<p class="sub">Negocios: <b>${esc(cfg.negocios.join(', ') || '(ninguno)')}</b> · Columna de negocio: <b>${esc(cfg.colNegocio || 'Serie o Familia')}</b> · ` +
-      `Estados pagos excluidos: <b>${esc(cfg.estadosPagos.join(', ') || 'ninguno')}</b> · Valor: <b>${cfg.calc.intDto && cfg.calc.intDev ? 'sí' : 'falta elegir columnas'}</b></p>`;
-    if (!cfg.calc.intDto || !cfg.calc.intDev) html += aviso('warn', 'Para que el archivo automático traiga el Valor (capital − int. a dto. + int. dev.), subí una vez un export y confirmá esas columnas en "Columnas y filtros".');
+      `Estados pagos excluidos: <b>${esc(cfg.estadosPagos.join(', ') || 'ninguno')}</b> · Valor a descuento: <b>${cfg.calc.intDto && cfg.calc.intDev ? 'sí' : 'falta elegir columnas'}</b></p>`;
+    if (!cfg.calc.intDto || !cfg.calc.intDev) html += aviso('warn', 'Para que el archivo automático traiga el Valor a descuento (capital − int. a dto. + int. dev.), subí una vez un export y confirmá esas columnas en "Columnas y filtros".');
     if (!cfg.negocios.length) html += aviso('bad', 'No hay clientes con Nº de negocio: cargalos en Clientes.');
     if (!cfg.estadosPagos.length) html += aviso('warn', 'Todavía no se marcó qué estado de cuota es "paga": el archivo agrupado va a incluir todas las cuotas. Subí un export arriba, marcá el estado pago y volvé a descargar el favorito o el script.');
     $('extResumen').innerHTML = html;
@@ -824,16 +825,16 @@
 
   $('btnCarteraExcel').addEventListener('click', () => {
     if (!carteraResultado) return;
-    const cfg = carteraCfg, r = carteraResultado;
-    const enc = ['Titular', 'Ente'].concat(cfg.colNegocio ? ['Negocio'] : [], ['Cuotas impagas', 'Ficuo capital', 'Saldo int a dto', 'Int dev a cobrar', 'Valor'], r.sumar);
-    const aoa = [enc].concat(r.grupos.map(g => [g.titular, g.ente].concat(cfg.colNegocio ? [g.negocio] : [], [g.cuotas, g.capital, g.intDto, g.intDev, g.valor], r.sumar.map(c => g.sumas[c]))));
+    const r = carteraResultado;
+    const enc = ['Titular', 'Ente', 'MIS', 'Cuotas impagas', 'Ficuo capital', 'Saldo int a dto', 'Int dev a cobrar', 'Valor a descuento'].concat(r.sumar);
+    const aoa = [enc].concat(r.grupos.map(g => [g.titular, g.ente, g.mis === '' || isNaN(Number(g.mis)) ? g.mis : Number(g.mis), g.cuotas, g.capital, g.intDto, g.intDev, g.valor].concat(r.sumar.map(c => g.sumas[c]))));
     const ct = r.calcTotales;
-    aoa.push(['TOTAL', ''].concat(cfg.colNegocio ? [''] : [], [r.usadas, ct.capital, ct.intDto, ct.intDev, ct.valor], r.sumar.map(c => r.totales[c])));
+    aoa.push(['TOTAL', '', '', r.usadas, ct.capital, ct.intDto, ct.intDev, ct.valor].concat(r.sumar.map(c => r.totales[c])));
     const ws = XLSX.utils.aoa_to_sheet(aoa);
     ws['!cols'] = enc.map(h => ({ wch: Math.max(12, h.length + 2) }));
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Cartera por titular');
-    descargarLibro(`Cartera_por_titular_${cfg.periodo || 'todos'}.xlsx`, wb);
+    descargarLibro(`Cartera_por_titular_${carteraCfg.periodo || 'todos'}.xlsx`, wb);
   });
 
   // Consulta directa al BI (ClickHouse). Funciona solo desde la red de VALO y si el BI acepta pedidos de esta página.

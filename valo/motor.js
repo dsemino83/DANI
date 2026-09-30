@@ -466,9 +466,10 @@
       res.usadas++;
       const titular = valorTexto(r[cfg.colTitular]) || '(sin titular)';
       const negocio = cfg.colNegocio ? valorTexto(r[cfg.colNegocio]) : '';
-      const k = titular + '|' + negocio;
+      const k = titular; // se agrupa solo por titular
       if (!grupos.has(k)) {
-        const g = { titular, ente: cfg.ente ? cfg.ente(titular) : '', tipoDoc: cfg.colTipoDoc ? valorTexto(r[cfg.colTipoDoc]) : '', negocio,
+        const e = cfg.ente ? cfg.ente(titular) : null;
+        const g = { titular, ente: (e && e.nombre) || '', mis: e && e.mis != null ? e.mis : '', tipoDoc: cfg.colTipoDoc ? valorTexto(r[cfg.colTipoDoc]) : '', negocio,
           cuotas: 0, creditos: new Set(), sumas: {}, capital: 0, intDto: 0, intDev: 0 };
         cfg.sumar.forEach(c => { g.sumas[c] = 0; });
         grupos.set(k, g);
@@ -493,7 +494,7 @@
       Object.keys(g.sumas).forEach(c => { g.sumas[c] = round2(g.sumas[c]); });
       return Object.assign(g, { creditos: g.creditos.size, capital: round2(g.capital), intDto: round2(g.intDto), intDev: round2(g.intDev),
         valor: round2(g.capital - g.intDto + g.intDev) });
-    }).sort((a, b) => (a.negocio < b.negocio ? -1 : a.negocio > b.negocio ? 1 : 0) || (a.titular < b.titular ? -1 : a.titular > b.titular ? 1 : 0));
+    }).sort((a, b) => (a.titular < b.titular ? -1 : a.titular > b.titular ? 1 : 0));
     Object.keys(res.totales).forEach(c => { res.totales[c] = round2(res.totales[c]); });
     const ct = res.calcTotales;
     ct.valor = round2(ct.capital - ct.intDto + ct.intDev);
@@ -523,9 +524,6 @@
   // cfg: { negocios, colNegocio, estadosPagos, importes, colTitular, colTipoDoc, colCredito, colEstado }
   function sqlExtraccionCartera(cfg, tipo) {
     const lista = (cfg.negocios || []).map(lit).join(', ') || "''";
-    const neg = cfg.colNegocio
-      ? `toString(${id(cfg.colNegocio)})`
-      : `multiIf(toString(Serie) IN (${lista}), toString(Serie), toString(Familia))`;
     const filtroNeg = cfg.colNegocio
       ? `toString(${id(cfg.colNegocio)}) IN (${lista})`
       : `(toString(Serie) IN (${lista}) OR toString(Familia) IN (${lista}))`;
@@ -540,16 +538,18 @@
     if (calc.capital && calc.intDto && calc.intDev) {
       importes.unshift(`round(${s(calc.capital)}, 2) AS ${id('Capital')}`, `round(${s(calc.intDto)}, 2) AS ${id('Saldo int a dto')}`,
         `round(${s(calc.intDev)}, 2) AS ${id('Int dev a cobrar')}`,
-        `round(${s(calc.capital)} - ${s(calc.intDto)} + ${s(calc.intDev)}, 2) AS ${id('Valor (capital - int a dto + int dev)')}`);
+        `round(${s(calc.capital)} - ${s(calc.intDto)} + ${s(calc.intDev)}, 2) AS ${id('Valor a descuento')}`);
     }
-    // Ente: nombre del banco según el CUIT del titular (tabla Bancos MELI / Bancos).
+    // Ente y MIS según el CUIT del titular (tabla Bancos MELI; el ente, si no está, de Bancos).
+    // cfg.entes: [[cuit, nombre, mis], ...]
     const entes = (cfg.entes || []).filter(e => e[0] && e[1]);
-    const ente = entes.length
-      ? `multiIf(${entes.map(e => `replaceRegexpAll(toString(${titular}), '[^0-9]', '') = ${lit(e[0])}, ${lit(e[1])}`).join(', ')}, '')`
-      : "''";
-    return `SELECT toString(${titular}) AS Titular, ${ente} AS Ente, ${neg} AS Negocio, ` +
+    const cuitTit = `replaceRegexpAll(toString(${titular}), '[^0-9]', '')`;
+    const segun = (lista, v) => lista.length ? `multiIf(${lista.map(e => `${cuitTit} = ${lit(e[0])}, ${lit(v(e))}`).join(', ')}, '')` : "''";
+    const ente = segun(entes, e => e[1]);
+    const mis = segun(entes.filter(e => e[2] != null && e[2] !== ''), e => e[2]);
+    return `SELECT toString(${titular}) AS Titular, ${ente} AS Ente, ${mis} AS MIS, ` +
       `count() AS ${id('Cuotas impagas')}${importes.length ? ', ' + importes.join(', ') : ''} ` +
-      `FROM ${TABLA_CARTERA} WHERE ${w.join(' AND ')} GROUP BY Titular, Negocio ORDER BY Negocio, Titular FORMAT JSONEachRow`;
+      `FROM ${TABLA_CARTERA} WHERE ${w.join(' AND ')} GROUP BY Titular ORDER BY Titular FORMAT JSONEachRow`;
   }
 
   // Botón de favoritos: se usa estando en la página del BI (mismo servidor que /clickhouse/).
