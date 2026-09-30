@@ -100,6 +100,26 @@ En cada uno: **Crear conector** → pestaña **Probar** → **Nueva conexión** 
 > **Encabezados de todas las Respuestas:** `Access-Control-Allow-Origin: *` y `Content-Type: application/json`
 > (sin el primero, el navegador no deja leer la respuesta).
 
+### 2.5 Respuesta ante errores (recomendado)
+Para que la página muestre el error real (y no un *HTTP 502: The server did not receive a response*):
+1. Poner todo lo que está después de **Analizar JSON** dentro de un **Ámbito** (Scope) llamado `Intentar`.
+2. Debajo del ámbito, una **Respuesta** `500` con los mismos encabezados y cuerpo:
+   ```
+   {"ok": false, "mensaje": "@{coalesce(first(filter(result('Intentar'), x, equals(x?['status'], 'Failed')))?['error']?['message'], 'Falló una acción del flujo')}"}
+   ```
+   (si esa expresión no se acepta, usar solo `{"ok": false, "mensaje": "Falló una acción del flujo"}` y ver el detalle en el historial).
+3. En esa Respuesta: **Configurar ejecución posterior** = *tiene errores* y *se agotó el tiempo de espera*.
+
+**Si la página muestra HTTP 502**: el flujo se ejecutó pero no llegó a ninguna Respuesta. Abrir el flujo →
+**Historial de ejecuciones** → la ejecución con *Error* → ver la primera acción en rojo:
+
+| Acción en rojo | Causa probable | Qué hacer |
+|---|---|---|
+| Redactar `Pedido` | el cuerpo llega en otro formato | usar `json(base64ToString(triggerBody()?['$content']))` |
+| Analizar JSON | el esquema no coincide | usar `esquema-pedido.json` |
+| ObtenerToken / Catalogo | el gateway no llega o la conexión no tiene gateway | probar el conector (pestaña Probar) y que el gateway esté en línea |
+| tiempo de espera agotado | gateway o API lentos (más de 2 minutos) | revisar gateway / API |
+
 ## 3. En la página
 
 Cartera → Resultado → **Envío directo a la API (Power Automate)**:

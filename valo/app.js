@@ -957,6 +957,8 @@
     try { j = JSON.parse(texto); } catch (e) { /* respuesta no JSON */ }
     if (r.status === 401 && /OAuth authorization scheme|authentication scheme/i.test(texto))
       throw new Error('Power Automate rechazó el pedido: el disparador del flujo exige iniciar sesión con Microsoft. En el flujo, disparador "Cuando se recibe una solicitud HTTP" → "Quién puede desencadenar el flujo" = Cualquiera; guardá y copiá la HTTP URL nueva (termina en &sig=…).');
+    if (r.status === 502 || r.status === 504)
+      throw new Error(`El flujo se ejecutó pero no devolvió respuesta (HTTP ${r.status}): falló una acción antes de la Respuesta o tardó más de 2 minutos. En Power Automate abrí el flujo → Historial de ejecuciones → la ejecución con error, y fijate qué acción quedó en rojo (ver powerautomate/INSTRUCCIONES.md, punto 2.5).`);
     if (!r.ok && !(j && j.resultados)) throw new Error(`El flujo respondió HTTP ${r.status}: ${(j && (j.mensaje || j.error && (j.error.message || j.error))) || texto.slice(0, 300)}`);
     if (!j) throw new Error('El flujo respondió algo que no es JSON: ' + texto.slice(0, 300));
     return j;
