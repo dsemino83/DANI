@@ -491,6 +491,122 @@
       .sort((a, b) => (!isNaN(Number(a.valor)) && !isNaN(Number(b.valor)) ? Number(a.valor) - Number(b.valor) : a.valor < b.valor ? -1 : 1));
   }
 
+  // ---------------------------------------------- Extracción automática del BI
+
+  const TABLA_CARTERA = 'CreditoCarteraEspejoDetalleHistorico';
+  const IMPORTES_CARTERA = ['ficuo capital', 'ficuo saldo capital', 'ficuo interes', 'ficuo saldo interes',
+    'ficuo int deveng calculado vn', 'ficuo saldo valor fideicomitido'];
+  const id = c => '`' + String(c).replace(/`/g, '') + '`';
+  const lit = v => "'" + String(v).replace(/\\/g, '\\\\').replace(/'/g, "\\'") + "'";
+
+  // Consultas ClickHouse del último periodo para los negocios de Clientes.
+  // Sin columna de negocio definida, el negocio se busca en Serie y en Familia.
+  // cfg: { negocios, colNegocio, estadosPagos, importes, colTitular, colTipoDoc, colCredito, colEstado }
+  function sqlExtraccionCartera(cfg, tipo) {
+    const lista = (cfg.negocios || []).map(lit).join(', ') || "''";
+    const neg = cfg.colNegocio
+      ? `toString(${id(cfg.colNegocio)})`
+      : `multiIf(toString(Serie) IN (${lista}), toString(Serie), toString(Familia))`;
+    const filtroNeg = cfg.colNegocio
+      ? `toString(${id(cfg.colNegocio)}) IN (${lista})`
+      : `(toString(Serie) IN (${lista}) OR toString(Familia) IN (${lista}))`;
+    const w = [`periodo = (SELECT max(periodo) FROM ${TABLA_CARTERA})`, filtroNeg];
+    if (tipo === 'detalle') return `SELECT * FROM ${TABLA_CARTERA} WHERE ${w.join(' AND ')} FORMAT JSONEachRow`;
+    const colEstado = cfg.colEstado || 'Estado Cuota';
+    if (cfg.estadosPagos && cfg.estadosPagos.length) w.push(`toString(${id(colEstado)}) NOT IN (${cfg.estadosPagos.map(lit).join(', ')})`);
+    const titular = id(cfg.colTitular || 'ficuo doc titular');
+    const importes = (cfg.importes && cfg.importes.length ? cfg.importes : IMPORTES_CARTERA)
+      .map(c => `round(sum(toFloat64(ifNull(${id(c)}, 0))), 2) AS ${id('Suma ' + c)}`);
+    return `SELECT toString(${titular}) AS Titular, any(toString(${id(cfg.colTipoDoc || 'ficuo tipodoc titular')})) AS ${id('Tipo doc')}, ${neg} AS Negocio, ` +
+      `uniqExact(${id(cfg.colCredito || 'Crédito')}) AS Creditos, count() AS ${id('Cuotas impagas')}, ${importes.join(', ')} ` +
+      `FROM ${TABLA_CARTERA} WHERE ${w.join(' AND ')} GROUP BY Titular, Negocio ORDER BY Negocio, Titular FORMAT JSONEachRow`;
+  }
+
+  // Botón de favoritos: se usa estando en la página del BI (mismo servidor que /clickhouse/).
+  function bookmarkletCartera(cfg) {
+    const codigo = `(async()=>{
+const SQLD=${JSON.stringify(sqlExtraccionCartera(cfg, 'detalle'))};
+const SQLA=${JSON.stringify(sqlExtraccionCartera(cfg, 'agrupado'))};
+if(!/bi-click/i.test(location.hostname)){alert('VALO Cartera: abrí primero el BI (bi-click-desa...) y después tocá este favorito.');return;}
+const q=async s=>{const u=new URL('/clickhouse/',location.origin);u.searchParams.set('database','BI_CLIC');const r=await fetch(u,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:s});if(!r.ok)throw new Error(await r.text());const t=(await r.text()).trim();return t?t.split('\\n').map(JSON.parse):[];};
+const csv=f=>{if(!f.length)return '';const h=Object.keys(f[0]);return '\\ufeff'+[h,...f.map(r=>h.map(c=>{const v=r[c];return typeof v==='number'?String(v).replace('.',','):v;}))].map(x=>x.map(v=>'"'+String(v==null?'':v).replace(/"/g,'""')+'"').join(';')).join('\\r\\n');};
+const bajar=(t,n)=>{const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([t],{type:'text/csv;charset=utf-8'}));a.download=n;document.body.appendChild(a);a.click();setTimeout(()=>a.remove(),1000);};
+try{const[d,g]=await Promise.all([q(SQLD),q(SQLA)]);if(!d.length){alert('VALO Cartera: el BI no devolvió filas para los negocios configurados en el último periodo.');return;}
+const p=d[0].periodo||'';bajar(csv(g),'Cartera_por_titular_'+p+'.csv');setTimeout(()=>bajar(csv(d),'Cartera_detalle_'+p+'.csv'),600);
+alert('VALO Cartera: periodo '+p+'\\n'+g.length+' titulares, '+d.length+' cuotas.\\nSe descargaron Cartera_por_titular y Cartera_detalle (este último se puede subir en la pestaña Cartera).');}
+catch(e){alert('VALO Cartera: no se pudo consultar el BI.\\n'+e.message);}})();`;
+    return 'javascript:' + encodeURIComponent(codigo.replace(/\n/g, ''));
+  }
+
+  // Script de PowerShell para el Programador de tareas de Windows.
+  function scriptPowerShellCartera(cfg, carpeta, endpoint) {
+    const aqui = t => t.replace(/'@/g, "' @");
+    return `# VALO - EPORTFOLIO · Extracción automática de Cartera desde el BI (CreditoCarteraEspejoDetalle)
+# Generado el ${new Date().toISOString().slice(0, 10)}. Negocios: ${(cfg.negocios || []).join(', ')}
+# Deja en la carpeta: Cartera_por_titular_<aaaammdd>.csv, Cartera_por_titular_ULTIMO.csv,
+# Cartera_detalle_<aaaammdd>.csv (se puede subir en la pestaña Cartera) y registro.log.
+$ErrorActionPreference = 'Stop'
+$Endpoint = '${endpoint}'
+$Carpeta  = '${carpeta.replace(/'/g, "''")}'
+$SqlAgrupado = @'
+${aqui(sqlExtraccionCartera(cfg, 'agrupado'))}
+'@
+$SqlDetalle = @'
+${aqui(sqlExtraccionCartera(cfg, 'detalle'))}
+'@
+
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+New-Item -ItemType Directory -Force -Path $Carpeta | Out-Null
+$Log = Join-Path $Carpeta 'registro.log'
+
+function Consultar([string]$Sql) {
+  $Url = $Endpoint + '?database=BI_CLIC'
+  $Cuerpo = [Text.Encoding]::UTF8.GetBytes($Sql)
+  $R = Invoke-WebRequest -Uri $Url -Method Post -Body $Cuerpo -ContentType 'text/plain; charset=utf-8' -UseDefaultCredentials -UseBasicParsing
+  $Texto = [Text.Encoding]::UTF8.GetString($R.RawContentStream.ToArray())
+  $Filas = @()
+  foreach ($Linea in ($Texto -split "\`n")) { if ($Linea.Trim()) { $Filas += ($Linea | ConvertFrom-Json) } }
+  return ,$Filas
+}
+
+# CSV con ';', coma decimal y UTF-8 con BOM (se abre bien en Excel en español).
+$Cultura = [Globalization.CultureInfo]::GetCultureInfo('es-AR')
+function Guardar($Filas, [string]$Nombre) {
+  $Ruta = Join-Path $Carpeta $Nombre
+  $Salida = foreach ($F in $Filas) {
+    $O = [ordered]@{}
+    foreach ($P in $F.PSObject.Properties) {
+      $V = $P.Value
+      if ($V -is [double] -or $V -is [decimal] -or $V -is [single]) { $V = $V.ToString($Cultura) }
+      $O[$P.Name] = $V
+    }
+    [pscustomobject]$O
+  }
+  $Lineas = $Salida | ConvertTo-Csv -Delimiter ';' -NoTypeInformation
+  [IO.File]::WriteAllLines($Ruta, [string[]]$Lineas, (New-Object Text.UTF8Encoding $true))
+  return $Ruta
+}
+
+try {
+  $Hoy = Get-Date -Format 'yyyyMMdd'
+  $Agrupado = Consultar $SqlAgrupado
+  $Detalle  = Consultar $SqlDetalle
+  if ($Detalle.Count -eq 0) { throw 'El BI no devolvió filas para los negocios configurados.' }
+  Guardar $Agrupado "Cartera_por_titular_$Hoy.csv" | Out-Null
+  Guardar $Agrupado 'Cartera_por_titular_ULTIMO.csv' | Out-Null
+  Guardar $Detalle  "Cartera_detalle_$Hoy.csv" | Out-Null
+  Add-Content $Log "$(Get-Date -Format s) OK periodo $($Detalle[0].periodo): $($Agrupado.Count) titulares, $($Detalle.Count) cuotas"
+} catch {
+  Add-Content $Log "$(Get-Date -Format s) ERROR $($_.Exception.Message)"
+  exit 1
+}
+`;
+  }
+
+  function comandoTareaCartera(rutaScript, hora) {
+    return `schtasks /Create /F /SC DAILY /ST ${hora} /TN "VALO Cartera BI" /TR "powershell.exe -NoProfile -ExecutionPolicy Bypass -File \\"${rutaScript}\\""`;
+  }
+
   // SQL para consultar el BI directo (tabla del reporte CreditoCarteraEspejoDetalle).
   function sqlCartera(tabla, colNegocio, negocios, periodo, limite, desde) {
     const lista = negocios.map(n => (isNaN(Number(n)) ? `'${String(n).replace(/'/g, "''")}'` : Number(n))).join(', ');
@@ -747,6 +863,7 @@
   const api = {
     PROVINCIAS, FIJOS, COLS_REPORTE, FORMATOS, COLUMNAS_MONTO, CAMPOS_INTERFAZ,
     leerTxtMeli, bancoMeliDeTxt, bancosParaMeli,
+    sqlExtraccionCartera, bookmarkletCartera, scriptPowerShellCartera, comandoTareaCartera, IMPORTES_CARTERA,
     leerCartera, sugerirColumnaCartera, columnasNumericasCartera, agruparCartera, valoresDistintos, sqlCartera,
     leerCsv, encabezadosEjemplo, leerDefinicionInterfaz, sugerirColumna, detectarHojaInterfaz,
     normalizar, provinciaPorNombre, round2, aNumero, aFechaSerial, aCodigoBanco,

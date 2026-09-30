@@ -707,6 +707,7 @@
   function calcularCartera() {
     const cfg = carteraCfg;
     guardarCfgCartera();
+    renderExtraccion();
     const negocios = negociosClientes();
     const sumar = cartera.numericas.filter(c => cfg.sumar.includes(c));
     const res = M.agruparCartera(cartera.datos, Object.assign({}, cfg, { negocios, sumar }));
@@ -754,6 +755,44 @@
     carteraCfg.sumar = [...set];
     calcularCartera();
   });
+
+  // --- extracción automática (favorito y tarea de Windows)
+  const ENDPOINT_BI = 'https://bi-click-desa.apps.closdesa.bvsa.local/clickhouse/';
+  function cfgExtraccion() {
+    const c = carteraCfg;
+    return {
+      negocios: negociosClientes(),
+      colNegocio: cartera && c.colNegocio ? c.colNegocio : '',
+      estadosPagos: Array.isArray(c.estadosExcluidos) ? c.estadosExcluidos : [],
+      importes: cartera && Array.isArray(c.sumar) && c.sumar.length ? c.sumar : M.IMPORTES_CARTERA,
+      colTitular: c.colTitular, colTipoDoc: c.colTipoDoc, colCredito: c.colCredito, colEstado: c.colEstado,
+    };
+  }
+  const rutaScript = () => $('extCarpeta').value.replace(/[\\/]+$/, '') + '\\cartera-bi.ps1';
+  function renderExtraccion() {
+    const cfg = cfgExtraccion();
+    let html = `<p class="sub">Negocios: <b>${esc(cfg.negocios.join(', ') || '(ninguno)')}</b> · Columna de negocio: <b>${esc(cfg.colNegocio || 'Serie o Familia')}</b> · ` +
+      `Estados pagos excluidos: <b>${esc(cfg.estadosPagos.join(', ') || 'ninguno')}</b> · Importes: ${cfg.importes.length}</p>`;
+    if (!cfg.negocios.length) html += aviso('bad', 'No hay clientes con Nº de negocio: cargalos en Clientes.');
+    if (!cfg.estadosPagos.length) html += aviso('warn', 'Todavía no se marcó qué estado de cuota es "paga": el archivo agrupado va a incluir todas las cuotas. Subí un export arriba, marcá el estado pago y volvé a descargar el favorito o el script.');
+    $('extResumen').innerHTML = html;
+    $('lnkBookmarklet').href = M.bookmarkletCartera(cfg);
+    $('extComando').textContent = M.comandoTareaCartera(rutaScript(), $('extHora').value || '07:00');
+  }
+  async function copiar(texto, boton) {
+    try { await navigator.clipboard.writeText(texto); toast('Copiado'); }
+    catch (e) { await informar('Copiá el texto', `<textarea style="width:100%;height:160px" readonly>${esc(texto)}</textarea>`); }
+  }
+  $('lnkBookmarklet').addEventListener('click', e => { e.preventDefault(); toast('Arrastralo a la barra de favoritos; se usa desde la página del BI.'); });
+  $('btnCopiarBookmarklet').addEventListener('click', () => copiar(M.bookmarkletCartera(cfgExtraccion())));
+  $('btnCopiarComando').addEventListener('click', () => copiar($('extComando').textContent));
+  $('btnCopiarScript').addEventListener('click', () => copiar(M.scriptPowerShellCartera(cfgExtraccion(), $('extCarpeta').value, ENDPOINT_BI)));
+  $('btnDescargarScript').addEventListener('click', () => {
+    const nombre = descargas ? 'cartera-bi.ps1.txt' : 'cartera-bi.ps1';
+    $('extNotaScript').textContent = descargas ? 'Se descarga como .txt: renombralo a cartera-bi.ps1.' : '';
+    descargar(nombre, M.scriptPowerShellCartera(cfgExtraccion(), $('extCarpeta').value, ENDPOINT_BI));
+  });
+  ['extCarpeta', 'extHora'].forEach(idc => $(idc).addEventListener('input', renderExtraccion));
 
   $('btnCarteraExcel').addEventListener('click', () => {
     if (!carteraResultado) return;
@@ -1367,7 +1406,7 @@
     renderClientes();
     renderBancos();
     renderBancosMeli();
-    if (cartera) renderCartera();
+    if (cartera) renderCartera(); else renderExtraccion();
     renderHistorial();
     actualizarFormulario();
     aplicarPermisos();

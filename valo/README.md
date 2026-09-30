@@ -51,6 +51,11 @@ Después de modificar el código, regenerar el archivo único con `python3 const
    (columna elegible, por defecto `Serie`) y excluye los estados de cuota marcados como pagos. Suma los importes por titular,
    sin fechas, y descarga Excel.
 
+   **Extracción automática:** la pestaña genera (con los negocios de Clientes y el estado "pago" elegido) un botón de
+   favoritos que, tocado estando en el BI, consulta `/clickhouse/` y descarga `Cartera_por_titular` y `Cartera_detalle`
+   del último periodo; y un script `cartera-bi.ps1` + comando `schtasks` para correrlo todos los días en una PC de la red.
+   Consultas validadas con ClickHouse (chdb) y script probado con PowerShell 7.
+
 ## Datos
 
 - **Versión compartida (recomendada):** página publicada en claude.ai (`compartido/conversor-valo-compartido.html`).
