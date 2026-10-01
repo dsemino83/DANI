@@ -917,6 +917,150 @@ foreach ($Envio in $Pendientes) {
 `;
   }
 
+  // Archivo de envío en un solo paso: un .cmd (doble clic) con el lote adentro. Ingresa en la API desde la PC
+  // (conectada a la red de VALO / VPN), muestra el resultado y, si viene con datos de la base, lo deja en la página.
+  // cfg: { lote, envioPath, supabaseUrl, supabaseKey, token, baseUrl, tokenUrl, clientId }
+  function cmdEnvioNoCobis(cfg) {
+    const base = cfg.baseUrl || 'http://gateway-api-microservicios-core-test.apps.closdesa.bvsa.local/riesgos';
+    const tokenUrl = cfg.tokenUrl || 'https://ssohomo.valo.ar/auth/realms/COBIS-TEST/protocol/openid-connect/token';
+    const clientId = cfg.clientId || 'apiriesgos';
+    const lit = v => "'" + String(v == null ? '' : v).replace(/'/g, "''") + "'";
+    const lote = JSON.stringify(cfg.lote).replace(/\r?\n/g, ' ');
+    const ps = `
+# VALO - EPORTFOLIO · Envío NO COBIS a la API (generado ${new Date().toISOString().slice(0, 16).replace('T', ' ')})
+$ErrorActionPreference = 'Stop'
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+try { $Host.UI.RawUI.WindowTitle = 'VALO - Envío NO COBIS' } catch {}
+$BaseUrl = ${lit(base)}
+$TokenUrl = ${lit(tokenUrl)}
+$ClientId = ${lit(clientId)}
+$SbUrl = ${lit(cfg.supabaseUrl)}
+$SbKey = ${lit(cfg.supabaseKey)}
+$SbToken = ${lit(cfg.token)}
+$EnvioPath = ${lit(cfg.envioPath)}
+$Lote = @'
+${lote}
+'@ | ConvertFrom-Json
+function Detalle-Error($e) {
+  $cod = 0; $txt = $e.Exception.Message
+  if ($e.Exception.Response) { try { $cod = [int]$e.Exception.Response.StatusCode } catch {} }
+  if ($e.ErrorDetails -and $e.ErrorDetails.Message) { $txt = $e.ErrorDetails.Message }
+  elseif ($e.Exception.Response -and $e.Exception.Response.GetResponseStream) {
+    try { $txt = (New-Object IO.StreamReader($e.Exception.Response.GetResponseStream())).ReadToEnd() } catch {}
+  }
+  if ($cod) { return ("HTTP {0}: {1}" -f $cod, (($txt -replace '\\s+', ' ').Trim())) }
+  return (($txt -replace '\\s+', ' ').Trim())
+}
+function Sb([string]$Ruta, $Cuerpo) {
+  $json = $Cuerpo | ConvertTo-Json -Depth 20 -Compress
+  $r = Invoke-RestMethod -Method Post -Uri ($SbUrl + '/rest/v1' + $Ruta) -Headers @{ apikey = $SbKey; Authorization = 'Bearer ' + $SbToken } -Body ([Text.Encoding]::UTF8.GetBytes($json)) -ContentType 'application/json; charset=utf-8'
+  if ($r -is [array]) { return $r } else { return ,$r }
+}
+function Ahora { (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ') }
+
+Write-Host ''
+Write-Host '  VALO - EPORTFOLIO · Envío NO COBIS a la API' -ForegroundColor Cyan
+$Ops = @($Lote.operaciones | Where-Object { [double]$_.saldoCapital -gt 0 -or $Lote.reemplazar })
+Write-Host ("  {0} operaciones · total {1:N2} · concesión {2} · vencimiento {3}" -f @($Lote.operaciones | Where-Object { [double]$_.saldoCapital -gt 0 }).Count, [double]$Lote.total, $Lote.fechaConcesion, $Lote.fechaVencimiento)
+Write-Host ''
+
+# 1) que nadie lo haya enviado ya (doble clic dos veces, otro usuario...)
+$Informar = [bool]($SbUrl -and $EnvioPath)
+if ($Informar) {
+  try { $tomado = [bool]((Sb '/rpc/tomar_envio' @{ p_path = $EnvioPath; p_agente = ($env:USERNAME + '@' + [Environment]::MachineName) })[0]) }
+  catch { Write-Host ('  No se pudo verificar el envío en la página (' + (Detalle-Error $_) + ').') -ForegroundColor Red; Write-Host '  Si pasó más de una hora desde que lo descargaste, volvé a tocar "Enviar a la API" en la página.'; exit 1 }
+  if (-not $tomado) { Write-Host '  Este envío ya se procesó o se canceló: no se envía de nuevo. Mirá el resultado en la página.' -ForegroundColor Yellow; exit 0 }
+}
+
+# 2) clave de la API: se pide la primera vez y queda cifrada para este usuario de Windows
+$Dir = Join-Path $env:APPDATA 'VALO'
+$ArchClave = Join-Path $Dir 'nocobis-credencial.txt'
+function Pedir-Clave {
+  New-Item -ItemType Directory -Force -Path $Dir | Out-Null
+  $s = Read-Host "  Primera vez: pegá el client_secret de la API ('$ClientId')" -AsSecureString
+  $s | ConvertFrom-SecureString | Set-Content $ArchClave
+  return $s
+}
+$Seguro = if (Test-Path $ArchClave) { Get-Content $ArchClave | ConvertTo-SecureString } else { Pedir-Clave }
+
+# 3) login (token) e ingreso, operación por operación
+$Res = New-Object System.Collections.ArrayList
+$Fatal = $null
+$Token = $null
+for ($intento = 0; $intento -lt 2 -and -not $Token; $intento++) {
+  $sec = (New-Object System.Net.NetworkCredential('', $Seguro)).Password
+  try {
+    $t = Invoke-RestMethod -Method Post -Uri $TokenUrl -Body @{ client_id = $ClientId; client_secret = $sec; grant_type = 'client_credentials' } -ContentType 'application/x-www-form-urlencoded'
+    $Token = $t.access_token
+    Write-Host '  Login OK' -ForegroundColor Green
+  } catch {
+    $d = Detalle-Error $_
+    if ($intento -eq 0 -and $d -match 'invalid_client|Invalid client') { Write-Host '  La clave guardada no es válida.' -ForegroundColor Yellow; $Seguro = Pedir-Clave }
+    else { $Fatal = 'No se pudo hacer el login en la API: ' + $d }
+  }
+}
+if ($Token) {
+  $h = @{ Authorization = 'Bearer ' + $Token }
+  foreach ($o in $Ops) {
+    $fila = [ordered]@{ cliente = $o.cliente; banco = $o.banco; saldoCapital = $o.saldoCapital }
+    try {
+      if ($Lote.reemplazar) {
+        $canc = @()
+        $vig = @(Invoke-RestMethod -Uri ($BaseUrl + '/v1/nocobis/operacion?cliente=' + $o.cliente) -Headers $h | ForEach-Object { $_ } | Where-Object { $_.tipoCredito -eq $o.tipoCredito })
+        foreach ($v in $vig) {
+          $cb = @{ cliente = [long]$o.cliente; numeroOp = [long]$v.numeroOperacion } | ConvertTo-Json -Compress
+          $rc = Invoke-RestMethod -Method Post -Uri ($BaseUrl + '/v1/nocobis/cancelar') -Headers $h -Body ([Text.Encoding]::UTF8.GetBytes($cb)) -ContentType 'application/json; charset=utf-8'
+          $canc += $rc.operacion
+        }
+        $fila.canceladas = $canc
+      }
+      if ([double]$o.saldoCapital -gt 0) {
+        $cuerpo = [ordered]@{
+          cliente = [long]$o.cliente; tipoCredito = [string]$o.tipoCredito; moneda = [int]$o.moneda
+          saldoCapital = [decimal]$o.saldoCapital; saldoInteres = [decimal]$o.saldoInteres; saldoOcif = [decimal]$o.saldoOcif
+          fechaConcesion = [string]$o.fechaConcesion; fechaVencimiento = [string]$o.fechaVencimiento; tasaInteres = [decimal]$o.tasaInteres
+        } | ConvertTo-Json -Compress
+        $r = Invoke-RestMethod -Method Post -Uri ($BaseUrl + '/v1/nocobis/ingreso') -Headers $h -Body ([Text.Encoding]::UTF8.GetBytes($cuerpo)) -ContentType 'application/json; charset=utf-8'
+        $fila.operacion = $r.operacion; $fila.resultado = $r.resultado; $fila.avisos = @($r.avisos)
+        Write-Host ("  OK     {0,-6} {1,-38} operación {2}" -f $o.cliente, $o.banco, $r.operacion) -ForegroundColor Green
+      }
+    } catch {
+      $fila.error = Detalle-Error $_
+      Write-Host ("  ERROR  {0,-6} {1,-38} {2}" -f $o.cliente, $o.banco, $fila.error) -ForegroundColor Red
+      if ($fila.error -match 'could not be resolved|remote name|No such host|Name or service not known|resolver el nombre|Unable to connect|No es posible conectar|actively refused|denegó') {
+        $Fatal = 'No se llega a la API: conectate a la red de VALO o a la VPN y volvé a ejecutar el archivo.'
+        [void]$Res.Add($fila); break
+      }
+    }
+    [void]$Res.Add($fila)
+  }
+}
+$ing = @($Res | Where-Object { $_.operacion }).Count
+$err = @($Res | Where-Object { $_.error }).Count
+
+# 4) resultado a la página
+if ($Informar) {
+  # Si no se ingresó nada por un problema de conexión o de login, vuelve a quedar pendiente para reintentar con el mismo archivo.
+  $cambios = @{ estado = $(if ($Fatal -and -not $ing) { 'pendiente' } else { 'terminado' }); terminado = (Ahora); resultados = $Res.ToArray(); ingresadas = $ing; conError = $err }
+  $cambios.error = $(if ($Fatal) { $Fatal } else { '' })
+  try { Sb '/rpc/doc_update' @{ p_path = $EnvioPath; p_patch = $cambios } | Out-Null }
+  catch { Write-Host ('  No se pudo dejar el resultado en la página (' + (Detalle-Error $_) + ').') -ForegroundColor Yellow }
+}
+Write-Host ''
+if ($Fatal) { Write-Host ('  ' + $Fatal) -ForegroundColor Red }
+Write-Host ("  Listo: {0} operaciones ingresadas, {1} con error." -f $ing, $err) -ForegroundColor $(if ($err -or $Fatal) { 'Yellow' } else { 'Green' })
+`;
+    // Cabecera de .cmd: para cmd es una etiqueta; para PowerShell, un comentario. Ejecuta el resto con PowerShell.
+    const cab = `<# :
+@echo off
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$f=[IO.File]::ReadAllText('%~f0',[Text.Encoding]::UTF8); Invoke-Expression $f"
+echo.
+pause
+exit /b
+#>`;
+    return (cab + ps).replace(/\r?\n/g, '\r\n');
+  }
+
   // Prueba de conexión con la API NO COBIS: solo consultas (red, token, catálogo y operaciones de un cliente).
   function scriptPowerShellProbarNoCobis(cfg = {}) {
     const base = cfg.baseUrl || 'http://gateway-api-microservicios-core-test.apps.closdesa.bvsa.local/riesgos';
@@ -1408,7 +1552,7 @@ try {
     PROVINCIAS, FIJOS, COLS_REPORTE, FORMATOS, COLUMNAS_MONTO, CAMPOS_INTERFAZ,
     leerTxtMeli, bancoMeliDeTxt, bancosParaMeli,
     sqlExtraccionCartera, bookmarkletCartera, scriptPowerShellCartera, comandoTareaCartera, IMPORTES_CARTERA,
-    NO_COBIS, ultimoDiaHabil, fechasNoCobis, lineaNoCobis, txtNoCobis, loteApiNoCobis, scriptPowerShellNoCobis, scriptPowerShellProbarNoCobis, scriptPowerShellAgenteNoCobis,
+    NO_COBIS, ultimoDiaHabil, fechasNoCobis, lineaNoCobis, txtNoCobis, loteApiNoCobis, scriptPowerShellNoCobis, scriptPowerShellProbarNoCobis, scriptPowerShellAgenteNoCobis, cmdEnvioNoCobis,
     leerCartera, sugerirColumnaCartera, columnasNumericasCartera, agruparCartera, valoresDistintos, sqlCartera,
     leerCsv, encabezadosEjemplo, leerDefinicionInterfaz, sugerirColumna, detectarHojaInterfaz,
     normalizar, provinciaPorNombre, round2, aNumero, aFechaSerial, aCodigoBanco,

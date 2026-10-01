@@ -419,6 +419,8 @@
         if (error) throw new Error(/invalid/i.test(error.message) ? 'Correo o contraseña incorrectos.' : error.message);
       },
       async salir() { await sb.auth.signOut(); },
+      // Token de la sesión actual (para que el archivo de envío informe el resultado en la base).
+      async tokenSesion() { const { data } = await sb.auth.getSession(); return data && data.session ? data.session.access_token : ''; },
       async cambiarClave(nueva) {
         const { error } = await sb.auth.updateUser({ password: nueva });
         if (error) throw new Error(error.message);

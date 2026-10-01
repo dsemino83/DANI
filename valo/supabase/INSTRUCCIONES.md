@@ -41,7 +41,15 @@ Entrar al sitio con tu usuario → botón **Importar datos** → elegir `migraci
   (solo usuarios con sesión y correo habilitado leen o escriben).
 - Los lotes migrados muestran como autor a un usuario de claude.ai que el sitio no conoce (sale sin nombre).
 
-## 5. Envío automático a la API NO COBIS (agente en la red)
+## 5. Envío a la API NO COBIS en un paso
+
+Cartera → **Enviar a la API** → se descarga `Enviar-NOCOBIS-<fecha>.cmd` → **doble clic** con la PC conectada a la red de
+VALO o a la VPN. El archivo trae el lote, hace el login, ingresa las operaciones, muestra el resultado y lo deja en la
+página. La primera vez pide el client_secret de la API y lo guarda cifrado en `%APPDATA%\VALO`. No ingresa dos veces el
+mismo envío; si no llega a la API (sin VPN), el envío queda pendiente y se puede volver a abrir el mismo archivo.
+Requisito: volver a ejecutar `esquema.sql` (función `tomar_envio`). El archivo vale una hora (después: *Descargar de nuevo*).
+
+## 6. Opcional: envío automático con un agente en la red
 
 La página (Cartera → **Enviar a la API**) deja el lote **pendiente** en la base; un agente instalado en una PC de la red
 de VALO lo toma, se loguea en la API, ingresa las operaciones y deja el resultado en la página (se ve solo).

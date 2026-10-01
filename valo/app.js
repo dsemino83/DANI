@@ -959,7 +959,7 @@
     if (!almacen || almacen.proveedor !== 'supabase') return;
     const ag = datos().agenteNoCobis;
     const min = ag && ag.ultimaVez ? haceMin(ag.ultimaVez) : null;
-    $('colaAgente').innerHTML = min == null ? '<span class="chip warn">Todavía no hay ningún agente instalado</span> <span class="sub">(ver "Instalar el agente" abajo)</span>'
+    $('colaAgente').innerHTML = min == null ? ''
       : `<span class="chip ${min <= 15 ? 'ok' : 'warn'}">Agente ${min <= 15 ? 'activo' : 'sin señal'}</span> <span class="sub">última conexión hace ${min < 1 ? 'menos de 1' : fmtEntero(min)} min · PC ${esc(ag.agente || '')}</span>`;
     const lista = (datos().envios || []).filter(e => e.estado).slice(0, 10);
     $('colaLista').innerHTML = !lista.length ? '' : `<div class="tabla-caja"><table><thead><tr><th>Fecha</th><th>Usuario</th><th class="num">Operaciones</th><th class="num">Total</th><th>Estado</th><th>Resultado</th><th></th></tr></thead><tbody>` +
@@ -967,17 +967,19 @@
         const [cl, tx] = ESTADOS_ENVIO[e.estado] || ['gris', e.estado];
         const resu = e.estado === 'terminado' || e.estado === 'error'
           ? `${fmtEntero(e.ingresadas || 0)} ingresadas${e.conError ? `, <b>${fmtEntero(e.conError)} con error</b>` : ''}${e.error ? ' · ' + esc(e.error) : ''}`
-          : e.estado === 'procesando' ? `en la PC ${esc(e.tomadoPor || '')}` : '';
+          : e.estado === 'procesando' ? `en la PC ${esc(e.tomadoPor || '')}` : e.estado === 'pendiente' ? (e.error ? esc(e.error) : 'Esperando que se abra el archivo descargado') : '';
         return `<tr><td>${esc(new Date(e.creado).toLocaleString('es-AR'))}</td><td>${esc(quien(e.usuarioId) || '')}</td><td class="num">${fmtEntero(e.cantidad || 0)}</td>` +
           `<td class="num">${fmtMonto(Number(e.total || 0))}</td><td><span class="chip ${cl}">${tx}</span></td><td>${resu}</td>` +
           `<td>${(e.resultados || []).length ? `<button class="btn chico" type="button" data-envio-ver="${esc(e.id)}">Ver detalle</button>` : ''}` +
+          `${e.estado === 'pendiente' && e.lote ? `<button class="btn chico" type="button" data-envio-bajar="${esc(e.id)}">Descargar de nuevo</button> ` : ''}` +
           `${e.estado === 'pendiente' ? `<button class="btn chico" type="button" data-envio-cancelar="${esc(e.id)}" data-escribe>Cancelar</button>` : ''}</td></tr>`;
       }).join('') + '</tbody></table></div>';
   }
   $('colaLista').addEventListener('click', async e => {
-    const ver = e.target.dataset.envioVer, canc = e.target.dataset.envioCancelar;
-    const env = (datos().envios || []).find(x => x.id === (ver || canc));
+    const ver = e.target.dataset.envioVer, canc = e.target.dataset.envioCancelar, bajar = e.target.dataset.envioBajar;
+    const env = (datos().envios || []).find(x => x.id === (ver || canc || bajar));
     if (!env) return;
+    if (bajar) return bajarArchivoEnvio(env.id, env.lote, env.reemplazar).catch(err => informar('No se pudo descargar', esc(err.message || err)));
     if (ver) return informar(`Envío del ${new Date(env.creado).toLocaleString('es-AR')}`, tablaResultadosApi(env.resultados));
     if (canc && await confirmar('Cancelar envío', 'El envío pendiente no se va a ingresar. ¿Cancelarlo?', 'Cancelar envío', true)) {
       try { await almacen.actualizarEnvio(env.id, { estado: 'cancelado' }); } catch (err) { informar('No se pudo cancelar', esc(err.message || err)); }
@@ -989,11 +991,22 @@
     const r = await confirmarLoteApi('Enviar a la API NO COBIS', 'colaReemplazar', 'Enviar');
     if (!r) return;
     try {
-      await almacen.encolarEnvio({ destino: 'agente', reemplazar: r.reemplazar, lote: r.lote, total: r.lote.total, cantidad: r.conSaldo.length,
+      const id = await almacen.encolarEnvio({ destino: 'pc', reemplazar: r.reemplazar, lote: r.lote, total: r.lote.total, cantidad: r.conSaldo.length,
         fechaConcesion: r.lote.fechaConcesion, fechaVencimiento: r.lote.fechaVencimiento });
-      toast('Envío en cola: el agente lo procesa en los próximos minutos');
-    } catch (e) { informar('No se pudo encolar el envío', esc(e.message || e)); }
+      await bajarArchivoEnvio(id, r.lote, r.reemplazar);
+    } catch (e) { informar('No se pudo preparar el envío', esc(e.message || e)); }
   });
+  // Archivo de un solo paso (.cmd): doble clic con la PC en la red de VALO / VPN. Informa el resultado en la página.
+  async function bajarArchivoEnvio(id, lote, reemplazar) {
+    const cfg = window.VALO_SUPABASE || {};
+    const token = almacen.tokenSesion ? await almacen.tokenSesion() : '';
+    const d = new Date(), dos = n => String(n).padStart(2, '0');
+    const nombre = `Enviar-NOCOBIS-${dos(d.getDate())}${dos(d.getMonth() + 1)}${String(d.getFullYear()).slice(2)}-${dos(d.getHours())}${dos(d.getMinutes())}.cmd`;
+    await descargar(nombre, M.cmdEnvioNoCobis({ lote: Object.assign({}, lote, { reemplazar: !!reemplazar }), envioPath: 'envios/' + id,
+      supabaseUrl: cfg.url, supabaseKey: cfg.anonKey, token }), true);
+    informar('Abrí el archivo descargado', `<p>Se descargó <b>${esc(nombre)}</b>. Con la PC conectada a la <b>red de VALO o a la VPN</b>, abrilo con doble clic (si Windows pregunta, elegí <i>Más información → Ejecutar de todas formas</i>).</p>` +
+      '<p>Hace el login, ingresa las operaciones y deja el resultado en esta pantalla. Usalo dentro de la hora; si vence, tocá <b>Descargar de nuevo</b> en la lista.</p>');
+  }
   const rutaAgente = () => $('agenteCarpeta').value.replace(/[\\/]+$/, '') + '\\nocobis-agente.ps1';
   const comandoAgente = () => `schtasks /Create /F /SC MINUTE /MO 5 /TN "VALO Agente NOCOBIS" /TR "powershell.exe -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File \\"${rutaAgente()}\\""`;
   function renderAgente() { $('agenteComando').textContent = comandoAgente(); }
