@@ -25,12 +25,12 @@
         "description": "Catalogo de tipos de credito NOCOBIS",
         "parameters": [
           {
-            "name": "Authorization",
+            "name": "X-Token",
             "in": "header",
             "type": "string",
             "required": true,
-            "description": "Bearer <access_token>",
-            "x-ms-summary": "Authorization"
+            "description": "Bearer <access_token> (una directiva lo copia al encabezado Authorization)",
+            "x-ms-summary": "Token (Bearer ...)"
           }
         ],
         "responses": {
@@ -67,12 +67,12 @@
         "description": "Operaciones NOCOBIS vigentes de un cliente",
         "parameters": [
           {
-            "name": "Authorization",
+            "name": "X-Token",
             "in": "header",
             "type": "string",
             "required": true,
-            "description": "Bearer <access_token>",
-            "x-ms-summary": "Authorization"
+            "description": "Bearer <access_token> (una directiva lo copia al encabezado Authorization)",
+            "x-ms-summary": "Token (Bearer ...)"
           },
           {
             "name": "cliente",
@@ -125,12 +125,12 @@
         "description": "Registra una operacion NOCOBIS",
         "parameters": [
           {
-            "name": "Authorization",
+            "name": "X-Token",
             "in": "header",
             "type": "string",
             "required": true,
-            "description": "Bearer <access_token>",
-            "x-ms-summary": "Authorization"
+            "description": "Bearer <access_token> (una directiva lo copia al encabezado Authorization)",
+            "x-ms-summary": "Token (Bearer ...)"
           },
           {
             "name": "body",
@@ -217,12 +217,12 @@
         "description": "Cancela una operacion NOCOBIS",
         "parameters": [
           {
-            "name": "Authorization",
+            "name": "X-Token",
             "in": "header",
             "type": "string",
             "required": true,
-            "description": "Bearer <access_token>",
-            "x-ms-summary": "Authorization"
+            "description": "Bearer <access_token> (una directiva lo copia al encabezado Authorization)",
+            "x-ms-summary": "Token (Bearer ...)"
           },
           {
             "name": "body",

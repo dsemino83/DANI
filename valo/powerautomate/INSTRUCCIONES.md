@@ -30,6 +30,11 @@ En cada uno: **Crear conector** → pestaña **Probar** → **Nueva conexión** 
 - `ObtenerToken` con client_id `apiriesgos`, el client_secret y `client_credentials` → tiene que devolver `access_token`.
 - `Catalogo` con Authorization `Bearer <access_token>` → tiene que devolver el catálogo.
 
+> **Encabezado Authorization:** Power Automate no permite un parámetro llamado `Authorization`. El conector recibe el
+> token en `X-Token` y una **directiva** lo copia: pestaña **Definición → Directivas → + Nueva directiva** →
+> plantilla **Establecer encabezado HTTP**, nombre del encabezado `Authorization`, valor `@headers('X-Token')`,
+> acción *override*, ejecutar en *Request*, todas las operaciones. En el flujo, `X-Token` = `Bearer <access_token>`.
+
 > Si la API responde 401 aunque el token sea correcto, el gateway puede estar quitando el header Authorization:
 > avisame y lo resolvemos con una política del conector.
 
