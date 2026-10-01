@@ -72,11 +72,12 @@
         ev.emitir();
         return { lote, aviso };
       },
-      async anularLote(loteId, cambios) {
+      // opciones.forzar: anula un lote que no es el último vigente, sin tocar la secuencia del cliente.
+      async anularLote(loteId, cambios, opciones = {}) {
         const l = datos.lotes.find(x => x.id === loteId);
         Object.assign(l, cambios);
         const c = datos.clientes.find(x => x.id === l.clienteId);
-        if (c) c.ultimaSecuencia = l.secuenciaAnterior;
+        if (c && !opciones.forzar) c.ultimaSecuencia = l.secuenciaAnterior;
         cambiar();
       },
       async leerTxt(lote) {
@@ -224,8 +225,13 @@
           return { lote, aviso: null };
         });
       },
-      async anularLote(loteId, cambios) {
+      // opciones.forzar: anula un lote que no es el último vigente, sin tocar la secuencia del cliente.
+      async anularLote(loteId, cambios, opciones = {}) {
         const lote = datos.lotes.find(l => l.id === loteId);
+        if (opciones.forzar) {
+          await escribir(() => db.doc('lotes/' + loteId).update(Object.assign({}, cambios, { anuladoPor: usuarioId })));
+          return;
+        }
         await conBloqueo(lote.clienteId, async ref => {
           const vigentes = (await db.collection('lotes').where('clienteId', '==', lote.clienteId).get()).docs
             .map(d => Object.assign({ id: d.id }, d.data())).filter(l => !l.anulado)

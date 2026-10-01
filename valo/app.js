@@ -1610,7 +1610,8 @@
     const compartido = almacen.modo === 'compartido';
     const ultimos = new Map();
     datos().clientes.forEach(c => {
-      const ls = lotesDe(c.id).sort((a, b) => String(a.fecha).localeCompare(String(b.fecha)));
+      // Último lote VIGENTE del cliente (los anulados no cuentan).
+      const ls = lotesDe(c.id).filter(l => !l.anulado).sort((a, b) => String(a.fecha).localeCompare(String(b.fecha)));
       if (ls.length) ultimos.set(c.id, ls[ls.length - 1].id);
     });
     $('tablaHistorial').innerHTML = `<table><thead><tr><th>Fecha</th><th>Cliente</th><th>Archivo</th><th>Tipo</th><th class="num">Secuencia</th><th class="num">Lote</th>
@@ -1623,7 +1624,8 @@
           <td class="num">${esc(l.periodo)}</td><td class="num">${l.cantCuotas}</td><td class="num">${l.cantCreditos}</td><td class="num">${fmtMonto(l.total)}</td>
           ${compartido ? `<td>${esc(quien(l.usuarioId))}</td>` : ''}
           <td>${tieneTxt ? `<button class="btn chico" data-h-cuotas="${l.id}">Cuotas</button> <button class="btn chico" data-h-creditos="${l.id}">Créditos</button>` : '<span class="chip gris">no guardado</span>'}</td>
-          <td>${l.anulado ? '<span class="chip gris">Anulado</span>' : ultimos.get(l.clienteId) === l.id ? `<button class="btn chico peligro" data-escribe data-h-anular="${l.id}">Anular</button>` : ''}</td></tr>`;
+          <td>${l.anulado ? '<span class="chip gris">Anulado</span>' : ultimos.get(l.clienteId) === l.id ? `<button class="btn chico peligro" data-escribe data-h-anular="${l.id}">Anular</button>`
+            : `<button class="btn chico" data-escribe data-h-forzar="${l.id}" title="No es el último lote vigente del cliente: se anula sin cambiar la secuencia">Anular (forzar)</button>`}</td></tr>`;
       }).join('')}</tbody></table>`;
   }
   ['hCliente', 'hTipo', 'hAnulados'].forEach(id => $(id).addEventListener('change', renderHistorial));
@@ -1649,7 +1651,7 @@
   $('tablaHistorial').addEventListener('click', async e => {
     const b = e.target.closest('button');
     if (!b) return;
-    const id = b.dataset.hCuotas || b.dataset.hCreditos || b.dataset.hAnular;
+    const id = b.dataset.hCuotas || b.dataset.hCreditos || b.dataset.hAnular || b.dataset.hForzar;
     const l = datos().lotes.find(x => x.id === id);
     if (!l) return;
     if (b.dataset.hCuotas || b.dataset.hCreditos) {
@@ -1668,6 +1670,13 @@
       const c = clientePorId(l.clienteId);
       if (!await confirmar('Anular lote', `¿Anular el lote con secuencia <b>${l.secuencia}</b>? La última secuencia de ${esc(c ? c.nombre : 'el cliente')} vuelve a <b>${l.secuenciaAnterior}</b>.`, 'Anular', true)) return;
       await intentar(() => almacen.anularLote(l.id, { anulado: true, anuladoEn: new Date().toISOString() }), 'Lote anulado');
+    }
+    if (b.dataset.hForzar) {
+      const c = clientePorId(l.clienteId);
+      if (!await confirmar('Anular lote (forzado)', `<p>El lote con secuencia <b>${l.secuencia}</b> (${esc(l.archivo || '')}) <b>no es el último lote vigente</b> de ${esc(c ? c.nombre : 'el cliente')}.</p>` +
+        `<p>Se marca como <b>anulado</b> y deja de contar en el historial, pero <b>la última secuencia del cliente no cambia</b> (sigue en <b>${c ? c.ultimaSecuencia : '?'}</b>). ` +
+        'Si necesitás corregirla, editá el cliente en la pestaña Clientes.</p>', 'Anular igual', true)) return;
+      await intentar(() => almacen.anularLote(l.id, { anulado: true, anuladoEn: new Date().toISOString(), anuladoForzado: true }, { forzar: true }), 'Lote anulado');
     }
   });
 
