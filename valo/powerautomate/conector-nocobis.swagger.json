@@ -1,57 +1,269 @@
 {
   "swagger": "2.0",
-  "info": { "title": "VALO Riesgos NOCOBIS", "description": "API Orquestador de Riesgos: catálogo, consulta, ingreso y cancelación de operaciones NOCOBIS.", "version": "1.0" },
+  "info": {
+    "title": "VALO Riesgos NOCOBIS",
+    "description": "API Orquestador de Riesgos - operaciones NOCOBIS",
+    "version": "1.0"
+  },
   "host": "gateway-api-microservicios-core-test.apps.closdesa.bvsa.local",
   "basePath": "/riesgos",
-  "schemes": ["http"],
-  "consumes": ["application/json"],
-  "produces": ["application/json"],
-  "parameters": {
-    "Autorizacion": { "name": "Authorization", "in": "header", "type": "string", "required": true, "x-ms-summary": "Authorization (Bearer <token>)" }
-  },
-  "definitions": {
-    "Operacion": { "type": "object", "properties": {
-      "numeroOperacion": { "type": "integer" }, "cliente": { "type": "integer" }, "tipoCredito": { "type": "string" },
-      "tasaInteres": { "type": "number" }, "saldoCapital": { "type": "number" }, "saldoInteres": { "type": "number" }, "saldoOcif": { "type": "number" },
-      "moneda": { "type": "integer" }, "fechaAlta": { "type": "string" }, "fechaVencimiento": { "type": "string" } } },
-    "Resultado": { "type": "object", "properties": {
-      "resultado": { "type": "string" }, "operacion": { "type": "integer" }, "avisos": { "type": "array", "items": { "type": "string" } } } }
-  },
+  "schemes": [
+    "http"
+  ],
+  "consumes": [
+    "application/json"
+  ],
+  "produces": [
+    "application/json"
+  ],
+  "securityDefinitions": {},
   "paths": {
     "/v1/nocobis/catalogo": {
       "get": {
-        "operationId": "Catalogo", "summary": "Catálogo NOCOBIS",
-        "parameters": [ { "$ref": "#/parameters/Autorizacion" } ],
-        "responses": { "200": { "description": "OK", "schema": { "type": "array", "items": { "type": "object", "properties": {
-          "producto": { "type": "string" }, "tipoCredito": { "type": "string" }, "descripcion": { "type": "string" } } } } } }
+        "operationId": "Catalogo",
+        "summary": "Catalogo NOCOBIS",
+        "description": "Catalogo de tipos de credito NOCOBIS",
+        "parameters": [
+          {
+            "name": "Authorization",
+            "in": "header",
+            "type": "string",
+            "required": true,
+            "description": "Bearer <access_token>",
+            "x-ms-summary": "Authorization"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "producto": {
+                    "type": "string"
+                  },
+                  "tipoCredito": {
+                    "type": "string"
+                  },
+                  "descripcion": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error"
+          }
+        }
       }
     },
     "/v1/nocobis/operacion": {
       "get": {
-        "operationId": "Operaciones", "summary": "Operaciones NOCOBIS vigentes de un cliente",
-        "parameters": [ { "$ref": "#/parameters/Autorizacion" }, { "name": "cliente", "in": "query", "type": "integer", "required": true, "x-ms-summary": "cliente" } ],
-        "responses": { "200": { "description": "OK", "schema": { "type": "array", "items": { "$ref": "#/definitions/Operacion" } } } }
+        "operationId": "Operaciones",
+        "summary": "Operaciones vigentes de un cliente",
+        "description": "Operaciones NOCOBIS vigentes de un cliente",
+        "parameters": [
+          {
+            "name": "Authorization",
+            "in": "header",
+            "type": "string",
+            "required": true,
+            "description": "Bearer <access_token>",
+            "x-ms-summary": "Authorization"
+          },
+          {
+            "name": "cliente",
+            "in": "query",
+            "type": "integer",
+            "required": true,
+            "x-ms-summary": "cliente"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "numeroOperacion": {
+                    "type": "integer"
+                  },
+                  "cliente": {
+                    "type": "integer"
+                  },
+                  "tipoCredito": {
+                    "type": "string"
+                  },
+                  "saldoCapital": {
+                    "type": "number"
+                  },
+                  "fechaAlta": {
+                    "type": "string"
+                  },
+                  "fechaVencimiento": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error"
+          }
+        }
       }
     },
     "/v1/nocobis/ingreso": {
       "post": {
-        "operationId": "Ingreso", "summary": "Ingreso de operación NOCOBIS",
-        "parameters": [ { "$ref": "#/parameters/Autorizacion" }, { "name": "body", "in": "body", "required": true, "schema": { "type": "object",
-          "required": ["cliente", "tipoCredito", "moneda", "saldoCapital", "saldoInteres", "saldoOcif", "fechaConcesion", "fechaVencimiento", "tasaInteres"],
-          "properties": {
-            "cliente": { "type": "integer" }, "tipoCredito": { "type": "string" }, "moneda": { "type": "integer" },
-            "saldoCapital": { "type": "number" }, "saldoInteres": { "type": "number" }, "saldoOcif": { "type": "number" },
-            "fechaConcesion": { "type": "string", "description": "dd/MM/yyyy" }, "fechaVencimiento": { "type": "string", "description": "dd/MM/yyyy" },
-            "tasaInteres": { "type": "number" } } } } ],
-        "responses": { "200": { "description": "OK", "schema": { "$ref": "#/definitions/Resultado" } }, "201": { "description": "Creada", "schema": { "$ref": "#/definitions/Resultado" } } }
+        "operationId": "Ingreso",
+        "summary": "Ingreso de operacion NOCOBIS",
+        "description": "Registra una operacion NOCOBIS",
+        "parameters": [
+          {
+            "name": "Authorization",
+            "in": "header",
+            "type": "string",
+            "required": true,
+            "description": "Bearer <access_token>",
+            "x-ms-summary": "Authorization"
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "required": [
+                "cliente",
+                "tipoCredito",
+                "moneda",
+                "saldoCapital",
+                "saldoInteres",
+                "saldoOcif",
+                "fechaConcesion",
+                "fechaVencimiento",
+                "tasaInteres"
+              ],
+              "properties": {
+                "cliente": {
+                  "type": "integer"
+                },
+                "tipoCredito": {
+                  "type": "string"
+                },
+                "moneda": {
+                  "type": "integer"
+                },
+                "saldoCapital": {
+                  "type": "number"
+                },
+                "saldoInteres": {
+                  "type": "number"
+                },
+                "saldoOcif": {
+                  "type": "number"
+                },
+                "fechaConcesion": {
+                  "type": "string",
+                  "description": "dd/MM/yyyy"
+                },
+                "fechaVencimiento": {
+                  "type": "string",
+                  "description": "dd/MM/yyyy"
+                },
+                "tasaInteres": {
+                  "type": "number"
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "resultado": {
+                  "type": "string"
+                },
+                "operacion": {
+                  "type": "integer"
+                },
+                "avisos": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error"
+          }
+        }
       }
     },
     "/v1/nocobis/cancelar": {
       "post": {
-        "operationId": "Cancelar", "summary": "Cancelación de operación NOCOBIS",
-        "parameters": [ { "$ref": "#/parameters/Autorizacion" }, { "name": "body", "in": "body", "required": true, "schema": { "type": "object",
-          "required": ["cliente", "numeroOp"], "properties": { "cliente": { "type": "integer" }, "numeroOp": { "type": "integer" } } } } ],
-        "responses": { "200": { "description": "OK", "schema": { "type": "object", "properties": { "resultado": { "type": "string" }, "operacion": { "type": "integer" } } } } }
+        "operationId": "Cancelar",
+        "summary": "Cancelacion de operacion NOCOBIS",
+        "description": "Cancela una operacion NOCOBIS",
+        "parameters": [
+          {
+            "name": "Authorization",
+            "in": "header",
+            "type": "string",
+            "required": true,
+            "description": "Bearer <access_token>",
+            "x-ms-summary": "Authorization"
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "required": [
+                "cliente",
+                "numeroOp"
+              ],
+              "properties": {
+                "cliente": {
+                  "type": "integer"
+                },
+                "numeroOp": {
+                  "type": "integer"
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "resultado": {
+                  "type": "string"
+                },
+                "operacion": {
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error"
+          }
+        }
       }
     }
   }
