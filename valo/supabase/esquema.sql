@@ -98,3 +98,19 @@ grant execute on function public.es_valo() to authenticated;
 do $$ begin
   alter publication supabase_realtime add table public.docs;
 exception when duplicate_object then null; end $$;
+
+-- ===================================================== Cola de envíos NO COBIS (agente en la red de VALO)
+-- La página guarda envios/<id> con estado 'pendiente'; el agente (nocobis-agente.ps1, en una PC de la red) lo toma
+-- con tomar_envio (solo uno lo puede tomar), lo ingresa en la API y deja los resultados con estado 'terminado'.
+create or replace function public.tomar_envio(p_path text, p_agente text) returns boolean
+language plpgsql security invoker set search_path = public as $$
+begin
+  update public.docs
+     set data = data || jsonb_build_object('estado', 'procesando', 'tomadoPor', p_agente, 'tomado', to_char(now() at time zone 'utc', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')),
+         actualizado = now()
+   where path = p_path and coleccion = 'envios' and data ->> 'estado' = 'pendiente';
+  return found;
+end;
+$$;
+revoke all on function public.tomar_envio(text, text) from public, anon;
+grant execute on function public.tomar_envio(text, text) to authenticated;

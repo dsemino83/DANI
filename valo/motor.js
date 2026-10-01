@@ -752,6 +752,171 @@ Write-Host ("Listo: {0} ingresadas, {1} con error. Detalle en {2}" -f @($Resulta
 `;
   }
 
+  // Agente de la cola NO COBIS: corre en una PC de la red de VALO (Programador de tareas), toma los envíos pendientes que
+  // deja la página en la base compartida (Supabase), los ingresa en la API y guarda el resultado. Ver scriptPowerShellNoCobis.
+  function scriptPowerShellAgenteNoCobis(cfg = {}) {
+    const base = cfg.baseUrl || 'http://gateway-api-microservicios-core-test.apps.closdesa.bvsa.local/riesgos';
+    const token = cfg.tokenUrl || 'https://ssohomo.valo.ar/auth/realms/COBIS-TEST/protocol/openid-connect/token';
+    const clientId = cfg.clientId || 'apiriesgos';
+    return `# VALO - EPORTFOLIO · Agente NO COBIS (cola de envíos de la página -> API del Orquestador de Riesgos)
+# Corre en una PC de la red de VALO con salida a internet. Toma los envíos "pendientes" que deja la página,
+# se loguea en la API, ingresa las operaciones y deja el resultado en la página. Si hay varias PCs con el agente,
+# cada envío lo toma una sola.
+# Primera vez (a mano):   powershell -ExecutionPolicy Bypass -File nocobis-agente.ps1 -Configurar
+#   pide el usuario del sitio para el agente (ej. robot@valo.ar), su contraseña y el client_secret de la API;
+#   quedan cifrados para este usuario de Windows en agente-credenciales.xml.
+# Programado (cada 5 min): ver el comando schtasks en la página. Cada ejecución procesa los pendientes y termina.
+# Registro: agente.log en esta carpeta.
+param(
+  [switch]$Configurar,
+  [string]$Agente = '',
+  [string]$SupabaseUrl = '${cfg.supabaseUrl || ''}',
+  [string]$SupabaseKey = '${cfg.supabaseKey || ''}',
+  [string]$BaseUrl = '${base}',
+  [string]$TokenUrl = '${token}',
+  [string]$ClientId = '${clientId}'
+)
+$ErrorActionPreference = 'Stop'
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+$Carpeta = if ($PSScriptRoot) { $PSScriptRoot } else { (Get-Location).Path }
+$Log = Join-Path $Carpeta 'agente.log'
+if (-not $Agente) { $Agente = [Environment]::MachineName }
+function Anotar([string]$Texto) {
+  $l = (Get-Date -Format 'yyyy-MM-dd HH:mm:ss') + '  ' + $Texto
+  Add-Content -Path $Log -Value $l -Encoding UTF8
+  Write-Host $l
+}
+function Ahora { (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ') }
+function Detalle-Error($e) {
+  $cod = 0; $txt = $e.Exception.Message
+  if ($e.Exception.Response) { try { $cod = [int]$e.Exception.Response.StatusCode } catch {} }
+  if ($e.ErrorDetails -and $e.ErrorDetails.Message) { $txt = $e.ErrorDetails.Message }
+  elseif ($e.Exception.Response -and $e.Exception.Response.GetResponseStream) {
+    try { $txt = (New-Object IO.StreamReader($e.Exception.Response.GetResponseStream())).ReadToEnd() } catch {}
+  }
+  return ("HTTP {0}: {1}" -f $cod, (($txt -replace '\\s+', ' ').Trim()))
+}
+
+# --- credenciales (cifradas con DPAPI para el usuario de Windows que ejecuta el agente)
+$ArchCred = Join-Path $Carpeta 'agente-credenciales.xml'
+if ($Configurar) {
+  $u = Read-Host 'Usuario del sitio para el agente (ej. robot@valo.ar)'
+  $p = Read-Host 'Contraseña de ese usuario' -AsSecureString
+  $s = Read-Host "client_secret de la API ('$ClientId')" -AsSecureString
+  New-Object PSObject -Property @{ usuario = $u.Trim(); clave = ($p | ConvertFrom-SecureString); secreto = ($s | ConvertFrom-SecureString) } | Export-Clixml $ArchCred
+  Write-Host 'Credenciales guardadas. Se prueba la conexión...'
+}
+if (-not (Test-Path $ArchCred)) { Anotar 'Falta configurar: ejecutá una vez nocobis-agente.ps1 -Configurar'; exit 1 }
+$Cred = Import-Clixml $ArchCred
+function Plano($Cifrado) { (New-Object System.Net.NetworkCredential('', ($Cifrado | ConvertTo-SecureString))).Password }
+if (-not $SupabaseUrl -or -not $SupabaseKey) { Anotar 'Falta la conexión con la base (SupabaseUrl / SupabaseKey): descargá el agente desde el sitio.'; exit 1 }
+
+# --- base compartida (Supabase): login del agente y llamadas REST
+$script:SbToken = $null
+function Sb-Login {
+  $b = @{ email = $Cred.usuario; password = (Plano $Cred.clave) } | ConvertTo-Json -Compress
+  try { $r = Invoke-RestMethod -Method Post -Uri ($SupabaseUrl + '/auth/v1/token?grant_type=password') -Headers @{ apikey = $SupabaseKey } -Body ([Text.Encoding]::UTF8.GetBytes($b)) -ContentType 'application/json' }
+  catch { throw ('No se pudo iniciar sesión en el sitio con ' + $Cred.usuario + ' (' + (Detalle-Error $_) + '). Revisá el usuario o volvé a ejecutar con -Configurar.') }
+  $script:SbToken = $r.access_token
+}
+function Sb([string]$Metodo, [string]$Ruta, $Cuerpo = $null, [string]$Prefer = '') {
+  $h = @{ apikey = $SupabaseKey; Authorization = 'Bearer ' + $script:SbToken }
+  if ($Prefer) { $h['Prefer'] = $Prefer }
+  $u = $SupabaseUrl + '/rest/v1' + $Ruta
+  try {
+    if ($Cuerpo -ne $null) {
+      $json = $Cuerpo | ConvertTo-Json -Depth 20 -Compress
+      $r = Invoke-RestMethod -Method $Metodo -Uri $u -Headers $h -Body ([Text.Encoding]::UTF8.GetBytes($json)) -ContentType 'application/json; charset=utf-8'
+    } else { $r = Invoke-RestMethod -Method $Metodo -Uri $u -Headers $h }
+  } catch { throw ('Base compartida: ' + (Detalle-Error $_)) }
+  if ($r -is [array]) { return $r } else { return ,$r }
+}
+function Actualizar-Envio([string]$Path, $Cambios) { Sb 'Post' '/rpc/doc_update' @{ p_path = $Path; p_patch = $Cambios } | Out-Null }
+
+# --- API NO COBIS: token OAuth2 (client credentials) y llamadas, renovando el token ante un 401
+$script:Token = $null; $script:Vence = [DateTime]::MinValue
+function Obtener-Token([switch]$Forzar) {
+  if (-not $Forzar -and $script:Token -and (Get-Date) -lt $script:Vence) { return $script:Token }
+  $cuerpo = @{ client_id = $ClientId; client_secret = (Plano $Cred.secreto); grant_type = 'client_credentials' }
+  try { $r = Invoke-RestMethod -Method Post -Uri $TokenUrl -Body $cuerpo -ContentType 'application/x-www-form-urlencoded' }
+  catch { throw ('No se pudo obtener el token de la API (' + (Detalle-Error $_) + ').') }
+  $script:Token = $r.access_token
+  $script:Vence = (Get-Date).AddSeconds([Math]::Max(30, [int]$r.expires_in - 30))
+  return $script:Token
+}
+function Llamar-Api([string]$Metodo, [string]$Ruta, $Cuerpo = $null) {
+  for ($i = 0; $i -lt 2; $i++) {
+    $h = @{ Authorization = 'Bearer ' + (Obtener-Token -Forzar:($i -gt 0)) }
+    try {
+      if ($Cuerpo -ne $null) {
+        $json = $Cuerpo | ConvertTo-Json -Depth 5 -Compress
+        $r = Invoke-RestMethod -Method $Metodo -Uri ($BaseUrl + $Ruta) -Headers $h -Body ([Text.Encoding]::UTF8.GetBytes($json)) -ContentType 'application/json; charset=utf-8'
+      } else { $r = Invoke-RestMethod -Method $Metodo -Uri ($BaseUrl + $Ruta) -Headers $h }
+      if ($r -is [array]) { return $r } else { return ,$r }
+    } catch {
+      $cod = 0; if ($_.Exception.Response) { try { $cod = [int]$_.Exception.Response.StatusCode } catch {} }
+      if ($cod -eq 401 -and $i -eq 0) { continue }
+      throw (Detalle-Error $_)
+    }
+  }
+}
+
+# --- procesar la cola
+try {
+  Sb-Login
+  # señal de vida para la página ("Agente activo")
+  Sb 'Post' '/docs' @{ path = 'maestros/agenteNoCobis'; coleccion = 'maestros'; data = @{ ultimaVez = (Ahora); agente = $Agente; usuario = $Cred.usuario } } 'resolution=merge-duplicates,return=minimal' | Out-Null
+  if ($Configurar) { Obtener-Token | Out-Null; Write-Host 'OK: sesión en el sitio y token de la API correctos. Ya se puede programar la tarea.' -ForegroundColor Green }
+  $Pendientes = @(Sb 'Get' '/docs?coleccion=eq.envios&data->>estado=eq.pendiente&select=path,data&order=path.asc')
+} catch { Anotar ('ERROR ' + $_.Exception.Message); exit 1 }
+if (-not $Pendientes.Count) { exit 0 }
+
+foreach ($Envio in $Pendientes) {
+  $Path = $Envio.path
+  $tomado = $false
+  try { $tomado = [bool]((Sb 'Post' '/rpc/tomar_envio' @{ p_path = $Path; p_agente = $Agente })[0]) } catch { Anotar ("ERROR al tomar $Path : " + $_.Exception.Message); continue }
+  if (-not $tomado) { continue }   # lo tomó otro agente
+  $Ops = @($Envio.data.lote.operaciones)
+  $Reemplazar = [bool]$Envio.data.reemplazar
+  Anotar ("Envío $Path : {0} operaciones (reemplazar: {1})" -f $Ops.Count, $Reemplazar)
+  $Res = New-Object System.Collections.ArrayList
+  $Fatal = $null
+  try { Obtener-Token | Out-Null } catch { $Fatal = $_.Exception.Message }
+  if (-not $Fatal) {
+    foreach ($o in $Ops) {
+      $fila = [ordered]@{ cliente = $o.cliente; banco = $o.banco; saldoCapital = $o.saldoCapital }
+      try {
+        if ($Reemplazar) {
+          $canc = @()
+          foreach ($v in @(Llamar-Api 'Get' ('/v1/nocobis/operacion?cliente=' + $o.cliente) | Where-Object { $_.tipoCredito -eq $o.tipoCredito })) {
+            $rc = Llamar-Api 'Post' '/v1/nocobis/cancelar' @{ cliente = [long]$o.cliente; numeroOp = [long]$v.numeroOperacion }
+            $canc += $rc[0].operacion
+          }
+          $fila.canceladas = $canc
+        }
+        if ([double]$o.saldoCapital -gt 0) {
+          $cuerpo = [ordered]@{
+            cliente = [long]$o.cliente; tipoCredito = [string]$o.tipoCredito; moneda = [int]$o.moneda
+            saldoCapital = [decimal]$o.saldoCapital; saldoInteres = [decimal]$o.saldoInteres; saldoOcif = [decimal]$o.saldoOcif
+            fechaConcesion = [string]$o.fechaConcesion; fechaVencimiento = [string]$o.fechaVencimiento; tasaInteres = [decimal]$o.tasaInteres
+          }
+          $r = (Llamar-Api 'Post' '/v1/nocobis/ingreso' $cuerpo)[0]
+          $fila.operacion = $r.operacion; $fila.resultado = $r.resultado; $fila.avisos = @($r.avisos)
+        } elseif (-not $Reemplazar) { continue }
+      } catch { $fila.error = $_.Exception.Message }
+      [void]$Res.Add($fila)
+    }
+  }
+  $ing = @($Res | Where-Object { $_.operacion }).Count
+  $err = @($Res | Where-Object { $_.error }).Count
+  $cambios = @{ estado = $(if ($Fatal) { 'error' } else { 'terminado' }); terminado = (Ahora); resultados = $Res.ToArray(); ingresadas = $ing; conError = $err }
+  if ($Fatal) { $cambios.error = $Fatal }
+  try { Actualizar-Envio $Path $cambios } catch { Anotar ("ERROR al guardar el resultado de $Path : " + $_.Exception.Message) }
+  Anotar ("Envío $Path terminado: {0} ingresadas, {1} con error{2}" -f $ing, $err, $(if ($Fatal) { ' · ' + $Fatal } else { '' }))
+}
+`;
+  }
+
   // Prueba de conexión con la API NO COBIS: solo consultas (red, token, catálogo y operaciones de un cliente).
   function scriptPowerShellProbarNoCobis(cfg = {}) {
     const base = cfg.baseUrl || 'http://gateway-api-microservicios-core-test.apps.closdesa.bvsa.local/riesgos';
@@ -1243,7 +1408,7 @@ try {
     PROVINCIAS, FIJOS, COLS_REPORTE, FORMATOS, COLUMNAS_MONTO, CAMPOS_INTERFAZ,
     leerTxtMeli, bancoMeliDeTxt, bancosParaMeli,
     sqlExtraccionCartera, bookmarkletCartera, scriptPowerShellCartera, comandoTareaCartera, IMPORTES_CARTERA,
-    NO_COBIS, ultimoDiaHabil, fechasNoCobis, lineaNoCobis, txtNoCobis, loteApiNoCobis, scriptPowerShellNoCobis, scriptPowerShellProbarNoCobis,
+    NO_COBIS, ultimoDiaHabil, fechasNoCobis, lineaNoCobis, txtNoCobis, loteApiNoCobis, scriptPowerShellNoCobis, scriptPowerShellProbarNoCobis, scriptPowerShellAgenteNoCobis,
     leerCartera, sugerirColumnaCartera, columnasNumericasCartera, agruparCartera, valoresDistintos, sqlCartera,
     leerCsv, encabezadosEjemplo, leerDefinicionInterfaz, sugerirColumna, detectarHojaInterfaz,
     normalizar, provinciaPorNombre, round2, aNumero, aFechaSerial, aCodigoBanco,

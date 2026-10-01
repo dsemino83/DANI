@@ -40,3 +40,22 @@ Entrar al sitio con tu usuario → botón **Importar datos** → elegir `migraci
 - La clave pública del sitio puede estar a la vista: lo que protege los datos son los permisos de `esquema.sql`
   (solo usuarios con sesión y correo habilitado leen o escriben).
 - Los lotes migrados muestran como autor a un usuario de claude.ai que el sitio no conoce (sale sin nombre).
+
+## 5. Envío automático a la API NO COBIS (agente en la red)
+
+La página (Cartera → **Enviar a la API**) deja el lote **pendiente** en la base; un agente instalado en una PC de la red
+de VALO lo toma, se loguea en la API, ingresa las operaciones y deja el resultado en la página (se ve solo).
+
+1. **SQL**: volver a ejecutar `esquema.sql` en el SQL Editor (agrega la función `tomar_envio`; se puede re-ejecutar).
+2. **Usuario del agente**: Authentication → Users → Add user → `robot@valo.ar` (o el que prefieran) con contraseña y
+   **Auto Confirm User**. Si no es @valo.ar, agregarlo en la tabla `permitidos`.
+3. **En la PC de la red** (prendida, con acceso a la API interna y a internet):
+   - Descargar el agente desde la página (Cartera → Envío a la API → *Instalar el agente*) en, por ejemplo, `C:\VALO\Agente`.
+   - Ejecutar una vez `powershell -ExecutionPolicy Bypass -File nocobis-agente.ps1 -Configurar` (pide usuario y contraseña
+     del agente y el client_secret de la API; tiene que terminar en *OK*).
+   - Programarlo cada 5 minutos con el comando `schtasks` que muestra la página (en cmd, con el mismo usuario de Windows).
+4. La página muestra **Agente activo** (última conexión) y el estado de cada envío: Pendiente → Procesando → Terminado/Error,
+   con el número de operación o el error de cada banco.
+
+Se puede instalar el agente en más de una PC: cada envío lo toma una sola. Si ninguna está prendida, los envíos quedan
+pendientes y salen cuando vuelva alguna (o ejecutando el agente a mano). Registro: `agente.log` en la carpeta del agente.

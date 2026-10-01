@@ -95,7 +95,7 @@
     const holder = 'pestana-' + nuevoId();
     const usuarioId = user ? await user.id() : null;
     const puede = user ? await user.can('data.write') : null;
-    const datos = { clientes: [], bancos: [], bancosMeli: [], lotes: [], carteraCfg: null, nocobisFlujo: null };
+    const datos = { clientes: [], bancos: [], bancosMeli: [], lotes: [], carteraCfg: null, nocobisFlujo: null, envios: [], agenteNoCobis: null };
     const listo = { clientes: false, bancos: false, lotes: false, bancosMeli: false };
     const api = {
       modo: 'compartido',
@@ -128,6 +128,16 @@
       emitirSiListo();
     }, alError);
     // Conexión con el flujo de Power Automate para el envío NO COBIS (dirección y clave compartida).
+    // Cola de envíos NO COBIS (los toma el agente de la red) y última señal del agente.
+    db.collection('envios').onSnapshot(s => {
+      datos.envios = s.docs.map(d => Object.assign({ id: d.id }, d.data()))
+        .sort((a, b) => String(b.creado || b.fecha || '').localeCompare(String(a.creado || a.fecha || '')));
+      emitirSiListo();
+    }, alError);
+    db.doc('maestros/agenteNoCobis').onSnapshot(s => {
+      datos.agenteNoCobis = s.exists ? clonar(s.data()) : null;
+      emitirSiListo();
+    }, alError);
     db.doc('maestros/nocobisFlujo').onSnapshot(s => {
       datos.nocobisFlujo = s.exists ? clonar(s.data()) : null;
       emitirSiListo();
@@ -178,6 +188,12 @@
       async guardarNocobisFlujo(cfg) {
         await escribir(() => db.doc('maestros/nocobisFlujo').set(Object.assign(clonar(cfg), { actualizado: new Date().toISOString(), actualizadoPor: usuarioId })));
       },
+      async encolarEnvio(e) {
+        const id = nuevoId();
+        await escribir(() => db.doc('envios/' + id).set(Object.assign(clonar(e), { estado: 'pendiente', creado: new Date().toISOString(), usuarioId })));
+        return id;
+      },
+      async actualizarEnvio(id, cambios) { await escribir(() => db.doc('envios/' + id).update(clonar(cambios))); },
       async registrarEnvio(e) {
         const id = nuevoId();
         await escribir(() => db.doc('envios/' + id).set(Object.assign(clonar(e), { usuarioId })));
@@ -249,7 +265,7 @@
   // Sitio propio (GitHub Pages) con la base en Supabase. Se arma una capa con la misma forma que la base de
   // claude.ai (doc / collection / onSnapshot / acquire) para reutilizar crearCompartido sin cambios.
 
-  const COLECCIONES_VIVAS = ['clientes', 'lotes', 'maestros'];
+  const COLECCIONES_VIVAS = ['clientes', 'lotes', 'maestros', 'envios'];
   const coleccionDe = path => String(path).split('/')[0];
   const padreDe = path => String(path).split('/').slice(0, -1).join('/');
 

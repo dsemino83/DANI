@@ -73,6 +73,10 @@ Después de modificar el código, regenerar el archivo único con `python3 const
    se pide la primera vez y queda cifrado en esa PC (nunca en la página). Deja `NoCobis_resultado_<fecha>.csv`.
    *Probar conexión con la API* baja `probar-api-nocobis.ps1`: solo consulta (red, token, catálogo con el tipo CCASR y
    operaciones vigentes de un MIS) y no envía datos.
+   **Envío automático a la API (cola + agente)** (sitio propio): *Enviar a la API* deja el lote pendiente en la base
+   (`envios/<id>`); `nocobis-agente.ps1`, programado cada 5 minutos en una PC de la red de VALO, lo toma (función
+   `tomar_envio`, un solo agente por envío), se loguea, ingresa y guarda el resultado, que la página muestra en vivo
+   junto con el estado del agente. Instalación en `supabase/INSTRUCCIONES.md` (punto 5).
    **Envío directo por Power Automate** (sitio propio y archivo local): la página manda el lote a un flujo de Power
    Automate que, por el gateway de datos local, pide el token y llama a la API; muestra el número de operación o el
    error de cada banco y registra el envío (colección `envios`). Configuración del flujo y conectores en `powerautomate/`.

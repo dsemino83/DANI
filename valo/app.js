@@ -930,6 +930,80 @@
       if (t && t.filas.length) descargar(t.nombre.replace(/\.txt$/, '.json'), JSON.stringify(M.loteApiNoCobis(t), null, 1), true);
     } catch (e) { informar('No se pudo generar el lote para la API', esc(e.message || e)); }
   });
+  // Resultado por banco de un envío a la API (agente o Power Automate).
+  function tablaResultadosApi(res) {
+    if (!res || !res.length) return '';
+    return `<div class="tabla-caja"><table><thead><tr><th>Cliente (MIS)</th><th>Banco</th><th class="num">Saldo capital</th><th>Canceladas</th><th>Operación</th><th>Resultado / avisos</th><th>Error</th></tr></thead><tbody>` +
+      res.map(r => `<tr><td>${esc(r.cliente)}</td><td>${esc(r.banco || '')}</td><td class="num">${r.saldoCapital != null ? fmtMonto(Number(r.saldoCapital)) : ''}</td><td>${esc([].concat(r.canceladas || []).join(' '))}</td>` +
+        `<td><b>${esc(r.operacion || '')}</b></td><td>${esc(r.resultado || '')}${r.avisos && [].concat(r.avisos).length ? ' · ' + esc([].concat(r.avisos).join(' | ')) : ''}</td>` +
+        `<td>${r.error ? '<span class="chip bad">' + esc(typeof r.error === 'string' ? r.error : JSON.stringify(r.error)) + '</span>' : ''}</td></tr>`).join('') + '</tbody></table></div>';
+  }
+  function confirmarLoteApi(titulo, idCheck, boton) {
+    let t;
+    try { t = infoNoCobis(); } catch (e) { informar('No se pudo armar el lote', esc(e.message || e)); return null; }
+    if (!t || !t.filas.length) { informar(titulo, 'No hay operaciones para enviar.'); return null; }
+    const lote = M.loteApiNoCobis(t);
+    const conSaldo = lote.operaciones.filter(o => o.saldoCapital > 0);
+    return confirmar(titulo,
+      `<p>Se envían <b>${conSaldo.length}</b> operaciones con saldo (las ${lote.operaciones.length - conSaldo.length} en 0 no se ingresan) por un total de <b>$ ${fmtMonto(lote.total)}</b>.<br>` +
+      `Concesión ${esc(lote.fechaConcesion)} · vencimiento ${esc(lote.fechaVencimiento)} · tipo ${esc(M.NO_COBIS.tipoCredito)}.</p>` +
+      `<label class="check"><input type="checkbox" id="${idCheck}"> Antes de ingresar, cancelar las operaciones vigentes del mismo tipo de cada cliente</label>` +
+      `<p class="sub">No se reintenta automáticamente: si algo falla, revisá el resultado antes de volver a enviar.</p>`, boton)
+      .then(ok => ok ? { lote, conSaldo, reemplazar: !!(document.getElementById(idCheck) || {}).checked } : null);
+  }
+
+  // --- Cola de envíos: la página deja el lote pendiente y el agente de la red (nocobis-agente.ps1) lo ingresa.
+  const ESTADOS_ENVIO = { pendiente: ['gris', 'Pendiente'], procesando: ['warn', 'Procesando'], terminado: ['ok', 'Terminado'], error: ['bad', 'Error'], cancelado: ['gris', 'Cancelado'] };
+  const haceMin = iso => Math.round((Date.now() - new Date(iso).getTime()) / 60000);
+  function renderCola() {
+    if (!almacen || almacen.proveedor !== 'supabase') return;
+    const ag = datos().agenteNoCobis;
+    const min = ag && ag.ultimaVez ? haceMin(ag.ultimaVez) : null;
+    $('colaAgente').innerHTML = min == null ? '<span class="chip warn">Todavía no hay ningún agente instalado</span> <span class="sub">(ver "Instalar el agente" abajo)</span>'
+      : `<span class="chip ${min <= 15 ? 'ok' : 'warn'}">Agente ${min <= 15 ? 'activo' : 'sin señal'}</span> <span class="sub">última conexión hace ${min < 1 ? 'menos de 1' : fmtEntero(min)} min · PC ${esc(ag.agente || '')}</span>`;
+    const lista = (datos().envios || []).filter(e => e.estado).slice(0, 10);
+    $('colaLista').innerHTML = !lista.length ? '' : `<div class="tabla-caja"><table><thead><tr><th>Fecha</th><th>Usuario</th><th class="num">Operaciones</th><th class="num">Total</th><th>Estado</th><th>Resultado</th><th></th></tr></thead><tbody>` +
+      lista.map(e => {
+        const [cl, tx] = ESTADOS_ENVIO[e.estado] || ['gris', e.estado];
+        const resu = e.estado === 'terminado' || e.estado === 'error'
+          ? `${fmtEntero(e.ingresadas || 0)} ingresadas${e.conError ? `, <b>${fmtEntero(e.conError)} con error</b>` : ''}${e.error ? ' · ' + esc(e.error) : ''}`
+          : e.estado === 'procesando' ? `en la PC ${esc(e.tomadoPor || '')}` : '';
+        return `<tr><td>${esc(new Date(e.creado).toLocaleString('es-AR'))}</td><td>${esc(quien(e.usuarioId) || '')}</td><td class="num">${fmtEntero(e.cantidad || 0)}</td>` +
+          `<td class="num">${fmtMonto(Number(e.total || 0))}</td><td><span class="chip ${cl}">${tx}</span></td><td>${resu}</td>` +
+          `<td>${(e.resultados || []).length ? `<button class="btn chico" type="button" data-envio-ver="${esc(e.id)}">Ver detalle</button>` : ''}` +
+          `${e.estado === 'pendiente' ? `<button class="btn chico" type="button" data-envio-cancelar="${esc(e.id)}" data-escribe>Cancelar</button>` : ''}</td></tr>`;
+      }).join('') + '</tbody></table></div>';
+  }
+  $('colaLista').addEventListener('click', async e => {
+    const ver = e.target.dataset.envioVer, canc = e.target.dataset.envioCancelar;
+    const env = (datos().envios || []).find(x => x.id === (ver || canc));
+    if (!env) return;
+    if (ver) return informar(`Envío del ${new Date(env.creado).toLocaleString('es-AR')}`, tablaResultadosApi(env.resultados));
+    if (canc && await confirmar('Cancelar envío', 'El envío pendiente no se va a ingresar. ¿Cancelarlo?', 'Cancelar envío', true)) {
+      try { await almacen.actualizarEnvio(env.id, { estado: 'cancelado' }); } catch (err) { informar('No se pudo cancelar', esc(err.message || err)); }
+    }
+  });
+  $('btnColaEnviar').addEventListener('click', async () => {
+    const enCurso = (datos().envios || []).filter(e => e.estado === 'pendiente' || e.estado === 'procesando');
+    if (enCurso.length && !await confirmar('Hay envíos en curso', `Ya hay ${enCurso.length} envío(s) pendiente(s) o en proceso. Si mandás otro con las mismas operaciones se van a ingresar dos veces. ¿Seguir igual?`, 'Seguir')) return;
+    const r = await confirmarLoteApi('Enviar a la API NO COBIS', 'colaReemplazar', 'Enviar');
+    if (!r) return;
+    try {
+      await almacen.encolarEnvio({ destino: 'agente', reemplazar: r.reemplazar, lote: r.lote, total: r.lote.total, cantidad: r.conSaldo.length,
+        fechaConcesion: r.lote.fechaConcesion, fechaVencimiento: r.lote.fechaVencimiento });
+      toast('Envío en cola: el agente lo procesa en los próximos minutos');
+    } catch (e) { informar('No se pudo encolar el envío', esc(e.message || e)); }
+  });
+  const rutaAgente = () => $('agenteCarpeta').value.replace(/[\\/]+$/, '') + '\\nocobis-agente.ps1';
+  const comandoAgente = () => `schtasks /Create /F /SC MINUTE /MO 5 /TN "VALO Agente NOCOBIS" /TR "powershell.exe -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File \\"${rutaAgente()}\\""`;
+  function renderAgente() { $('agenteComando').textContent = comandoAgente(); }
+  $('agenteCarpeta').addEventListener('input', renderAgente);
+  $('btnAgenteCopiar').addEventListener('click', () => copiar(comandoAgente()));
+  $('btnAgenteDescargar').addEventListener('click', () => {
+    const cfg = window.VALO_SUPABASE || {};
+    descargar('nocobis-agente.ps1', '\ufeff' + M.scriptPowerShellAgenteNoCobis({ supabaseUrl: cfg.url, supabaseKey: cfg.anonKey }), true);
+  });
+
   // --- Envío directo por Power Automate (flujo con gateway hacia la API NO COBIS)
   function flujoDisponible() { return almacen && (almacen.modo === 'local' || almacen.proveedor === 'supabase'); }
   let editandoFlujo = false;
@@ -995,18 +1069,9 @@
   });
   $('btnFlujoEnviar').addEventListener('click', async () => {
     const b = $('btnFlujoEnviar');
-    let t;
-    try { t = infoNoCobis(); } catch (e) { return informar('No se pudo armar el lote', esc(e.message || e)); }
-    if (!t || !t.filas.length) return informar('Enviar a la API', 'No hay operaciones para enviar.');
-    const lote = M.loteApiNoCobis(t);
-    const conSaldo = lote.operaciones.filter(o => o.saldoCapital > 0);
-    const ok = await confirmar('Enviar a la API NO COBIS',
-      `<p>Se envían <b>${conSaldo.length}</b> operaciones con saldo (las ${lote.operaciones.length - conSaldo.length} en 0 no se ingresan) por un total de <b>$ ${fmtMonto(lote.total)}</b>.<br>` +
-      `Concesión ${esc(lote.fechaConcesion)} · vencimiento ${esc(lote.fechaVencimiento)} · tipo ${esc(M.NO_COBIS.tipoCredito)}.</p>` +
-      `<label class="check"><input type="checkbox" id="flujoReemplazar"> Antes de ingresar, cancelar las operaciones vigentes del mismo tipo de cada cliente</label>` +
-      `<p class="sub">No se reintenta automáticamente: si algo falla, revisá el resultado antes de volver a enviar.</p>`, 'Enviar');
-    const reemplazar = !!(document.getElementById('flujoReemplazar') || {}).checked;
-    if (!ok) return;
+    const conf = await confirmarLoteApi('Enviar por Power Automate', 'flujoReemplazar', 'Enviar');
+    if (!conf) return;
+    const { lote, conSaldo, reemplazar } = conf;
     b.disabled = true;
     $('flujoResultado').innerHTML = '<p class="sub">Enviando al flujo… (puede tardar un par de minutos)</p>';
     let j = null, error = null;
@@ -1019,10 +1084,7 @@
     } catch (e) { /* el registro es informativo */ }
     let html = error ? aviso('bad', esc(error))
       : aviso(conError ? 'warn' : 'ok', `${ingresadas} operaciones ingresadas${conError ? `, <b>${conError} con error</b>` : ''}.${j.mensaje ? ' ' + esc(j.mensaje) : ''}`);
-    if (res.length) html += `<div class="tabla-caja"><table><thead><tr><th>Cliente (MIS)</th><th>Banco</th><th class="num">Saldo capital</th><th>Canceladas</th><th>Operación</th><th>Resultado / avisos</th><th>Error</th></tr></thead><tbody>` +
-      res.map(r => `<tr><td>${esc(r.cliente)}</td><td>${esc(r.banco || '')}</td><td class="num">${r.saldoCapital != null ? fmtMonto(Number(r.saldoCapital)) : ''}</td><td>${esc([].concat(r.canceladas || []).join(' '))}</td>` +
-        `<td><b>${esc(r.operacion || '')}</b></td><td>${esc(r.resultado || '')}${r.avisos && [].concat(r.avisos).length ? ' · ' + esc([].concat(r.avisos).join(' | ')) : ''}</td>` +
-        `<td>${r.error ? '<span class="chip bad">' + esc(typeof r.error === 'string' ? r.error : JSON.stringify(r.error)) + '</span>' : ''}</td></tr>`).join('') + '</tbody></table></div>';
+    html += tablaResultadosApi(res);
     $('flujoResultado').innerHTML = html;
     b.disabled = false;
   });
@@ -1634,7 +1696,7 @@
       return;
     }
     if (almacen.modo === 'compartido') {
-      const ids = [...new Set(datos().lotes.map(l => l.usuarioId).concat(datos().clientes.map(c => c.creadoPor)).filter(Boolean))];
+      const ids = [...new Set(datos().lotes.map(l => l.usuarioId).concat(datos().clientes.map(c => c.creadoPor), (datos().envios || []).map(e => e.usuarioId)).filter(Boolean))];
       nombresUsuarios = await almacen.nombres(ids);
     }
     renderSelectClientes();
@@ -1697,9 +1759,14 @@
     if (compartido && !descargas && !almacen.descargaLibre) $('errorBase').innerHTML = aviso('warn', 'Tu usuario no puede descargar archivos desde esta página (claude.ai las permite solo a los miembros de la organización dueña). Cuando descargues, se te va a ofrecer copiar el contenido para pegarlo en el Bloc de notas o en Excel.');
     let primera = true;
     $('cajaFlujo').classList.toggle('oculto', !flujoDisponible());
+    $('cajaCola').classList.toggle('oculto', almacen.proveedor !== 'supabase');
+    $('detPA').open = almacen.modo === 'local';
+    renderAgente();
+    setInterval(renderCola, 60000); // "última conexión hace N min"
     almacen.alCambiar(() => {
       aplicarCfgCompartida();
       if (flujoDisponible()) cargarFlujo();
+      renderCola();
       if (primera) { primera = false; $('cargandoBase').classList.add('oculto'); $('contenido').classList.remove('oculto'); }
       refrescar();
     });
