@@ -932,11 +932,17 @@
   });
   // --- Envío directo por Power Automate (flujo con gateway hacia la API NO COBIS)
   function flujoDisponible() { return almacen && (almacen.modo === 'local' || almacen.proveedor === 'supabase'); }
+  let editandoFlujo = false;
   function cargarFlujo() {
     const f = datos().nocobisFlujo || {};
     if (document.activeElement !== $('flujoUrl')) $('flujoUrl').value = f.url || '';
     if (document.activeElement !== $('flujoClave')) $('flujoClave').value = f.clave || '';
+    // Con la conexión ya guardada no se piden los datos: solo se muestran al tocar "Cambiar".
+    const listo = !!(f.url && f.clave);
+    $('flujoListo').classList.toggle('oculto', !listo || editandoFlujo);
+    $('flujoCampos').classList.toggle('oculto', listo && !editandoFlujo);
   }
+  $('lnkFlujoCambiar').addEventListener('click', e => { e.preventDefault(); editandoFlujo = true; cargarFlujo(); });
   async function llamarFlujo(cuerpo) {
     const url = $('flujoUrl').value.trim();
     if (!/^https:\/\//i.test(url)) throw new Error('Falta la dirección del flujo (HTTP POST URL de Power Automate).');
@@ -966,7 +972,9 @@
   $('btnFlujoGuardar').addEventListener('click', async () => {
     try {
       await almacen.guardarNocobisFlujo({ url: $('flujoUrl').value.trim(), clave: $('flujoClave').value });
-      toast('Conexión guardada');
+      editandoFlujo = false;
+      cargarFlujo();
+      toast('Conexión guardada para todos los usuarios');
     } catch (e) { informar('No se pudo guardar', esc(e.message || e)); }
   });
   $('btnFlujoProbar').addEventListener('click', async () => {
@@ -979,7 +987,8 @@
       const tipo = M.NO_COBIS.tipoCredito;
       const hay = cat.some(c => c.tipoCredito === tipo);
       $('flujoResultado').innerHTML = (j.ok === false ? aviso('bad', esc(j.mensaje || 'El flujo informó un error.'))
-        : aviso(hay || !cat.length ? 'ok' : 'warn', `Flujo OK: token y API responden. ${cat.length ? `Catálogo con ${cat.length} tipos; ${hay ? `incluye ${tipo}` : `<b>no incluye ${tipo}</b>`}.` : ''} No se envió ningún dato.`))
+        : aviso(hay || !cat.length ? 'ok' : 'warn', cat.length ? `Flujo OK: token y API responden. Catálogo con ${cat.length} tipos; ${hay ? `incluye ${tipo}` : `<b>no incluye ${tipo}</b>`}. No se envió ningún dato.`
+          : esc(j.mensaje || 'Flujo OK. No se envió ningún dato.')))
         + (cat.length ? '<p class="sub">' + cat.map(c => `${esc(c.tipoCredito)} (${esc(c.descripcion || '')})`).join(' · ') + '</p>' : '');
     } catch (e) { $('flujoResultado').innerHTML = aviso('bad', esc(e.message || e)); }
     b.disabled = false;
