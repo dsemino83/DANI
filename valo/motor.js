@@ -703,8 +703,9 @@ if ($Faltan.Count) {
   throw 'Volvé a ejecutar con -TipoCredito <código correcto>.'
 }
 
-$AIngresar = @($Ops | Where-Object { [double]$_.saldoCapital -gt 0 })
-Write-Host ("Se ingresan {0} operaciones (las {1} con saldo 0 no se envían)." -f $AIngresar.Count, ($Ops.Count - $AIngresar.Count))
+$AIngresar = @($Ops)
+$ConCartera = @($Ops | Where-Object { [double]$_.saldoCapital -gt 0 }).Count
+Write-Host ("Se envían {0} operaciones, igual que el TXT NO COBIS ({1} con cartera, {2} en 0)." -f $AIngresar.Count, $ConCartera, ($AIngresar.Count - $ConCartera))
 foreach ($o in $Ops) { Write-Host ("  cliente {0,-6} {1,-40} {2,-10} {3,20:N2}" -f $o.cliente, $o.banco, $o.tipoCredito, [double]$o.saldoCapital) }
 
 # Operaciones vigentes del cliente con ese tipo de crédito (la API responde 404 "Sin operaciones" cuando no hay).
@@ -733,7 +734,7 @@ foreach ($o in $Ops) {
   $fila = [ordered]@{ cliente = $o.cliente; banco = $o.banco; tipoCredito = $o.tipoCredito; saldoCapital = $o.saldoCapital; canceladas = ''; operacion = ''; resultado = ''; avisos = ''; error = '' }
   try {
     # Primero se ingresa la nueva; recién si sale bien se cancelan las vigentes anteriores.
-    if ([double]$o.saldoCapital -gt 0) {
+    if ([double]$o.saldoCapital -ge 0) {  # todas las líneas, como el TXT (también las de saldo 0)
       $cuerpo = [ordered]@{
         cliente = [long]$o.cliente; tipoCredito = [string]$o.tipoCredito; moneda = [int]$o.moneda
         saldoCapital = [decimal]$o.saldoCapital; saldoInteres = [decimal]$o.saldoInteres; saldoOcif = [decimal]$o.saldoOcif
@@ -911,7 +912,7 @@ foreach ($Envio in $Pendientes) {
       try {
         # Primero se ingresa la nueva; recién si sale bien se cancelan las vigentes anteriores.
         $vig = @(); if ($Reemplazar) { $vig = @(Vigentes $o) }
-        if ([double]$o.saldoCapital -gt 0) {
+        if ([double]$o.saldoCapital -ge 0) {  # todas las líneas, como el TXT (también las de saldo 0)
           $cuerpo = [ordered]@{
             cliente = [long]$o.cliente; tipoCredito = [string]$o.tipoCredito; moneda = [int]$o.moneda
             saldoCapital = [decimal]$o.saldoCapital; saldoInteres = [decimal]$o.saldoInteres; saldoOcif = [decimal]$o.saldoOcif
@@ -992,8 +993,9 @@ function Ahora { (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ') }
 
 Write-Host ''
 Write-Host '  VALO - EPORTFOLIO · Envío NO COBIS a la API' -ForegroundColor Cyan
-$Ops = @($Lote.operaciones | Where-Object { [double]$_.saldoCapital -gt 0 -or $Lote.reemplazar })
-Write-Host ("  {0} operaciones · total {1:N2} · concesión {2} · vencimiento {3}" -f @($Lote.operaciones | Where-Object { [double]$_.saldoCapital -gt 0 }).Count, [double]$Lote.total, $Lote.fechaConcesion, $Lote.fechaVencimiento)
+$Ops = @($Lote.operaciones)   # todas las líneas, igual que el TXT NO COBIS
+$ConCartera = @($Ops | Where-Object { [double]$_.saldoCapital -gt 0 }).Count
+Write-Host ("  {0} operaciones ({1} con cartera, {2} en 0) · total {3:N2} · concesión {4} · vencimiento {5}" -f $Ops.Count, $ConCartera, ($Ops.Count - $ConCartera), [double]$Lote.total, $Lote.fechaConcesion, $Lote.fechaVencimiento)
 Write-Host ''
 
 # 1) que nadie lo haya enviado ya (doble clic dos veces, otro usuario...)
@@ -1069,7 +1071,7 @@ if ($Token) {
     try {
       # Primero se ingresa la nueva; recién si sale bien se cancelan las vigentes anteriores.
       $vig = @(); if ($Lote.reemplazar) { $vig = @(Vigentes $o) }
-      if ([double]$o.saldoCapital -gt 0) {
+      if ([double]$o.saldoCapital -ge 0) {  # todas las líneas, como el TXT (también las de saldo 0)
         $cuerpo = [ordered]@{
           cliente = [long]$o.cliente; tipoCredito = [string]$o.tipoCredito; moneda = [int]$o.moneda
           saldoCapital = [decimal]$o.saldoCapital; saldoInteres = [decimal]$o.saldoInteres; saldoOcif = [decimal]$o.saldoOcif

@@ -945,7 +945,7 @@
     const lote = M.loteApiNoCobis(t);
     const conSaldo = lote.operaciones.filter(o => o.saldoCapital > 0);
     return confirmar(titulo,
-      `<p>Se envían <b>${conSaldo.length}</b> operaciones con saldo (las ${lote.operaciones.length - conSaldo.length} en 0 no se ingresan) por un total de <b>$ ${fmtMonto(lote.total)}</b>.<br>` +
+      `<p>Se envían <b>${lote.operaciones.length}</b> operaciones, igual que el TXT NO COBIS (${conSaldo.length} con cartera, ${lote.operaciones.length - conSaldo.length} en 0), por un total de <b>$ ${fmtMonto(lote.total)}</b>.<br>` +
       `Concesión ${esc(lote.fechaConcesion)} · vencimiento ${esc(lote.fechaVencimiento)} · tipo ${esc(M.NO_COBIS.tipoCredito)}.</p>` +
       `<label class="check"><input type="checkbox" id="${idCheck}"> Reemplazar: después de ingresar la nueva, cancelar las operaciones vigentes anteriores del mismo tipo de cada cliente (si el ingreso falla, no se cancela nada)</label>` +
       `<p class="sub">No se reintenta automáticamente: si algo falla, revisá el resultado antes de volver a enviar.</p>`, boton)
@@ -991,7 +991,7 @@
     const r = await confirmarLoteApi('Enviar a la API NO COBIS', 'colaReemplazar', 'Enviar');
     if (!r) return;
     try {
-      const id = await almacen.encolarEnvio({ destino: 'pc', reemplazar: r.reemplazar, lote: r.lote, total: r.lote.total, cantidad: r.conSaldo.length,
+      const id = await almacen.encolarEnvio({ destino: 'pc', reemplazar: r.reemplazar, lote: r.lote, total: r.lote.total, cantidad: r.lote.operaciones.length,
         fechaConcesion: r.lote.fechaConcesion, fechaVencimiento: r.lote.fechaVencimiento });
       await bajarArchivoEnvio(id, r.lote, r.reemplazar);
     } catch (e) { informar('No se pudo preparar el envío', esc(e.message || e)); }
@@ -1093,7 +1093,7 @@
     const conError = res.filter(r => r.error).length, ingresadas = res.filter(r => r.operacion).length;
     try {
       await almacen.registrarEnvio({ fecha: new Date().toISOString(), destino: 'Power Automate', reemplazar, fechaConcesion: lote.fechaConcesion,
-        fechaVencimiento: lote.fechaVencimiento, total: lote.total, cantidad: conSaldo.length, ingresadas, conError, error, resultados: res });
+        fechaVencimiento: lote.fechaVencimiento, total: lote.total, cantidad: lote.operaciones.length, ingresadas, conError, error, resultados: res });
     } catch (e) { /* el registro es informativo */ }
     let html = error ? aviso('bad', esc(error))
       : aviso(conError ? 'warn' : 'ok', `${ingresadas} operaciones ingresadas${conError ? `, <b>${conError} con error</b>` : ''}.${j.mensaje ? ' ' + esc(j.mensaje) : ''}`);
