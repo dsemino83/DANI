@@ -619,6 +619,9 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+# Proxy de la red (p. ej. McAfee Web Gateway): se autentica con el usuario de Windows, como el navegador.
+try { $px = [Net.WebRequest]::DefaultWebProxy; if ($px) { $px.Credentials = [Net.CredentialCache]::DefaultNetworkCredentials } } catch {}
+try { [Net.Http.HttpClient]::DefaultProxy.Credentials = [Net.CredentialCache]::DefaultNetworkCredentials } catch {}
 $Carpeta = if ($PSScriptRoot) { $PSScriptRoot } else { (Get-Location).Path }
 
 # --- lote
@@ -665,6 +668,9 @@ function Detalle-Error($e) {
   elseif ($e.Exception.Response -and $e.Exception.Response.GetResponseStream) {
     try { $txt = (New-Object IO.StreamReader($e.Exception.Response.GetResponseStream())).ReadToEnd() } catch {}
   }
+  if ($cod -eq 407) { $txt = 'el proxy de internet de la red (McAfee Web Gateway) pide autenticación y no aceptó el usuario de Windows: pedile a sistemas que habiliten este sitio para PowerShell' }
+  elseif ($txt -match '<html') { $txt = $txt -replace '<[^>]+>', ' ' }
+  if ($txt.Length -gt 300) { $txt = $txt.Substring(0, 300) + '...' }
   return @{ codigo = $cod; texto = (($txt -replace '\\s+', ' ').Trim()) }
 }
 # Llama a la API; ante 401 renueva el token y reintenta una sola vez.
@@ -778,6 +784,9 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+# Proxy de la red (p. ej. McAfee Web Gateway): se autentica con el usuario de Windows, como el navegador.
+try { $px = [Net.WebRequest]::DefaultWebProxy; if ($px) { $px.Credentials = [Net.CredentialCache]::DefaultNetworkCredentials } } catch {}
+try { [Net.Http.HttpClient]::DefaultProxy.Credentials = [Net.CredentialCache]::DefaultNetworkCredentials } catch {}
 $Carpeta = if ($PSScriptRoot) { $PSScriptRoot } else { (Get-Location).Path }
 $Log = Join-Path $Carpeta 'agente.log'
 if (-not $Agente) { $Agente = [Environment]::MachineName }
@@ -794,6 +803,9 @@ function Detalle-Error($e) {
   elseif ($e.Exception.Response -and $e.Exception.Response.GetResponseStream) {
     try { $txt = (New-Object IO.StreamReader($e.Exception.Response.GetResponseStream())).ReadToEnd() } catch {}
   }
+  if ($cod -eq 407) { $txt = 'el proxy de internet de la red (McAfee Web Gateway) pide autenticación y no aceptó el usuario de Windows: pedile a sistemas que habiliten este sitio para PowerShell' }
+  elseif ($txt -match '<html') { $txt = $txt -replace '<[^>]+>', ' ' }
+  if ($txt.Length -gt 300) { $txt = $txt.Substring(0, 300) + '...' }
   return ("HTTP {0}: {1}" -f $cod, (($txt -replace '\\s+', ' ').Trim()))
 }
 
@@ -930,6 +942,9 @@ foreach ($Envio in $Pendientes) {
 # VALO - EPORTFOLIO · Envío NO COBIS a la API (generado ${new Date().toISOString().slice(0, 16).replace('T', ' ')})
 $ErrorActionPreference = 'Stop'
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+# Proxy de la red (p. ej. McAfee Web Gateway): se autentica con el usuario de Windows, como el navegador.
+try { $px = [Net.WebRequest]::DefaultWebProxy; if ($px) { $px.Credentials = [Net.CredentialCache]::DefaultNetworkCredentials } } catch {}
+try { [Net.Http.HttpClient]::DefaultProxy.Credentials = [Net.CredentialCache]::DefaultNetworkCredentials } catch {}
 try { $Host.UI.RawUI.WindowTitle = 'VALO - Envío NO COBIS' } catch {}
 $BaseUrl = ${lit(base)}
 $TokenUrl = ${lit(tokenUrl)}
@@ -948,6 +963,9 @@ function Detalle-Error($e) {
   elseif ($e.Exception.Response -and $e.Exception.Response.GetResponseStream) {
     try { $txt = (New-Object IO.StreamReader($e.Exception.Response.GetResponseStream())).ReadToEnd() } catch {}
   }
+  if ($cod -eq 407) { $txt = 'el proxy de internet de la red (McAfee Web Gateway) pide autenticación y no aceptó el usuario de Windows: pedile a sistemas que habiliten este sitio para PowerShell' }
+  elseif ($txt -match '<html') { $txt = $txt -replace '<[^>]+>', ' ' }
+  if ($txt.Length -gt 300) { $txt = $txt.Substring(0, 300) + '...' }
   if ($cod) { return ("HTTP {0}: {1}" -f $cod, (($txt -replace '\\s+', ' ').Trim())) }
   return (($txt -replace '\\s+', ' ').Trim())
 }
@@ -968,7 +986,12 @@ Write-Host ''
 $Informar = [bool]($SbUrl -and $EnvioPath)
 if ($Informar) {
   try { $tomado = [bool]((Sb '/rpc/tomar_envio' @{ p_path = $EnvioPath; p_agente = ($env:USERNAME + '@' + [Environment]::MachineName) })[0]) }
-  catch { Write-Host ('  No se pudo verificar el envío en la página (' + (Detalle-Error $_) + ').') -ForegroundColor Red; Write-Host '  Si pasó más de una hora desde que lo descargaste, volvé a tocar "Enviar a la API" en la página.'; exit 1 }
+  catch {
+    $d = Detalle-Error $_
+    Write-Host ('  No se pudo verificar el envío en la página (' + $d + ').') -ForegroundColor Red
+    if ($d -match '^HTTP 401') { Write-Host '  El archivo venció (vale una hora): en la página tocá "Descargar de nuevo" en la lista de envíos.' }
+    exit 1
+  }
   if (-not $tomado) { Write-Host '  Este envío ya se procesó o se canceló: no se envía de nuevo. Mirá el resultado en la página.' -ForegroundColor Yellow; exit 0 }
 }
 
@@ -1083,6 +1106,9 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+# Proxy de la red (p. ej. McAfee Web Gateway): se autentica con el usuario de Windows, como el navegador.
+try { $px = [Net.WebRequest]::DefaultWebProxy; if ($px) { $px.Credentials = [Net.CredentialCache]::DefaultNetworkCredentials } } catch {}
+try { [Net.Http.HttpClient]::DefaultProxy.Credentials = [Net.CredentialCache]::DefaultNetworkCredentials } catch {}
 $Carpeta = if ($PSScriptRoot) { $PSScriptRoot } else { (Get-Location).Path }
 $script:Ok = $true
 function Paso([string]$Titulo, [scriptblock]$Accion) {
@@ -1241,6 +1267,9 @@ ${aqui(sqlExtraccionCartera(cfg, 'detalle'))}
 '@
 
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+# Proxy de la red (p. ej. McAfee Web Gateway): se autentica con el usuario de Windows, como el navegador.
+try { $px = [Net.WebRequest]::DefaultWebProxy; if ($px) { $px.Credentials = [Net.CredentialCache]::DefaultNetworkCredentials } } catch {}
+try { [Net.Http.HttpClient]::DefaultProxy.Credentials = [Net.CredentialCache]::DefaultNetworkCredentials } catch {}
 New-Item -ItemType Directory -Force -Path $Carpeta | Out-Null
 $Log = Join-Path $Carpeta 'registro.log'
 
