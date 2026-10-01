@@ -707,10 +707,15 @@ $AIngresar = @($Ops | Where-Object { [double]$_.saldoCapital -gt 0 })
 Write-Host ("Se ingresan {0} operaciones (las {1} con saldo 0 no se envían)." -f $AIngresar.Count, ($Ops.Count - $AIngresar.Count))
 foreach ($o in $Ops) { Write-Host ("  cliente {0,-6} {1,-40} {2,-10} {3,20:N2}" -f $o.cliente, $o.banco, $o.tipoCredito, [double]$o.saldoCapital) }
 
+# Operaciones vigentes del cliente con ese tipo de crédito (la API responde 404 "Sin operaciones" cuando no hay).
+function Vigentes($o) {
+  try { return @(Llamar-Api 'Get' ('/v1/nocobis/operacion?cliente=' + $o.cliente) | Where-Object { $_.tipoCredito -eq $o.tipoCredito }) }
+  catch { if ($_.Exception.Message -match '^HTTP 404') { return }; throw }
+}
 if ($Reemplazar) {
-  Write-Host 'Operaciones vigentes que se cancelarían (mismo cliente y tipo de crédito):'
+  Write-Host 'Operaciones vigentes que se cancelarían DESPUÉS de ingresar la nueva (si el ingreso falla, no se cancelan):'
   foreach ($o in $Ops) {
-    $vig = @(Llamar-Api 'Get' ('/v1/nocobis/operacion?cliente=' + $o.cliente) | Where-Object { $_.tipoCredito -eq $o.tipoCredito })
+    $vig = @(Vigentes $o)
     foreach ($v in $vig) { Write-Host ("  cliente {0} · operación {1} · saldo {2:N2}" -f $o.cliente, $v.numeroOperacion, [double]$v.saldoCapital) }
     $o | Add-Member -NotePropertyName vigentes -NotePropertyValue $vig -Force
   }
@@ -727,14 +732,7 @@ $Resultado = @()
 foreach ($o in $Ops) {
   $fila = [ordered]@{ cliente = $o.cliente; banco = $o.banco; tipoCredito = $o.tipoCredito; saldoCapital = $o.saldoCapital; canceladas = ''; operacion = ''; resultado = ''; avisos = ''; error = '' }
   try {
-    if ($Reemplazar) {
-      $canc = @()
-      foreach ($v in @($o.vigentes)) {
-        $rc = Llamar-Api 'Post' '/v1/nocobis/cancelar' @{ cliente = [long]$o.cliente; numeroOp = [long]$v.numeroOperacion }
-        $canc += $rc.operacion
-      }
-      $fila.canceladas = ($canc -join ' ')
-    }
+    # Primero se ingresa la nueva; recién si sale bien se cancelan las vigentes anteriores.
     if ([double]$o.saldoCapital -gt 0) {
       $cuerpo = [ordered]@{
         cliente = [long]$o.cliente; tipoCredito = [string]$o.tipoCredito; moneda = [int]$o.moneda
@@ -745,6 +743,14 @@ foreach ($o in $Ops) {
       $fila.operacion = $r.operacion; $fila.resultado = $r.resultado; $fila.avisos = (@($r.avisos) -join ' | ')
       Write-Host ("OK   cliente {0}: operación {1} {2}" -f $o.cliente, $r.operacion, $fila.avisos) -ForegroundColor Green
     } else { $fila.resultado = 'saldo 0: no se ingresa' }
+    if ($Reemplazar) {
+      $canc = @()
+      foreach ($v in @($o.vigentes)) {
+        try { $rc = Llamar-Api 'Post' '/v1/nocobis/cancelar' @{ cliente = [long]$o.cliente; numeroOp = [long]$v.numeroOperacion }; $canc += $rc.operacion }
+        catch { $fila.error = ('Ingresada, pero no se pudo cancelar la operación {0}: {1}' -f $v.numeroOperacion, $_.Exception.Message) }
+      }
+      $fila.canceladas = ($canc -join ' ')
+    }
   } catch {
     $fila.error = $_.Exception.Message
     Write-Host ("ERROR cliente {0}: {1}" -f $o.cliente, $fila.error) -ForegroundColor Red
@@ -872,6 +878,11 @@ function Llamar-Api([string]$Metodo, [string]$Ruta, $Cuerpo = $null) {
     }
   }
 }
+# Operaciones vigentes del cliente con ese tipo de crédito (la API responde 404 "Sin operaciones" cuando no hay).
+function Vigentes($o) {
+  try { return @(Llamar-Api 'Get' ('/v1/nocobis/operacion?cliente=' + $o.cliente) | Where-Object { $_.tipoCredito -eq $o.tipoCredito }) }
+  catch { if ($_.Exception.Message -match '^HTTP 404') { return }; throw }
+}
 
 # --- procesar la cola
 try {
@@ -898,14 +909,8 @@ foreach ($Envio in $Pendientes) {
     foreach ($o in $Ops) {
       $fila = [ordered]@{ cliente = $o.cliente; banco = $o.banco; saldoCapital = $o.saldoCapital }
       try {
-        if ($Reemplazar) {
-          $canc = @()
-          foreach ($v in @(Llamar-Api 'Get' ('/v1/nocobis/operacion?cliente=' + $o.cliente) | Where-Object { $_.tipoCredito -eq $o.tipoCredito })) {
-            $rc = Llamar-Api 'Post' '/v1/nocobis/cancelar' @{ cliente = [long]$o.cliente; numeroOp = [long]$v.numeroOperacion }
-            $canc += $rc[0].operacion
-          }
-          $fila.canceladas = $canc
-        }
+        # Primero se ingresa la nueva; recién si sale bien se cancelan las vigentes anteriores.
+        $vig = @(); if ($Reemplazar) { $vig = @(Vigentes $o) }
         if ([double]$o.saldoCapital -gt 0) {
           $cuerpo = [ordered]@{
             cliente = [long]$o.cliente; tipoCredito = [string]$o.tipoCredito; moneda = [int]$o.moneda
@@ -915,6 +920,15 @@ foreach ($Envio in $Pendientes) {
           $r = (Llamar-Api 'Post' '/v1/nocobis/ingreso' $cuerpo)[0]
           $fila.operacion = $r.operacion; $fila.resultado = $r.resultado; $fila.avisos = @($r.avisos)
         } elseif (-not $Reemplazar) { continue }
+        if ($Reemplazar) {
+          $canc = @(); $errC = @()
+          foreach ($v in $vig) {
+            try { $rc = Llamar-Api 'Post' '/v1/nocobis/cancelar' @{ cliente = [long]$o.cliente; numeroOp = [long]$v.numeroOperacion }; $canc += $rc[0].operacion }
+            catch { $errC += ('no se pudo cancelar la operación {0}: {1}' -f $v.numeroOperacion, $_.Exception.Message) }
+          }
+          $fila.canceladas = $canc
+          if ($errC.Count) { $fila.error = 'Ingresada, pero ' + ($errC -join ' | ') }
+        }
       } catch { $fila.error = $_.Exception.Message }
       [void]$Res.Add($fila)
     }
@@ -1023,29 +1037,59 @@ for ($intento = 0; $intento -lt 2 -and -not $Token; $intento++) {
   }
 }
 if ($Token) {
-  $h = @{ Authorization = 'Bearer ' + $Token }
+  $script:Token = $Token
+  # Llamada a la API; si el token venció (401) se pide otro y se reintenta una vez.
+  function Api([string]$Metodo, [string]$Ruta, $Cuerpo = $null) {
+    for ($i = 0; $i -lt 2; $i++) {
+      $hh = @{ Authorization = 'Bearer ' + $script:Token }
+      try {
+        if ($Cuerpo -ne $null) {
+          $json = $Cuerpo | ConvertTo-Json -Depth 5 -Compress
+          return Invoke-RestMethod -Method $Metodo -Uri ($BaseUrl + $Ruta) -Headers $hh -Body ([Text.Encoding]::UTF8.GetBytes($json)) -ContentType 'application/json; charset=utf-8'
+        }
+        return Invoke-RestMethod -Method $Metodo -Uri ($BaseUrl + $Ruta) -Headers $hh
+      } catch {
+        $c = 0; if ($_.Exception.Response) { try { $c = [int]$_.Exception.Response.StatusCode } catch {} }
+        if ($c -eq 401 -and $i -eq 0) {
+          $sec = (New-Object System.Net.NetworkCredential('', $Seguro)).Password
+          $script:Token = (Invoke-RestMethod -Method Post -Uri $TokenUrl -Body @{ client_id = $ClientId; client_secret = $sec; grant_type = 'client_credentials' } -ContentType 'application/x-www-form-urlencoded').access_token
+          continue
+        }
+        throw
+      }
+    }
+  }
+  # Operaciones vigentes del cliente con ese tipo de crédito (la API responde 404 "Sin operaciones" cuando no hay).
+  function Vigentes($o) {
+    try { return @(Api 'Get' ('/v1/nocobis/operacion?cliente=' + $o.cliente) | ForEach-Object { $_ } | Where-Object { $_.tipoCredito -eq $o.tipoCredito }) }
+    catch { $c = 0; if ($_.Exception.Response) { try { $c = [int]$_.Exception.Response.StatusCode } catch {} }; if ($c -eq 404) { return }; throw }
+  }
   foreach ($o in $Ops) {
     $fila = [ordered]@{ cliente = $o.cliente; banco = $o.banco; saldoCapital = $o.saldoCapital }
     try {
-      if ($Lote.reemplazar) {
-        $canc = @()
-        $vig = @(Invoke-RestMethod -Uri ($BaseUrl + '/v1/nocobis/operacion?cliente=' + $o.cliente) -Headers $h | ForEach-Object { $_ } | Where-Object { $_.tipoCredito -eq $o.tipoCredito })
-        foreach ($v in $vig) {
-          $cb = @{ cliente = [long]$o.cliente; numeroOp = [long]$v.numeroOperacion } | ConvertTo-Json -Compress
-          $rc = Invoke-RestMethod -Method Post -Uri ($BaseUrl + '/v1/nocobis/cancelar') -Headers $h -Body ([Text.Encoding]::UTF8.GetBytes($cb)) -ContentType 'application/json; charset=utf-8'
-          $canc += $rc.operacion
-        }
-        $fila.canceladas = $canc
-      }
+      # Primero se ingresa la nueva; recién si sale bien se cancelan las vigentes anteriores.
+      $vig = @(); if ($Lote.reemplazar) { $vig = @(Vigentes $o) }
       if ([double]$o.saldoCapital -gt 0) {
         $cuerpo = [ordered]@{
           cliente = [long]$o.cliente; tipoCredito = [string]$o.tipoCredito; moneda = [int]$o.moneda
           saldoCapital = [decimal]$o.saldoCapital; saldoInteres = [decimal]$o.saldoInteres; saldoOcif = [decimal]$o.saldoOcif
           fechaConcesion = [string]$o.fechaConcesion; fechaVencimiento = [string]$o.fechaVencimiento; tasaInteres = [decimal]$o.tasaInteres
-        } | ConvertTo-Json -Compress
-        $r = Invoke-RestMethod -Method Post -Uri ($BaseUrl + '/v1/nocobis/ingreso') -Headers $h -Body ([Text.Encoding]::UTF8.GetBytes($cuerpo)) -ContentType 'application/json; charset=utf-8'
+        }
+        $r = Api 'Post' '/v1/nocobis/ingreso' $cuerpo
         $fila.operacion = $r.operacion; $fila.resultado = $r.resultado; $fila.avisos = @($r.avisos)
         Write-Host ("  OK     {0,-6} {1,-38} operación {2}" -f $o.cliente, $o.banco, $r.operacion) -ForegroundColor Green
+      }
+      if ($Lote.reemplazar) {
+        $canc = @(); $errC = @()
+        foreach ($v in $vig) {
+          try {
+            $rc = Api 'Post' '/v1/nocobis/cancelar' @{ cliente = [long]$o.cliente; numeroOp = [long]$v.numeroOperacion }
+            $canc += $rc.operacion
+            Write-Host ("         {0,-6} {1,-38} cancelada la anterior {2}" -f $o.cliente, $o.banco, $v.numeroOperacion)
+          } catch { $errC += ('no se pudo cancelar la operación {0}: {1}' -f $v.numeroOperacion, (Detalle-Error $_)) }
+        }
+        $fila.canceladas = $canc
+        if ($errC.Count) { $fila.error = 'Ingresada, pero ' + ($errC -join ' | '); Write-Host ("  AVISO  {0,-6} {1,-38} {2}" -f $o.cliente, $o.banco, $fila.error) -ForegroundColor Yellow }
       }
     } catch {
       $fila.error = Detalle-Error $_
@@ -1171,7 +1215,8 @@ if ($script:Token -and $red2) {
     else { $script:Ok = $false; Write-Host ('  [ATENCIÓN] el tipo {0} NO está en el catálogo: hay que usar otro código' -f $TipoCredito) -ForegroundColor Red }
   } | Out-Null
   Paso ('5) API: operaciones del cliente {0} (GET /v1/nocobis/operacion)' -f $Cliente) {
-    $ops = @(Invoke-RestMethod -Uri ($BaseUrl + '/v1/nocobis/operacion?cliente=' + $Cliente) -Headers $h | ForEach-Object { $_ })
+    try { $ops = @(Invoke-RestMethod -Uri ($BaseUrl + '/v1/nocobis/operacion?cliente=' + $Cliente) -Headers $h | ForEach-Object { $_ }) }
+    catch { $c = 0; if ($_.Exception.Response) { try { $c = [int]$_.Exception.Response.StatusCode } catch {} }; if ($c -eq 404) { $ops = @() } else { throw } }  # 404 = sin operaciones
     Write-Host ('  [OK] {0} operaciones vigentes' -f $ops.Count) -ForegroundColor Green
     foreach ($o in $ops) { Write-Host ('       operación {0} · {1} · saldo {2:N2} · {3} a {4}' -f $o.numeroOperacion, $o.tipoCredito, [double]$o.saldoCapital, $o.fechaAlta, $o.fechaVencimiento) }
   } | Out-Null

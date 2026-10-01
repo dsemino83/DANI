@@ -947,7 +947,7 @@
     return confirmar(titulo,
       `<p>Se envían <b>${conSaldo.length}</b> operaciones con saldo (las ${lote.operaciones.length - conSaldo.length} en 0 no se ingresan) por un total de <b>$ ${fmtMonto(lote.total)}</b>.<br>` +
       `Concesión ${esc(lote.fechaConcesion)} · vencimiento ${esc(lote.fechaVencimiento)} · tipo ${esc(M.NO_COBIS.tipoCredito)}.</p>` +
-      `<label class="check"><input type="checkbox" id="${idCheck}"> Antes de ingresar, cancelar las operaciones vigentes del mismo tipo de cada cliente</label>` +
+      `<label class="check"><input type="checkbox" id="${idCheck}"> Reemplazar: después de ingresar la nueva, cancelar las operaciones vigentes anteriores del mismo tipo de cada cliente (si el ingreso falla, no se cancela nada)</label>` +
       `<p class="sub">No se reintenta automáticamente: si algo falla, revisá el resultado antes de volver a enviar.</p>`, boton)
       .then(ok => ok ? { lote, conSaldo, reemplazar: !!(document.getElementById(idCheck) || {}).checked } : null);
   }
