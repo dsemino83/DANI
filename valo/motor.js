@@ -506,7 +506,7 @@
 
   // ------------------------------------------------------------ POWER BI (modelo ePortfolio_Mensual)
   // Consulta DAX que la página manda al flujo de Power Automate ("Ejecutar una consulta en un conjunto de datos").
-  // Agrega fctFideicomisoCuotaSaldo del último Periodo por titular, negocio (FideicomisoId), estado y fecha de corte;
+  // Agrega fctFideicomisoCuotaSaldo del último Periodo por titular, fideicomiso (negocio = FideicomisoSerie), estado y fecha de corte;
   // los nombres de salida coinciden con los que la pestaña reconoce sola (titular, Estado Cuota, saldo capital, ...).
   const PBI_TABLA = 'fctFideicomisoCuotaSaldo';
   function daxCarteraPowerBI(opciones = {}) {
@@ -538,8 +538,12 @@
       '  SELECTCOLUMNS (',
       '    T,',
       `    "Titular", ${c('CUITDeudor')},`,
-      `    "Negocio", ${c('FideicomisoId')},`,
+      // LOOKUPVALUE trae los nombres de las dimensiones sin depender de las relaciones del modelo.
+      `    "Negocio", LOOKUPVALUE ( 'Fideicomiso'[FideicomisoSerie], 'Fideicomiso'[FideicomisoId], ${c('FideicomisoId')} ),`,
+      `    "Fideicomiso", LOOKUPVALUE ( 'Fideicomiso'[Fideicomiso], 'Fideicomiso'[FideicomisoId], ${c('FideicomisoId')} ),`,
+      `    "FideicomisoId", ${c('FideicomisoId')},`,
       `    "Estado Cuota", ${c('FideicomisoCreditoCuotaEstadoId')},`,
+      `    "Estado Cuota Desc", LOOKUPVALUE ( 'FideicomisoCreditoCuotaEstado'[FideicomisoCreditoCuotaEstado], 'FideicomisoCreditoCuotaEstado'[FideicomisoCreditoCuotaEstadoId], ${c('FideicomisoCreditoCuotaEstadoId')} ),`,
       `    "Situacion ePortfolio", ${c('Situacion ePortfolio')},`,
       `    "Periodo", ${c('Periodo')},`,
       `    "Fecha de Corte", ${c('Fecha de Corte')},`,

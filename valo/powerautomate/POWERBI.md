@@ -49,8 +49,9 @@ Cartera → **Conexión con Power BI** → pegar la **HTTP URL** y la **clave** 
 compartida, para todos). Después, **Traer cartera de Power BI** (periodo vacío = el último).
 
 La consulta (botón *Ver / copiar la consulta DAX*) agrupa `fctFideicomisoCuotaSaldo` del periodo por titular
-(`CUITDeudor`), negocio (`FideicomisoId`), estado (`FideicomisoCreditoCuotaEstadoId` y `Situacion ePortfolio`) y fecha de
-corte, y devuelve: Cuotas, Saldo Capital (`Saldo_Capital`), Saldo Int a Dto (`Saldo_Interes_a_dto_`), Int Dev a Cobrar
+(`CUITDeudor`), fideicomiso, estado (`FideicomisoCreditoCuotaEstadoId` y `Situacion ePortfolio`) y fecha de corte.
+Con `LOOKUPVALUE` suma Negocio = `Fideicomiso[FideicomisoSerie]` (la misma Serie del export del BI), el nombre del
+fideicomiso y la descripción del estado (`FideicomisoCreditoCuotaEstado`, para marcar solos los pagos). Devuelve: Cuotas, Saldo Capital (`Saldo_Capital`), Saldo Int a Dto (`Saldo_Interes_a_dto_`), Int Dev a Cobrar
 (`Int Dev Calculado VN`), Int Dev Calculado VD y Saldo de Deuda (`SaldoDeDeuda`). La página arma el resto igual que con
 el export: excluye los estados pagos que se marquen, calcula el valor a descuento, cruza con Bancos MELI y genera el TXT /
 envío NO COBIS. Se puede probar antes en Power BI Desktop o en **DAX query view** pegando la consulta.

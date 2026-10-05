@@ -1164,7 +1164,7 @@
         .some(v => negocios.some(n => n === v.valor || (!isNaN(Number(n)) && Number(n) === Number(v.valor))))) {
         carteraCfg.colNegocio = '';
         renderCartera();
-        $('carteraEstado').innerHTML += aviso('warn', 'El <b>FideicomisoId</b> de Power BI no coincide con ningún negocio de Clientes: se muestran todos los fideicomisos. Si corresponde filtrar, elegí la columna Negocio en la configuración.');
+        $('carteraEstado').innerHTML += aviso('warn', 'La <b>Serie</b> del fideicomiso en Power BI no coincide con ningún negocio de Clientes: se muestran todos los fideicomisos. Si corresponde filtrar, elegí la columna Negocio en la configuración.');
       }
     } catch (e) {
       $('carteraEstado').innerHTML = aviso('bad', 'No se pudo traer la cartera de Power BI: ' + esc(e.message || e));

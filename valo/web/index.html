@@ -1070,7 +1070,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 
   // ------------------------------------------------------------ POWER BI (modelo ePortfolio_Mensual)
   // Consulta DAX que la página manda al flujo de Power Automate ("Ejecutar una consulta en un conjunto de datos").
-  // Agrega fctFideicomisoCuotaSaldo del último Periodo por titular, negocio (FideicomisoId), estado y fecha de corte;
+  // Agrega fctFideicomisoCuotaSaldo del último Periodo por titular, fideicomiso (negocio = FideicomisoSerie), estado y fecha de corte;
   // los nombres de salida coinciden con los que la pestaña reconoce sola (titular, Estado Cuota, saldo capital, ...).
   const PBI_TABLA = 'fctFideicomisoCuotaSaldo';
   function daxCarteraPowerBI(opciones = {}) {
@@ -1102,8 +1102,12 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
       '  SELECTCOLUMNS (',
       '    T,',
       `    "Titular", ${c('CUITDeudor')},`,
-      `    "Negocio", ${c('FideicomisoId')},`,
+      // LOOKUPVALUE trae los nombres de las dimensiones sin depender de las relaciones del modelo.
+      `    "Negocio", LOOKUPVALUE ( 'Fideicomiso'[FideicomisoSerie], 'Fideicomiso'[FideicomisoId], ${c('FideicomisoId')} ),`,
+      `    "Fideicomiso", LOOKUPVALUE ( 'Fideicomiso'[Fideicomiso], 'Fideicomiso'[FideicomisoId], ${c('FideicomisoId')} ),`,
+      `    "FideicomisoId", ${c('FideicomisoId')},`,
       `    "Estado Cuota", ${c('FideicomisoCreditoCuotaEstadoId')},`,
+      `    "Estado Cuota Desc", LOOKUPVALUE ( 'FideicomisoCreditoCuotaEstado'[FideicomisoCreditoCuotaEstado], 'FideicomisoCreditoCuotaEstado'[FideicomisoCreditoCuotaEstadoId], ${c('FideicomisoCreditoCuotaEstadoId')} ),`,
       `    "Situacion ePortfolio", ${c('Situacion ePortfolio')},`,
       `    "Periodo", ${c('Periodo')},`,
       `    "Fecha de Corte", ${c('Fecha de Corte')},`,
@@ -3932,7 +3936,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
         .some(v => negocios.some(n => n === v.valor || (!isNaN(Number(n)) && Number(n) === Number(v.valor))))) {
         carteraCfg.colNegocio = '';
         renderCartera();
-        $('carteraEstado').innerHTML += aviso('warn', 'El <b>FideicomisoId</b> de Power BI no coincide con ningún negocio de Clientes: se muestran todos los fideicomisos. Si corresponde filtrar, elegí la columna Negocio en la configuración.');
+        $('carteraEstado').innerHTML += aviso('warn', 'La <b>Serie</b> del fideicomiso en Power BI no coincide con ningún negocio de Clientes: se muestran todos los fideicomisos. Si corresponde filtrar, elegí la columna Negocio en la configuración.');
       }
     } catch (e) {
       $('carteraEstado').innerHTML = aviso('bad', 'No se pudo traer la cartera de Power BI: ' + esc(e.message || e));
