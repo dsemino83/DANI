@@ -141,9 +141,12 @@
   function irA(vista) {
     document.querySelectorAll('nav button').forEach(b => b.setAttribute('aria-selected', String(b.dataset.vista === vista)));
     document.querySelectorAll('section.vista').forEach(s => s.classList.toggle('activa', s.id === 'vista-' + vista));
+    const mas = $('navMas');
+    if (mas) { const enMas = [...mas.options].some(o => o.value && o.value === vista); mas.value = enMas ? vista : ''; mas.classList.toggle('activa', enMas); }
     if (vista === 'cartera') alAbrirCartera();
   }
   document.querySelectorAll('nav button').forEach(b => b.addEventListener('click', () => irA(b.dataset.vista)));
+  $('navMas').addEventListener('change', e => { if (e.target.value) irA(e.target.value); });
   document.addEventListener('click', e => {
     const b = e.target.closest('[data-ir]');
     if (b) irA(b.dataset.ir);
@@ -1245,6 +1248,113 @@
       $('carteraEstado').innerHTML = aviso('bad', 'No se pudo consultar el BI desde esta página (' + esc(err.message || err) + '). ' +
         'El BI solo responde dentro de la red de VALO y puede no aceptar pedidos de otras páginas. Exportá el reporte a CSV o Excel desde el BI y cargalo acá.');
     }
+  });
+
+  // ============================================================ INVENTARIO DE GARANTÍAS
+  // Reportes de garantías (.lis) unidos en una tabla, con filtro preferida / no preferida y exportación a Excel.
+  // Los archivos quedan solo en esta sesión del navegador.
+  const inventario = []; // { nombre, leido }
+  const zonaI = $('zonaInventario');
+  zonaI.addEventListener('click', () => $('archivoInventario').click());
+  zonaI.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); $('archivoInventario').click(); } });
+  zonaI.addEventListener('dragover', e => { e.preventDefault(); zonaI.classList.add('encima'); });
+  zonaI.addEventListener('dragleave', () => zonaI.classList.remove('encima'));
+  zonaI.addEventListener('drop', e => { e.preventDefault(); zonaI.classList.remove('encima'); cargarInventario([...e.dataTransfer.files]); });
+  $('archivoInventario').addEventListener('change', e => { const f = [...e.target.files]; e.target.value = ''; cargarInventario(f); });
+
+  async function cargarInventario(files) {
+    const errores = [];
+    for (const f of files) {
+      try {
+        const buf = await f.arrayBuffer();
+        // Los reportes vienen en UTF-8; si no, en Windows-1252 (Ñ y acentos).
+        let texto = new TextDecoder('utf-8').decode(buf);
+        if (texto.includes('�')) texto = new TextDecoder('windows-1252').decode(buf);
+        const leido = M.leerInventarioGarantias(texto, f.name);
+        const i = inventario.findIndex(x => x.nombre === f.name);
+        if (i > -1) inventario.splice(i, 1, { nombre: f.name, leido }); else inventario.push({ nombre: f.name, leido });
+      } catch (e) { errores.push(esc(e.message || e)); }
+    }
+    renderInventario(errores);
+  }
+
+  const filasInventario = () => inventario.flatMap(x => x.leido.filas);
+  function filasInventarioFiltradas() {
+    const pref = $('invPref').value, mon = $('invMoneda').value, ori = $('invOrigen').value, q = M.normalizar($('invBuscar').value);
+    return filasInventario().filter(f => (!pref || (pref === 'S') === f.preferida) && (!mon || f.monedaDesc === mon) && (!ori || f.origen === ori)
+      && (!q || M.normalizar([f.descripcion, f.cliente, f.tipo, f.codigo].join(' ')).includes(q)));
+  }
+
+  function renderInventario(errores = []) {
+    let html = errores.map(e => aviso('bad', e)).join('');
+    html += inventario.map((x, i) => {
+      const l = x.leido, malos = l.controles.filter(c => !c.ok);
+      return `<p class="sub" style="margin:6px 0"><b>${esc(x.nombre)}</b> · ${esc(l.origen)} · al ${esc(l.fecha)} · ${fmtEntero(l.filas.length)} garantías · ` +
+        (l.controles.length ? (malos.length ? `<span class="chip bad">${malos.length} subtotales no coinciden</span>` : `<span class="chip ok">subtotales del reporte OK</span>`) : '') +
+        ` <a href="#" data-quitar-inv="${i}">Quitar</a></p>`;
+    }).join('');
+    $('inventarioArchivos').innerHTML = html;
+    const todas = filasInventario();
+    $('cardInventario').classList.toggle('oculto', !todas.length);
+    if (!todas.length) return;
+    const opciones = (sel, vals, todas) => { const v = sel.value; sel.innerHTML = `<option value="">${todas}</option>` + vals.map(x => `<option ${x === v ? 'selected' : ''}>${esc(x)}</option>`).join(''); };
+    opciones($('invMoneda'), [...new Set(todas.map(f => f.monedaDesc))], 'Todas');
+    opciones($('invOrigen'), [...new Set(todas.map(f => f.origen))], 'Todos');
+    renderTablaInventario();
+  }
+  $('inventarioArchivos').addEventListener('click', e => {
+    const a = e.target.closest('[data-quitar-inv]');
+    if (!a) return;
+    e.preventDefault();
+    inventario.splice(Number(a.dataset.quitarInv), 1);
+    renderInventario();
+  });
+  ['invPref', 'invMoneda', 'invOrigen'].forEach(id => $(id).addEventListener('change', renderTablaInventario));
+  $('invBuscar').addEventListener('input', renderTablaInventario);
+
+  // Resumen: preferida / no preferida por moneda (montos en pesos y en moneda de origen).
+  function resumenInventario(filas) {
+    const m = new Map();
+    filas.forEach(f => {
+      const k = (f.preferida ? 'Preferida' : 'No preferida') + '|' + f.monedaDesc;
+      if (!m.has(k)) m.set(k, { pref: f.preferida ? 'Preferida' : 'No preferida', moneda: f.monedaDesc, cantidad: 0, pesos: 0, origen: 0 });
+      const r = m.get(k); r.cantidad++; r.pesos += f.montoPesos; r.origen += f.montoOrigen;
+    });
+    return [...m.values()].sort((a, b) => (a.pref === b.pref ? a.moneda.localeCompare(b.moneda) : a.pref === 'Preferida' ? -1 : 1));
+  }
+
+  function renderTablaInventario() {
+    const filas = filasInventarioFiltradas();
+    const res = resumenInventario(filas);
+    const tot = filas.reduce((a, f) => a + f.montoPesos, 0);
+    $('inventarioResumen').innerHTML = `<div class="tabla-caja"><table><thead><tr><th>Preferida</th><th>Moneda</th><th class="num">Garantías</th><th class="num">Monto pesos</th><th class="num">Monto moneda orig.</th></tr></thead><tbody>` +
+      res.map(r => `<tr><td>${r.pref === 'Preferida' ? '<span class="chip ok">Preferida</span>' : '<span class="chip gris">No preferida</span>'}</td><td>${esc(r.moneda)}</td><td class="num">${fmtEntero(r.cantidad)}</td><td class="num">${fmtMonto(r.pesos)}</td><td class="num">${fmtMonto(r.origen)}</td></tr>`).join('') +
+      `<tr class="total"><td colspan="2"><b>TOTAL</b></td><td class="num"><b>${fmtEntero(filas.length)}</b></td><td class="num"><b>${fmtMonto(tot)}</b></td><td></td></tr></tbody></table></div>`;
+    const max = 1000;
+    $('tablaInventario').innerHTML = `<table><thead><tr><th>Preferida</th><th>Origen</th><th>Moneda</th><th>Tipo garantía</th><th>Código garantía</th><th>Cliente</th><th>Descripción cliente</th><th>Ab./Cerr.</th><th class="num">Monto pesos</th><th class="num">Monto moneda orig.</th></tr></thead><tbody>` +
+      filas.slice(0, max).map(f => `<tr><td>${f.preferida ? 'Preferida' : 'No preferida'}</td><td>${esc(f.origen)}</td><td>${esc(f.monedaDesc)}</td><td>${esc(f.tipo)}</td><td>${esc(f.codigo)}</td><td>${esc(f.cliente)}</td><td>${esc(f.descripcion)}</td><td>${esc(f.abiertaCerrada)}</td><td class="num">${fmtMonto(f.montoPesos)}</td><td class="num">${fmtMonto(f.montoOrigen)}</td></tr>`).join('') +
+      '</tbody></table>' + (filas.length > max ? `<p class="sub">Se muestran ${fmtEntero(max)} de ${fmtEntero(filas.length)} filas; el Excel trae todas.</p>` : '');
+  }
+
+  $('btnInvExcel').addEventListener('click', () => {
+    const filas = filasInventarioFiltradas();
+    if (!filas.length) return;
+    const enc = ['Preferida', 'Origen', 'Fecha', 'Moneda', 'Cód. moneda', 'Tipo garantía', 'Código garantía', 'Cliente', 'Descripción cliente', 'Abierta/Cerrada', 'Monto pesos', 'Monto moneda orig.', 'Archivo'];
+    const aoa = [enc].concat(filas.map(f => [f.preferida ? 'Preferida' : 'No preferida', f.origen, f.fecha, f.monedaDesc, f.moneda, f.tipo, f.codigo,
+      /^\d+$/.test(f.cliente) ? Number(f.cliente) : f.cliente, f.descripcion, f.abiertaCerrada, f.montoPesos, f.montoOrigen, f.archivo]));
+    const ws = XLSX.utils.aoa_to_sheet(aoa);
+    ws['!cols'] = [14, 22, 12, 14, 8, 24, 28, 10, 34, 10, 18, 18, 30].map(w => ({ wch: w }));
+    ws['!autofilter'] = { ref: XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: aoa.length - 1, c: enc.length - 1 } }) };
+    const res = resumenInventario(filas);
+    const ws2 = XLSX.utils.aoa_to_sheet([['Preferida', 'Moneda', 'Garantías', 'Monto pesos', 'Monto moneda orig.']]
+      .concat(res.map(r => [r.pref, r.moneda, r.cantidad, M.round2(r.pesos), M.round2(r.origen)]))
+      .concat([['TOTAL', '', filas.length, M.round2(filas.reduce((a, f) => a + f.montoPesos, 0)), '']]));
+    ws2['!cols'] = [14, 14, 10, 20, 20].map(w => ({ wch: w }));
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Inventario');
+    XLSX.utils.book_append_sheet(wb, ws2, 'Resumen');
+    const fecha = (filas[0].fecha || '').replace(/\//g, '-');
+    descargarLibro(`Inventario_garantias_${fecha || 'sin_fecha'}.xlsx`, wb);
   });
 
   // ============================================================ LOTE

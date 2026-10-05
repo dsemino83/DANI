@@ -607,6 +607,51 @@
     return { encabezados, datos, colCantidad, noSumar };
   }
 
+  // ------------------------------------------------------------ INVENTARIO DE GARANTÍAS
+  // Reportes de ancho fijo del sistema de cartera (garhicon.sqr "asociadas a deuda", garhisin.sqr "no asociadas a producto").
+  // Detalle: MONEDA · PREF. (S/N) · ABIERTA_CERRADA · TIPO GARANTIA [43,65) · CODIGO GARANTIA [65,91) · CLIENTE [91,97)
+  // · DESCRIPCION CLIENTE · MONTO PESOS · MONTO MONEDA ORIG. Los importes se toman del final de la línea
+  // (la descripción puede traer caracteres de dos bytes que corren las columnas).
+  const MONEDAS_GARANTIA = { 2: 'Dólar EE.UU.', 80: 'Pesos' };
+  function leerInventarioGarantias(texto, nombreArchivo = '') {
+    const lineas = String(texto).replace(/\r/g, '').split('\n');
+    const num = v => Number(String(v).replace(/,/g, ''));
+    let reporte = '', titulo = '', fecha = '';
+    const filas = [], controles = [];
+    for (const l of lineas) {
+      if (!reporte) { const m = l.match(/REPORTE\s*:\s*(\S+)/); if (m) reporte = m[1]; }
+      if (!titulo) { const m = l.match(/HISTORICO DE (GARANTIAS[A-Z ]+?)\s{2,}/); if (m) titulo = m[1].trim(); }
+      if (!fecha) { const m = l.match(/\bAL:\s*(\d{1,2}\/[A-Z]{3}\/\d{4})/); if (m) fecha = m[1]; }
+      const d = l.match(/^\s+(\d+)\s+([SN])\s+([AC])\s/);
+      if (d && l.length > 100) {
+        const m = l.slice(97).match(/^(.*?)\s+(-?[\d,]+\.\d{2})\s+(-?[\d,]+\.\d{2})\s*$/);
+        if (!m) continue;
+        filas.push({
+          moneda: Number(d[1]), monedaDesc: MONEDAS_GARANTIA[Number(d[1])] || String(d[1]), preferida: d[2] === 'S',
+          abiertaCerrada: d[3], tipo: l.slice(43, 65).trim(), codigo: l.slice(65, 91).trim(), cliente: l.slice(91, 97).trim(),
+          descripcion: m[1].trim(), montoPesos: num(m[2]), montoOrigen: num(m[3]),
+        });
+        continue;
+      }
+      // Nombre completo del tipo (el detalle lo trae cortado a 22 caracteres).
+      const t = l.match(/\*\*\* TOTAL TIPO GARANTIA (.+?) EN MONEDA /);
+      if (t) { filas.filter(f => f.tipo !== t[1] && t[1].startsWith(f.tipo)).forEach(f => { f.tipo = t[1]; }); continue; }
+      const c = l.match(/\*\* TOTAL (NO PREFERIDA|PREFERIDA) PARA MONEDA (.+?) ES:\s+(-?[\d,]+\.\d{2})\s+(-?[\d,]+\.\d{2})/);
+      if (c) controles.push({ preferida: c[1] === 'PREFERIDA', moneda: c[2].trim(), montoPesos: num(c[3]), montoOrigen: num(c[4]) });
+    }
+    if (!filas.length) throw new Error(`${nombreArchivo || 'El archivo'} no tiene líneas de garantías (se espera el reporte HISTORICO DE GARANTIAS VIGENTES).`);
+    const origen = /garhicon/i.test(reporte) || /ASOCIADAS A DEUDA/.test(titulo) ? 'Asociada a deuda'
+      : /garhisin/i.test(reporte) || /NO ASOCIADAS/.test(titulo) ? 'No asociada a producto' : (titulo || reporte);
+    filas.forEach(f => Object.assign(f, { origen, fecha, archivo: nombreArchivo }));
+    // Control: los subtotales "** TOTAL PREFERIDA / NO PREFERIDA" del reporte contra la suma del detalle.
+    const diferencias = controles.map(c => {
+      const desc = c.moneda.toUpperCase().startsWith('PESOS') ? 'Pesos' : 'Dólar EE.UU.';
+      const suma = round2(filas.filter(f => f.preferida === c.preferida && f.monedaDesc === desc).reduce((a, f) => a + f.montoPesos, 0));
+      return Object.assign(c, { suma, ok: Math.abs(suma - c.montoPesos) < 0.01 });
+    });
+    return { reporte, titulo, fecha, origen, filas, controles: diferencias };
+  }
+
   // ------------------------------------------------------------ TXT NO COBIS
   // Diseño (hoja "NO COBIS" del archivo de inventario Payway), 156 caracteres por línea, una por ente (MIS):
   // código cliente = MIS (10, ceros a la izq.) · tipo de crédito CCASR (10, espacios a la der.) · tasa 0100000000 (10)
@@ -1733,7 +1778,7 @@ try {
     leerTxtMeli, bancoMeliDeTxt, bancosParaMeli,
     sqlExtraccionCartera, bookmarkletCartera, scriptPowerShellCartera, comandoTareaCartera, IMPORTES_CARTERA,
     NO_COBIS, ultimoDiaHabil, fechasNoCobis, lineaNoCobis, txtNoCobis, loteApiNoCobis, scriptPowerShellNoCobis, scriptPowerShellProbarNoCobis, scriptPowerShellAgenteNoCobis, cmdEnvioNoCobis,
-    leerCartera, daxCarteraPowerBI, daxDiagnosticoPowerBI, leerFilasPowerBI, sugerirColumnaCartera, columnasNumericasCartera, agruparCartera, valoresDistintos, sqlCartera,
+    leerCartera, leerInventarioGarantias, daxCarteraPowerBI, daxDiagnosticoPowerBI, leerFilasPowerBI, sugerirColumnaCartera, columnasNumericasCartera, agruparCartera, valoresDistintos, sqlCartera,
     leerCsv, encabezadosEjemplo, leerDefinicionInterfaz, sugerirColumna, detectarHojaInterfaz,
     normalizar, provinciaPorNombre, round2, aNumero, aFechaSerial, aCodigoBanco,
     fechaDDMMYY, fechaYYYYMMDD, fechaLegible, hoyDDMMYY,

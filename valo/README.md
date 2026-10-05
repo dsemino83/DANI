@@ -92,6 +92,12 @@ Después de modificar el código, regenerar el archivo único con `python3 const
    del último periodo; y un script `cartera-bi.ps1` + comando `schtasks` para correrlo todos los días en una PC de la red.
    Consultas validadas con ClickHouse (chdb) y script probado con PowerShell 7.
 
+6. **Inventario** (menú *Más ▾*) – se suben uno o varios reportes **HISTORICO DE GARANTIAS VIGENTES** del sistema de
+   cartera (`garhicon` asociadas a deuda, `garhisin` no asociadas a producto, `.lis` de ancho fijo) y se unen en una tabla:
+   preferida / no preferida, origen, moneda, tipo y código de garantía, cliente, descripción, monto en pesos y en moneda de
+   origen. Controla los subtotales *TOTAL PREFERIDA / NO PREFERIDA* de cada reporte, filtra por preferida, moneda, origen o
+   texto y exporta a Excel (hojas Inventario y Resumen). Los archivos quedan solo en la sesión del navegador.
+
 ## Datos
 
 - **Versión compartida (recomendada):** página publicada en claude.ai (`compartido/conversor-valo-compartido.html`).
