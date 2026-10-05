@@ -1156,15 +1156,22 @@
       if (j && j.ok === false) throw new Error(j.mensaje || 'El flujo informó un error.');
       const leido = M.leerFilasPowerBI(j);
       if (!leido.datos.length) throw new Error('Power BI no devolvió filas' + (periodo ? ` para el periodo ${periodo}` : '') + '.');
-      const per = [...new Set(leido.datos.map(r => r.Periodo))].join(', ');
+      const per = [...new Set(leido.datos.map(r => r['Periodo del fideicomiso'] ?? r.Periodo))].join(', ');
+      // La consulta ya trae el último periodo de cada fideicomiso: no se filtra por un periodo único.
+      if (!leido.encabezados.includes(carteraCfg.colPeriodo)) carteraCfg.colPeriodo = '';
       usarDatosCartera(`Power BI ePortfolio_Mensual (periodo ${per})`, leido);
-      // Si el negocio del modelo (FideicomisoId) no coincide con ningún negocio de Clientes, no se filtra por negocio.
+      if (!leido.encabezados.includes('Periodo')) { carteraCfg.colPeriodo = ''; renderCartera(); }
+      // Negocio: la columna (Serie o FideicomisoId) que coincida con los negocios de Clientes.
       const negocios = negociosClientes();
-      if (carteraCfg.colNegocio && !M.valoresDistintos(cartera.datos, carteraCfg.colNegocio)
-        .some(v => negocios.some(n => n === v.valor || (!isNaN(Number(n)) && Number(n) === Number(v.valor))))) {
-        carteraCfg.colNegocio = '';
+      const coincide = col => col && M.valoresDistintos(cartera.datos, col)
+        .some(v => negocios.some(n => n === v.valor || (!isNaN(Number(n)) && Number(n) === Number(v.valor))));
+      if (!coincide(carteraCfg.colNegocio)) {
+        const otra = ['FideicomisoId', 'Negocio'].find(col => cartera.encabezados.includes(col) && coincide(col));
+        carteraCfg.colNegocio = otra || '';
         renderCartera();
-        $('carteraEstado').innerHTML += aviso('warn', 'La <b>Serie</b> del fideicomiso en Power BI no coincide con ningún negocio de Clientes: se muestran todos los fideicomisos. Si corresponde filtrar, elegí la columna Negocio en la configuración.');
+      }
+      if (!carteraCfg.colNegocio) {
+        $('carteraEstado').innerHTML += aviso('warn', 'Ni la <b>Serie</b> ni el <b>FideicomisoId</b> de Power BI coinciden con ningún negocio de Clientes: se muestran todos los fideicomisos. Si corresponde filtrar, elegí la columna Negocio en la configuración.');
       }
     } catch (e) {
       $('carteraEstado').innerHTML = aviso('bad', 'No se pudo traer la cartera de Power BI: ' + esc(e.message || e));

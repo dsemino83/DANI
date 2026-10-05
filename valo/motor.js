@@ -433,7 +433,7 @@
     const muestra = datos.slice(0, 2000);
     return encabezados.filter(h => {
       const n = normalizar(h);
-      if (CARTERA_NO_SUMAR.includes(n) || /(^| )id$/.test(n) || /vencimiento|fecha/.test(n)) return false;
+      if (CARTERA_NO_SUMAR.includes(n) || /(^| )id$/.test(n) || /vencimiento|fecha|periodo/.test(n)) return false;
       let hay = false;
       for (const r of muestra) {
         const v = r[h];
@@ -512,12 +512,20 @@
   function daxCarteraPowerBI(opciones = {}) {
     const t = opciones.tabla || PBI_TABLA;
     const c = n => `'${t}'[${n}]`;
-    const periodo = opciones.periodo != null && String(opciones.periodo).trim() !== ''
-      ? (/^\d+$/.test(String(opciones.periodo).trim()) ? String(opciones.periodo).trim() : `"${String(opciones.periodo).replace(/"/g, '""')}"`)
-      : `MAX ( ${c('Periodo')} )`;
+    // Sin periodo: el último de cada fideicomiso (no todos cierran en la misma fecha).
+    // Con periodo: solo ese.
+    const p = opciones.periodo != null ? String(opciones.periodo).trim() : '';
+    const filtro = p
+      ? `TREATAS ( { ${/^\d+$/.test(p) ? p : `"${p.replace(/"/g, '""')}"`} }, ${c('Periodo')} )`
+      : `TREATAS ( UltimoPorFideicomiso, ${c('FideicomisoId')}, ${c('Periodo')} )`;
     return [
       'DEFINE',
-      `  VAR ElPeriodo = ${periodo}`,
+      '  VAR UltimoPorFideicomiso =',
+      '    SELECTCOLUMNS (',
+      `      ADDCOLUMNS ( VALUES ( ${c('FideicomisoId')} ), "@P", CALCULATE ( MAX ( ${c('Periodo')} ) ) ),`,
+      `      "FideicomisoId", ${c('FideicomisoId')},`,
+      '      "Periodo", [@P]',
+      '    )',
       '  VAR T =',
       '    SUMMARIZECOLUMNS (',
       `      ${c('Periodo')},`,
@@ -526,7 +534,7 @@
       `      ${c('CUITDeudor')},`,
       `      ${c('FideicomisoCreditoCuotaEstadoId')},`,
       `      ${c('Situacion ePortfolio')},`,
-      `      TREATAS ( { ElPeriodo }, ${c('Periodo')} ),`,
+      `      ${filtro},`,
       `      "xCuotas", COUNTROWS ( '${t}' ),`,
       `      "xSaldoCapital", SUM ( ${c('Saldo_Capital')} ),`,
       `      "xIntDto", SUM ( ${c('Saldo_Interes_a_dto_')} ),`,
@@ -545,7 +553,7 @@
       `    "Estado Cuota", ${c('FideicomisoCreditoCuotaEstadoId')},`,
       `    "Estado Cuota Desc", LOOKUPVALUE ( 'FideicomisoCreditoCuotaEstado'[FideicomisoCreditoCuotaEstado], 'FideicomisoCreditoCuotaEstado'[FideicomisoCreditoCuotaEstadoId], ${c('FideicomisoCreditoCuotaEstadoId')} ),`,
       `    "Situacion ePortfolio", ${c('Situacion ePortfolio')},`,
-      `    "Periodo", ${c('Periodo')},`,
+      `    "Periodo del fideicomiso", ${c('Periodo')},`,
       `    "Fecha de Corte", ${c('Fecha de Corte')},`,
       '    "Cuotas", [xCuotas],',
       '    "Saldo Capital", [xSaldoCapital],',
