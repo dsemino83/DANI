@@ -717,7 +717,7 @@
   }
 
   function usarDatosCartera(fuente, leido) {
-    cartera = Object.assign({ fuente }, leido, { numericas: M.columnasNumericasCartera(leido.encabezados, leido.datos) });
+    cartera = Object.assign({ fuente, colCantidad: '' }, leido, { numericas: M.columnasNumericasCartera(leido.encabezados, leido.datos).filter(c => c !== leido.colCantidad) });
     const enc = cartera.encabezados;
     const elegir = (clave, tipo) => (carteraCfg[clave] && enc.includes(carteraCfg[clave]) ? carteraCfg[clave] : M.sugerirColumnaCartera(tipo, enc));
     carteraCfg.colTitular = elegir('colTitular', 'titular');
@@ -793,7 +793,7 @@
     const sumar = cartera.numericas.filter(c => cfg.sumar.includes(c));
     const entes = mapaEntes();
     const res = M.agruparCartera(cartera.datos, Object.assign({}, cfg, { negocios, sumar,
-      calc: { capital: cfg.colCapital, intDto: cfg.colIntDto, intDev: cfg.colIntDev },
+      calc: { capital: cfg.colCapital, intDto: cfg.colIntDto, intDev: cfg.colIntDev }, colCantidad: cartera.colCantidad,
       ente: t => entes.get(soloDigitos(t)) || null }));
     carteraResultado = Object.assign(res, { sumar });
     let html = '';
@@ -1030,17 +1030,18 @@
     $('flujoCampos').classList.toggle('oculto', listo && !editandoFlujo);
   }
   $('lnkFlujoCambiar').addEventListener('click', e => { e.preventDefault(); editandoFlujo = true; cargarFlujo(); });
-  async function llamarFlujo(cuerpo) {
-    const url = $('flujoUrl').value.trim();
-    if (!/^https:\/\//i.test(url)) throw new Error('Falta la dirección del flujo (HTTP POST URL de Power Automate).');
-    if (!$('flujoClave').value) throw new Error('Falta la clave compartida con el flujo (la misma de la variable ClaveCompartida del flujo).');
+  async function llamarFlujo(cuerpo, conexion) {
+    const url = conexion ? conexion.url : $('flujoUrl').value.trim();
+    const clave = conexion ? conexion.clave : $('flujoClave').value;
+    if (!/^https:\/\//i.test(url || '')) throw new Error('Falta la dirección del flujo (HTTP POST URL de Power Automate).');
+    if (!clave) throw new Error('Falta la clave compartida con el flujo (la misma de la variable ClaveCompartida del flujo).');
     const ctl = new AbortController();
     const reloj = setTimeout(() => ctl.abort(), 180000);
     let r;
     try {
       // text/plain evita el pedido previo de CORS; el flujo lo interpreta con json(triggerBody()).
       r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=UTF-8' },
-        body: JSON.stringify(Object.assign({ clave: $('flujoClave').value }, cuerpo)), signal: ctl.signal });
+        body: JSON.stringify(Object.assign({ clave }, cuerpo)), signal: ctl.signal });
     } catch (e) {
       throw new Error(e.name === 'AbortError' ? 'El flujo no respondió en 3 minutos: revisá el historial de ejecuciones en Power Automate antes de volver a enviar.'
         : 'No se pudo llamar al flujo (' + (e.message || e) + '). Revisá la dirección y que el flujo tenga la respuesta con Access-Control-Allow-Origin.');
@@ -1058,7 +1059,7 @@
   }
   $('btnFlujoGuardar').addEventListener('click', async () => {
     try {
-      await almacen.guardarNocobisFlujo({ url: $('flujoUrl').value.trim(), clave: $('flujoClave').value });
+      await almacen.guardarNocobisFlujo(Object.assign({}, datos().nocobisFlujo, { url: $('flujoUrl').value.trim(), clave: $('flujoClave').value }));
       editandoFlujo = false;
       cargarFlujo();
       toast('Conexión guardada para todos los usuarios');
@@ -1115,6 +1116,60 @@
     const nombre = descargas ? 'nocobis-api.ps1.txt' : 'nocobis-api.ps1';
     if (descargas) toast('Se descarga como .txt: renombralo a nocobis-api.ps1');
     descargar(nombre, '\ufeff' + M.scriptPowerShellNoCobis(), true);
+  });
+
+  // --- Cartera desde Power BI: flujo de Power Automate con "Ejecutar una consulta en un conjunto de datos"
+  // (modelo ePortfolio_Mensual). La conexión (pbiUrl, pbiClave) se guarda junto con la del flujo NO COBIS.
+  let editandoPbi = false;
+  function cargarPbi() {
+    const f = datos().nocobisFlujo || {};
+    if (document.activeElement !== $('pbiUrl')) $('pbiUrl').value = f.pbiUrl || '';
+    if (document.activeElement !== $('pbiClave')) $('pbiClave').value = f.pbiClave || '';
+    const listo = !!(f.pbiUrl && f.pbiClave);
+    $('pbiListo').classList.toggle('oculto', !listo || editandoPbi);
+    $('pbiCampos').classList.toggle('oculto', listo && !editandoPbi);
+    if (!listo && !editandoPbi) $('detPbi').open = true;
+  }
+  $('lnkPbiCambiar').addEventListener('click', e => { e.preventDefault(); editandoPbi = true; cargarPbi(); });
+  $('btnPbiGuardar').addEventListener('click', async () => {
+    try {
+      await almacen.guardarNocobisFlujo(Object.assign({}, datos().nocobisFlujo, { pbiUrl: $('pbiUrl').value.trim(), pbiClave: $('pbiClave').value }));
+      editandoPbi = false;
+      cargarPbi();
+      toast('Conexión con Power BI guardada para todos los usuarios');
+    } catch (e) { informar('No se pudo guardar', esc(e.message || e)); }
+  });
+  $('btnPbiDax').addEventListener('click', () => {
+    const dax = M.daxCarteraPowerBI({ periodo: $('pbiPeriodo').value });
+    $('pbiDaxTexto').textContent = dax;
+    $('pbiDaxTexto').classList.remove('oculto');
+    if (navigator.clipboard) navigator.clipboard.writeText(dax).then(() => toast('Consulta DAX copiada'), () => {});
+  });
+  $('btnPbiTraer').addEventListener('click', async () => {
+    const b = $('btnPbiTraer');
+    b.disabled = true;
+    $('carteraEstado').innerHTML = aviso('ok', 'Consultando Power BI (ePortfolio_Mensual)…');
+    try {
+      const periodo = $('pbiPeriodo').value.trim();
+      const j = await llamarFlujo({ accion: 'consultar', consulta: M.daxCarteraPowerBI({ periodo }) },
+        { url: $('pbiUrl').value.trim(), clave: $('pbiClave').value });
+      if (j && j.ok === false) throw new Error(j.mensaje || 'El flujo informó un error.');
+      const leido = M.leerFilasPowerBI(j);
+      if (!leido.datos.length) throw new Error('Power BI no devolvió filas' + (periodo ? ` para el periodo ${periodo}` : '') + '.');
+      const per = [...new Set(leido.datos.map(r => r.Periodo))].join(', ');
+      usarDatosCartera(`Power BI ePortfolio_Mensual (periodo ${per})`, leido);
+      // Si el negocio del modelo (FideicomisoId) no coincide con ningún negocio de Clientes, no se filtra por negocio.
+      const negocios = negociosClientes();
+      if (carteraCfg.colNegocio && !M.valoresDistintos(cartera.datos, carteraCfg.colNegocio)
+        .some(v => negocios.some(n => n === v.valor || (!isNaN(Number(n)) && Number(n) === Number(v.valor))))) {
+        carteraCfg.colNegocio = '';
+        renderCartera();
+        $('carteraEstado').innerHTML += aviso('warn', 'El <b>FideicomisoId</b> de Power BI no coincide con ningún negocio de Clientes: se muestran todos los fideicomisos. Si corresponde filtrar, elegí la columna Negocio en la configuración.');
+      }
+    } catch (e) {
+      $('carteraEstado').innerHTML = aviso('bad', 'No se pudo traer la cartera de Power BI: ' + esc(e.message || e));
+    }
+    b.disabled = false;
   });
 
   // Consulta directa al BI (ClickHouse). Funciona solo desde la red de VALO y si el BI acepta pedidos de esta página.
@@ -1781,19 +1836,20 @@
     if (compartido && !descargas && !almacen.descargaLibre) $('errorBase').innerHTML = aviso('warn', 'Tu usuario no puede descargar archivos desde esta página (claude.ai las permite solo a los miembros de la organización dueña). Cuando descargues, se te va a ofrecer copiar el contenido para pegarlo en el Bloc de notas o en Excel.');
     let primera = true;
     $('cajaFlujo').classList.toggle('oculto', !flujoDisponible());
+    $('cajaPbi').classList.toggle('oculto', !flujoDisponible());
     $('cajaCola').classList.toggle('oculto', almacen.proveedor !== 'supabase');
     $('detPA').open = almacen.modo === 'local';
     renderAgente();
     setInterval(renderCola, 60000); // "última conexión hace N min"
     almacen.alCambiar(() => {
       aplicarCfgCompartida();
-      if (flujoDisponible()) cargarFlujo();
+      if (flujoDisponible()) { cargarFlujo(); cargarPbi(); }
       renderCola();
       if (primera) { primera = false; $('cargandoBase').classList.add('oculto'); $('contenido').classList.remove('oculto'); }
       refrescar();
     });
     if (!compartido) {
-      if (flujoDisponible()) cargarFlujo();
+      if (flujoDisponible()) { cargarFlujo(); cargarPbi(); }
       $('cargandoBase').classList.add('oculto');
       $('contenido').classList.remove('oculto');
       refrescar();

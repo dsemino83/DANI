@@ -83,6 +83,10 @@ Después de modificar el código, regenerar el archivo único con `python3 const
    Van todos los bancos de Bancos MELI (uno por MIS): con el valor a descuento si hay cartera
    para ese banco y en 0 si no hay equivalencia. Los titulares sin MIS en Bancos MELI quedan afuera (con aviso). Se pueden sumar importes adicionales. Descarga Excel.
 
+   **Desde Power BI:** *Traer cartera de Power BI* manda una consulta DAX al modelo **ePortfolio_Mensual** (workspace
+   ePortfolio) por un flujo de Power Automate (sin gateway) y carga la cartera ya agregada por titular, negocio
+   (FideicomisoId), estado y periodo. Armado del flujo: `powerautomate/POWERBI.md`.
+
    **Extracción automática:** la pestaña genera (con los negocios de Clientes y el estado "pago" elegido) un botón de
    favoritos que, tocado estando en el BI, consulta `/clickhouse/` y descarga `Cartera_por_titular` y `Cartera_detalle`
    del último periodo; y un script `cartera-bi.ps1` + comando `schtasks` para correrlo todos los días en una PC de la red.

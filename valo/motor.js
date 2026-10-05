@@ -462,8 +462,9 @@
     datos.forEach(r => {
       if (cfg.colPeriodo && cfg.periodo !== '' && cfg.periodo != null && valorTexto(r[cfg.colPeriodo]) !== String(cfg.periodo)) { res.otrosPeriodos++; return; }
       if (cfg.colNegocio && !mismoNegocio(r[cfg.colNegocio], cfg.negocios)) { res.otrosNegocios++; return; }
-      if (cfg.colEstado && excluidos.has(valorTexto(r[cfg.colEstado]))) { res.pagas++; return; }
-      res.usadas++;
+      const n = cfg.colCantidad ? aNumero(r[cfg.colCantidad]) || 0 : 1; // filas ya agregadas (Power BI) traen la cantidad de cuotas
+      if (cfg.colEstado && excluidos.has(valorTexto(r[cfg.colEstado]))) { res.pagas += n; return; }
+      res.usadas += n;
       const titular = valorTexto(r[cfg.colTitular]) || '(sin titular)';
       const negocio = cfg.colNegocio ? valorTexto(r[cfg.colNegocio]) : '';
       const k = titular; // se agrupa solo por titular
@@ -475,11 +476,11 @@
         grupos.set(k, g);
       }
       const g = grupos.get(k);
-      g.cuotas++;
+      g.cuotas += n;
       if (cfg.colCredito) g.creditos.add(valorTexto(r[cfg.colCredito]));
       if (!res.porNegocio[negocio]) res.porNegocio[negocio] = { titulares: new Set(), cuotas: 0, valor: 0, sumas: Object.fromEntries(cfg.sumar.map(c => [c, 0])) };
       const pn = res.porNegocio[negocio];
-      pn.titulares.add(titular); pn.cuotas++;
+      pn.titulares.add(titular); pn.cuotas += n;
       // Valor a descuento = FICUO SALDO CAPITAL + (− FICUO SALDO INT A DTO + INT DEV A COBRAR)
       const calc = cfg.calc || {};
       const cap = calc.capital ? aNumero(r[calc.capital]) || 0 : 0;
@@ -501,6 +502,81 @@
     ['capital', 'intDto', 'intDev'].forEach(k => { ct[k] = round2(ct[k]); });
     Object.values(res.porNegocio).forEach(pn => { pn.titulares = pn.titulares.size; pn.valor = round2(pn.valor); Object.keys(pn.sumas).forEach(c => { pn.sumas[c] = round2(pn.sumas[c]); }); });
     return res;
+  }
+
+  // ------------------------------------------------------------ POWER BI (modelo ePortfolio_Mensual)
+  // Consulta DAX que la página manda al flujo de Power Automate ("Ejecutar una consulta en un conjunto de datos").
+  // Agrega fctFideicomisoCuotaSaldo del último Periodo por titular, negocio (FideicomisoId), estado y fecha de corte;
+  // los nombres de salida coinciden con los que la pestaña reconoce sola (titular, Estado Cuota, saldo capital, ...).
+  const PBI_TABLA = 'fctFideicomisoCuotaSaldo';
+  function daxCarteraPowerBI(opciones = {}) {
+    const t = opciones.tabla || PBI_TABLA;
+    const c = n => `'${t}'[${n}]`;
+    const periodo = opciones.periodo != null && String(opciones.periodo).trim() !== ''
+      ? (/^\d+$/.test(String(opciones.periodo).trim()) ? String(opciones.periodo).trim() : `"${String(opciones.periodo).replace(/"/g, '""')}"`)
+      : `MAX ( ${c('Periodo')} )`;
+    return [
+      'DEFINE',
+      `  VAR ElPeriodo = ${periodo}`,
+      '  VAR T =',
+      '    SUMMARIZECOLUMNS (',
+      `      ${c('Periodo')},`,
+      `      ${c('Fecha de Corte')},`,
+      `      ${c('FideicomisoId')},`,
+      `      ${c('CUITDeudor')},`,
+      `      ${c('FideicomisoCreditoCuotaEstadoId')},`,
+      `      ${c('Situacion ePortfolio')},`,
+      `      TREATAS ( { ElPeriodo }, ${c('Periodo')} ),`,
+      `      "xCuotas", COUNTROWS ( '${t}' ),`,
+      `      "xSaldoCapital", SUM ( ${c('Saldo_Capital')} ),`,
+      `      "xIntDto", SUM ( ${c('Saldo_Interes_a_dto_')} ),`,
+      `      "xIntDevVN", SUM ( ${c('Int Dev Calculado VN')} ),`,
+      `      "xIntDevVD", SUM ( ${c('Int Dev Calculado VD')} ),`,
+      `      "xSaldoDeuda", SUM ( ${c('SaldoDeDeuda')} )`,
+      '    )',
+      'EVALUATE',
+      '  SELECTCOLUMNS (',
+      '    T,',
+      `    "Titular", ${c('CUITDeudor')},`,
+      `    "Negocio", ${c('FideicomisoId')},`,
+      `    "Estado Cuota", ${c('FideicomisoCreditoCuotaEstadoId')},`,
+      `    "Situacion ePortfolio", ${c('Situacion ePortfolio')},`,
+      `    "Periodo", ${c('Periodo')},`,
+      `    "Fecha de Corte", ${c('Fecha de Corte')},`,
+      '    "Cuotas", [xCuotas],',
+      '    "Saldo Capital", [xSaldoCapital],',
+      '    "Saldo Int a Dto", [xIntDto],',
+      '    "Int Dev a Cobrar", [xIntDevVN],',
+      '    "Int Dev Calculado VD", [xIntDevVD],',
+      '    "Saldo de Deuda", [xSaldoDeuda]',
+      '  )',
+      'ORDER BY [Titular]',
+    ].join('\n');
+  }
+
+  // Filas que devuelve Power BI (firstTableRows del flujo o la respuesta cruda de executeQueries):
+  // las claves vienen como "[Titular]" o "tabla[Columna]"; se dejan solo con el nombre de la columna.
+  function leerFilasPowerBI(respuesta) {
+    let filas = respuesta;
+    if (filas && !Array.isArray(filas)) {
+      filas = filas.filas || filas.firstTableRows || filas.rows
+        || (filas.results && filas.results[0] && filas.results[0].tables && filas.results[0].tables[0] && filas.results[0].tables[0].rows);
+    }
+    if (typeof filas === 'string') { try { filas = JSON.parse(filas); } catch (e) { /* no es JSON */ } }
+    if (!Array.isArray(filas)) throw new Error('Power BI no devolvió filas (se esperaba una lista en "filas" o "firstTableRows").');
+    const limpiar = k => { const m = String(k).match(/\[([^\]]*)\]\s*$/); return (m ? m[1] : String(k)).trim(); };
+    const encabezados = [];
+    const datos = filas.map(r => {
+      const o = {};
+      Object.keys(r || {}).forEach(k => { const h = limpiar(k); if (!encabezados.includes(h)) encabezados.push(h); o[h] = r[k]; });
+      return o;
+    });
+    // Periodo y fecha de corte como texto corto (Power BI manda las fechas como 2026-09-30T00:00:00).
+    datos.forEach(o => Object.keys(o).forEach(h => {
+      if (typeof o[h] === 'string' && /^\d{4}-\d{2}-\d{2}T00:00:00(\.0+)?Z?$/.test(o[h])) o[h] = o[h].slice(0, 10);
+    }));
+    const colCantidad = encabezados.find(h => normalizar(h) === 'cuotas') || '';
+    return { encabezados, datos, colCantidad };
   }
 
   // ------------------------------------------------------------ TXT NO COBIS
@@ -1629,7 +1705,7 @@ try {
     leerTxtMeli, bancoMeliDeTxt, bancosParaMeli,
     sqlExtraccionCartera, bookmarkletCartera, scriptPowerShellCartera, comandoTareaCartera, IMPORTES_CARTERA,
     NO_COBIS, ultimoDiaHabil, fechasNoCobis, lineaNoCobis, txtNoCobis, loteApiNoCobis, scriptPowerShellNoCobis, scriptPowerShellProbarNoCobis, scriptPowerShellAgenteNoCobis, cmdEnvioNoCobis,
-    leerCartera, sugerirColumnaCartera, columnasNumericasCartera, agruparCartera, valoresDistintos, sqlCartera,
+    leerCartera, daxCarteraPowerBI, leerFilasPowerBI, sugerirColumnaCartera, columnasNumericasCartera, agruparCartera, valoresDistintos, sqlCartera,
     leerCsv, encabezadosEjemplo, leerDefinicionInterfaz, sugerirColumna, detectarHojaInterfaz,
     normalizar, provinciaPorNombre, round2, aNumero, aFechaSerial, aCodigoBanco,
     fechaDDMMYY, fechaYYYYMMDD, fechaLegible, hoyDDMMYY,
