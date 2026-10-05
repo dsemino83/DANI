@@ -1145,6 +1145,28 @@
     $('pbiDaxTexto').classList.remove('oculto');
     if (navigator.clipboard) navigator.clipboard.writeText(dax).then(() => toast('Consulta DAX copiada'), () => {});
   });
+  $('btnPbiDiag').addEventListener('click', async () => {
+    const b = $('btnPbiDiag');
+    b.disabled = true;
+    $('pbiDiag').innerHTML = '<p class="sub">Consultando Power BI…</p>';
+    const conexion = { url: $('pbiUrl').value.trim(), clave: $('pbiClave').value };
+    const tabla = (titulo, filas) => {
+      const enc = filas.encabezados;
+      return `<h3>${esc(titulo)}</h3><div class="tabla-caja"><table><thead><tr>${enc.map(h => `<th>${esc(h)}</th>`).join('')}</tr></thead><tbody>` +
+        filas.datos.map(r => `<tr>${enc.map(h => `<td>${esc(r[h] == null ? '' : r[h])}</td>`).join('')}</tr>`).join('') + '</tbody></table></div>';
+    };
+    let html = '';
+    const q = M.daxDiagnosticoPowerBI();
+    for (const [titulo, consulta] of [['Tabla de cuotas: fideicomiso, periodo y fecha de corte', q.porTabla], ['Por la tabla Fideicomiso (relación del modelo)', q.porDimension]]) {
+      try {
+        const j = await llamarFlujo({ accion: 'consultar', consulta }, conexion);
+        if (j && j.ok === false) throw new Error(j.mensaje || 'El flujo informó un error.');
+        html += tabla(titulo, M.leerFilasPowerBI(j));
+      } catch (e) { html += `<h3>${esc(titulo)}</h3>` + aviso('bad', esc(e.message || e)); }
+      $('pbiDiag').innerHTML = html;
+    }
+    b.disabled = false;
+  });
   $('btnPbiTraer').addEventListener('click', async () => {
     const b = $('btnPbiTraer');
     b.disabled = true;

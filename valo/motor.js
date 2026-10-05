@@ -566,6 +566,19 @@
     ].join('\n');
   }
 
+  // Consultas de diagnóstico: qué fideicomisos y periodos hay en la tabla de cuotas y cómo se ven por la dimensión Fideicomiso.
+  function daxDiagnosticoPowerBI(tabla = PBI_TABLA) {
+    const c = n => `'${tabla}'[${n}]`;
+    return {
+      porTabla: ['EVALUATE', 'SUMMARIZECOLUMNS (', `  ${c('FideicomisoId')},`, `  ${c('Periodo')},`, `  ${c('Fecha de Corte')},`,
+        `  "Cuotas", COUNTROWS ( '${tabla}' ),`, `  "Saldo capital", SUM ( ${c('Saldo_Capital')} )`, ')',
+        `ORDER BY ${c('FideicomisoId')}, ${c('Periodo')}`].join('\n'),
+      porDimension: ['EVALUATE', 'SUMMARIZECOLUMNS (', "  'Fideicomiso'[FideicomisoId],", "  'Fideicomiso'[FideicomisoSerie],", "  'Fideicomiso'[Fideicomiso],",
+        `  "Cuotas", COUNTROWS ( '${tabla}' ),`, `  "Ultimo periodo", MAX ( ${c('Periodo')} ),`, `  "Saldo capital", SUM ( ${c('Saldo_Capital')} )`, ')',
+        "ORDER BY 'Fideicomiso'[FideicomisoId]"].join('\n'),
+    };
+  }
+
   // Filas que devuelve Power BI (firstTableRows del flujo o la respuesta cruda de executeQueries):
   // las claves vienen como "[Titular]" o "tabla[Columna]"; se dejan solo con el nombre de la columna.
   function leerFilasPowerBI(respuesta) {
@@ -1717,7 +1730,7 @@ try {
     leerTxtMeli, bancoMeliDeTxt, bancosParaMeli,
     sqlExtraccionCartera, bookmarkletCartera, scriptPowerShellCartera, comandoTareaCartera, IMPORTES_CARTERA,
     NO_COBIS, ultimoDiaHabil, fechasNoCobis, lineaNoCobis, txtNoCobis, loteApiNoCobis, scriptPowerShellNoCobis, scriptPowerShellProbarNoCobis, scriptPowerShellAgenteNoCobis, cmdEnvioNoCobis,
-    leerCartera, daxCarteraPowerBI, leerFilasPowerBI, sugerirColumnaCartera, columnasNumericasCartera, agruparCartera, valoresDistintos, sqlCartera,
+    leerCartera, daxCarteraPowerBI, daxDiagnosticoPowerBI, leerFilasPowerBI, sugerirColumnaCartera, columnasNumericasCartera, agruparCartera, valoresDistintos, sqlCartera,
     leerCsv, encabezadosEjemplo, leerDefinicionInterfaz, sugerirColumna, detectarHojaInterfaz,
     normalizar, provinciaPorNombre, round2, aNumero, aFechaSerial, aCodigoBanco,
     fechaDDMMYY, fechaYYYYMMDD, fechaLegible, hoyDDMMYY,
