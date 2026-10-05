@@ -1178,11 +1178,8 @@
       if (j && j.ok === false) throw new Error(j.mensaje || 'El flujo informó un error.');
       const leido = M.leerFilasPowerBI(j);
       if (!leido.datos.length) throw new Error('Power BI no devolvió filas' + (periodo ? ` para el periodo ${periodo}` : '') + '.');
-      const per = [...new Set(leido.datos.map(r => r['Periodo del fideicomiso'] ?? r.Periodo))].join(', ');
-      // La consulta ya trae el último periodo de cada fideicomiso: no se filtra por un periodo único.
-      if (!leido.encabezados.includes(carteraCfg.colPeriodo)) carteraCfg.colPeriodo = '';
-      usarDatosCartera(`Power BI ePortfolio_Mensual (periodo ${per})`, leido);
-      if (!leido.encabezados.includes('Periodo')) { carteraCfg.colPeriodo = ''; renderCartera(); }
+      const per = [...new Set(leido.datos.map(r => r.Periodo))].join(', ');
+      usarDatosCartera(`Power BI ePortfolio_Mensual (mes ${per})`, leido);
       // Negocio: la columna (Serie o FideicomisoId) que coincida con los negocios de Clientes.
       const negocios = negociosClientes();
       const coincide = col => col && M.valoresDistintos(cartera.datos, col)

@@ -506,35 +506,29 @@
 
   // ------------------------------------------------------------ POWER BI (modelo ePortfolio_Mensual)
   // Consulta DAX que la página manda al flujo de Power Automate ("Ejecutar una consulta en un conjunto de datos").
-  // Agrega fctFideicomisoCuotaSaldo del último Periodo por titular, fideicomiso (negocio = FideicomisoSerie), estado y fecha de corte;
+  // Agrega fctFideicomisoCuotaSaldo del último mes por titular, fideicomiso (negocio = FideicomisoSerie) y estado;
   // los nombres de salida coinciden con los que la pestaña reconoce sola (titular, Estado Cuota, saldo capital, ...).
   const PBI_TABLA = 'fctFideicomisoCuotaSaldo';
   function daxCarteraPowerBI(opciones = {}) {
     const t = opciones.tabla || PBI_TABLA;
     const c = n => `'${t}'[${n}]`;
-    // Sin periodo: el último de cada fideicomiso (no todos cierran en la misma fecha).
-    // Con periodo: solo ese.
+    // Igual que el reporte ePortfolio: fideicomiso desde la tabla Fideicomiso y mes desde 'Fecha Periodo'[Mes]
+    // (por las relaciones del modelo). Sin periodo: el último mes con cuotas; con periodo (ej. 2026-09): ese mes.
     const p = opciones.periodo != null ? String(opciones.periodo).trim() : '';
-    const filtro = p
-      ? `TREATAS ( { ${/^\d+$/.test(p) ? p : `"${p.replace(/"/g, '""')}"`} }, ${c('Periodo')} )`
-      : `TREATAS ( UltimoPorFideicomiso, ${c('FideicomisoId')}, ${c('Periodo')} )`;
+    const mes = p ? `"${p.replace(/"/g, '""')}"` : `MAXX ( SUMMARIZE ( '${t}', 'Fecha Periodo'[Mes] ), 'Fecha Periodo'[Mes] )`;
     return [
       'DEFINE',
-      '  VAR UltimoPorFideicomiso =',
-      '    SELECTCOLUMNS (',
-      `      ADDCOLUMNS ( VALUES ( ${c('FideicomisoId')} ), "@P", CALCULATE ( MAX ( ${c('Periodo')} ) ) ),`,
-      `      "FideicomisoId", ${c('FideicomisoId')},`,
-      '      "Periodo", [@P]',
-      '    )',
+      `  VAR ElMes = ${mes}`,
       '  VAR T =',
       '    SUMMARIZECOLUMNS (',
-      `      ${c('Periodo')},`,
-      `      ${c('Fecha de Corte')},`,
-      `      ${c('FideicomisoId')},`,
+      "      'Fecha Periodo'[Mes],",
+      "      'Fideicomiso'[FideicomisoId],",
+      "      'Fideicomiso'[FideicomisoSerie],",
+      "      'Fideicomiso'[Fideicomiso],",
       `      ${c('CUITDeudor')},`,
       `      ${c('FideicomisoCreditoCuotaEstadoId')},`,
       `      ${c('Situacion ePortfolio')},`,
-      `      ${filtro},`,
+      "      TREATAS ( { ElMes }, 'Fecha Periodo'[Mes] ),",
       `      "xCuotas", COUNTROWS ( '${t}' ),`,
       `      "xSaldoCapital", SUM ( ${c('Saldo_Capital')} ),`,
       `      "xIntDto", SUM ( ${c('Saldo_Interes_a_dto_')} ),`,
@@ -546,15 +540,13 @@
       '  SELECTCOLUMNS (',
       '    T,',
       `    "Titular", ${c('CUITDeudor')},`,
-      // LOOKUPVALUE trae los nombres de las dimensiones sin depender de las relaciones del modelo.
-      `    "Negocio", LOOKUPVALUE ( 'Fideicomiso'[FideicomisoSerie], 'Fideicomiso'[FideicomisoId], ${c('FideicomisoId')} ),`,
-      `    "Fideicomiso", LOOKUPVALUE ( 'Fideicomiso'[Fideicomiso], 'Fideicomiso'[FideicomisoId], ${c('FideicomisoId')} ),`,
-      `    "FideicomisoId", ${c('FideicomisoId')},`,
+      "    \"Negocio\", 'Fideicomiso'[FideicomisoSerie],",
+      "    \"Fideicomiso\", 'Fideicomiso'[Fideicomiso],",
+      "    \"FideicomisoId\", 'Fideicomiso'[FideicomisoId],",
       `    "Estado Cuota", ${c('FideicomisoCreditoCuotaEstadoId')},`,
       `    "Estado Cuota Desc", LOOKUPVALUE ( 'FideicomisoCreditoCuotaEstado'[FideicomisoCreditoCuotaEstado], 'FideicomisoCreditoCuotaEstado'[FideicomisoCreditoCuotaEstadoId], ${c('FideicomisoCreditoCuotaEstadoId')} ),`,
       `    "Situacion ePortfolio", ${c('Situacion ePortfolio')},`,
-      `    "Periodo del fideicomiso", ${c('Periodo')},`,
-      `    "Fecha de Corte", ${c('Fecha de Corte')},`,
+      "    \"Periodo\", 'Fecha Periodo'[Mes],",
       '    "Cuotas", [xCuotas],',
       '    "Saldo Capital", [xSaldoCapital],',
       '    "Saldo Int a Dto", [xIntDto],',
@@ -574,8 +566,8 @@
         `  "Cuotas", COUNTROWS ( '${tabla}' ),`, `  "Saldo capital", SUM ( ${c('Saldo_Capital')} )`, ')',
         `ORDER BY ${c('FideicomisoId')}, ${c('Periodo')}`].join('\n'),
       porDimension: ['EVALUATE', 'SUMMARIZECOLUMNS (', "  'Fideicomiso'[FideicomisoId],", "  'Fideicomiso'[FideicomisoSerie],", "  'Fideicomiso'[Fideicomiso],",
-        `  "Cuotas", COUNTROWS ( '${tabla}' ),`, `  "Ultimo periodo", MAX ( ${c('Periodo')} ),`, `  "Saldo capital", SUM ( ${c('Saldo_Capital')} )`, ')',
-        "ORDER BY 'Fideicomiso'[FideicomisoId]"].join('\n'),
+        "  'Fecha Periodo'[Mes],", `  "Cuotas", COUNTROWS ( '${tabla}' ),`, `  "Periodo (tabla de cuotas)", MAX ( ${c('Periodo')} ),`, `  "Saldo capital", SUM ( ${c('Saldo_Capital')} )`, ')',
+        "ORDER BY 'Fideicomiso'[FideicomisoId], 'Fecha Periodo'[Mes]"].join('\n'),
     };
   }
 
