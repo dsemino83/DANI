@@ -516,9 +516,17 @@
     // (por las relaciones del modelo). Sin periodo: el último mes con cuotas; con periodo (ej. 2026-09): ese mes.
     const p = opciones.periodo != null ? String(opciones.periodo).trim() : '';
     const mes = p ? `"${p.replace(/"/g, '""')}"` : `MAXX ( SUMMARIZE ( '${t}', 'Fecha Periodo'[Mes] ), 'Fecha Periodo'[Mes] )`;
+    // Solo los negocios de Clientes (por FideicomisoId o Serie): Power BI corta las respuestas de más de 15 MB.
+    const negocios = (opciones.negocios || []).map(n => String(n).trim()).filter(Boolean);
+    const lista = '{ ' + negocios.map(n => `"${n.replace(/"/g, '""')}"`).join(', ') + ' }';
     return [
       'DEFINE',
       `  VAR ElMes = ${mes}`,
+      ...(negocios.length ? [
+        '  VAR LosNegocios =',
+        "    FILTER ( ALL ( 'Fideicomiso'[FideicomisoId], 'Fideicomiso'[FideicomisoSerie] ),",
+        `      'Fideicomiso'[FideicomisoId] & "" IN ${lista} || 'Fideicomiso'[FideicomisoSerie] & "" IN ${lista} )`,
+      ] : []),
       '  VAR T =',
       '    SUMMARIZECOLUMNS (',
       "      'Fecha Periodo'[Mes],",
@@ -529,6 +537,7 @@
       `      ${c('FideicomisoCreditoCuotaEstadoId')},`,
       `      ${c('Situacion ePortfolio')},`,
       "      TREATAS ( { ElMes }, 'Fecha Periodo'[Mes] ),",
+      ...(negocios.length ? ['      LosNegocios,'] : []),
       `      "xCuotas", COUNTROWS ( '${t}' ),`,
       `      "xSaldoCapital", SUM ( ${c('Saldo_Capital')} ),`,
       `      "xIntDto", SUM ( ${c('Saldo_Interes_a_dto_')} ),`,

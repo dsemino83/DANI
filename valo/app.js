@@ -1140,7 +1140,7 @@
     } catch (e) { informar('No se pudo guardar', esc(e.message || e)); }
   });
   $('btnPbiDax').addEventListener('click', () => {
-    const dax = M.daxCarteraPowerBI({ periodo: $('pbiPeriodo').value });
+    const dax = M.daxCarteraPowerBI({ periodo: $('pbiPeriodo').value, negocios: negociosClientes() });
     $('pbiDaxTexto').textContent = dax;
     $('pbiDaxTexto').classList.remove('oculto');
     if (navigator.clipboard) navigator.clipboard.writeText(dax).then(() => toast('Consulta DAX copiada'), () => {});
@@ -1173,10 +1173,11 @@
     $('carteraEstado').innerHTML = aviso('ok', 'Consultando Power BI (ePortfolio_Mensual)…');
     try {
       const periodo = $('pbiPeriodo').value.trim();
-      const j = await llamarFlujo({ accion: 'consultar', consulta: M.daxCarteraPowerBI({ periodo }) },
+      const j = await llamarFlujo({ accion: 'consultar', consulta: M.daxCarteraPowerBI({ periodo, negocios: negociosClientes() }) },
         { url: $('pbiUrl').value.trim(), clave: $('pbiClave').value });
       if (j && j.ok === false) throw new Error(j.mensaje || 'El flujo informó un error.');
       const leido = M.leerFilasPowerBI(j);
+      if (leido.datos.length >= 30000) toast('Power BI devolvió muchas filas: si falta algún negocio, la respuesta puede haber llegado cortada (límite de 15 MB).');
       if (!leido.datos.length) throw new Error('Power BI no devolvió filas' + (periodo ? ` para el periodo ${periodo}` : '') + '.');
       const per = [...new Set(leido.datos.map(r => r.Periodo))].join(', ');
       usarDatosCartera(`Power BI ePortfolio_Mensual (mes ${per})`, leido);
