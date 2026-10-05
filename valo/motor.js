@@ -602,7 +602,9 @@
       if (typeof o[h] === 'string' && /^\d{4}-\d{2}-\d{2}T00:00:00(\.0+)?Z?$/.test(o[h])) o[h] = o[h].slice(0, 10);
     }));
     const colCantidad = encabezados.find(h => normalizar(h) === 'cuotas') || '';
-    return { encabezados, datos, colCantidad };
+    // Identificadores que no son importes (vienen numéricos de Power BI).
+    const noSumar = encabezados.filter(h => /^(titular|negocio|fideicomisoid|estado cuota|situacion eportfolio)$/.test(normalizar(h)));
+    return { encabezados, datos, colCantidad, noSumar };
   }
 
   // ------------------------------------------------------------ TXT NO COBIS

@@ -717,7 +717,7 @@
   }
 
   function usarDatosCartera(fuente, leido) {
-    cartera = Object.assign({ fuente, colCantidad: '' }, leido, { numericas: M.columnasNumericasCartera(leido.encabezados, leido.datos).filter(c => c !== leido.colCantidad) });
+    cartera = Object.assign({ fuente, colCantidad: '' }, leido, { numericas: M.columnasNumericasCartera(leido.encabezados, leido.datos).filter(c => c !== leido.colCantidad && !(leido.noSumar || []).includes(c)) });
     const enc = cartera.encabezados;
     const elegir = (clave, tipo) => (carteraCfg[clave] && enc.includes(carteraCfg[clave]) ? carteraCfg[clave] : M.sugerirColumnaCartera(tipo, enc));
     carteraCfg.colTitular = elegir('colTitular', 'titular');
@@ -1180,6 +1180,9 @@
       if (leido.datos.length >= 30000) toast('Power BI devolvió muchas filas: si falta algún negocio, la respuesta puede haber llegado cortada (límite de 15 MB).');
       if (!leido.datos.length) throw new Error('Power BI no devolvió filas' + (periodo ? ` para el periodo ${periodo}` : '') + '.');
       const per = [...new Set(leido.datos.map(r => r.Periodo))].join(', ');
+      // Los códigos de estado de Power BI no son los del export del BI: los pagos se marcan por su descripción ("Paga").
+      carteraCfg.colEstado = 'Estado Cuota';
+      carteraCfg.estadosExcluidos = null;
       usarDatosCartera(`Power BI ePortfolio_Mensual (mes ${per})`, leido);
       // Negocio: la columna (Serie o FideicomisoId) que coincida con los negocios de Clientes.
       const negocios = negociosClientes();
