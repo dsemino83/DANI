@@ -141,6 +141,7 @@
   function irA(vista) {
     document.querySelectorAll('nav button').forEach(b => b.setAttribute('aria-selected', String(b.dataset.vista === vista)));
     document.querySelectorAll('section.vista').forEach(s => s.classList.toggle('activa', s.id === 'vista-' + vista));
+    if (vista === 'cartera') alAbrirCartera();
   }
   document.querySelectorAll('nav button').forEach(b => b.addEventListener('click', () => irA(b.dataset.vista)));
   document.addEventListener('click', e => {
@@ -1126,6 +1127,7 @@
     if (document.activeElement !== $('pbiUrl')) $('pbiUrl').value = f.pbiUrl || '';
     if (document.activeElement !== $('pbiClave')) $('pbiClave').value = f.pbiClave || '';
     const listo = !!(f.pbiUrl && f.pbiClave);
+    $('pbiAuto').checked = f.pbiAuto !== false;
     $('pbiListo').classList.toggle('oculto', !listo || editandoPbi);
     $('pbiCampos').classList.toggle('oculto', listo && !editandoPbi);
     if (!listo && !editandoPbi) $('detPbi').open = true;
@@ -1166,6 +1168,22 @@
       $('pbiDiag').innerHTML = html;
     }
     b.disabled = false;
+  });
+  // Al abrir Cartera se trae sola la cartera de Power BI (una vez por sesión), si la conexión está configurada.
+  let pbiAutoHecho = false;
+  function alAbrirCartera() {
+    if (pbiAutoHecho || cartera || !almacen || !flujoDisponible()) return;
+    const f = datos().nocobisFlujo || {};
+    if (!f.pbiUrl || !f.pbiClave || f.pbiAuto === false) return;
+    pbiAutoHecho = true;
+    cargarPbi();
+    $('btnPbiTraer').click();
+  }
+  $('pbiAuto').addEventListener('change', async e => {
+    try {
+      await almacen.guardarNocobisFlujo(Object.assign({}, datos().nocobisFlujo, { pbiAuto: e.target.checked }));
+      toast(e.target.checked ? 'La cartera se va a traer sola al abrir Cartera' : 'La cartera se trae solo con el botón');
+    } catch (err) { informar('No se pudo guardar', esc(err.message || err)); }
   });
   $('btnPbiTraer').addEventListener('click', async () => {
     const b = $('btnPbiTraer');
