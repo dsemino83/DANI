@@ -422,7 +422,7 @@
     if (tipo === 'credito') return buscar(['credito', 'nro credito']);
     if (tipo === 'capital') return buscar(['ficuo saldo capital', 'saldo capital']) || contiene('saldo capital') || buscar(['ficuo capital', 'capital']) || contiene('capital');
     if (tipo === 'intDto') return buscar(['ficuo saldo int a dto', 'saldo int a dto', 'ficuo saldo int a desc', 'saldo int a descuento'])
-      || contiene('int a dto') || contiene('int a desc');
+      || buscar(['ficuo saldo interes a descuento', 'saldo interes a descuento']) || contiene('int a dto') || contiene('int a desc');
     if (tipo === 'intDev') return buscar(['ficuo int dev a cobrar', 'int dev a cobrar', 'ficuo int dev cobrar'])
       || contiene('dev a cobrar') || contiene('int dev') || contiene('int deveng');
     return '';
