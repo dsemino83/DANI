@@ -56,6 +56,7 @@
       async bancosOriginales() { return clonar(root.VALO_BANCOS_INICIALES || []); },
       async guardarBancosMeli(lista) { datos.bancosMeli = clonar(lista); cambiar(); },
       async guardarNocobisFlujo(cfg) { datos.nocobisFlujo = clonar(cfg); cambiar(); },
+      async guardarPadronInventario(p) { datos.padronInventario = clonar(p); cambiar(); },
       async registrarEnvio(e) { datos.envios.push(Object.assign({ id: nuevoId() }, clonar(e))); datos.envios = datos.envios.slice(-50); cambiar(); },
       async registrarLote(clienteId, construir) {
         const c = datos.clientes.find(x => x.id === clienteId);
@@ -96,7 +97,7 @@
     const holder = 'pestana-' + nuevoId();
     const usuarioId = user ? await user.id() : null;
     const puede = user ? await user.can('data.write') : null;
-    const datos = { clientes: [], bancos: [], bancosMeli: [], lotes: [], carteraCfg: null, nocobisFlujo: null, envios: [], agenteNoCobis: null };
+    const datos = { clientes: [], bancos: [], bancosMeli: [], lotes: [], carteraCfg: null, nocobisFlujo: null, envios: [], agenteNoCobis: null, padronInventario: null };
     const listo = { clientes: false, bancos: false, lotes: false, bancosMeli: false };
     const api = {
       modo: 'compartido',
@@ -126,6 +127,11 @@
     // Configuración de la pestaña Cartera (columnas, estados pagos, etc.), la misma para todos.
     db.doc('maestros/carteraConfig').onSnapshot(s => {
       datos.carteraCfg = s.exists && s.data().cfg && typeof s.data().cfg === 'object' ? clonar(s.data().cfg) : null;
+      emitirSiListo();
+    }, alError);
+    // Padrón de los inventarios de garantías (CUIT por ente, fecha de cada garantía), el mismo para todos.
+    db.doc('maestros/inventarioPadron').onSnapshot(s => {
+      datos.padronInventario = s.exists && s.data().padron && typeof s.data().padron === 'object' ? clonar(s.data().padron) : null;
       emitirSiListo();
     }, alError);
     // Conexión con el flujo de Power Automate para el envío NO COBIS (dirección y clave compartida).
@@ -198,6 +204,9 @@
       async registrarEnvio(e) {
         const id = nuevoId();
         await escribir(() => db.doc('envios/' + id).set(Object.assign(clonar(e), { usuarioId })));
+      },
+      async guardarPadronInventario(p) {
+        await escribir(() => db.doc('maestros/inventarioPadron').set({ padron: clonar(p), actualizado: new Date().toISOString(), actualizadoPor: usuarioId }));
       },
       async guardarCfgCartera(cfg) {
         await escribir(() => db.doc('maestros/carteraConfig').set({ cfg: clonar(cfg), actualizado: new Date().toISOString(), actualizadoPor: usuarioId }));

@@ -1296,11 +1296,12 @@
     $('inventarioArchivos').innerHTML = html;
     const todas = filasInventario();
     $('cardInventario').classList.toggle('oculto', !todas.length);
-    if (!todas.length) return;
+    if (!todas.length) { renderInvContable(); return; }
     const opciones = (sel, vals, todas) => { const v = sel.value; sel.innerHTML = `<option value="">${todas}</option>` + vals.map(x => `<option ${x === v ? 'selected' : ''}>${esc(x)}</option>`).join(''); };
     opciones($('invMoneda'), [...new Set(todas.map(f => f.monedaDesc))], 'Todas');
     opciones($('invOrigen'), [...new Set(todas.map(f => f.origen))], 'Todos');
     renderTablaInventario();
+    renderInvContable();
   }
   $('inventarioArchivos').addEventListener('click', e => {
     const a = e.target.closest('[data-quitar-inv]');
@@ -1356,6 +1357,339 @@
     const fecha = (filas[0].fecha || '').replace(/\//g, '-');
     descargarLibro(`Inventario_garantias_${fecha || 'sin_fecha'}.xlsx`, wb);
   });
+
+  // ------------------------------------------------------------ inventarios contables (Excel y PDF con el logo)
+  const MARCA = { rojo: 'CE162E', gris: '727274', grisClaro: 'F2F2F3', rojoRgb: [206, 22, 46], grisRgb: [114, 114, 116] };
+  // Librerías que se cargan recién al exportar: primero la copia del sitio, después los CDN.
+  const LIBRERIAS = {
+    exceljs: { listo: () => window.ExcelJS, urls: ['../vendor/exceljs.min.js', 'vendor/exceljs.min.js',
+      'https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js', 'https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js'] },
+    jspdf: { listo: () => window.jspdf && window.jspdf.jsPDF, urls: ['../vendor/jspdf.umd.min.js', 'vendor/jspdf.umd.min.js',
+      'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.2/jspdf.umd.min.js', 'https://cdn.jsdelivr.net/npm/jspdf@2.5.2/dist/jspdf.umd.min.js'] },
+    autotable: { listo: () => window.jspdf && window.jspdf.jsPDF && window.jspdf.jsPDF.API.autoTable, urls: ['../vendor/jspdf.plugin.autotable.min.js', 'vendor/jspdf.plugin.autotable.min.js',
+      'https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.4/jspdf.plugin.autotable.min.js', 'https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.4/dist/jspdf.plugin.autotable.min.js'] },
+  };
+  async function cargarLibreria(nombre) {
+    const lib = LIBRERIAS[nombre];
+    if (lib.listo()) return;
+    for (const url of lib.urls) {
+      try {
+        await new Promise((ok, mal) => { const s = document.createElement('script'); s.src = url; s.onload = ok; s.onerror = () => { s.remove(); mal(); }; document.head.appendChild(s); });
+        if (lib.listo()) return;
+      } catch (e) { /* se prueba la siguiente */ }
+    }
+    throw new Error('No se pudo cargar la librería para exportar (' + nombre + '). Revisá la conexión a internet.');
+  }
+
+  let invTcLista = []; // com3500 leído
+  const padronInv = () => datos().padronInventario || { entes: {}, nombres: {}, garantias: {} };
+  const fechaAr = iso => (iso ? iso.split('-').reverse().join('/') : '');
+  const numeroTc = () => { const v = String($('invTc').value).trim(); if (!v) return null; const n = Number(/,/.test(v) ? v.replace(/\./g, '').replace(',', '.') : v); return n > 0 ? n : null; };
+  const reportesInv = () => inventario.filter(x => /garhi(con|sin)/i.test(x.leido.reporte + ' ' + x.nombre));
+  function inventariosContables() {
+    const filas = reportesInv().flatMap(x => x.leido.filas);
+    return filas.length ? M.armarInventariosContables(filas, padronInv()) : [];
+  }
+
+  function renderInvContable() {
+    const reps = reportesInv();
+    $('cardInvContable').classList.toggle('oculto', !reps.length);
+    if (!reps.length) return;
+    if (!$('invFecha').value) $('invFecha').value = reps.map(x => M.fechaReporteIso(x.leido.fecha)).filter(Boolean).sort().pop() || '';
+    const p = padronInv();
+    if (!$('invTc').value && p.tcUltimo && p.tcUltimo.tc) { $('invTc').value = String(p.tcUltimo.tc).replace('.', ','); $('invTcFecha').value = p.tcUltimo.fecha || ''; }
+    const faltaGarhi = ['garhicon', 'garhisin'].filter(r => !reps.some(x => new RegExp(r, 'i').test(x.leido.reporte + ' ' + x.nombre)));
+    const inv = inventariosContables();
+    const tc = numeroTc();
+    let html = faltaGarhi.length ? aviso('warn', `Falta el reporte <b>${faltaGarhi.join(' y ')}</b>: los inventarios quedan incompletos.`) : '';
+    html += `<div class="tabla-caja"><table><thead><tr><th>Cuenta</th><th>Inventario</th><th class="num">Garantías</th><th class="num">Total moneda</th><th class="num">Total $</th><th>Faltan</th><th></th></tr></thead><tbody>` +
+      inv.map((i, k) => {
+        const usd = i.def.moneda === 'USD';
+        const pesos = usd ? (tc ? M.round2(i.total * tc) : null) : i.total;
+        const sinCuit = i.filas.filter(f => f.faltaCuit).length, sinFecha = i.def.columnas.includes('fecha') ? i.filas.filter(f => f.faltaFecha).length : 0;
+        return `<tr><td><b>${esc(i.def.cuenta)}</b></td><td>${esc(i.def.titulo)}</td><td class="num">${fmtEntero(i.filas.length)}</td>` +
+          `<td class="num">${usd ? 'U$S ' : '$ '}${fmtMonto(i.total)}</td><td class="num">${pesos == null ? '<span class="chip bad">falta TC</span>' : '$ ' + fmtMonto(pesos)}</td>` +
+          `<td>${sinCuit ? `<span class="chip warn">${sinCuit} sin CUIT</span> ` : ''}${sinFecha ? `<span class="chip warn">${sinFecha} sin fecha</span>` : ''}${!sinCuit && !sinFecha ? '<span class="chip ok">completo</span>' : ''}</td>` +
+          `<td style="white-space:nowrap"><button class="btn" type="button" data-inv-excel="${k}">Excel</button> <button class="btn" type="button" data-inv-pdf="${k}">PDF</button></td></tr>`;
+      }).join('') + '</tbody></table></div>';
+    $('invContableResumen').innerHTML = html;
+    renderFaltantes(inv);
+  }
+
+  function renderFaltantes(inv) {
+    const filas = [];
+    inv.forEach(i => i.filas.forEach(f => { if (f.faltaCuit || (f.faltaFecha && i.def.columnas.includes('fecha'))) filas.push(Object.assign({ cuenta: i.def.id, conFecha: i.def.columnas.includes('fecha') }, f)); }));
+    $('invPadronEstado').textContent = filas.length ? `· ${filas.length} garantías con datos faltantes` : '· completo';
+    $('invFaltantes').innerHTML = filas.length ? `<table><thead><tr><th>Cuenta</th><th>Ente</th><th>Concepto (se puede corregir)</th><th>Código</th><th>CUIT</th><th>Fecha</th></tr></thead><tbody>` +
+      filas.map(f => `<tr><td>${esc(f.cuenta)}</td><td>${esc(f.ente)}</td><td><input data-padron-concepto="${esc(f.codigo)}" value="${esc(f.concepto)}" style="min-width:260px" data-escribe></td><td>${esc(f.codigo)}</td>` +
+        `<td><input data-padron-cuit="${esc(f.ente)}" value="${esc(f.cuit)}" placeholder="11 dígitos" style="max-width:130px" data-escribe></td>` +
+        `<td>${f.conFecha ? `<input type="date" data-padron-fecha="${esc(f.codigo)}" value="${esc(f.fecha)}" data-escribe>` : '—'}</td></tr>`).join('') + '</tbody></table>'
+      : '<p class="sub">Todas las garantías tienen CUIT y fecha.</p>';
+  }
+
+  async function guardarPadron(cambio) {
+    const p = JSON.parse(JSON.stringify(padronInv()));
+    p.entes = p.entes || {}; p.garantias = p.garantias || {}; p.nombres = p.nombres || {};
+    cambio(p);
+    try { await almacen.guardarPadronInventario(p); } catch (e) { informar('No se pudo guardar', esc(e.message || e)); }
+  }
+  $('invFaltantes').addEventListener('change', e => {
+    const c = e.target.closest('[data-padron-cuit]'), f = e.target.closest('[data-padron-fecha]'), k = e.target.closest('[data-padron-concepto]');
+    if (k) guardarPadron(p => { p.garantias[k.dataset.padronConcepto] = Object.assign({}, p.garantias[k.dataset.padronConcepto], { concepto: k.value.trim() }); });
+    if (c) {
+      const cuit = c.value.replace(/\D/g, '');
+      if (cuit && cuit.length !== 11) { toast('El CUIT tiene que tener 11 dígitos'); return; }
+      guardarPadron(p => { const e2 = p.entes[c.dataset.padronCuit] || (p.entes[c.dataset.padronCuit] = { cuit: '', historial: [] }); e2.cuit = cuit; });
+    }
+    if (f) guardarPadron(p => { p.garantias[f.dataset.padronFecha] = Object.assign({}, p.garantias[f.dataset.padronFecha], { fecha: f.value }); });
+  });
+  $('btnInvPadronImportar').addEventListener('click', () => $('archivoPadronInv').click());
+  $('archivoPadronInv').addEventListener('change', async e => {
+    const files = [...e.target.files]; e.target.value = '';
+    try {
+      let nuevo = { entes: {}, nombres: {}, garantias: {} };
+      for (const f of files) nuevo = M.unirPadron(nuevo, M.leerPadronDesdeInventarios(await leerHojas(f)));
+      const n = Object.keys(nuevo.entes).length, m = Object.keys(nuevo.nombres).length;
+      if (!n && !m) throw new Error('No se encontraron columnas CUIT (y Ente/Fecha) en esos archivos.');
+      await guardarPadron(p => { const u = M.unirPadron(p, nuevo); Object.assign(p, u); });
+      toast(`Padrón actualizado: ${n} entes y ${m} nombres con CUIT`);
+    } catch (err) { informar('No se pudo importar', esc(err.message || err)); }
+  });
+
+  // Tipo de cambio: Com. A 3500 del BCRA (último día hábil del mes en curso).
+  const URL_COM3500 = 'https://www.bcra.gob.ar/archivos/Pdfs/PublicacionesEstadisticas/com3500.xls';
+  function usarCom3500(buf, fuente) {
+    const wb = XLSX.read(buf, { type: 'array' });
+    invTcLista = M.leerCom3500(wb.SheetNames.flatMap(n => filasHoja(wb.Sheets[n])));
+    if (!invTcLista.length) throw new Error('El archivo no tiene fechas con tipo de cambio (¿es el com3500.xls del BCRA?).');
+    const t = M.elegirTipoCambio(invTcLista, new Date());
+    aplicarTc(t.fecha);
+    $('invTcEstado').innerHTML = aviso(t.exacto ? 'ok' : 'warn', `${esc(fuente)}: ${invTcLista.length} cotizaciones, la última del ${fechaAr(invTcLista[invTcLista.length - 1].fecha)}. ` +
+      (t.exacto ? `Se usa el último día hábil del mes (${fechaAr(t.objetivo)}).` : `El último día hábil del mes (${fechaAr(t.objetivo)}) todavía no está publicado: se usa el ${fechaAr(t.fecha)}. Podés cambiar la fecha.`));
+  }
+  function aplicarTc(fecha) {
+    const r = invTcLista.find(x => x.fecha === fecha) || invTcLista.filter(x => x.fecha <= fecha).pop();
+    if (!r) { toast('No hay cotización para esa fecha'); return; }
+    $('invTcFecha').value = r.fecha;
+    $('invTc').value = String(r.tc).replace('.', ',');
+    guardarTc();
+    renderInvContable();
+  }
+  function guardarTc() {
+    const tc = numeroTc();
+    if (!tc || almacen.puedeEscribir === false) return;
+    const p0 = padronInv().tcUltimo || {};
+    if (p0.tc === tc && p0.fecha === $('invTcFecha').value) return;
+    guardarPadron(p => { p.tcUltimo = { tc, fecha: $('invTcFecha').value }; });
+  }
+  $('invTc').addEventListener('change', () => { guardarTc(); renderInvContable(); });
+  $('invTcFecha').addEventListener('change', () => { if (invTcLista.length) aplicarTc($('invTcFecha').value); else guardarTc(); });
+  $('invFecha').addEventListener('change', renderInvContable);
+  $('btnInvTcBcra').addEventListener('click', async () => {
+    $('invTcEstado').innerHTML = '<p class="sub">Descargando la Com. A 3500 del BCRA…</p>';
+    try {
+      const r = await fetch(URL_COM3500, { cache: 'no-store' });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      usarCom3500(await r.arrayBuffer(), 'BCRA');
+    } catch (e) {
+      $('invTcEstado').innerHTML = aviso('warn', `El BCRA no deja que la página descargue el archivo directo. Bajalo desde <a href="${URL_COM3500}" target="_blank" rel="noopener">com3500.xls</a> y subilo con <b>Subir com3500.xls</b>, o escribí el tipo de cambio.`);
+    }
+  });
+  $('btnInvTcArchivo').addEventListener('click', () => $('archivoCom3500').click());
+  $('archivoCom3500').addEventListener('change', async e => {
+    const f = e.target.files[0]; e.target.value = '';
+    if (!f) return;
+    try { usarCom3500(await f.arrayBuffer(), f.name); } catch (err) { $('invTcEstado').innerHTML = aviso('bad', esc(err.message || err)); }
+  });
+
+  // Datos de cada inventario listos para exportar (encabezados, filas y totales).
+  function datosInventario(i) {
+    const usd = i.def.moneda === 'USD', tc = numeroTc();
+    if (usd && !tc) throw new Error(`Falta el tipo de cambio para ${i.def.cuenta}: traelo del BCRA, subí com3500.xls o escribilo.`);
+    const etiquetas = { ente: 'Ente', fecha: 'Fecha', concepto: 'Concepto', cuit: 'CUIT', importe: usd ? 'Importe U$S' : 'Importe $' };
+    const cols = i.def.columnas;
+    const totalPesos = usd ? M.round2(i.total * tc) : i.total;
+    return { i, usd, tc, tcFecha: $('invTcFecha').value, cols, encabezados: cols.map(c => etiquetas[c]),
+      filas: i.filas.map(f => cols.map(c => c === 'ente' ? (/^\d+$/.test(f.ente) ? Number(f.ente) : f.ente) : c === 'cuit' ? (f.cuit ? Number(f.cuit) : '') : f[c])),
+      totalPesos, letras: M.numeroEnLetras(totalPesos), fecha: $('invFecha').value };
+  }
+
+  const fechaExcel = iso => { const [a, m, d] = iso.split('-').map(Number); return new Date(Date.UTC(a, m - 1, d)); };
+  async function hojaExcel(wb, d, logoId) {
+    const { i, usd, cols } = d;
+    const ws = wb.addWorksheet(i.def.id, { pageSetup: { paperSize: 9, orientation: 'portrait', fitToPage: true, fitToWidth: 1, fitToHeight: 0, margins: { left: 0.5, right: 0.5, top: 0.6, bottom: 0.6, header: 0.3, footer: 0.3 } },
+      views: [{ showGridLines: false }] });
+    const anchos = { ente: 10, fecha: 12, concepto: 52, cuit: 15, importe: 20 };
+    ws.columns = cols.map(c => ({ width: anchos[c] }));
+    const n = cols.length, ultima = String.fromCharCode(64 + n);
+    const rojo = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF' + MARCA.rojo } };
+    const gris = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF' + MARCA.grisClaro } };
+    const fino = { style: 'thin', color: { argb: 'FFD0D0D2' } };
+    ws.addImage(logoId, { tl: { col: 0, row: 0 }, ext: { width: 180, height: 60 } });
+    ws.getRow(1).height = 22; ws.getRow(2).height = 22; ws.getRow(3).height = 16;
+    ws.mergeCells(`C1:${ultima}1`); ws.getCell('C1').value = 'Inventario de Garantías';
+    ws.getCell('C1').font = { bold: true, size: 14, color: { argb: 'FF' + MARCA.rojo } }; ws.getCell('C1').alignment = { horizontal: 'right', vertical: 'middle' };
+    ws.mergeCells(`C2:${ultima}2`); ws.getCell('C2').value = `${i.def.titulo} · Inventario contable al ${fechaAr(d.fecha)}`;
+    ws.getCell('C2').font = { size: 10, color: { argb: 'FF' + MARCA.gris } }; ws.getCell('C2').alignment = { horizontal: 'right', vertical: 'middle' };
+    const info = [['Número de Cuenta', 'Denominación'], [i.def.cuenta, M.INVENTARIO_DENOMINACION], [i.def.contra, ''], ['Sector', 'Activas'], ['Inventario contable al', d.fecha ? fechaExcel(d.fecha) : '']];
+    info.forEach((r, k) => {
+      const fila = 5 + k;
+      ws.getCell(`A${fila}`).value = r[0];
+      ws.mergeCells(`B${fila}:${ultima}${fila}`);
+      ws.getCell(`B${fila}`).value = r[1];
+      if (k === 0) [`A${fila}`, `B${fila}`].forEach(c => { ws.getCell(c).fill = rojo; ws.getCell(c).font = { bold: true, color: { argb: 'FFFFFFFF' } }; });
+      else { ws.getCell(`A${fila}`).font = { bold: true, color: { argb: 'FF' + MARCA.gris } }; }
+      if (k === 4) { ws.getCell(`B${fila}`).numFmt = 'dd/mm/yyyy'; ws.getCell(`B${fila}`).alignment = { horizontal: 'left' }; }
+    });
+    ws.getColumn(1).width = Math.max(ws.getColumn(1).width, 22);
+    const inicio = 11;
+    const enc = ws.getRow(inicio);
+    d.encabezados.forEach((h, k) => { const c = enc.getCell(k + 1); c.value = h; c.fill = rojo; c.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+      c.alignment = { horizontal: cols[k] === 'importe' ? 'right' : 'left', vertical: 'middle' }; });
+    enc.height = 18;
+    d.filas.forEach((f, k) => {
+      const r = ws.getRow(inicio + 1 + k);
+      f.forEach((v, j) => {
+        const c = r.getCell(j + 1), col = cols[j];
+        c.value = col === 'fecha' ? (v ? fechaExcel(v) : '') : v;
+        if (col === 'fecha') c.numFmt = 'dd/mm/yyyy';
+        if (col === 'importe') c.numFmt = '#,##0.00';
+        if (col === 'cuit') c.numFmt = '0';
+        if (col === 'ente') c.alignment = { horizontal: 'left' };
+        c.border = { bottom: fino };
+        if (k % 2) c.fill = gris;
+      });
+    });
+    const fin = inicio + d.filas.length;
+    const colImp = String.fromCharCode(65 + cols.indexOf('importe'));
+    let r = fin + 1;
+    const fila = (etiqueta, valor, fmt, negrita) => {
+      ws.mergeCells(`A${r}:${String.fromCharCode(64 + cols.indexOf('importe'))}${r}`);
+      ws.getCell(`A${r}`).value = etiqueta; ws.getCell(`A${r}`).font = { bold: true, color: { argb: 'FF' + (negrita ? MARCA.rojo : MARCA.gris) } };
+      ws.getCell(`A${r}`).alignment = { horizontal: etiqueta === 'SALDO' ? 'left' : 'right' };
+      const c = ws.getCell(`${colImp}${r}`); c.value = valor; c.numFmt = fmt; c.font = { bold: true, color: { argb: 'FF' + (negrita ? MARCA.rojo : '000000') } };
+      c.border = { top: { style: 'thin', color: { argb: 'FF' + MARCA.gris } } };
+      r++;
+    };
+    fila('SALDO', { formula: `SUM(${colImp}${inicio + 1}:${colImp}${Math.max(fin, inicio + 1)})`, result: i.total }, '#,##0.00', !usd);
+    if (usd) {
+      const filaSaldo = r - 1;
+      fila('Total U$S', { formula: `${colImp}${filaSaldo}`, result: i.total }, '#,##0.00');
+      fila(`TC Com. A 3500 (${fechaAr(d.tcFecha)})`, d.tc, '#,##0.0000');
+      fila('Total $', { formula: `ROUND(${colImp}${filaSaldo}*${colImp}${r - 1},2)`, result: d.totalPesos }, '#,##0.00', true);
+    }
+    r++;
+    ws.getCell(`A${r}`).value = 'SON PESOS'; ws.getCell(`A${r}`).font = { bold: true, color: { argb: 'FF' + MARCA.gris } };
+    ws.mergeCells(`B${r}:${ultima}${r + 1}`); ws.getCell(`B${r}`).value = d.letras;
+    ws.getCell(`B${r}`).alignment = { wrapText: true, vertical: 'top' }; ws.getCell(`B${r}`).font = { italic: true };
+    r += 5;
+    const firmaCols = [1, Math.min(n, 3)];
+    M.INVENTARIO_FIRMAS.forEach((f, k) => {
+      const col = String.fromCharCode(64 + firmaCols[k] + (k && firmaCols[1] === firmaCols[0] ? 1 : 0));
+      const a = ws.getCell(`${col}${r}`); a.value = f.nombre; a.font = { bold: true }; a.border = { top: { style: 'thin', color: { argb: 'FF' + MARCA.gris } } };
+      const b = ws.getCell(`${col}${r + 1}`); b.value = f.cargo; b.font = { size: 8, color: { argb: 'FF' + MARCA.gris } }; b.alignment = { wrapText: true, vertical: 'top' };
+    });
+    ws.getRow(r + 1).height = 30;
+    ws.headerFooter.oddFooter = `&L&8${i.def.cuenta} - ${i.def.titulo}&R&8Página &P de &N`;
+  }
+
+  async function descargarExcelInventarios(lista, nombre) {
+    const ds = lista.map(datosInventario);
+    await cargarLibreria('exceljs');
+    const wb = new window.ExcelJS.Workbook();
+    wb.creator = 'VALO - EPORTFOLIO';
+    const logoId = wb.addImage({ base64: window.VALO_LOGO_PNG, extension: 'png' });
+    for (const d of ds) await hojaExcel(wb, d, logoId);
+    const buf = await wb.xlsx.writeBuffer();
+    await descargar(nombre, new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), true);
+  }
+
+  function paginaPdf(doc, d, primera) {
+    const { i, usd, cols } = d;
+    if (!primera) doc.addPage();
+    const W = doc.internal.pageSize.getWidth(), M0 = 14;
+    doc.addImage(window.VALO_LOGO_PNG, 'PNG', M0, 10, 48, 16);
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(14); doc.setTextColor(...MARCA.rojoRgb);
+    doc.text('Inventario de Garantías', W - M0, 16, { align: 'right' });
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(...MARCA.grisRgb);
+    doc.text(`${i.def.titulo} · Inventario contable al ${fechaAr(d.fecha)}`, W - M0, 22, { align: 'right' });
+    doc.setDrawColor(...MARCA.rojoRgb); doc.setLineWidth(0.6); doc.line(M0, 30, W - M0, 30);
+    doc.autoTable({
+      startY: 34, theme: 'plain', margin: { left: M0, right: M0 },
+      head: [['Número de Cuenta', 'Denominación', 'Sector', 'Inventario contable al']],
+      body: [[`${i.def.cuenta}\n${i.def.contra}`, M.INVENTARIO_DENOMINACION, 'Activas', fechaAr(d.fecha)]],
+      headStyles: { fillColor: MARCA.rojoRgb, textColor: 255, fontStyle: 'bold', fontSize: 9 }, bodyStyles: { fontSize: 9 },
+    });
+    const derecha = cols.map(c => c === 'importe');
+    const fmtCelda = (v, c) => c === 'importe' ? fmtMonto(v) : c === 'fecha' ? fechaAr(v) : v == null ? '' : String(v);
+    const pie = [['SALDO', fmtMonto(i.total)]];
+    if (usd) pie.push(['Total U$S', fmtMonto(i.total)], [`TC Com. A 3500 (${fechaAr(d.tcFecha)})`, d.tc.toLocaleString('es-AR', { minimumFractionDigits: 4 })], ['Total $', fmtMonto(d.totalPesos)]);
+    doc.autoTable({
+      startY: doc.lastAutoTable.finalY + 6, margin: { left: M0, right: M0, bottom: 20 },
+      head: [d.encabezados],
+      body: d.filas.map(f => f.map((v, j) => fmtCelda(v, cols[j]))),
+      foot: pie.map(p => [{ content: p[0], colSpan: cols.length - 1, styles: { halign: p[0] === 'SALDO' ? 'left' : 'right' } }, { content: p[1], styles: { halign: 'right' } }]),
+      theme: 'striped', showFoot: 'lastPage',
+      headStyles: { fillColor: MARCA.rojoRgb, textColor: 255, fontStyle: 'bold', fontSize: 8.5 },
+      bodyStyles: { fontSize: 8, textColor: 30 }, alternateRowStyles: { fillColor: [242, 242, 243] },
+      footStyles: { fillColor: 255, textColor: MARCA.rojoRgb, fontStyle: 'bold', fontSize: 8.5, lineWidth: { top: 0.3 }, lineColor: MARCA.grisRgb },
+      columnStyles: Object.fromEntries(cols.map((c, j) => [j, { halign: derecha[j] ? 'right' : 'left', cellWidth: c === 'concepto' ? 'auto' : c === 'importe' ? 32 : c === 'cuit' ? 24 : c === 'fecha' ? 20 : 14 }])),
+      didParseCell: h => { if (h.section === 'head' && derecha[h.column.index]) h.cell.styles.halign = 'right'; },
+    });
+    let y = doc.lastAutoTable.finalY + 8;
+    const H = doc.internal.pageSize.getHeight();
+    if (y > H - 55) { doc.addPage(); y = 20; }
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(9); doc.setTextColor(...MARCA.grisRgb); doc.text('SON PESOS:', M0, y);
+    doc.setFont('helvetica', 'italic'); doc.setTextColor(30);
+    const letras = doc.splitTextToSize(d.letras, W - 2 * M0 - 24); doc.text(letras, M0 + 24, y);
+    y += letras.length * 4.5 + 22;
+    const ancho = (W - 2 * M0 - 20) / 2;
+    M.INVENTARIO_FIRMAS.forEach((f, k) => {
+      const x = M0 + k * (ancho + 20);
+      doc.setDrawColor(...MARCA.grisRgb); doc.setLineWidth(0.3); doc.line(x, y, x + ancho, y);
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(9); doc.setTextColor(30); doc.text(f.nombre, x + ancho / 2, y + 5, { align: 'center' });
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(...MARCA.grisRgb);
+      doc.text(doc.splitTextToSize(f.cargo, ancho), x + ancho / 2, y + 9.5, { align: 'center' });
+    });
+  }
+
+  async function descargarPdfInventarios(lista, nombre) {
+    const ds = lista.map(datosInventario);
+    await cargarLibreria('jspdf'); await cargarLibreria('autotable');
+    const doc = new window.jspdf.jsPDF({ unit: 'mm', format: 'a4' });
+    const paginas = [];
+    ds.forEach((d, k) => { const desde = doc.getNumberOfPages() + (k ? 1 : 0); paginaPdf(doc, d, !k); paginas.push({ d, desde, hasta: doc.getNumberOfPages() }); });
+    // Pie: cuenta y página dentro de cada inventario.
+    paginas.forEach(({ d, desde, hasta }) => {
+      for (let p = desde; p <= hasta; p++) {
+        doc.setPage(p);
+        const W = doc.internal.pageSize.getWidth(), H = doc.internal.pageSize.getHeight();
+        doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(...MARCA.grisRgb);
+        doc.text(`${d.i.def.cuenta} - ${d.i.def.titulo}`, 14, H - 8);
+        doc.text(`Página ${p - desde + 1} de ${hasta - desde + 1}`, W - 14, H - 8, { align: 'right' });
+        doc.setDrawColor(...MARCA.rojoRgb); doc.setLineWidth(0.4); doc.line(14, H - 12, W - 14, H - 12);
+      }
+    });
+    await descargar(nombre, doc.output('blob'), true);
+  }
+
+  const sufijoFecha = () => ($('invFecha').value || '').split('-').reverse().join('');
+  async function exportarInventarios(tipo, indices) {
+    const inv = inventariosContables();
+    const lista = indices.map(k => inv[k]);
+    const nombre = lista.length === 1 ? `Inventario_${lista[0].def.id}_${sufijoFecha()}` : `Inventarios_garantias_${sufijoFecha()}`;
+    try {
+      if (tipo === 'excel') await descargarExcelInventarios(lista, nombre + '.xlsx');
+      else await descargarPdfInventarios(lista, nombre + '.pdf');
+    } catch (e) { informar('No se pudo generar el inventario', esc(e.message || e)); }
+  }
+  $('invContableResumen').addEventListener('click', e => {
+    const x = e.target.closest('[data-inv-excel]'), p = e.target.closest('[data-inv-pdf]');
+    if (x) exportarInventarios('excel', [Number(x.dataset.invExcel)]);
+    if (p) exportarInventarios('pdf', [Number(p.dataset.invPdf)]);
+  });
+  $('btnInvTodosExcel').addEventListener('click', () => exportarInventarios('excel', M.INVENTARIOS_CONTABLES.map((d, k) => k)));
+  $('btnInvTodosPdf').addEventListener('click', () => exportarInventarios('pdf', M.INVENTARIOS_CONTABLES.map((d, k) => k)));
 
   // ============================================================ LOTE
 
@@ -2002,6 +2336,7 @@
     almacen.alCambiar(() => {
       aplicarCfgCompartida();
       if (flujoDisponible()) { cargarFlujo(); cargarPbi(); }
+      if (inventario.length) renderInvContable();
       renderCola();
       if (primera) { primera = false; $('cargandoBase').classList.add('oculto'); $('contenido').classList.remove('oculto'); }
       refrescar();

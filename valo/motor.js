@@ -652,6 +652,189 @@
     return { reporte, titulo, fecha, origen, filas, controles: diferencias };
   }
 
+  // ------------------------------------------------------------ INVENTARIOS CONTABLES DE GARANTÍAS
+  // A partir de garhicon + garhisin se arman los inventarios por cuenta (modelo: Inventarios_ejemplos.xlsx).
+  // moneda 'USD': importe en dólares (monto moneda orig.) × tipo de cambio Com. A 3500; 'ARS': monto en pesos.
+  const INVENTARIOS_CONTABLES = [
+    { id: '715.023.007.02', cuenta: '715.023.007.02.9', contra: '725.084.007.02.9', titulo: 'Preferidas en USD - EFECTU$S',
+      moneda: 'USD', filtro: f => f.moneda === 2 && f.preferida && f.tipo === 'EFECTU$S', columnas: ['ente', 'fecha', 'concepto', 'cuit', 'importe'] },
+    { id: '715.025.091.02', cuenta: '715.025.091.02.1', contra: '725.084.091.02.6', titulo: 'No preferidas en USD',
+      moneda: 'USD', filtro: f => f.moneda === 2 && !f.preferida, columnas: ['ente', 'fecha', 'concepto', 'cuit', 'importe'] },
+    { id: '715.023.091.02', cuenta: '715.023.091.02.6', contra: '725.084.091.02.6', titulo: 'Preferidas en USD (sin EFECTU$S)',
+      moneda: 'USD', filtro: f => f.moneda === 2 && f.preferida && f.tipo !== 'EFECTU$S', columnas: ['ente', 'fecha', 'concepto', 'cuit', 'importe'] },
+    { id: '711.023.090.3', cuenta: '711.023.090.3', contra: '721.084.090.3', titulo: 'Preferidas en pesos',
+      moneda: 'ARS', filtro: f => f.moneda === 80 && f.preferida, columnas: ['ente', 'concepto', 'cuit', 'importe'] },
+    { id: '711.025.090.8', cuenta: '711.025.090.8', contra: '721.084.090.3', titulo: 'No preferidas en pesos',
+      moneda: 'ARS', filtro: f => f.moneda === 80 && !f.preferida, columnas: ['fecha', 'ente', 'concepto', 'cuit', 'importe'] },
+  ];
+  const INVENTARIO_DENOMINACION = 'Garantía Valor Actualizado';
+  const INVENTARIO_FIRMAS = [
+    { nombre: 'Otto Zygal', cargo: 'Analista Senior de Administración de Carteras de Crédito y Garantías' },
+    { nombre: 'Paola S. Pupich', cargo: 'Jefe de Administración de Carteras de Crédito y Garantías' },
+  ];
+  // Tipos que no son títulos: el concepto es solo el nombre del cliente.
+  const TIPOS_SIN_SUFIJO = /^(EFECT|EFECTU\$S|FZAGRAL|FZAESPEC|AVALGRAL|CESIOCHEQ|CESION|OTVIV)/;
+  const conceptoGarantia = f => (TIPOS_SIN_SUFIJO.test(f.tipo) ? f.descripcion : `${f.descripcion} - ${f.tipo}`);
+  const fechaReporteIso = t => { // "1/OCT/2026" → "2026-10-01"
+    const m = String(t || '').match(/^(\d{1,2})\/([A-Z]{3})\/(\d{4})$/);
+    const meses = ['ENE', 'FEB', 'MAR', 'ABR', 'MAY', 'JUN', 'JUL', 'AGO', 'SEP', 'OCT', 'NOV', 'DIC'];
+    const meses2 = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
+    if (!m) return '';
+    let i = meses.indexOf(m[2]); if (i < 0) i = meses2.indexOf(m[2]);
+    return i < 0 ? '' : `${m[3]}-${ceros(i + 1, 2)}-${ceros(m[1], 2)}`;
+  };
+
+  // Padrón (CUIT y fecha de cada garantía) armado desde inventarios anteriores en Excel (hojas con Ente, Fecha, Concepto,
+  // CUIT, Importe, o Cliente/CUIT). Devuelve { entes: {ente: {cuit, historial:[{fecha, concepto, importe}]}}, nombres: {nombre: cuit} }.
+  function leerPadronDesdeInventarios(hojas) {
+    const padron = { entes: {}, nombres: {}, garantias: {} };
+    const iso = v => {
+      if (v instanceof Date && !isNaN(v)) return `${v.getFullYear()}-${ceros(v.getMonth() + 1, 2)}-${ceros(v.getDate(), 2)}`;
+      if (typeof v === 'number' && v > 20000 && v < 80000) { const d = new Date(Math.round((v - 25569) * 864e5)); return `${d.getUTCFullYear()}-${ceros(d.getUTCMonth() + 1, 2)}-${ceros(d.getUTCDate(), 2)}`; }
+      const m = String(v || '').match(/^(\d{4})-(\d{2})-(\d{2})/) || String(v || '').match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+      if (!m) return '';
+      return m[1].length === 4 ? `${m[1]}-${m[2]}-${m[3]}` : `${m[3]}-${ceros(m[2], 2)}-${ceros(m[1], 2)}`;
+    };
+    const cuitDe = v => { const d = String(v == null ? '' : v).replace(/\D/g, ''); return d.length === 11 ? d : ''; };
+    hojas.forEach(h => {
+      const filas = h.filas || [];
+      for (let i = 0; i < Math.min(filas.length, 20); i++) {
+        const enc = (filas[i] || []).map(normalizar);
+        const col = n => enc.indexOf(n);
+        const cCuit = col('cuit');
+        if (cCuit < 0) continue;
+        const cEnte = col('ente'), cFecha = col('fecha'), cConc = col('concepto'), cImp = col('importe');
+        const cNombre = cConc > -1 ? cConc : col('cliente');
+        for (const r of filas.slice(i + 1)) {
+          if (!r) continue;
+          const cuit = cuitDe(r[cCuit]);
+          if (!cuit) continue;
+          const nombre = String(r[cNombre] == null ? '' : r[cNombre]).trim();
+          if (nombre) padron.nombres[normalizar(nombre.replace(/\s*-\s*[^-]*$/, '')) || normalizar(nombre)] = cuit;
+          const ente = cEnte > -1 ? String(r[cEnte] == null ? '' : r[cEnte]).trim() : '';
+          if (!/^\d+$/.test(ente)) continue;
+          const e = padron.entes[ente] || (padron.entes[ente] = { cuit, historial: [] });
+          e.cuit = cuit;
+          e.historial.push({ fecha: cFecha > -1 ? iso(r[cFecha]) : '', concepto: nombre, importe: cImp > -1 ? aNumero(r[cImp]) || 0 : 0 });
+        }
+        break;
+      }
+    });
+    return padron;
+  }
+
+  function unirPadron(base, nuevo) {
+    const p = { entes: Object.assign({}, (base && base.entes) || {}), nombres: Object.assign({}, (base && base.nombres) || {}, nuevo.nombres || {}),
+      garantias: Object.assign({}, (base && base.garantias) || {}, nuevo.garantias || {}) };
+    Object.entries(nuevo.entes || {}).forEach(([k, v]) => { p.entes[k] = v; });
+    return p;
+  }
+
+  // Arma los inventarios. padron.garantias[codigo] = {fecha, cuit, concepto} (lo cargado a mano) manda sobre el resto.
+  function armarInventariosContables(filas, padron = {}) {
+    const entes = padron.entes || {}, garantias = padron.garantias || {}, nombres = padron.nombres || {};
+    const cuitPorNombre = desc => {
+      const n = normalizar(desc);
+      if (!n) return '';
+      if (nombres[n]) return nombres[n];
+      const k = Object.keys(nombres).find(x => x.length >= 8 && (x.startsWith(n) || n.startsWith(x)));
+      return k ? nombres[k] : '';
+    };
+    return INVENTARIOS_CONTABLES.map(def => {
+      const elegidas = filas.filter(f => def.filtro(f)).map(f => Object.assign({}, f, { importe: round2(def.moneda === 'USD' ? f.montoOrigen : f.montoPesos) }))
+        .filter(f => f.importe !== 0);
+      // Fecha por ente: si el inventario anterior tiene una sola garantía de ese ente, esa fecha; si tiene varias,
+      // la del importe más parecido (sin repetir).
+      const usadas = new Map();
+      const filasInv = elegidas.map(f => {
+        const g = garantias[f.codigo] || {};
+        const e = entes[f.cliente];
+        let fecha = g.fecha || '', concepto = g.concepto || '';
+        if (!fecha && e && e.historial && e.historial.length) {
+          const libres = e.historial.map((h, i) => i).filter(i => !(usadas.get(f.cliente) || new Set()).has(i));
+          const pool = libres.length ? libres : e.historial.map((h, i) => i);
+          const i = pool.reduce((b, j) => (Math.abs(e.historial[j].importe - f.importe) < Math.abs(e.historial[b].importe - f.importe) ? j : b), pool[0]);
+          fecha = e.historial[i].fecha;
+          if (!usadas.has(f.cliente)) usadas.set(f.cliente, new Set());
+          usadas.get(f.cliente).add(i);
+        }
+        const cuit = g.cuit || (e && e.cuit) || cuitPorNombre(f.descripcion);
+        // Nombre: el del inventario anterior (el reporte corta los nombres y a veces pega nombre y apellido),
+        // sin el sufijo que traía ("- AL41", "- FIANZA"); después se agrega el tipo de la garantía actual.
+        if (!concepto && e && e.historial && e.historial.length && e.historial[0].concepto) {
+          const nombre = e.historial[0].concepto.replace(/\s*-\s*[^-]*$/, '').trim() || e.historial[0].concepto;
+          concepto = conceptoGarantia(Object.assign({}, f, { descripcion: nombre }));
+        }
+        return { codigo: f.codigo, ente: f.cliente, fecha, concepto: concepto || conceptoGarantia(f), cuit, importe: f.importe, tipo: f.tipo,
+          descripcion: f.descripcion, origen: f.origen, faltaCuit: !cuit, faltaFecha: !fecha };
+      }).sort((a, b) => (a.fecha || '9999').localeCompare(b.fecha || '9999') || String(a.concepto).localeCompare(String(b.concepto)));
+      return { def, filas: filasInv, total: round2(filasInv.reduce((a, f) => a + f.importe, 0)) };
+    });
+  }
+
+  // Com. A 3500 del BCRA (com3500.xls): filas con una fecha y el tipo de cambio de referencia.
+  function leerCom3500(filas) {
+    const lista = [];
+    const iso = v => {
+      if (v instanceof Date && !isNaN(v)) return `${v.getFullYear()}-${ceros(v.getMonth() + 1, 2)}-${ceros(v.getDate(), 2)}`;
+      if (typeof v === 'number' && v > 30000 && v < 80000) { const d = new Date(Math.round((v - 25569) * 864e5)); return `${d.getUTCFullYear()}-${ceros(d.getUTCMonth() + 1, 2)}-${ceros(d.getUTCDate(), 2)}`; }
+      const m = String(v || '').trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+      return m ? `${m[3]}-${ceros(m[2], 2)}-${ceros(m[1], 2)}` : '';
+    };
+    (filas || []).forEach(r => {
+      if (!r) return;
+      for (let i = 0; i < r.length - 1; i++) {
+        const f = iso(r[i]);
+        if (!f) continue;
+        const tc = r.slice(i + 1).map(aNumero).find(x => x != null && x > 0 && x < 1e6);
+        if (tc != null) { lista.push({ fecha: f, tc }); break; }
+      }
+    });
+    const unicos = new Map(lista.map(x => [x.fecha, x]));
+    return [...unicos.values()].sort((a, b) => a.fecha.localeCompare(b.fecha));
+  }
+
+  // Tipo de cambio del último día hábil del mes en curso (o el último publicado antes, si todavía no está).
+  function elegirTipoCambio(lista, hoy = new Date(), feriados = []) {
+    if (!lista || !lista.length) return null;
+    const objetivo = claveDia(ultimoDiaHabil(hoy, 0, feriados));
+    const exacto = lista.find(x => x.fecha === objetivo);
+    if (exacto) return Object.assign({ objetivo, exacto: true }, exacto);
+    const previos = lista.filter(x => x.fecha <= objetivo);
+    const r = previos.length ? previos[previos.length - 1] : lista[lista.length - 1];
+    return Object.assign({ objetivo, exacto: false }, r);
+  }
+
+  // Importe en letras (castellano), ej. 1234.5 → "MIL DOSCIENTOS TREINTA Y CUATRO CON 50/100".
+  function numeroEnLetras(n) {
+    const U = ['', 'UNO', 'DOS', 'TRES', 'CUATRO', 'CINCO', 'SEIS', 'SIETE', 'OCHO', 'NUEVE', 'DIEZ', 'ONCE', 'DOCE', 'TRECE', 'CATORCE', 'QUINCE',
+      'DIECISEIS', 'DIECISIETE', 'DIECIOCHO', 'DIECINUEVE', 'VEINTE', 'VEINTIUNO', 'VEINTIDOS', 'VEINTITRES', 'VEINTICUATRO', 'VEINTICINCO',
+      'VEINTISEIS', 'VEINTISIETE', 'VEINTIOCHO', 'VEINTINUEVE'];
+    const D = ['', '', '', 'TREINTA', 'CUARENTA', 'CINCUENTA', 'SESENTA', 'SETENTA', 'OCHENTA', 'NOVENTA'];
+    const C = ['', 'CIENTO', 'DOSCIENTOS', 'TRESCIENTOS', 'CUATROCIENTOS', 'QUINIENTOS', 'SEISCIENTOS', 'SETECIENTOS', 'OCHOCIENTOS', 'NOVECIENTOS'];
+    const menorMil = x => {
+      if (x === 0) return '';
+      if (x === 100) return 'CIEN';
+      const c = Math.floor(x / 100), r = x % 100;
+      const dec = r < 30 ? U[r] : D[Math.floor(r / 10)] + (r % 10 ? ' Y ' + U[r % 10] : '');
+      return [C[c], dec].filter(Boolean).join(' ');
+    };
+    const apocope = t => t.replace(/VEINTIUNO$/, 'VEINTIUN').replace(/(^| )UNO$/, '$1UN');
+    const entero = x => {
+      if (x === 0) return 'CERO';
+      const partes = [];
+      const billones = Math.floor(x / 1e12), millones = Math.floor((x % 1e12) / 1e6), miles = Math.floor((x % 1e6) / 1e3), resto = x % 1e3;
+      if (billones) partes.push(billones === 1 ? 'UN BILLON' : apocope(entero(billones)) + ' BILLONES');
+      if (millones) partes.push(millones === 1 ? 'UN MILLON' : apocope(entero(millones)) + ' MILLONES');
+      if (miles) partes.push(miles === 1 ? 'MIL' : apocope(menorMil(miles)) + ' MIL');
+      if (resto) partes.push(menorMil(resto));
+      return partes.join(' ');
+    };
+    const v = Math.round(Math.abs(Number(n) || 0) * 100);
+    const ent = Math.floor(v / 100), cent = v % 100;
+    return `${n < 0 ? 'MENOS ' : ''}${entero(ent)} CON ${ceros(cent, 2)}/100`;
+  }
+
   // ------------------------------------------------------------ TXT NO COBIS
   // Diseño (hoja "NO COBIS" del archivo de inventario Payway), 156 caracteres por línea, una por ente (MIS):
   // código cliente = MIS (10, ceros a la izq.) · tipo de crédito CCASR (10, espacios a la der.) · tasa 0100000000 (10)
@@ -1778,7 +1961,7 @@ try {
     leerTxtMeli, bancoMeliDeTxt, bancosParaMeli,
     sqlExtraccionCartera, bookmarkletCartera, scriptPowerShellCartera, comandoTareaCartera, IMPORTES_CARTERA,
     NO_COBIS, ultimoDiaHabil, fechasNoCobis, lineaNoCobis, txtNoCobis, loteApiNoCobis, scriptPowerShellNoCobis, scriptPowerShellProbarNoCobis, scriptPowerShellAgenteNoCobis, cmdEnvioNoCobis,
-    leerCartera, leerInventarioGarantias, daxCarteraPowerBI, daxDiagnosticoPowerBI, leerFilasPowerBI, sugerirColumnaCartera, columnasNumericasCartera, agruparCartera, valoresDistintos, sqlCartera,
+    leerCartera, leerInventarioGarantias, INVENTARIOS_CONTABLES, INVENTARIO_DENOMINACION, INVENTARIO_FIRMAS, fechaReporteIso, leerPadronDesdeInventarios, unirPadron, armarInventariosContables, leerCom3500, elegirTipoCambio, numeroEnLetras, daxCarteraPowerBI, daxDiagnosticoPowerBI, leerFilasPowerBI, sugerirColumnaCartera, columnasNumericasCartera, agruparCartera, valoresDistintos, sqlCartera,
     leerCsv, encabezadosEjemplo, leerDefinicionInterfaz, sugerirColumna, detectarHojaInterfaz,
     normalizar, provinciaPorNombre, round2, aNumero, aFechaSerial, aCodigoBanco,
     fechaDDMMYY, fechaYYYYMMDD, fechaLegible, hoyDDMMYY,

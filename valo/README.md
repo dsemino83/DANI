@@ -98,6 +98,16 @@ Después de modificar el código, regenerar el archivo único con `python3 const
    origen. Controla los subtotales *TOTAL PREFERIDA / NO PREFERIDA* de cada reporte, filtra por preferida, moneda, origen o
    texto y exporta a Excel (hojas Inventario y Resumen). Los archivos quedan solo en la sesión del navegador.
 
+   **Inventarios contables** (con garhicon + garhisin): 715.023.007.02 (preferidas USD EFECTU$S), 715.025.091.02 (no
+   preferidas USD), 715.023.091.02 (preferidas USD sin EFECTU$S), 711.023.090.3 (preferidas en pesos) y 711.025.090.8 (no
+   preferidas en pesos), con el formato de `Inventarios_ejemplos.xlsx`. Los de dólares van en U$S (monto moneda orig.) ×
+   tipo de cambio Com. A 3500 del último día hábil del mes en curso (o el último publicado), tomado de `com3500.xls`
+   del BCRA (botón *Traer del BCRA*; si el BCRA no lo permite, se sube el archivo o se escribe el TC). Se descargan en
+   Excel (ExcelJS, con logo y colores VALO: rojo Pantone 186 C #CE162E y gris Cool Gray 10 #727274) y en PDF (jsPDF),
+   uno por cuenta o todos juntos, con el saldo en letras y las firmas. El CUIT y la fecha de cada garantía (el reporte
+   no los trae) salen de inventarios anteriores importados en Excel y de lo que se carga a mano; quedan en la base
+   compartida (`maestros/inventarioPadron`). Las librerías de exportación se cargan al usarlas (`vendor/`, o CDN).
+
 ## Datos
 
 - **Versión compartida (recomendada):** página publicada en claude.ai (`compartido/conversor-valo-compartido.html`).
