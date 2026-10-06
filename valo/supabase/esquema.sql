@@ -114,3 +114,27 @@ end;
 $$;
 revoke all on function public.tomar_envio(text, text) from public, anon;
 grant execute on function public.tomar_envio(text, text) to authenticated;
+
+-- ===================================================== Tipo de cambio Com. A 3500 (BCRA)
+-- La página no puede consultar al BCRA directo (el BCRA no lo permite desde otros sitios): esta función lo consulta
+-- desde la base. Variable 5 de la API de estadísticas del BCRA = Tipo de cambio mayorista Com. A 3500 (referencia).
+create extension if not exists http with schema extensions;
+create or replace function public.tc_bcra(p_desde date, p_hasta date) returns jsonb
+language plpgsql security definer set search_path = public, extensions as $$
+declare r extensions.http_response; v text;
+begin
+  if not public.es_valo() then raise exception 'sin permiso' using errcode = '42501'; end if;
+  perform extensions.http_set_curlopt('CURLOPT_TIMEOUT', '25');
+  foreach v in array array['v4.0', 'v3.0'] loop
+    begin
+      select * into r from extensions.http_get(format('https://api.bcra.gob.ar/estadisticas/%s/monetarias/5?desde=%s&hasta=%s', v, p_desde, p_hasta));
+      if r.status = 200 then return jsonb_build_object('status', r.status, 'version', v, 'body', r.content::jsonb); end if;
+    exception when others then r := null;
+    end;
+  end loop;
+  return jsonb_build_object('status', coalesce(r.status, 0), 'error', coalesce(left(r.content, 300), 'sin respuesta del BCRA'));
+end;
+$$;
+revoke all on function public.tc_bcra(date, date) from public, anon;
+grant execute on function public.tc_bcra(date, date) to authenticated;
+notify pgrst, 'reload schema';

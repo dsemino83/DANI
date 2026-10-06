@@ -804,6 +804,17 @@
     return [...unicos.values()].sort((a, b) => a.fecha.localeCompare(b.fecha));
   }
 
+  // Respuesta de la API de estadísticas del BCRA (variable 5, Com. A 3500): v4 {results:[{detalle:[{fecha, valor}]}]}
+  // o v3 {results:[{fecha, valor}]} → [{fecha, tc}] ordenado.
+  function leerTcApiBcra(json) {
+    const res = (json && (json.results || (json.body && json.body.results))) || [];
+    const filas = res.flatMap(r => (Array.isArray(r.detalle) ? r.detalle : [r]));
+    const lista = filas.map(x => ({ fecha: String(x.fecha || '').slice(0, 10), tc: Number(x.valor) }))
+      .filter(x => /^\d{4}-\d{2}-\d{2}$/.test(x.fecha) && x.tc > 0);
+    const unicos = new Map(lista.map(x => [x.fecha, x]));
+    return [...unicos.values()].sort((a, b) => a.fecha.localeCompare(b.fecha));
+  }
+
   // Tipo de cambio del último día hábil del mes de 'hoy' (el mes del inventario), o el último publicado antes de ese día.
   function elegirTipoCambio(lista, hoy = new Date(), feriados = []) {
     if (!lista || !lista.length) return null;
@@ -1971,7 +1982,7 @@ try {
     leerTxtMeli, bancoMeliDeTxt, bancosParaMeli,
     sqlExtraccionCartera, bookmarkletCartera, scriptPowerShellCartera, comandoTareaCartera, IMPORTES_CARTERA,
     NO_COBIS, ultimoDiaHabil, fechasNoCobis, lineaNoCobis, txtNoCobis, loteApiNoCobis, scriptPowerShellNoCobis, scriptPowerShellProbarNoCobis, scriptPowerShellAgenteNoCobis, cmdEnvioNoCobis,
-    leerCartera, leerInventarioGarantias, INVENTARIOS_CONTABLES, INVENTARIO_DENOMINACION, INVENTARIO_FIRMAS, fechaReporteIso, fechaInventarioDesdeReporte, leerPadronDesdeInventarios, unirPadron, armarInventariosContables, leerCom3500, elegirTipoCambio, numeroEnLetras, daxCarteraPowerBI, daxDiagnosticoPowerBI, leerFilasPowerBI, sugerirColumnaCartera, columnasNumericasCartera, agruparCartera, valoresDistintos, sqlCartera,
+    leerCartera, leerInventarioGarantias, INVENTARIOS_CONTABLES, INVENTARIO_DENOMINACION, INVENTARIO_FIRMAS, fechaReporteIso, fechaInventarioDesdeReporte, leerPadronDesdeInventarios, unirPadron, armarInventariosContables, leerCom3500, leerTcApiBcra, elegirTipoCambio, numeroEnLetras, daxCarteraPowerBI, daxDiagnosticoPowerBI, leerFilasPowerBI, sugerirColumnaCartera, columnasNumericasCartera, agruparCartera, valoresDistintos, sqlCartera,
     leerCsv, encabezadosEjemplo, leerDefinicionInterfaz, sugerirColumna, detectarHojaInterfaz,
     normalizar, provinciaPorNombre, round2, aNumero, aFechaSerial, aCodigoBanco,
     fechaDDMMYY, fechaYYYYMMDD, fechaLegible, hoyDDMMYY,

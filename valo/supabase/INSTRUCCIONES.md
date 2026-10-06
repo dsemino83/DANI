@@ -67,3 +67,9 @@ de VALO lo toma, se loguea en la API, ingresa las operaciones y deja el resultad
 
 Se puede instalar el agente en más de una PC: cada envío lo toma una sola. Si ninguna está prendida, los envíos quedan
 pendientes y salen cuando vuelva alguna (o ejecutando el agente a mano). Registro: `agente.log` en la carpeta del agente.
+
+## 7. Tipo de cambio automático (inventarios de garantías)
+
+Más ▾ → Inventario busca solo el tipo de cambio Com. A 3500 del último día hábil del mes del inventario en la API del
+BCRA. Si el BCRA no deja que la página lo consulte directo, lo hace la base con la función `tc_bcra`: volver a ejecutar
+`esquema.sql` en el SQL Editor (habilita la extensión `http` y agrega la función; se puede re-ejecutar).

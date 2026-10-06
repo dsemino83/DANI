@@ -1391,13 +1391,22 @@
     return filas.length ? M.armarInventariosContables(filas, padronInv()) : [];
   }
 
+  let tcAutoPara = '';
   function renderInvContable() {
     const reps = reportesInv();
     $('cardInvContable').classList.toggle('oculto', !reps.length);
     if (!reps.length) return;
     if (!$('invFecha').value) $('invFecha').value = M.fechaInventarioDesdeReporte(reps.map(x => M.fechaReporteIso(x.leido.fecha)).filter(Boolean).sort().pop() || '');
     const p = padronInv();
-    if (!$('invTc').value && p.tcUltimo && p.tcUltimo.tc) { $('invTc').value = String(p.tcUltimo.tc).replace('.', ','); $('invTcFecha').value = p.tcUltimo.fecha || ''; }
+    // TC guardado: solo si es del mes del inventario; si no, se busca solo (una vez por fecha de inventario).
+    const mesInv = $('invFecha').value.slice(0, 7);
+    if (!$('invTc').value && p.tcUltimo && p.tcUltimo.tc && String(p.tcUltimo.fecha || '').slice(0, 7) === mesInv) {
+      $('invTc').value = String(p.tcUltimo.tc).replace('.', ','); $('invTcFecha').value = p.tcUltimo.fecha || '';
+    }
+    if (mesInv && $('invTcFecha').value.slice(0, 7) !== mesInv && tcAutoPara !== $('invFecha').value) {
+      tcAutoPara = $('invFecha').value;
+      if (invTcLista.some(x => x.fecha.slice(0, 7) === mesInv)) elegirTcDelInventario(); else setTimeout(() => buscarTcAutomatico(false), 0);
+    }
     const faltaGarhi = ['garhicon', 'garhisin'].filter(r => !reps.some(x => new RegExp(r, 'i').test(x.leido.reporte + ' ' + x.nombre)));
     const inv = inventariosContables();
     const tc = numeroTc();
@@ -1494,16 +1503,57 @@
   $('invTc').addEventListener('change', () => { guardarTc(); renderInvContable(); });
   $('invTcFecha').addEventListener('change', () => { if (invTcLista.length) aplicarTc($('invTcFecha').value); else guardarTc(); });
   $('invFecha').addEventListener('change', () => { elegirTcDelInventario(); renderInvContable(); });
-  $('btnInvTcBcra').addEventListener('click', async () => {
-    $('invTcEstado').innerHTML = '<p class="sub">Descargando la Com. A 3500 del BCRA…</p>';
-    try {
-      const r = await fetch(URL_COM3500, { cache: 'no-store' });
-      if (!r.ok) throw new Error('HTTP ' + r.status);
-      usarCom3500(await r.arrayBuffer(), 'BCRA');
-    } catch (e) {
-      $('invTcEstado').innerHTML = aviso('warn', `El BCRA no deja que la página descargue el archivo directo. Bajalo desde <a href="${URL_COM3500}" target="_blank" rel="noopener">com3500.xls</a> y subilo con <b>Subir com3500.xls</b>, o escribí el tipo de cambio.`);
+  // Busca el TC solo: API del BCRA (variable 5) directo; si el BCRA lo bloquea, por la base (función tc_bcra);
+  // por último el com3500.xls. Se piden las cotizaciones del mes del inventario y se toma su último día hábil.
+  let tcBuscando = false;
+  async function buscarTcAutomatico(manual) {
+    if (tcBuscando) return;
+    const fi = $('invFecha').value;
+    if (!fi) return;
+    tcBuscando = true;
+    $('btnInvTcBcra').disabled = true;
+    $('invTcEstado').innerHTML = '<p class="sub">Buscando el tipo de cambio Com. A 3500 en el BCRA…</p>';
+    const desde = fi.slice(0, 8) + '01';
+    const hasta = fi;
+    const errores = [];
+    let lista = [], fuente = '';
+    for (const v of ['v4.0', 'v3.0']) {
+      if (lista.length) break;
+      try {
+        const r = await fetch(`https://api.bcra.gob.ar/estadisticas/${v}/monetarias/5?desde=${desde}&hasta=${hasta}`, { cache: 'no-store' });
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        lista = M.leerTcApiBcra(await r.json()); fuente = 'API del BCRA';
+      } catch (e) { errores.push(`API ${v}: ${e.message || e}`); }
     }
-  });
+    if (!lista.length && almacen && typeof almacen.rpc === 'function') {
+      try {
+        const j = await almacen.rpc('tc_bcra', { p_desde: desde, p_hasta: hasta });
+        if (j && j.status === 200) { lista = M.leerTcApiBcra(j); fuente = 'API del BCRA (por la base)'; }
+        else errores.push('base: ' + ((j && j.error) || 'sin respuesta'));
+      } catch (e) { errores.push('base: ' + (e.message || e)); }
+    }
+    if (!lista.length) {
+      try {
+        const r = await fetch(URL_COM3500, { cache: 'no-store' });
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        usarCom3500(await r.arrayBuffer(), 'BCRA com3500.xls');
+        lista = invTcLista;
+      } catch (e) { errores.push('com3500.xls: ' + (e.message || e)); }
+    } else {
+      invTcLista = lista; invTcFuente = fuente;
+      elegirTcDelInventario();
+    }
+    tcBuscando = false;
+    $('btnInvTcBcra').disabled = false;
+    if (!lista.length) {
+      const sinFuncion = errores.some(e => /tc_bcra|function|schema cache/i.test(e));
+      $('invTcEstado').innerHTML = aviso('warn', 'No se pudo traer el tipo de cambio automáticamente. ' +
+        (sinFuncion ? 'Falta habilitar la consulta en la base: en Supabase → SQL Editor ejecutá la última versión de <code>supabase/esquema.sql</code> (agrega la función <code>tc_bcra</code>). ' : '') +
+        `Mientras tanto bajá <a href="${URL_COM3500}" target="_blank" rel="noopener">com3500.xls</a> y subilo con <b>Subir com3500.xls</b>, o escribí el tipo de cambio.` +
+        (manual ? `<br><span class="sub">${esc(errores.join(' · '))}</span>` : ''));
+    }
+  }
+  $('btnInvTcBcra').addEventListener('click', () => buscarTcAutomatico(true));
   $('btnInvTcArchivo').addEventListener('click', () => $('archivoCom3500').click());
   $('archivoCom3500').addEventListener('change', async e => {
     const f = e.target.files[0]; e.target.value = '';
