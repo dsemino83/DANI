@@ -1487,27 +1487,40 @@
     renderFaltantes(inv);
   }
 
-  // Solo lo que falta: entes sin CUIT (uno por ente) y garantías sin fecha.
+  // Entes y fechas: por defecto solo los entes sin CUIT; el filtro permite ver las garantías sin fecha o todos los entes.
   function renderFaltantes(inv) {
-    const sinCuit = new Map(), sinFecha = [];
+    const entes = new Map(), sinFecha = [];
     inv.forEach(i => i.filas.forEach(f => {
-      if (f.faltaCuit && !sinCuit.has(f.ente)) sinCuit.set(f.ente, { ente: f.ente, nombre: (f.descripcion || f.concepto || '').trim(), cuentas: new Set() });
-      if (f.faltaCuit) sinCuit.get(f.ente).cuentas.add(i.def.id);
+      if (!entes.has(f.ente)) entes.set(f.ente, { ente: f.ente, nombre: (f.descripcion || f.concepto || '').trim(), cuit: f.cuit, faltaCuit: f.faltaCuit, cuentas: new Set() });
+      entes.get(f.ente).cuentas.add(i.def.id);
       if (f.faltaFecha && i.def.columnas.includes('fecha')) sinFecha.push(Object.assign({ cuenta: i.def.id }, f));
     }));
+    const sinCuit = [...entes.values()].filter(e => e.faltaCuit);
     const partes = [];
-    if (sinCuit.size) partes.push(`${sinCuit.size} entes sin CUIT`);
+    if (sinCuit.length) partes.push(`${sinCuit.length} entes sin CUIT`);
     if (sinFecha.length) partes.push(`${sinFecha.length} garantías sin fecha`);
     $('invPadronEstado').textContent = partes.length ? '· ' + partes.join(' · ') : '· completo';
-    let html = '';
-    if (sinCuit.size) html += `<h3 style="margin:8px 0">Entes sin CUIT (${sinCuit.size})</h3><table><thead><tr><th>Ente</th><th>Nombre</th><th>CUIT</th><th>Cuentas</th></tr></thead><tbody>` +
-      [...sinCuit.values()].map(e => `<tr><td>${esc(e.ente)}</td><td><input data-ente-nombre="${esc(e.ente)}" value="${esc(e.nombre)}" style="min-width:240px" data-escribe></td>` +
-        `<td><input data-padron-cuit="${esc(e.ente)}" placeholder="11 dígitos" inputmode="numeric" style="max-width:130px" data-escribe></td><td class="sub">${esc([...e.cuentas].join(', '))}</td></tr>`).join('') + '</tbody></table>';
-    if (sinFecha.length) html += `<h3 style="margin:14px 0 8px">Garantías sin fecha (${sinFecha.length})</h3><table><thead><tr><th>Cuenta</th><th>Ente</th><th>Concepto</th><th>Código</th><th>Fecha</th></tr></thead><tbody>` +
-      sinFecha.map(f => `<tr><td>${esc(f.cuenta)}</td><td>${esc(f.ente)}</td><td>${esc(f.concepto)}</td><td>${esc(f.codigo)}</td>` +
-        `<td><input type="date" data-padron-fecha="${esc(f.codigo)}" data-escribe></td></tr>`).join('') + '</tbody></table>';
-    $('invFaltantes').innerHTML = html || '<p class="sub">No falta ningún dato: todos los entes tienen CUIT y todas las garantías, fecha.</p>';
+    const modo = $('invFiltroFalt').value, q = M.normalizar($('invFiltroTexto').value);
+    const pasa = (...t) => !q || M.normalizar(t.join(' ')).includes(q);
+    let html;
+    if (modo === 'fecha') {
+      const lista = sinFecha.filter(f => pasa(f.ente, f.concepto, f.codigo));
+      html = lista.length ? `<table><thead><tr><th>Cuenta</th><th>Ente</th><th>Concepto</th><th>Código</th><th>Fecha</th></tr></thead><tbody>` +
+        lista.map(f => `<tr><td>${esc(f.cuenta)}</td><td>${esc(f.ente)}</td><td>${esc(f.concepto)}</td><td>${esc(f.codigo)}</td>` +
+          `<td><input type="date" data-padron-fecha="${esc(f.codigo)}" data-escribe></td></tr>`).join('') + '</tbody></table>'
+        : '<p class="sub">No hay garantías sin fecha.</p>';
+    } else {
+      const lista = (modo === 'todos' ? [...entes.values()] : sinCuit).filter(e => pasa(e.ente, e.nombre, e.cuit))
+        .sort((a, b) => (b.faltaCuit - a.faltaCuit) || Number(a.ente) - Number(b.ente));
+      html = lista.length ? `<table><thead><tr><th>Ente</th><th>Nombre</th><th>CUIT</th><th>Cuentas</th></tr></thead><tbody>` +
+        lista.map(e => `<tr><td>${esc(e.ente)}</td><td><input data-ente-nombre="${esc(e.ente)}" value="${esc(e.nombre)}" style="min-width:240px" data-escribe></td>` +
+          `<td><input data-padron-cuit="${esc(e.ente)}" value="${esc(e.cuit || '')}" placeholder="11 dígitos" inputmode="numeric" style="max-width:130px" data-escribe></td><td class="sub">${esc([...e.cuentas].join(', '))}</td></tr>`).join('') + '</tbody></table>'
+        : `<p class="sub">${modo === 'todos' ? 'Ningún ente coincide con la búsqueda.' : 'Todos los entes tienen CUIT.'}</p>`;
+    }
+    $('invFaltantes').innerHTML = html;
   }
+  $('invFiltroFalt').addEventListener('change', () => renderInvContable());
+  $('invFiltroTexto').addEventListener('input', () => renderInvContable());
 
   async function guardarPadron(cambio) {
     const p = JSON.parse(JSON.stringify(padronInv()));
