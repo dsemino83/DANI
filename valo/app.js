@@ -2500,6 +2500,7 @@
     if (almacen.proveedor === 'supabase') iniciarWeb();
     if (window.claude && typeof window.claude.use === 'function') descargas = await window.claude.use('downloads');
     const compartido = almacen.modo === 'compartido';
+    $('avisoViejo').classList.toggle('oculto', !(compartido && almacen.proveedor !== 'supabase'));
     $('estadoBase').innerHTML = compartido
       ? '<span class="chip ok" title="Clientes, secuencias, bancos e historial se comparten con todos los usuarios de esta página">Base compartida</span>'
       : '<span class="chip gris" title="Los datos quedan solo en este navegador">Datos en este navegador</span>';

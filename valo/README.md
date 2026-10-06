@@ -3,7 +3,7 @@
 Página web que reemplaza el flujo manual del libro **Conversor GetNet.xlsx** + los scripts
 `GenerarCuotas.py` y `GenerarCreditos.py`.
 
-**En internet:** https://dsemino83.github.io/DANI/valo/ redirige a la base compartida en claude.ai (https://claude.ai/artifact/62SNb4MoRSHQr9ke5kfqYa).
+**En internet:** https://dsemino83.github.io/DANI/valo/ redirige al sitio con la base compartida en Supabase (`web/`). La versión de claude.ai quedó en desuso (muestra un aviso).
 
 **Sitio propio (en preparación):** https://dsemino83.github.io/DANI/valo/web/ — misma página con la base compartida en
 Supabase (usuario y contraseña, descargas directas para todos). Configuración: `supabase/INSTRUCCIONES.md` y
