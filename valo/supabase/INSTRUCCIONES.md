@@ -73,3 +73,8 @@ pendientes y salen cuando vuelva alguna (o ejecutando el agente a mano). Registr
 Más ▾ → Inventario busca solo el tipo de cambio Com. A 3500 del último día hábil del mes del inventario en la API del
 BCRA. Si el BCRA no deja que la página lo consulte directo, lo hace la base con la función `tc_bcra`: volver a ejecutar
 `esquema.sql` en el SQL Editor (habilita la extensión `http` y agrega la función; se puede re-ejecutar).
+
+## 8. Base de entes (CUIT) de los inventarios
+
+Volver a ejecutar `esquema.sql` (crea la tabla `entes`). Después, en Más ▾ → Inventario → *Entes, CUIT y fechas* →
+**Subir base de entes (Excel)** con las planillas de personas jurídicas y humanas.

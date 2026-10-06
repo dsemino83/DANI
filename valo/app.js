@@ -1386,10 +1386,72 @@
   const fechaAr = iso => (iso ? iso.split('-').reverse().join('/') : '');
   const numeroTc = () => { const v = String($('invTc').value).trim(); if (!v) return null; const n = Number(/,/.test(v) ? v.replace(/\./g, '').replace(',', '.') : v); return n > 0 ? n : null; };
   const reportesInv = () => inventario.filter(x => /garhi(con|sin)/i.test(x.leido.reporte + ' ' + x.nombre));
+  // Base de entes (CUIT por código de ente): se consultan solo los entes de los reportes cargados.
+  const entesCache = {};
+  const entesPedidos = new Set();
+  let entesBuscando = false;
+  const hayBaseEntes = () => almacen && typeof almacen.buscarEntes === 'function';
+  async function completarEntes(lista) {
+    if (!hayBaseEntes() || entesBuscando) return;
+    const faltan = [...new Set(lista)].filter(e => !entesPedidos.has(e));
+    if (!faltan.length) return;
+    entesBuscando = true;
+    try {
+      Object.assign(entesCache, await almacen.buscarEntes(faltan));
+      faltan.forEach(e => entesPedidos.add(e));
+    } catch (e) { $('invBaseEstado').textContent = '· no se pudo consultar la base (' + (e.message || e) + ')'; }
+    entesBuscando = false;
+    renderInvContable();
+  }
+  async function renderBaseEstado() {
+    if (!hayBaseEntes()) { $('invBaseEstado').textContent = '· en esta versión se guarda solo para los entes de los reportes cargados'; return; }
+    try { const n = await almacen.contarEntes(); $('invBaseEstado').textContent = `· ${fmtEntero(n)} entes cargados`; }
+    catch (e) { $('invBaseEstado').textContent = '· ' + (/entes/.test(e.message) ? 'falta crear la tabla: ejecutá la última versión de supabase/esquema.sql' : (e.message || e)); }
+  }
+  async function guardarEntesBase(filas, progreso) {
+    if (hayBaseEntes()) {
+      await almacen.guardarEntes(filas, progreso);
+      filas.forEach(f => { entesCache[f.ente] = { cuit: f.cuit, nombre: f.nombre }; entesPedidos.add(f.ente); });
+    } else {
+      // Sin base (versión claude.ai): se guardan en el padrón solo los entes de los reportes cargados.
+      const usados = new Set(reportesInv().flatMap(x => x.leido.filas.map(f => f.cliente)));
+      await guardarPadron(p => filas.filter(f => usados.has(f.ente)).forEach(f => { const e = p.entes[f.ente] || (p.entes[f.ente] = { cuit: '', historial: [] }); e.cuit = f.cuit; if (f.nombre) e.nombre = f.nombre; }));
+    }
+  }
   function inventariosContables() {
     const filas = reportesInv().flatMap(x => x.leido.filas);
-    return filas.length ? M.armarInventariosContables(filas, padronInv()) : [];
+    if (filas.length) completarEntes(filas.map(f => f.cliente));
+    return filas.length ? M.armarInventariosContables(filas, padronInv(), entesCache) : [];
   }
+  $('btnInvBaseSubir').addEventListener('click', () => $('archivoBaseEntes').click());
+  $('archivoBaseEntes').addEventListener('change', async e => {
+    const files = [...e.target.files]; e.target.value = '';
+    if (!files.length) return;
+    const caja = $('invBaseProgreso');
+    try {
+      caja.innerHTML = '<p class="sub">Leyendo ' + esc(files.map(f => f.name).join(', ')) + '…</p>';
+      const hojas = [];
+      for (const f of files) hojas.push(...await leerHojas(f));
+      const r = M.leerBaseEntes(hojas);
+      if (!r.filas.length) throw new Error('No se encontraron columnas de ente (external_code / Ente) y CUIT (tax_id_number / CUIT).');
+      await guardarEntesBase(r.filas, (n, t) => { caja.innerHTML = `<p class="sub">Guardando entes… ${fmtEntero(n)} de ${fmtEntero(t)}</p>`; });
+      caja.innerHTML = aviso('ok', `Base actualizada: ${fmtEntero(r.filas.length)} entes con CUIT.` + (r.sinEnte ? ` ${fmtEntero(r.sinEnte)} filas sin código de ente quedaron afuera.` : '') + (r.sinCuit ? ` ${fmtEntero(r.sinCuit)} sin CUIT válido.` : ''));
+      renderBaseEstado();
+      renderInvContable();
+    } catch (err) { caja.innerHTML = aviso('bad', esc(err.message || err)); }
+  });
+  $('btnInvNuevoEnte').addEventListener('click', async () => {
+    const ente = $('invNuevoEnte').value.trim(), cuit = $('invNuevoCuit').value.replace(/\D/g, ''), nombre = $('invNuevoNombre').value.trim();
+    if (!/^\d+$/.test(ente)) { toast('El ente es el código numérico de cliente'); return; }
+    if (cuit.length !== 11) { toast('El CUIT tiene que tener 11 dígitos'); return; }
+    try {
+      await guardarEntesBase([{ ente, cuit, nombre }]);
+      ['invNuevoEnte', 'invNuevoCuit', 'invNuevoNombre'].forEach(id => { $(id).value = ''; });
+      toast(`Ente ${ente} guardado`);
+      renderBaseEstado(); renderInvContable();
+    } catch (err) { informar('No se pudo guardar', esc(err.message || err)); }
+  });
+  $('detInvPadron').addEventListener('toggle', () => { if ($('detInvPadron').open) renderBaseEstado(); });
 
   let tcAutoPara = '';
   function renderInvContable() {
@@ -1448,7 +1510,9 @@
     if (c) {
       const cuit = c.value.replace(/\D/g, '');
       if (cuit && cuit.length !== 11) { toast('El CUIT tiene que tener 11 dígitos'); return; }
-      guardarPadron(p => { const e2 = p.entes[c.dataset.padronCuit] || (p.entes[c.dataset.padronCuit] = { cuit: '', historial: [] }); e2.cuit = cuit; });
+      const ente = c.dataset.padronCuit, fila = c.closest('tr');
+      const nombre = fila ? (fila.querySelector('[data-padron-concepto]') || {}).value || '' : '';
+      if (cuit) guardarEntesBase([{ ente, cuit, nombre: nombre.replace(/\s+-\s+[^-]*$/, '') }]).then(() => renderInvContable(), err => informar('No se pudo guardar', esc(err.message || err)));
     }
     if (f) guardarPadron(p => { p.garantias[f.dataset.padronFecha] = Object.assign({}, p.garantias[f.dataset.padronFecha], { fecha: f.value }); });
   });

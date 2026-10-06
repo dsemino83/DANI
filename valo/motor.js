@@ -733,6 +733,41 @@
     return padron;
   }
 
+  // Base de entes desde Excel: personas jurídicas (legal_name, tax_id_number, external_code), personas humanas
+  // (first_name, last_name, second_last_name, tax_id_number, external_code) o una planilla simple Ente / CUIT / Nombre.
+  // Solo se guardan ente, CUIT y nombre.
+  function leerBaseEntes(hojas) {
+    const filas = [];
+    let sinEnte = 0, sinCuit = 0;
+    hojas.forEach(h => {
+      const t = h.filas || [];
+      for (let i = 0; i < Math.min(t.length, 15); i++) {
+        const enc = (t[i] || []).map(normalizar);
+        const col = (...ns) => { for (const n of ns) { const k = enc.indexOf(n); if (k > -1) return k; } return -1; };
+        const cEnte = col('external code', 'ente', 'codigo ente', 'cliente', 'codigo cliente');
+        const cCuit = col('tax id number', 'cuit', 'cuil', 'cuit cuil');
+        if (cEnte < 0 || cCuit < 0) continue;
+        const cRazon = col('legal name', 'razon social', 'nombre', 'denominacion', 'descripcion');
+        const cNom = col('first name'), cApe = col('last name'), cApe2 = col('second last name');
+        const tipo = cRazon > -1 && cNom < 0 ? 'juridica' : cNom > -1 ? 'humana' : '';
+        for (const r of t.slice(i + 1)) {
+          if (!r) continue;
+          const ente = String(r[cEnte] == null ? '' : r[cEnte]).trim().replace(/\.0+$/, '');
+          const cuit = String(r[cCuit] == null ? '' : r[cCuit]).replace(/\D/g, '');
+          if (!/^\d+$/.test(ente)) { sinEnte++; continue; }
+          if (cuit.length !== 11) { sinCuit++; continue; }
+          const nombre = cRazon > -1 && cNom < 0 ? String(r[cRazon] || '').trim()
+            : [r[cNom], r[cApe], cApe2 > -1 ? r[cApe2] : ''].map(x => String(x == null ? '' : x).trim()).filter(Boolean).join(' ');
+          filas.push({ ente, cuit, nombre: nombre.replace(/\s+/g, ' '), tipo });
+        }
+        break;
+      }
+    });
+    const unicos = new Map();
+    filas.forEach(f => { if (!unicos.has(f.ente)) unicos.set(f.ente, f); });
+    return { filas: [...unicos.values()], sinEnte, sinCuit, repetidos: filas.length - unicos.size };
+  }
+
   function unirPadron(base, nuevo) {
     const p = { entes: Object.assign({}, (base && base.entes) || {}), nombres: Object.assign({}, (base && base.nombres) || {}, nuevo.nombres || {}),
       garantias: Object.assign({}, (base && base.garantias) || {}, nuevo.garantias || {}) };
@@ -741,7 +776,7 @@
   }
 
   // Arma los inventarios. padron.garantias[codigo] = {fecha, cuit, concepto} (lo cargado a mano) manda sobre el resto.
-  function armarInventariosContables(filas, padron = {}) {
+  function armarInventariosContables(filas, padron = {}, base = {}) {
     const entes = padron.entes || {}, garantias = padron.garantias || {}, nombres = padron.nombres || {};
     const cuitPorNombre = desc => {
       const n = normalizar(desc);
@@ -768,13 +803,15 @@
           if (!usadas.has(f.cliente)) usadas.set(f.cliente, new Set());
           usadas.get(f.cliente).add(i);
         }
-        const cuit = g.cuit || (e && e.cuit) || cuitPorNombre(f.descripcion);
+        const b = base[f.cliente];
+        const cuit = g.cuit || (b && b.cuit) || (e && e.cuit) || cuitPorNombre(f.descripcion);
         // Nombre: el del inventario anterior (el reporte corta los nombres y a veces pega nombre y apellido),
         // sin el sufijo que traía ("- AL41", "- FIANZA"); después se agrega el tipo de la garantía actual.
         if (!concepto && e && e.historial && e.historial.length && e.historial[0].concepto) {
           const nombre = e.historial[0].concepto.replace(/\s*-\s*[^-]*$/, '').trim() || e.historial[0].concepto;
           concepto = conceptoGarantia(Object.assign({}, f, { descripcion: nombre }));
         }
+        if (!concepto && b && b.nombre) concepto = conceptoGarantia(Object.assign({}, f, { descripcion: b.nombre }));
         return { codigo: f.codigo, ente: f.cliente, fecha, concepto: concepto || conceptoGarantia(f), cuit, importe: f.importe, tipo: f.tipo,
           descripcion: f.descripcion, origen: f.origen, faltaCuit: !cuit, faltaFecha: !fecha };
       }).sort((a, b) => (a.fecha || '9999').localeCompare(b.fecha || '9999') || String(a.concepto).localeCompare(String(b.concepto)));
@@ -1982,7 +2019,7 @@ try {
     leerTxtMeli, bancoMeliDeTxt, bancosParaMeli,
     sqlExtraccionCartera, bookmarkletCartera, scriptPowerShellCartera, comandoTareaCartera, IMPORTES_CARTERA,
     NO_COBIS, ultimoDiaHabil, fechasNoCobis, lineaNoCobis, txtNoCobis, loteApiNoCobis, scriptPowerShellNoCobis, scriptPowerShellProbarNoCobis, scriptPowerShellAgenteNoCobis, cmdEnvioNoCobis,
-    leerCartera, leerInventarioGarantias, INVENTARIOS_CONTABLES, INVENTARIO_DENOMINACION, INVENTARIO_FIRMAS, fechaReporteIso, fechaInventarioDesdeReporte, leerPadronDesdeInventarios, unirPadron, armarInventariosContables, leerCom3500, leerTcApiBcra, elegirTipoCambio, numeroEnLetras, daxCarteraPowerBI, daxDiagnosticoPowerBI, leerFilasPowerBI, sugerirColumnaCartera, columnasNumericasCartera, agruparCartera, valoresDistintos, sqlCartera,
+    leerCartera, leerInventarioGarantias, INVENTARIOS_CONTABLES, INVENTARIO_DENOMINACION, INVENTARIO_FIRMAS, fechaReporteIso, fechaInventarioDesdeReporte, leerPadronDesdeInventarios, leerBaseEntes, unirPadron, armarInventariosContables, leerCom3500, leerTcApiBcra, elegirTipoCambio, numeroEnLetras, daxCarteraPowerBI, daxDiagnosticoPowerBI, leerFilasPowerBI, sugerirColumnaCartera, columnasNumericasCartera, agruparCartera, valoresDistintos, sqlCartera,
     leerCsv, encabezadosEjemplo, leerDefinicionInterfaz, sugerirColumna, detectarHojaInterfaz,
     normalizar, provinciaPorNombre, round2, aNumero, aFechaSerial, aCodigoBanco,
     fechaDDMMYY, fechaYYYYMMDD, fechaLegible, hoyDDMMYY,

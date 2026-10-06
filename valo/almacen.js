@@ -57,6 +57,9 @@
       async guardarBancosMeli(lista) { datos.bancosMeli = clonar(lista); cambiar(); },
       async guardarNocobisFlujo(cfg) { datos.nocobisFlujo = clonar(cfg); cambiar(); },
       async guardarPadronInventario(p) { datos.padronInventario = clonar(p); cambiar(); },
+      async contarEntes() { return Object.keys(datos.entesBase || {}).length; },
+      async buscarEntes(lista) { const b = datos.entesBase || {}, r = {}; lista.forEach(e => { if (b[e]) r[e] = { cuit: b[e][0], nombre: b[e][1] }; }); return r; },
+      async guardarEntes(filas) { datos.entesBase = datos.entesBase || {}; filas.forEach(f => { datos.entesBase[String(f.ente)] = [f.cuit, f.nombre || '']; }); if (!guardar()) throw new Error('No entra en el almacenamiento de este navegador.'); ev.emitir(); },
       async registrarEnvio(e) { datos.envios.push(Object.assign({ id: nuevoId() }, clonar(e))); datos.envios = datos.envios.slice(-50); cambiar(); },
       async registrarLote(clienteId, construir) {
         const c = datos.clientes.find(x => x.id === clienteId);
@@ -447,7 +450,35 @@
     sb.from('perfiles').upsert({ id: sesion.user.id, email, nombre: email.split('@')[0] }).then(() => {}, () => {});
     const db = crearDbSupabase(sb);
     const api = await crearCompartido(db, crearUsuarioSupabase(sb, sesion));
-    return Object.assign(api, cuenta, { proveedor: 'supabase', descargaLibre: true, email, importarDocs: db.importar });
+    // Base de entes (tabla entes): ente → CUIT y nombre, para los inventarios de garantías.
+    const entes = {
+      async contarEntes() {
+        const { count, error } = await sb.from('entes').select('ente', { count: 'exact', head: true });
+        if (error) throw new Error(error.message);
+        return count || 0;
+      },
+      async buscarEntes(lista) {
+        const r = {};
+        const unicos = [...new Set(lista.map(String))];
+        for (let i = 0; i < unicos.length; i += 200) {
+          const { data, error } = await sb.from('entes').select('ente,cuit,nombre').in('ente', unicos.slice(i, i + 200));
+          if (error) throw new Error(error.message);
+          (data || []).forEach(x => { r[x.ente] = { cuit: x.cuit, nombre: x.nombre }; });
+        }
+        return r;
+      },
+      async guardarEntes(filas, progreso) {
+        const ahora = new Date().toISOString();
+        for (let i = 0; i < filas.length; i += 1000) {
+          const lote = filas.slice(i, i + 1000).map(f => ({ ente: String(f.ente), cuit: f.cuit, nombre: f.nombre || null, tipo: f.tipo || null, actualizado: ahora }));
+          const { error } = await sb.from('entes').upsert(lote);
+          if (error) throw new Error(/entes/.test(error.message) && /exist|schema cache/i.test(error.message)
+            ? 'Falta la tabla de entes en la base: ejecutá la última versión de supabase/esquema.sql en el SQL Editor.' : error.message);
+          if (progreso) progreso(Math.min(i + 1000, filas.length), filas.length);
+        }
+      },
+    };
+    return Object.assign(api, cuenta, entes, { proveedor: 'supabase', descargaLibre: true, email, importarDocs: db.importar });
   }
 
   // Elige el modo: sitio propio con Supabase; dentro de claude.ai, su base compartida; si no, el navegador.

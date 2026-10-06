@@ -106,7 +106,10 @@ Después de modificar el código, regenerar el archivo único con `python3 const
    Excel (ExcelJS, con logo y colores VALO: rojo Pantone 186 C #CE162E y gris Cool Gray 10 #727274) y en PDF (jsPDF),
    uno por cuenta o todos juntos, con el saldo en letras y las firmas. El CUIT y la fecha de cada garantía (el reporte
    no los trae) salen de inventarios anteriores importados en Excel y de lo que se carga a mano; quedan en la base
-   compartida (`maestros/inventarioPadron`). Las librerías de exportación se cargan al usarlas (`vendor/`, o CDN).
+   compartida (`maestros/inventarioPadron`). El CUIT sale además de la **base de entes** (tabla `entes`: ente → CUIT y
+   nombre), que se carga masivamente desde las planillas de personas jurídicas y humanas (`external_code`,
+   `tax_id_number`) o una planilla Ente · CUIT · Nombre, o de a uno desde el inventario; la base no se muestra, solo se
+   consultan los entes de los reportes cargados. Las planillas de personas no se suben al repositorio. Las librerías de exportación se cargan al usarlas (`vendor/`, o CDN).
 
 ## Datos
 

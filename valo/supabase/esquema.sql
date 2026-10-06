@@ -138,3 +138,23 @@ $$;
 revoke all on function public.tc_bcra(date, date) from public, anon;
 grant execute on function public.tc_bcra(date, date) to authenticated;
 notify pgrst, 'reload schema';
+
+-- ===================================================== Base de entes (CUIT) para los inventarios de garantías
+-- ente = código de cliente del sistema de cartera (external_code de las bases de personas humanas y jurídicas).
+-- Se carga masivamente desde Excel o de a uno desde el inventario. Solo nombre y CUIT (sin datos personales extra).
+create table if not exists public.entes (
+  ente           text primary key,
+  cuit           text not null,
+  nombre         text,
+  tipo           text,
+  actualizado    timestamptz not null default now(),
+  actualizado_por uuid default auth.uid()
+);
+alter table public.entes enable row level security;
+drop policy if exists entes_leer on public.entes;
+drop policy if exists entes_crear on public.entes;
+drop policy if exists entes_modificar on public.entes;
+create policy entes_leer      on public.entes for select to authenticated using (public.es_valo());
+create policy entes_crear     on public.entes for insert to authenticated with check (public.es_valo());
+create policy entes_modificar on public.entes for update to authenticated using (public.es_valo()) with check (public.es_valo());
+notify pgrst, 'reload schema';
