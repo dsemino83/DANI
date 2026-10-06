@@ -4649,7 +4649,7 @@ window.VALO_LOGO_PNG = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAlgAAADICA
         const buf = await f.arrayBuffer();
         // Los reportes vienen en UTF-8; si no, en Windows-1252 (Ñ y acentos).
         let texto = new TextDecoder('utf-8').decode(buf);
-        if (texto.includes('�')) texto = new TextDecoder('windows-1252').decode(buf);
+        if (texto.includes('\ufffd')) texto = new TextDecoder('windows-1252').decode(buf);
         const leido = M.leerInventarioGarantias(texto, f.name);
         const i = inventario.findIndex(x => x.nombre === f.name);
         if (i > -1) inventario.splice(i, 1, { nombre: f.name, leido }); else inventario.push({ nombre: f.name, leido });
