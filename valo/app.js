@@ -1395,7 +1395,7 @@
     const reps = reportesInv();
     $('cardInvContable').classList.toggle('oculto', !reps.length);
     if (!reps.length) return;
-    if (!$('invFecha').value) $('invFecha').value = reps.map(x => M.fechaReporteIso(x.leido.fecha)).filter(Boolean).sort().pop() || '';
+    if (!$('invFecha').value) $('invFecha').value = M.fechaInventarioDesdeReporte(reps.map(x => M.fechaReporteIso(x.leido.fecha)).filter(Boolean).sort().pop() || '');
     const p = padronInv();
     if (!$('invTc').value && p.tcUltimo && p.tcUltimo.tc) { $('invTc').value = String(p.tcUltimo.tc).replace('.', ','); $('invTcFecha').value = p.tcUltimo.fecha || ''; }
     const faltaGarhi = ['garhicon', 'garhisin'].filter(r => !reps.some(x => new RegExp(r, 'i').test(x.leido.reporte + ' ' + x.nombre)));
@@ -1456,16 +1456,25 @@
     } catch (err) { informar('No se pudo importar', esc(err.message || err)); }
   });
 
-  // Tipo de cambio: Com. A 3500 del BCRA (último día hábil del mes en curso).
+  // Tipo de cambio: Com. A 3500 del BCRA (último día hábil del mes del inventario).
   const URL_COM3500 = 'https://www.bcra.gob.ar/archivos/Pdfs/PublicacionesEstadisticas/com3500.xls';
   function usarCom3500(buf, fuente) {
     const wb = XLSX.read(buf, { type: 'array' });
     invTcLista = M.leerCom3500(wb.SheetNames.flatMap(n => filasHoja(wb.Sheets[n])));
     if (!invTcLista.length) throw new Error('El archivo no tiene fechas con tipo de cambio (¿es el com3500.xls del BCRA?).');
-    const t = M.elegirTipoCambio(invTcLista, new Date());
+    invTcFuente = fuente;
+    elegirTcDelInventario();
+  }
+  // TC del último día hábil del mes del inventario (ej. inventario al 30/09 → último día hábil de septiembre).
+  let invTcFuente = '';
+  function elegirTcDelInventario() {
+    if (!invTcLista.length) return;
+    const fi = $('invFecha').value;
+    const ref = fi ? new Date(Number(fi.slice(0, 4)), Number(fi.slice(5, 7)) - 1, Number(fi.slice(8, 10))) : new Date();
+    const t = M.elegirTipoCambio(invTcLista, ref);
     aplicarTc(t.fecha);
-    $('invTcEstado').innerHTML = aviso(t.exacto ? 'ok' : 'warn', `${esc(fuente)}: ${invTcLista.length} cotizaciones, la última del ${fechaAr(invTcLista[invTcLista.length - 1].fecha)}. ` +
-      (t.exacto ? `Se usa el último día hábil del mes (${fechaAr(t.objetivo)}).` : `El último día hábil del mes (${fechaAr(t.objetivo)}) todavía no está publicado: se usa el ${fechaAr(t.fecha)}. Podés cambiar la fecha.`));
+    $('invTcEstado').innerHTML = aviso(t.exacto ? 'ok' : 'warn', `${esc(invTcFuente)}: ${invTcLista.length} cotizaciones, la última del ${fechaAr(invTcLista[invTcLista.length - 1].fecha)}. ` +
+      (t.exacto ? `Se usa el último día hábil del mes del inventario (${fechaAr(t.objetivo)}).` : `El último día hábil del mes del inventario (${fechaAr(t.objetivo)}) no está en el archivo: se usa el ${fechaAr(t.fecha)}. Podés cambiar la fecha.`));
   }
   function aplicarTc(fecha) {
     const r = invTcLista.find(x => x.fecha === fecha) || invTcLista.filter(x => x.fecha <= fecha).pop();
@@ -1484,7 +1493,7 @@
   }
   $('invTc').addEventListener('change', () => { guardarTc(); renderInvContable(); });
   $('invTcFecha').addEventListener('change', () => { if (invTcLista.length) aplicarTc($('invTcFecha').value); else guardarTc(); });
-  $('invFecha').addEventListener('change', renderInvContable);
+  $('invFecha').addEventListener('change', () => { elegirTcDelInventario(); renderInvContable(); });
   $('btnInvTcBcra').addEventListener('click', async () => {
     $('invTcEstado').innerHTML = '<p class="sub">Descargando la Com. A 3500 del BCRA…</p>';
     try {

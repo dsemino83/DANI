@@ -684,6 +684,16 @@
     return i < 0 ? '' : `${m[3]}-${ceros(i + 1, 2)}-${ceros(m[1], 2)}`;
   };
 
+  // Fecha del inventario: los reportes de los primeros días del mes (AL 1/OCT) corresponden al cierre del mes anterior
+  // (30/09). Se toma hasta el día 10; después, la fecha del reporte.
+  function fechaInventarioDesdeReporte(iso) {
+    const m = String(iso || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (!m) return '';
+    if (Number(m[3]) > 10) return iso;
+    const d = new Date(Number(m[1]), Number(m[2]) - 1, 0);
+    return claveDia(d);
+  }
+
   // Padrón (CUIT y fecha de cada garantía) armado desde inventarios anteriores en Excel (hojas con Ente, Fecha, Concepto,
   // CUIT, Importe, o Cliente/CUIT). Devuelve { entes: {ente: {cuit, historial:[{fecha, concepto, importe}]}}, nombres: {nombre: cuit} }.
   function leerPadronDesdeInventarios(hojas) {
@@ -794,7 +804,7 @@
     return [...unicos.values()].sort((a, b) => a.fecha.localeCompare(b.fecha));
   }
 
-  // Tipo de cambio del último día hábil del mes en curso (o el último publicado antes, si todavía no está).
+  // Tipo de cambio del último día hábil del mes de 'hoy' (el mes del inventario), o el último publicado antes de ese día.
   function elegirTipoCambio(lista, hoy = new Date(), feriados = []) {
     if (!lista || !lista.length) return null;
     const objetivo = claveDia(ultimoDiaHabil(hoy, 0, feriados));
@@ -1961,7 +1971,7 @@ try {
     leerTxtMeli, bancoMeliDeTxt, bancosParaMeli,
     sqlExtraccionCartera, bookmarkletCartera, scriptPowerShellCartera, comandoTareaCartera, IMPORTES_CARTERA,
     NO_COBIS, ultimoDiaHabil, fechasNoCobis, lineaNoCobis, txtNoCobis, loteApiNoCobis, scriptPowerShellNoCobis, scriptPowerShellProbarNoCobis, scriptPowerShellAgenteNoCobis, cmdEnvioNoCobis,
-    leerCartera, leerInventarioGarantias, INVENTARIOS_CONTABLES, INVENTARIO_DENOMINACION, INVENTARIO_FIRMAS, fechaReporteIso, leerPadronDesdeInventarios, unirPadron, armarInventariosContables, leerCom3500, elegirTipoCambio, numeroEnLetras, daxCarteraPowerBI, daxDiagnosticoPowerBI, leerFilasPowerBI, sugerirColumnaCartera, columnasNumericasCartera, agruparCartera, valoresDistintos, sqlCartera,
+    leerCartera, leerInventarioGarantias, INVENTARIOS_CONTABLES, INVENTARIO_DENOMINACION, INVENTARIO_FIRMAS, fechaReporteIso, fechaInventarioDesdeReporte, leerPadronDesdeInventarios, unirPadron, armarInventariosContables, leerCom3500, elegirTipoCambio, numeroEnLetras, daxCarteraPowerBI, daxDiagnosticoPowerBI, leerFilasPowerBI, sugerirColumnaCartera, columnasNumericasCartera, agruparCartera, valoresDistintos, sqlCartera,
     leerCsv, encabezadosEjemplo, leerDefinicionInterfaz, sugerirColumna, detectarHojaInterfaz,
     normalizar, provinciaPorNombre, round2, aNumero, aFechaSerial, aCodigoBanco,
     fechaDDMMYY, fechaYYYYMMDD, fechaLegible, hoyDDMMYY,
