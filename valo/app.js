@@ -893,6 +893,13 @@
   });
   ['extCarpeta', 'extHora'].forEach(idc => $(idc).addEventListener('input', renderExtraccion));
 
+  // Deja constancia en la base compartida (se ve en Historial) de lo generado en Cartera.
+  function registrarCartera(accion, extra) {
+    if (!carteraResultado || !almacen || typeof almacen.registrarCartera !== 'function' || almacen.puedeEscribir === false) return;
+    const r = carteraResultado, ct = r.calcTotales || {};
+    almacen.registrarCartera(Object.assign({ creado: new Date().toISOString(), accion, fuente: cartera ? cartera.fuente : '',
+      periodo: carteraCfg.periodo || '', titulares: r.grupos.length, cuotas: r.usadas, valor: ct.valor || 0 }, extra || {})).catch(() => {});
+  }
   $('btnCarteraExcel').addEventListener('click', () => {
     if (!carteraResultado) return;
     const r = carteraResultado;
@@ -905,6 +912,7 @@
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Cartera por titular');
     descargarLibro(`Cartera_por_titular_${carteraCfg.periodo || 'todos'}.xlsx`, wb);
+    registrarCartera('Excel de cartera', { nombre: `Cartera_por_titular_${carteraCfg.periodo || 'todos'}.xlsx` });
   });
 
   // TXT NO COBIS: una línea por MIS con el valor a descuento; concesión hoy, vencimiento último día hábil del mes.
@@ -924,14 +932,14 @@
   $('btnNoCobis').addEventListener('click', () => {
     try {
       const t = infoNoCobis();
-      if (t && t.filas.length) descargar(t.nombre, t.texto, true);
+      if (t && t.filas.length) { descargar(t.nombre, t.texto, true); registrarCartera('TXT NO COBIS', { nombre: t.nombre, txt: t.texto, lineas: t.filas.length, totalTxt: t.total }); }
     } catch (e) { informar('No se pudo generar el TXT NO COBIS', esc(e.message || e)); }
   });
 
   $('btnNoCobisApi').addEventListener('click', () => {
     try {
       const t = infoNoCobis();
-      if (t && t.filas.length) descargar(t.nombre.replace(/\.txt$/, '.json'), JSON.stringify(M.loteApiNoCobis(t), null, 1), true);
+      if (t && t.filas.length) { descargar(t.nombre.replace(/\.txt$/, '.json'), JSON.stringify(M.loteApiNoCobis(t), null, 1), true); registrarCartera('Lote para la API (JSON)', { nombre: t.nombre.replace(/\.txt$/, '.json'), lineas: t.filas.length, totalTxt: t.total }); }
     } catch (e) { informar('No se pudo generar el lote para la API', esc(e.message || e)); }
   });
   // Resultado por banco de un envío a la API (agente o Power Automate).
@@ -2291,7 +2299,31 @@
     return datos().lotes.filter(l => (!cli || l.clienteId === cli) && (!tipo || l.tipoAccion === tipo) && (anulados || !l.anulado));
   }
 
+  // Historial de Cartera: lo generado (TXT, JSON, Excel) y los envíos a la API, de todos los usuarios.
+  function renderHistorialCartera() {
+    const regs = (datos().carteraHist || []).map(r => Object.assign({ tipo: 'gen' }, r));
+    const envs = (datos().envios || []).map(e => ({ tipo: 'envio', id: e.id, creado: e.creado || e.fecha, usuarioId: e.usuarioId, accion: 'Envío a la API' + (e.destino ? ` (${e.destino})` : ''),
+      estado: e.estado || (e.error ? 'error' : 'terminado'), lineas: e.cantidad || (e.lote && e.lote.operaciones ? e.lote.operaciones.length : ''), valor: e.total != null ? e.total : (e.lote && e.lote.total),
+      ingresadas: e.ingresadas, conError: e.conError }));
+    const todos = regs.concat(envs).filter(r => r.creado).sort((a, b) => String(b.creado).localeCompare(String(a.creado)));
+    const compartido = almacen && almacen.modo === 'compartido';
+    $('tablaHistCartera').innerHTML = todos.length ? `<table><thead><tr><th>Fecha</th>${compartido ? '<th>Usuario</th>' : ''}<th>Acción</th><th>Fuente / periodo</th><th class="num">Titulares</th><th class="num">Líneas</th><th class="num">Valor a descuento</th><th>Estado</th><th></th></tr></thead><tbody>` +
+      todos.slice(0, 200).map(r => `<tr><td>${esc(new Date(r.creado).toLocaleString('es-AR'))}</td>${compartido ? `<td>${esc(quien(r.usuarioId))}</td>` : ''}<td><b>${esc(r.accion)}</b>${r.nombre ? `<div class="sub" style="margin:0">${esc(r.nombre)}</div>` : ''}</td>` +
+        `<td>${esc(r.fuente || '')}${r.periodo ? ' · ' + esc(r.periodo) : ''}</td><td class="num">${r.titulares != null ? fmtEntero(r.titulares) : ''}</td><td class="num">${r.lineas ? fmtEntero(r.lineas) : ''}</td>` +
+        `<td class="num">${r.valor != null && r.valor !== '' ? '$ ' + fmtMonto(Number(r.valor)) : ''}</td>` +
+        `<td>${r.tipo === 'envio' ? `<span class="chip ${r.estado === 'terminado' && !r.conError ? 'ok' : r.estado === 'error' || r.conError ? 'bad' : 'warn'}">${esc(r.estado)}${r.ingresadas != null ? ` · ${r.ingresadas} ingresadas` : ''}${r.conError ? ` · ${r.conError} con error` : ''}</span>` : ''}</td>` +
+        `<td>${r.txt ? `<button class="btn" type="button" data-hist-txt="${esc(r.id)}">Descargar TXT</button>` : ''}</td></tr>`).join('') + '</tbody></table>'
+      : '<p class="sub">Todavía no se generó nada desde Cartera.</p>';
+  }
+  $('tablaHistCartera').addEventListener('click', e => {
+    const b = e.target.closest('[data-hist-txt]');
+    if (!b) return;
+    const r = (datos().carteraHist || []).find(x => x.id === b.dataset.histTxt);
+    if (r && r.txt) descargar(r.nombre || 'NoCobis.txt', r.txt, true);
+  });
+
   function renderHistorial() {
+    renderHistorialCartera();
     const lista = lotesFiltrados().slice().sort((a, b) => String(b.fecha).localeCompare(String(a.fecha)));
     const vigentes = lista.filter(l => !l.anulado);
     const porTipo = t => vigentes.filter(l => l.tipoAccion === t);
@@ -2412,7 +2444,7 @@
       return;
     }
     if (almacen.modo === 'compartido') {
-      const ids = [...new Set(datos().lotes.map(l => l.usuarioId).concat(datos().clientes.map(c => c.creadoPor), (datos().envios || []).map(e => e.usuarioId)).filter(Boolean))];
+      const ids = [...new Set(datos().lotes.map(l => l.usuarioId).concat(datos().clientes.map(c => c.creadoPor), (datos().envios || []).map(e => e.usuarioId), (datos().carteraHist || []).map(e => e.usuarioId)).filter(Boolean))];
       nombresUsuarios = await almacen.nombres(ids);
     }
     renderSelectClientes();

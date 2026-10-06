@@ -35,6 +35,7 @@
     if (!datos) datos = { version: 1, clientes: [], bancos: clonar(root.VALO_BANCOS_INICIALES || []), lotes: [] };
     if (!Array.isArray(datos.bancosMeli)) datos.bancosMeli = clonar(root.VALO_BANCOS_MELI_INICIALES || []);
     if (!Array.isArray(datos.envios)) datos.envios = [];
+    if (!Array.isArray(datos.carteraHist)) datos.carteraHist = [];
 
     function guardar() {
       try { localStorage.setItem(CLAVE, JSON.stringify(datos)); return true; } catch (err) { return false; }
@@ -61,6 +62,7 @@
       async buscarEntes(lista) { const b = datos.entesBase || {}, r = {}; lista.forEach(e => { if (b[e]) r[e] = { cuit: b[e][0], nombre: b[e][1] }; }); return r; },
       async guardarEntes(filas) { datos.entesBase = datos.entesBase || {}; filas.forEach(f => { datos.entesBase[String(f.ente)] = [f.cuit, f.nombre || '']; }); if (!guardar()) throw new Error('No entra en el almacenamiento de este navegador.'); ev.emitir(); },
       async registrarEnvio(e) { datos.envios.push(Object.assign({ id: nuevoId() }, clonar(e))); datos.envios = datos.envios.slice(-50); cambiar(); },
+      async registrarCartera(r) { datos.carteraHist = (datos.carteraHist || []).concat([Object.assign({ id: nuevoId() }, clonar(r))]).slice(-100); cambiar(); },
       async registrarLote(clienteId, construir) {
         const c = datos.clientes.find(x => x.id === clienteId);
         const r = construir(clonar(c));
@@ -100,7 +102,7 @@
     const holder = 'pestana-' + nuevoId();
     const usuarioId = user ? await user.id() : null;
     const puede = user ? await user.can('data.write') : null;
-    const datos = { clientes: [], bancos: [], bancosMeli: [], lotes: [], carteraCfg: null, nocobisFlujo: null, envios: [], agenteNoCobis: null, padronInventario: null };
+    const datos = { clientes: [], bancos: [], bancosMeli: [], lotes: [], carteraCfg: null, nocobisFlujo: null, envios: [], agenteNoCobis: null, padronInventario: null, carteraHist: [] };
     const listo = { clientes: false, bancos: false, lotes: false, bancosMeli: false };
     const api = {
       modo: 'compartido',
@@ -139,6 +141,11 @@
     }, alError);
     // Conexión con el flujo de Power Automate para el envío NO COBIS (dirección y clave compartida).
     // Cola de envíos NO COBIS (los toma el agente de la red) y última señal del agente.
+    // Registro de lo generado en Cartera (TXT NO COBIS, lote para la API, Excel): se ve en Historial.
+    db.collection('carteraHist').onSnapshot(s => {
+      datos.carteraHist = s.docs.map(d => Object.assign({ id: d.id }, d.data())).sort((a, b) => String(b.creado || '').localeCompare(String(a.creado || '')));
+      emitirSiListo();
+    }, alError);
     db.collection('envios').onSnapshot(s => {
       datos.envios = s.docs.map(d => Object.assign({ id: d.id }, d.data()))
         .sort((a, b) => String(b.creado || b.fecha || '').localeCompare(String(a.creado || a.fecha || '')));
@@ -204,6 +211,10 @@
         return id;
       },
       async actualizarEnvio(id, cambios) { await escribir(() => db.doc('envios/' + id).update(clonar(cambios))); },
+      async registrarCartera(r) {
+        const id = nuevoId();
+        await escribir(() => db.doc('carteraHist/' + id).set(Object.assign(clonar(r), { usuarioId })));
+      },
       async registrarEnvio(e) {
         const id = nuevoId();
         await escribir(() => db.doc('envios/' + id).set(Object.assign(clonar(e), { usuarioId })));
@@ -283,7 +294,7 @@
   // Sitio propio (GitHub Pages) con la base en Supabase. Se arma una capa con la misma forma que la base de
   // claude.ai (doc / collection / onSnapshot / acquire) para reutilizar crearCompartido sin cambios.
 
-  const COLECCIONES_VIVAS = ['clientes', 'lotes', 'maestros', 'envios'];
+  const COLECCIONES_VIVAS = ['clientes', 'lotes', 'maestros', 'envios', 'carteraHist'];
   const coleccionDe = path => String(path).split('/')[0];
   const padreDe = path => String(path).split('/').slice(0, -1).join('/');
 
