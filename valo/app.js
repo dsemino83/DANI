@@ -1487,15 +1487,26 @@
     renderFaltantes(inv);
   }
 
+  // Solo lo que falta: entes sin CUIT (uno por ente) y garantías sin fecha.
   function renderFaltantes(inv) {
-    const filas = [];
-    inv.forEach(i => i.filas.forEach(f => { if (f.faltaCuit || (f.faltaFecha && i.def.columnas.includes('fecha'))) filas.push(Object.assign({ cuenta: i.def.id, conFecha: i.def.columnas.includes('fecha') }, f)); }));
-    $('invPadronEstado').textContent = filas.length ? `· ${filas.length} garantías con datos faltantes` : '· completo';
-    $('invFaltantes').innerHTML = filas.length ? `<table><thead><tr><th>Cuenta</th><th>Ente</th><th>Concepto (se puede corregir)</th><th>Código</th><th>CUIT</th><th>Fecha</th></tr></thead><tbody>` +
-      filas.map(f => `<tr><td>${esc(f.cuenta)}</td><td>${esc(f.ente)}</td><td><input data-padron-concepto="${esc(f.codigo)}" value="${esc(f.concepto)}" style="min-width:260px" data-escribe></td><td>${esc(f.codigo)}</td>` +
-        `<td><input data-padron-cuit="${esc(f.ente)}" value="${esc(f.cuit)}" placeholder="11 dígitos" style="max-width:130px" data-escribe></td>` +
-        `<td>${f.conFecha ? `<input type="date" data-padron-fecha="${esc(f.codigo)}" value="${esc(f.fecha)}" data-escribe>` : '—'}</td></tr>`).join('') + '</tbody></table>'
-      : '<p class="sub">Todas las garantías tienen CUIT y fecha.</p>';
+    const sinCuit = new Map(), sinFecha = [];
+    inv.forEach(i => i.filas.forEach(f => {
+      if (f.faltaCuit && !sinCuit.has(f.ente)) sinCuit.set(f.ente, { ente: f.ente, nombre: (f.descripcion || f.concepto || '').trim(), cuentas: new Set() });
+      if (f.faltaCuit) sinCuit.get(f.ente).cuentas.add(i.def.id);
+      if (f.faltaFecha && i.def.columnas.includes('fecha')) sinFecha.push(Object.assign({ cuenta: i.def.id }, f));
+    }));
+    const partes = [];
+    if (sinCuit.size) partes.push(`${sinCuit.size} entes sin CUIT`);
+    if (sinFecha.length) partes.push(`${sinFecha.length} garantías sin fecha`);
+    $('invPadronEstado').textContent = partes.length ? '· ' + partes.join(' · ') : '· completo';
+    let html = '';
+    if (sinCuit.size) html += `<h3 style="margin:8px 0">Entes sin CUIT (${sinCuit.size})</h3><table><thead><tr><th>Ente</th><th>Nombre</th><th>CUIT</th><th>Cuentas</th></tr></thead><tbody>` +
+      [...sinCuit.values()].map(e => `<tr><td>${esc(e.ente)}</td><td><input data-ente-nombre="${esc(e.ente)}" value="${esc(e.nombre)}" style="min-width:240px" data-escribe></td>` +
+        `<td><input data-padron-cuit="${esc(e.ente)}" placeholder="11 dígitos" inputmode="numeric" style="max-width:130px" data-escribe></td><td class="sub">${esc([...e.cuentas].join(', '))}</td></tr>`).join('') + '</tbody></table>';
+    if (sinFecha.length) html += `<h3 style="margin:14px 0 8px">Garantías sin fecha (${sinFecha.length})</h3><table><thead><tr><th>Cuenta</th><th>Ente</th><th>Concepto</th><th>Código</th><th>Fecha</th></tr></thead><tbody>` +
+      sinFecha.map(f => `<tr><td>${esc(f.cuenta)}</td><td>${esc(f.ente)}</td><td>${esc(f.concepto)}</td><td>${esc(f.codigo)}</td>` +
+        `<td><input type="date" data-padron-fecha="${esc(f.codigo)}" data-escribe></td></tr>`).join('') + '</tbody></table>';
+    $('invFaltantes').innerHTML = html || '<p class="sub">No falta ningún dato: todos los entes tienen CUIT y todas las garantías, fecha.</p>';
   }
 
   async function guardarPadron(cambio) {
@@ -1511,8 +1522,8 @@
       const cuit = c.value.replace(/\D/g, '');
       if (cuit && cuit.length !== 11) { toast('El CUIT tiene que tener 11 dígitos'); return; }
       const ente = c.dataset.padronCuit, fila = c.closest('tr');
-      const nombre = fila ? (fila.querySelector('[data-padron-concepto]') || {}).value || '' : '';
-      if (cuit) guardarEntesBase([{ ente, cuit, nombre: nombre.replace(/\s+-\s+[^-]*$/, '') }]).then(() => renderInvContable(), err => informar('No se pudo guardar', esc(err.message || err)));
+      const nombre = fila ? ((fila.querySelector('[data-ente-nombre]') || {}).value || '').trim() : '';
+      if (cuit) guardarEntesBase([{ ente, cuit, nombre }]).then(() => renderInvContable(), err => informar('No se pudo guardar', esc(err.message || err)));
     }
     if (f) guardarPadron(p => { p.garantias[f.dataset.padronFecha] = Object.assign({}, p.garantias[f.dataset.padronFecha], { fecha: f.value }); });
   });
