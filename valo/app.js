@@ -2026,7 +2026,7 @@
       ? `El archivo no tiene las columnas de la interfaz de ${c.nombre} (${interfaz.banco}, ${interfaz.fecha}, ${interfaz.monto}). Revisá el archivo o la interfaz del cliente.`
       : 'No se encontró una hoja con los datos esperados (columnas cod_entidad_bancaria / dat_reconciliation_estimated_date, o COD_BANCO / MONTO / FECHA_VENCIMIENTO). Si el cliente usa otro formato, cargale una interfaz en Clientes.';
     // Por defecto: la hoja con más filas (en automático, la de cupones GetNet).
-    const porDefecto = (interfaz ? utiles : utiles.filter(h => h.formato === 'getnet')).slice().sort((a, b) => b.cantidad - a.cantidad)[0] || utiles[0];
+    const porDefecto = (interfaz ? utiles : utiles.filter(h => h.formato === 'getnet' || h.formato === 'getnetCupones')).slice().sort((a, b) => b.cantidad - a.cantidad)[0] || utiles[0];
     $('aHoja').innerHTML = utiles.map((h, i) => `<option value="${i}" ${h === porDefecto ? 'selected' : ''}>${esc(h.hoja)} — ${interfaz ? 'Interfaz ' + esc(interfaz.nombre) : M.FORMATOS[h.formato].nombre} (${fmtEntero(h.cantidad)} filas)</option>`).join('');
     return archivo.errorHojas;
   }
@@ -2065,7 +2065,8 @@
       meli = armarReporteMeli();
       reporte = meli.reporte;
       bancosUso = M.bancosParaMeli(datos().bancosMeli, datos().bancos);
-    } else reporte = M.armarReporte(hoja.filas, hoja, { columnaMonto: $('aMonto').value, interfaz: archivo.interfaz });
+    } else reporte = M.armarReporte(hoja.filas, hoja, { columnaMonto: $('aMonto').value, interfaz: archivo.interfaz,
+      codigoPorNombre: M.crearBuscadorBancoPorNombre(datos().bancos, datos().bancosMeli) });
     const errores = M.controlarReporte(reporte);
     const cb = M.controlarBancos(reporte, bancosUso);
     const total = M.round2(reporte.reduce((s, r) => s + (r.MONTO || 0), 0));
@@ -2195,7 +2196,7 @@
         cambiosCliente: { ultimaSecuencia: Math.max(fresco.ultimaSecuencia, p.secuencia), tasa: p.tasa },
         lote: {
           id: nuevoId(), clienteId: c.id, fecha: hoy.toISOString(), archivo: archivoActual.nombre, hoja: prep.hoja.hoja,
-          columnaMonto: prep.hoja.formato === 'getnet' ? columnaMonto : prep.hoja.formato === 'interfaz' ? archivoActual.interfaz.monto : prep.hoja.formato === 'meli' ? 'importe TXT' : 'MONTO', firma,
+          columnaMonto: prep.hoja.formato === 'getnet' ? columnaMonto : prep.hoja.formato === 'getnetCupones' ? 'MOV_AMOUNT_INSTALL' : prep.hoja.formato === 'interfaz' ? archivoActual.interfaz.monto : prep.hoja.formato === 'meli' ? 'importe TXT' : 'MONTO', firma,
           interfaz: prep.hoja.formato === 'interfaz' ? archivoActual.interfaz.nombre : prep.hoja.formato === 'meli' ? 'MELI (TXT por banco)' : null,
           tipoAccion: p.tipoAccion, secuencia: p.secuencia, lote: p.lote, periodo: p.periodo, tasa: p.tasa,
           secuenciaAnterior: fresco.ultimaSecuencia, filas: prep.reporte.length,

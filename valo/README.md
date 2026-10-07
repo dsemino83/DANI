@@ -39,6 +39,9 @@ Después de modificar el código, regenerar el archivo único con `python3 const
    - Se lee la hoja de cupones GetNet (`cod_entidad_bancaria`, `entidad_bancaria`,
      `dat_reconciliation_estimated_date`, monto) o una hoja en formato Reporte
      (`ID_LOTE, COD_BANCO, NOMBRE_BANCO, MONTO, FECHA_VENCIMIENTO, …`).
+   - **Cesión de cupones GetNet** (`Valo_Cesion_Cupones_<fecha>.xlsx`, hoja `result`): banco por nombre
+     (`ENTIDAD_EMISORA`, se busca el código en Bancos MELI y Bancos), vencimiento `FECHA_ESPERADA_PAGO`, monto de la cuota
+     `MOV_AMOUNT_INSTALL`. Se reconoce solo, sin interfaz.
    - Controles previos: formulario LISTO, filas válidas, y todos los bancos usados completos
      (sin *Prueba* ni *#N/D*). Si algo falla no deja procesar.
    - Número de crédito: código de banco (si tiene más de 3 dígitos, los 3 últimos) + fecha de generación ddmmyy +

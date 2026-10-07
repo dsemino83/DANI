@@ -131,6 +131,28 @@
     return isFinite(n) ? n : null;
   }
 
+  // Código de banco a partir del nombre ("BANCO PROVINCIA DEL NEUQUEN S.A." → 97): primero Bancos MELI (nombre o
+  // COBIS), después Bancos. Compara sin "banco", "de", "del", "S.A.", etc.
+  function crearBuscadorBancoPorNombre(bancos, bancosMeli) {
+    const VACIAS = new Set(['banco', 'de', 'del', 'la', 'el', 'los', 'las', 'y', 'sa', 'sau', 's', 'a', 'u', 'argentina', 'arg']);
+    const clavePalabras = t => normalizar(String(t || '').replace(/_/g, ' ')).split(' ').filter(w => w && !VACIAS.has(w));
+    const lista = [];
+    (bancosMeli || []).forEach(b => { const n = Number(b.numero); if (n) [b.nombre, b.cobis].forEach(x => x && lista.push({ n, p: clavePalabras(x) })); });
+    (bancos || []).forEach(b => { const n = Number(b.codigo); if (n && b.nombre) lista.push({ n, p: clavePalabras(b.nombre) }); });
+    const cache = new Map();
+    return nombre => {
+      const k = normalizar(nombre);
+      if (!k) return null;
+      if (cache.has(k)) return cache.get(k);
+      const p = clavePalabras(nombre);
+      const igual = lista.find(x => x.p.length && x.p.join(' ') === p.join(' '));
+      const contiene = igual || lista.find(x => x.p.length && p.length && (x.p.every(w => p.includes(w)) || p.every(w => x.p.includes(w))));
+      const r = contiene ? contiene.n : null;
+      cache.set(k, r);
+      return r;
+    };
+  }
+
   function aCodigoBanco(v) {
     const n = aNumero(v);
     return n == null ? null : Math.round(n);
@@ -143,6 +165,10 @@
     getnet: {
       nombre: 'Cupones GetNet',
       requeridas: ['cod_entidad_bancaria', 'dat_reconciliation_estimated_date'],
+    },
+    getnetCupones: {
+      nombre: 'Cesión de cupones GetNet',
+      requeridas: ['entidad_emisora', 'fecha_esperada_pago', 'mov_amount_install'],
     },
     reporte: {
       nombre: 'Reporte (formato conversor)',
@@ -258,7 +284,7 @@
     for (let i = 0; i < Math.min(filas.length, 15); i++) {
       const enc = (filas[i] || []).map(clave);
       for (const [id, f] of Object.entries(FORMATOS)) {
-        if (f.requeridas.every(r => enc.includes(r))) {
+        if (f.requeridas.length && f.requeridas.every(r => enc.includes(r))) {
           const datos = filas.slice(i + 1).filter(r => r && r.some(c => c != null && c !== ''));
           return { hoja: nombre, formato: id, filaEncabezado: i, encabezados: enc, cantidad: datos.length };
         }
@@ -296,6 +322,19 @@
           MONTO: aNumero(tomar(r, k(it.monto))),
           FECHA_VENCIMIENTO: aFechaSerial(tomar(r, k(it.fecha))),
           PLAZO: null, TNA: null, TEA: null, CFT: null,
+        });
+      } else if (deteccion.formato === 'getnetCupones') {
+        // Cesión de cupones GetNet: el banco viene por nombre (ENTIDAD_EMISORA) y se busca su código en Bancos.
+        const nombreBanco = tomar(r, 'entidad_emisora');
+        const resolver = opciones && opciones.codigoPorNombre;
+        salida.push({
+          ID_LOTE: tomar(r, 'pay_payment_id'),
+          COD_BANCO: resolver ? resolver(nombreBanco) : null,
+          NOMBRE_BANCO: nombreBanco,
+          MONTO: aNumero(tomar(r, 'mov_amount_install')),
+          FECHA_VENCIMIENTO: aFechaSerial(tomar(r, 'fecha_esperada_pago')),
+          PLAZO: aNumero(tomar(r, 'gtwt_installments')),
+          TNA: null, TEA: null, CFT: null,
         });
       } else if (deteccion.formato === 'getnet') {
         const campoMonto = (opciones && opciones.columnaMonto) || 'vlu_transaction_amount';
@@ -2021,7 +2060,7 @@ try {
     NO_COBIS, ultimoDiaHabil, fechasNoCobis, lineaNoCobis, txtNoCobis, loteApiNoCobis, scriptPowerShellNoCobis, scriptPowerShellProbarNoCobis, scriptPowerShellAgenteNoCobis, cmdEnvioNoCobis,
     leerCartera, leerInventarioGarantias, INVENTARIOS_CONTABLES, INVENTARIO_DENOMINACION, INVENTARIO_FIRMAS, fechaReporteIso, fechaInventarioDesdeReporte, leerPadronDesdeInventarios, leerBaseEntes, unirPadron, armarInventariosContables, leerCom3500, leerTcApiBcra, elegirTipoCambio, numeroEnLetras, daxCarteraPowerBI, daxDiagnosticoPowerBI, leerFilasPowerBI, sugerirColumnaCartera, columnasNumericasCartera, agruparCartera, valoresDistintos, sqlCartera,
     leerCsv, encabezadosEjemplo, leerDefinicionInterfaz, sugerirColumna, detectarHojaInterfaz,
-    normalizar, provinciaPorNombre, round2, aNumero, aFechaSerial, aCodigoBanco,
+    normalizar, provinciaPorNombre, crearBuscadorBancoPorNombre, round2, aNumero, aFechaSerial, aCodigoBanco,
     fechaDDMMYY, fechaYYYYMMDD, fechaLegible, hoyDDMMYY,
     detectarHoja, armarReporte, leerConciliacion,
     problemasBanco, codigoCreditoPorDefecto, prefijoBanco, numeroCredito, prefijosRepetidos, controlarBancos, controlarReporte,
