@@ -131,25 +131,44 @@
     return isFinite(n) ? n : null;
   }
 
-  // Código de banco a partir del nombre ("BANCO PROVINCIA DEL NEUQUEN S.A." → 97): primero Bancos MELI (nombre o
-  // COBIS), después Bancos. Compara sin "banco", "de", "del", "S.A.", etc.
+  // Equivalencias fijas nombre de banco → código, como las usa GetNet (entidad_bancaria / cod_entidad_bancaria).
+  // Mandan sobre la búsqueda en las tablas (p. ej. HSBC → 7, Galicia, por la fusión).
+  const ALIAS_BANCOS = [
+    ['BANCO SANTANDER RIO S.A.', 72], ['BANCO MACRO S.A.', 285], ['BANCO DE LA PROVINCIA DE BUENOS AIRES', 14],
+    ['BANCO DE LA NACION ARGENTINA', 11], ['BANCO DE GALICIA Y BUENOS AIRES S.A.', 7], ['BANCO BBVA ARGENTINA S A', 17],
+    ['BANCO BBVA ARGENTINA S.A.', 17], ['BANCO DE LA CIUDAD DE BUENOS AIRES', 29], ['BANCO DE LA PROVINCIA DE CORDO', 20],
+    ['INDUSTRIAL AND COMMERCIAL BANK OF CHINA (ARGENTINA) S.A.', 15], ['HSBC Bank Argentina S.A.', 7],
+    ['BANCO PROVINCIA DEL NEUQUEN S.A.', 97],
+  ];
+  // Código de banco a partir del nombre ("BANCO PROVINCIA DEL NEUQUEN S.A." → 97): equivalencias fijas, después
+  // Bancos MELI (nombre o COBIS) y Bancos. Compara sin "banco", "de", "S.A.", etc.; acepta palabras cortadas
+  // ("CORDO" = "CORDOBA") y elige el nombre con más palabras en común.
   function crearBuscadorBancoPorNombre(bancos, bancosMeli) {
-    const VACIAS = new Set(['banco', 'de', 'del', 'la', 'el', 'los', 'las', 'y', 'sa', 'sau', 's', 'a', 'u', 'argentina', 'arg']);
+    const VACIAS = new Set(['banco', 'de', 'del', 'la', 'el', 'los', 'las', 'y', 'sa', 'sau', 's', 'a', 'u', 'argentina', 'arg', 'and', 'of', 'bank']);
     const clavePalabras = t => normalizar(String(t || '').replace(/_/g, ' ')).split(' ').filter(w => w && !VACIAS.has(w));
+    const alias = new Map(ALIAS_BANCOS.map(([n, c]) => [clavePalabras(n).join(' '), c]));
     const lista = [];
     (bancosMeli || []).forEach(b => { const n = Number(b.numero); if (n) [b.nombre, b.cobis].forEach(x => x && lista.push({ n, p: clavePalabras(x) })); });
     (bancos || []).forEach(b => { const n = Number(b.codigo); if (n && b.nombre) lista.push({ n, p: clavePalabras(b.nombre) }); });
+    const igualOPrefijo = (a, b) => a === b || (a.length >= 4 && b.startsWith(a)) || (b.length >= 4 && a.startsWith(b));
     const cache = new Map();
     return nombre => {
-      const k = normalizar(nombre);
-      if (!k) return null;
-      if (cache.has(k)) return cache.get(k);
       const p = clavePalabras(nombre);
-      const igual = lista.find(x => x.p.length && x.p.join(' ') === p.join(' '));
-      const contiene = igual || lista.find(x => x.p.length && p.length && (x.p.every(w => p.includes(w)) || p.every(w => x.p.includes(w))));
-      const r = contiene ? contiene.n : null;
-      cache.set(k, r);
-      return r;
+      const k = p.join(' ');
+      if (!k) return null;
+      if (alias.has(k)) return alias.get(k);
+      if (cache.has(k)) return cache.get(k);
+      let mejor = null, puntaje = 0;
+      lista.forEach(x => {
+        if (!x.p.length) return;
+        const comunes = p.filter(w => x.p.some(v => igualOPrefijo(w, v))).length;
+        // Todas las palabras de uno tienen que estar en el otro; gana el de más palabras en común y menos sobrantes.
+        if (comunes < Math.min(p.length, x.p.length)) return;
+        const pts = comunes * 10 - Math.abs(x.p.length - p.length);
+        if (pts > puntaje) { puntaje = pts; mejor = x.n; }
+      });
+      cache.set(k, mejor);
+      return mejor;
     };
   }
 
