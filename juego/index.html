@@ -202,6 +202,15 @@
   .foto-botones { position: absolute; left: 0; right: 0; bottom: 12px; display: none; justify-content: center; gap: 30px; }
   .foto-botones.ver { display: flex; }
   .foto-botones .boton-amarillo { position: static; width: 370px; height: 80px; font-size: 34px; white-space: nowrap; }
+  .foto-botones { flex-wrap: wrap; }
+  .foto-botones { gap: 10px; }
+  .foto-botones .boton-amarillo { width: auto; padding: 0 20px; font-size: 26px; gap: 8px; }
+  .foto-botones .boton-amarillo svg { width: 36px; height: 36px; }
+  /* Colores propios de estos botones (también con el escenario hotel). */
+  #escenario .foto-botones .boton-amarillo.boton-azul { background: linear-gradient(#5B9BFF, #1F5FD8); color: #fff; box-shadow: 0 8px 0 #123D96, 0 14px 30px rgba(0,0,0,.35); }
+  #escenario .foto-botones .boton-amarillo.boton-verde { background: linear-gradient(#4BE08A, #1FA855); color: #fff; box-shadow: 0 8px 0 #11753A, 0 14px 30px rgba(0,0,0,.35); }
+  #escenario .foto-botones .boton-amarillo.boton-rojo { background: linear-gradient(#FF7A7A, #D93030); color: #fff; box-shadow: 0 8px 0 #9E1C1C, 0 14px 30px rgba(0,0,0,.35); }
+  #escenario.tema-hotel .foto-botones .boton-amarillo.boton-azul { background: linear-gradient(#B072FF, #6A2BC4); box-shadow: 0 8px 0 #3D1066, 0 14px 30px rgba(0,0,0,.4); }
   .boton-rojo { background: linear-gradient(#FF7A7A, #D93030); color: #fff; box-shadow: 0 8px 0 #9E1C1C, 0 14px 30px rgba(0,0,0,.35); }
   /* Botones redondos: casita (menú principal) y salir. */
   #barra { position: absolute; top: 24px; right: 24px; z-index: 25; display: flex; gap: 14px; }
@@ -343,7 +352,11 @@
   /* foto: el formato con marco se mantiene (4:3), centrado y lo más grande posible */
   #escenario.vertical #p-foto .cuadro { transform: none; }
   #escenario.vertical .foto-botones { bottom: 40px; gap: 16px; }
-  #escenario.vertical .foto-botones .boton-amarillo { width: 310px; height: 108px; font-size: 34px; gap: 8px; }
+  #escenario.vertical .foto-botones { row-gap: 26px; }
+  #escenario.vertical .foto-botones .boton-amarillo { width: 300px; height: 100px; font-size: 32px; gap: 8px; padding: 0; }
+  #escenario.vertical .foto-botones .boton-amarillo svg { width: 44px; height: 44px; }
+  /* Arriba, grandes: descargar y compartir; abajo, otra foto, inicio y salir. */
+  #escenario.vertical .foto-botones #btn-descargar, #escenario.vertical .foto-botones #btn-compartir { width: 460px; height: 112px; font-size: 40px; }
   #escenario.vertical #cuenta { font-size: 300px; }
   #escenario.vertical #p-foto { background: linear-gradient(#1D4BA8, #0B2466); }
   #escenario.vertical .chau-titulo { font-size: 96px; }
@@ -555,8 +568,8 @@
     </section>
 
     <!-- ============ FOTO: ¿Querés ver cómo quedó? ============
-         La foto vive solo en la memoria de esta pantalla: nunca se guarda ni se sube,
-         y se borra al salir de la pantalla o de la aplicación. -->
+         La foto vive solo en la memoria de esta pantalla y se borra al salir de la pantalla o de
+         la aplicación. Solo sale del celular si se toca «Descargar» o «Compartir». -->
     <section id="p-foto" class="pantalla noche">
       <div class="cuadro">
         <video id="camara" playsinline muted autoplay></video>
@@ -566,6 +579,14 @@
         <div class="foto-aviso" id="foto-aviso">Abriendo la cámara…</div>
       </div>
       <div class="foto-botones" id="foto-botones">
+        <button id="btn-descargar" class="boton-amarillo boton-azul">
+          <svg width="46" height="46" viewBox="0 0 54 54"><path d="M27 8V34M16 24L27 35L38 24" stroke="#fff" stroke-width="7" stroke-linecap="round" stroke-linejoin="round" fill="none"/><path d="M10 38V45H44V38" stroke="#fff" stroke-width="7" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>
+          Descargar
+        </button>
+        <button id="btn-compartir" class="boton-amarillo boton-verde">
+          <svg width="46" height="46" viewBox="0 0 54 54"><path d="M27 6A21 21 0 0 0 9 38L6 48L17 45A21 21 0 1 0 27 6Z" fill="#fff"/><path d="M20 30L33 22M20 30L33 37" stroke="#1FA855" stroke-width="4" stroke-linecap="round"/><circle cx="19" cy="30" r="5" fill="#1FA855"/><circle cx="34" cy="21" r="5" fill="#1FA855"/><circle cx="34" cy="38" r="5" fill="#1FA855"/></svg>
+          Compartir
+        </button>
         <button id="btn-otra-foto" class="boton-amarillo">
           <svg width="50" height="50" viewBox="0 0 54 54"><path d="M8 17h9l4-6h12l4 6h9v26H8z" fill="#1753C9"/><circle cx="27" cy="30" r="9" fill="#FFD23F" stroke="#1753C9" stroke-width="4"/></svg>
           Otra foto
@@ -1576,8 +1597,74 @@
     var v = $('camara');
     if (v) { v.srcObject = null; v.style.display = 'none'; }
   }
+  /* Descargar y compartir: la foto solo sale del celular si la familia toca uno de estos
+     botones. Compartir abre el menú del celular (ahí aparece WhatsApp) con la imagen adjunta. */
+  var archivoFoto = null, compartiendo = false;
+  function nombreFoto() {
+    var d = new Date(), dos = function (n) { return (n < 10 ? '0' : '') + n; };
+    return 'mision-dientes-limpios-' + d.getFullYear() + dos(d.getMonth() + 1) + dos(d.getDate()) + '-' + dos(d.getHours()) + dos(d.getMinutes()) + '.jpg';
+  }
+  // El archivo se arma apenas aparece la foto, así compartir abre el menú en el mismo toque.
+  function prepararArchivoFoto() {
+    archivoFoto = null;
+    var c = $('foto');
+    c.toBlob(function (blob) {
+      if (!blob || estado.pantalla !== 'foto') return;
+      try { archivoFoto = new File([blob], nombreFoto(), { type: 'image/jpeg' }); }
+      catch (e) { archivoFoto = blob; archivoFoto.name = nombreFoto(); }
+    }, 'image/jpeg', 0.92);
+  }
+  function conArchivo(hacer) {
+    if (archivoFoto) { hacer(archivoFoto); return; }
+    $('foto').toBlob(function (blob) {
+      if (!blob) return;
+      try { archivoFoto = new File([blob], nombreFoto(), { type: 'image/jpeg' }); }
+      catch (e) { archivoFoto = blob; archivoFoto.name = nombreFoto(); }
+      hacer(archivoFoto);
+    }, 'image/jpeg', 0.92);
+  }
+  function avisoFoto(texto) {
+    var a = $('foto-aviso');
+    a.innerHTML = texto; a.style.display = ''; a.classList.add('abajo');
+    clearTimeout(avisoFoto.t);
+    avisoFoto.t = setTimeout(function () { a.style.display = 'none'; }, 4000);
+  }
+  function descargarFoto(silencioso) {
+    conArchivo(function (archivo) {
+      var url = URL.createObjectURL(archivo);
+      var a = document.createElement('a');
+      a.href = url; a.download = archivo.name || nombreFoto();
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(function () { URL.revokeObjectURL(url); }, 10000);
+      if (!silencioso) avisoFoto('¡Foto guardada!<small>Está en la galería o en «Descargas».</small>');
+    });
+  }
+  var TEXTO_COMPARTIR = '¡Misión cumplida! Dientes limpios y una gran sonrisa 🦷✨';
+  function compartirFoto() {
+    conArchivo(function (archivo) {
+      var datos = { files: [archivo], title: 'Misión: Dientes Limpios', text: TEXTO_COMPARTIR };
+      if (navigator.share && navigator.canShare && navigator.canShare({ files: [archivo] })) {
+        compartiendo = 'menu';
+        navigator.share(datos).then(function () { compartiendo = false; }, function (e) {
+          compartiendo = false;
+          if (e && e.name === 'AbortError') return; // cerraron el menú: no pasa nada
+          compartirSinMenu();
+        });
+      } else compartirSinMenu();
+    });
+  }
+  // Sin menú de compartir (computadora o navegador viejo): se descarga la foto y se abre
+  // WhatsApp con el mensaje, para adjuntarla desde ahí.
+  function compartirSinMenu() {
+    descargarFoto(true);
+    avisoFoto('La foto se descargó.<small>Adjuntala en el chat de WhatsApp con el clip 📎</small>');
+    compartiendo = 'whatsapp';
+    try { window.open('https://wa.me/?text=' + encodeURIComponent(TEXTO_COMPARTIR), '_blank', 'noopener'); } catch (e) {}
+  }
+
   // Borra la foto de la memoria: se achica el lienzo, así no queda ningún píxel.
   function borrarFoto() {
+    archivoFoto = null; compartiendo = false;
     var c = $('foto');
     if (!c) return;
     c.width = 1; c.height = 1; c.style.display = 'none';
@@ -1682,6 +1769,7 @@
     decorarFoto(g);
     $('foto').style.display = 'block';
     $('foto-botones').classList.add('ver');
+    prepararArchivoFoto();
     hablar('¡Felicidades, ' + NOMBRE + '! ¡Lo lograste!', claveNombre('foto-final'));
   }
   /* Formato de la foto: una franja arriba con Superdiente (margen superior izquierdo) y el
@@ -1828,7 +1916,9 @@
     texto('¡Lo lograste!', FOTO.texto.y2, FOTO.texto.t2, t.sub);
   }
   // Si se sale de la aplicación (otra app, bloqueo de pantalla, cerrar), la foto se borra.
+  // Mientras se comparte (se abre WhatsApp u otra app) no se borra: es la familia la que la envía.
   document.addEventListener('visibilitychange', function () {
+    if (compartiendo) { if (!document.hidden && compartiendo === 'whatsapp') compartiendo = false; return; }
     if (document.hidden && estado.pantalla === 'foto') mostrar('inicio');
   });
   window.addEventListener('pagehide', function () { detenerCamara(); borrarFoto(); });
@@ -2149,6 +2239,8 @@
   if (!perfil) abrirConfig(true);
   $('btn-foto').onclick = abrirCamara;
   $('btn-otra-foto').onclick = abrirCamara;
+  $('btn-descargar').onclick = function () { descargarFoto(false); };
+  $('btn-compartir').onclick = compartirFoto;
   $('btn-foto-volver').onclick = function () { mostrar('inicio'); saludar(); };
   $('btn-foto-salir').onclick = function () { $('btn-salir').onclick(); };
   // Algunos navegadores sí dejan hablar al abrir; si no arrancó, queda para el primer toque.
