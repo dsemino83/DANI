@@ -1216,10 +1216,34 @@
     return '';
   }
 
+  // Firmante de la planilla que corresponde a una persona del PDF: por el DNI dentro del CUIT y, si no, por el nombre
+  // (mismas palabras en cualquier orden, sin acentos).
+  function firmanteDe(persona, firmantes) {
+    const lista = firmantes || [];
+    const c = cuitPorDni(persona.dni, lista);
+    if (c) return lista.find(f => String(f.cuit).replace(/\D/g, '') === c) || { cuit: c, nombre: persona.nombre_completo };
+    const palabras = t => normalizar(t).split(' ').filter(Boolean).sort().join(' ');
+    const n = palabras(persona.nombre_completo);
+    return n ? lista.find(f => palabras(f.nombre) === n) || null : null;
+  }
+  // Firmantes de la planilla que no aparecen como apoderados en ningún poder.
+  function firmantesSinPoder(poderes, firmantes) {
+    const usados = new Set();
+    poderes.forEach(p => p.apoderados.forEach(a => { const f = firmanteDe(a, firmantes); if (f) usados.add(String(f.cuit).replace(/\D/g, '')); }));
+    return (firmantes || []).filter(f => !usados.has(String(f.cuit).replace(/\D/g, '')));
+  }
+
   // Arma el JSON de un poder. edicion: { deed_number, board_resolution_power_attorney, power_attorney_type, cuits: {dni: cuit} }.
   function jsonPoder(poder, cliente, edicion = {}) {
     const cuits = edicion.cuits || {};
-    const ident = dni => { const c = cuits[dni] || cuitPorDni(dni, cliente && cliente.firmantes); return c ? Number(c) : (dni ? Number(dni) : null); };
+    const firmantes = cliente && cliente.firmantes && cliente.firmantes.length ? cliente.firmantes : null;
+    const ident = (dni, persona) => {
+      const f = firmantes && persona ? firmanteDe(persona, firmantes) : null;
+      const c = cuits[dni] || (f && f.cuit) || cuitPorDni(dni, firmantes);
+      return c ? Number(String(c).replace(/\D/g, '')) : (dni ? Number(dni) : null);
+    };
+    // Con planilla: solo van los apoderados que están en ella.
+    const apoderados = firmantes ? poder.apoderados.filter(a => firmanteDe(a, firmantes)) : poder.apoderados;
     const marcas = (cliente && cliente.marcas) || {};
     return {
       deed_number: edicion.deed_number || null,
@@ -1232,7 +1256,7 @@
       razon_social: poder.razon_social || null,
       cuit_empresa: formatoCuit(poder.cuit_empresa),
       otorgante: { numero_de_identificacion: ident(poder.otorgante.dni), nombre_completo: poder.otorgante.nombre_completo || null, fecha_nacimiento: poder.otorgante.fecha_nacimiento || null },
-      apoderados: poder.apoderados.map(a => ({ numero_de_identificacion: ident(a.dni), nombre_completo: a.nombre_completo, grupo: a.grupo || null })),
+      apoderados: apoderados.map(a => ({ numero_de_identificacion: ident(a.dni, a), nombre_completo: a.nombre_completo, grupo: a.grupo || null })),
       estructuras_de_firma: poder.usos.map((u, n) => {
         const ed = (edicion.facultades || [])[n] || {};
         return {
@@ -1307,7 +1331,9 @@
       razon_social: (cliente && cliente.cliente) || (jsons[0] && jsons[0].razon_social) || null,
       cuit_empresa: formatoCuit((cliente && cliente.cuit) || (jsons[0] && jsons[0].cuit_empresa)),
       otorgante: otorgantes.length === 1 ? otorgantes[0] : otorgantes,
-      apoderados: [...apoderados.values()].map(a => Object.assign(a, { grupo: a.grupo.join(', ') })),
+      apoderados: [...apoderados.values()].map(a => Object.assign(a, { grupo: a.grupo.join(', ') }))
+        .concat(((cliente && cliente.sinPoder) || []).filter(f => !apoderados.has(Number(f.cuit))).map(f => ({ numero_de_identificacion: Number(f.cuit),
+          nombre_completo: f.nombre, grupo: null, advertencia: 'Está en la planilla del cliente pero no figura en ningún poder' }))),
       estructuras_de_firma: lista.map(g => ({
         grupo: g.grupo,
         tipo_de_firma: g.tipo || null,
@@ -2452,7 +2478,7 @@ try {
     leerTxtMeli, bancoMeliDeTxt, bancosParaMeli,
     sqlExtraccionCartera, bookmarkletCartera, scriptPowerShellCartera, comandoTareaCartera, IMPORTES_CARTERA,
     NO_COBIS, ultimoDiaHabil, fechasNoCobis, lineaNoCobis, txtNoCobis, loteApiNoCobis, scriptPowerShellNoCobis, scriptPowerShellProbarNoCobis, scriptPowerShellAgenteNoCobis, cmdEnvioNoCobis,
-    leerCartera, BASTANTEO_CATALOGO, BASTANTEO_CLAVES, BASTANTEO_EXTRA, leerPoderesOcr, leerClienteBastanteo, cuitPorDni, formatoCuit, jsonPoder, jsonBastanteoUnico, leerInventarioGarantias, INVENTARIOS_CONTABLES, INVENTARIO_DENOMINACION, INVENTARIO_FIRMAS, fechaReporteIso, fechaInventarioDesdeReporte, leerPadronDesdeInventarios, leerBaseEntes, unirPadron, armarInventariosContables, leerCom3500, leerTcApiBcra, elegirTipoCambio, numeroEnLetras, daxCarteraPowerBI, daxDiagnosticoPowerBI, leerFilasPowerBI, sugerirColumnaCartera, columnasNumericasCartera, agruparCartera, valoresDistintos, sqlCartera,
+    leerCartera, BASTANTEO_CATALOGO, BASTANTEO_CLAVES, BASTANTEO_EXTRA, leerPoderesOcr, leerClienteBastanteo, cuitPorDni, formatoCuit, firmanteDe, firmantesSinPoder, jsonPoder, jsonBastanteoUnico, leerInventarioGarantias, INVENTARIOS_CONTABLES, INVENTARIO_DENOMINACION, INVENTARIO_FIRMAS, fechaReporteIso, fechaInventarioDesdeReporte, leerPadronDesdeInventarios, leerBaseEntes, unirPadron, armarInventariosContables, leerCom3500, leerTcApiBcra, elegirTipoCambio, numeroEnLetras, daxCarteraPowerBI, daxDiagnosticoPowerBI, leerFilasPowerBI, sugerirColumnaCartera, columnasNumericasCartera, agruparCartera, valoresDistintos, sqlCartera,
     leerCsv, encabezadosEjemplo, leerDefinicionInterfaz, sugerirColumna, detectarHojaInterfaz,
     normalizar, provinciaPorNombre, crearBuscadorBancoPorNombre, round2, aNumero, aFechaSerial, aCodigoBanco,
     fechaDDMMYY, fechaYYYYMMDD, fechaLegible, hoyDDMMYY,
