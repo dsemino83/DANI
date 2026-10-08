@@ -1905,10 +1905,39 @@
     try {
       bast.cliente = M.leerClienteBastanteo(await leerHojas(f));
       bast.xls = f.name;
-      $('bastXlsNombre').textContent = `${f.name} · ${bast.cliente.firmantes.length} firmantes`;
+      await completarCuitFirmantes(bast.cliente.firmantes);
+      // Los firmantes que traen CUIT y número de ente alimentan la base de entes (para planillas que traen solo el DNI).
+      const conCuit = bast.cliente.firmantes.filter(x => x.cuit && x.ente && !x.fuente);
+      if (conCuit.length && almacen && typeof almacen.guardarEntes === 'function' && almacen.puedeEscribir !== false) {
+        try { await almacen.guardarEntes(conCuit.map(x => ({ ente: x.ente, cuit: x.cuit, nombre: x.nombre }))); } catch (e) { /* la base es opcional */ }
+      }
+      const sinCuit = bast.cliente.firmantes.filter(x => !x.cuit).length;
+      $('bastXlsNombre').textContent = `${f.name} · ${bast.cliente.firmantes.length} firmantes` + (sinCuit ? ` (${sinCuit} sin CUIT)` : '');
       prepararBastanteo();
     } catch (e) { $('bastEstado').innerHTML = aviso('bad', 'No se pudo leer el Excel: ' + esc(e.message || e)); }
   });
+
+  // Firmantes de la planilla que traen el DNI en lugar del CUIT: el CUIT sale de la base de entes, por número de
+  // ente o, si no, por el DNI.
+  async function completarCuitFirmantes(firmantes) {
+    const faltan = firmantes.filter(x => !x.cuit);
+    if (!faltan.length || !almacen) return;
+    try {
+      if (typeof almacen.buscarEntes === 'function') {
+        const porEnte = await almacen.buscarEntes(faltan.map(x => x.ente).filter(Boolean));
+        faltan.forEach(x => {
+          const e = porEnte[x.ente];
+          const c = e && String(e.cuit || '').replace(/\D/g, '');
+          if (c && c.length === 11 && (!x.dni || c.slice(2, 10) === String(x.dni).padStart(8, '0'))) { x.cuit = c; x.fuente = 'base de entes (ente ' + x.ente + ')'; }
+        });
+      }
+      const resto = faltan.filter(x => !x.cuit && x.dni);
+      if (resto.length && typeof almacen.buscarCuitPorDni === 'function') {
+        const porDni = await almacen.buscarCuitPorDni(resto.map(x => x.dni));
+        resto.forEach(x => { const c = porDni[x.dni] || porDni[String(x.dni).replace(/^0+/, '')]; if (c) { x.cuit = String(c).replace(/\D/g, ''); x.fuente = 'base de entes (DNI)'; } });
+      }
+    } catch (e) { /* sin base: queda el DNI */ }
+  }
 
   // Ediciones por poder: escritura (por la fecha de emisión, entre las de la planilla), acta, tipo y CUIT de cada DNI.
   async function prepararBastanteo() {
@@ -1963,7 +1992,7 @@
     const sp = hay ? sinPoder() : [];
     if (sp.length) estado += aviso('warn', `<b>${sp.length} firmante${sp.length > 1 ? 's' : ''} de la planilla sin poder en el PDF.</b> Quedan cargados en el JSON único, sin grupo y con una advertencia. Revisá si falta el poder.`) +
       `<div class="tabla-caja" style="margin-bottom:10px"><table><thead><tr><th>Nombre</th><th>CUIT</th><th>Situación</th></tr></thead><tbody>` +
-      sp.map(f => `<tr><td>${esc(f.nombre)}</td><td>${esc(M.formatoCuit(f.cuit))}</td><td><span class="chip warn">en la planilla, sin poder</span></td></tr>`).join('') + '</tbody></table></div>';
+      sp.map(f => `<tr><td>${esc(f.nombre)}</td><td>${f.cuit ? esc(M.formatoCuit(f.cuit)) : 'DNI ' + esc(f.dni) + ' (sin CUIT)'}</td><td><span class="chip warn">en la planilla, sin poder</span></td></tr>`).join('') + '</tbody></table></div>';
     $('bastEstado').innerHTML = estado;
     renderBastUnico();
     $('bastPoderes').innerHTML = bast.poderes.map((p, i) => {
@@ -1976,7 +2005,7 @@
       const personas = [['Otorgante', p.otorgante]].concat(apod.map(a => ['Apoderado', a]));
       const filaPersona = ([rol, x]) => {
         const f = rol === 'Apoderado' && firmantes ? M.firmanteDe(x, firmantes) : null;
-        const c = f && !(bast.ediciones[i].cuits || {})[x.dni] ? { cuit: String(f.cuit).replace(/\D/g, ''), fuente: 'planilla' } : cuitDe(i, x.dni);
+        const c = f && !(bast.ediciones[i].cuits || {})[x.dni] ? { cuit: String(f.cuit || '').replace(/\D/g, ''), fuente: f.fuente || 'planilla' } : cuitDe(i, x.dni);
         return `<tr><td>${rol}</td><td>${esc(x.nombre_completo)}</td><td>${esc(x.dni)}</td>` +
           `<td><input data-bast-cuit="${i}" data-dni="${esc(x.dni)}" value="${esc(c.cuit)}" placeholder="CUIT (11 dígitos)" inputmode="numeric" style="max-width:150px"></td>` +
           `<td>${c.cuit ? `<span class="chip ok">${esc(c.fuente)}</span>` : '<span class="chip warn">sin CUIT: va el DNI</span>'}</td></tr>`;
