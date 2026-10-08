@@ -1961,8 +1961,9 @@
     let estado = '';
     if (hay && !bast.cliente) estado = aviso('warn', 'Falta la planilla del cliente: sin ella no se completan los CUIT de los firmantes ni la escritura, y se muestran todas las personas del PDF.');
     const sp = hay ? sinPoder() : [];
-    if (sp.length) estado += aviso('warn', `<b>${sp.length} firmante${sp.length > 1 ? 's' : ''} de la planilla sin poder</b> en el PDF (quedan cargados en el JSON único con una advertencia): ` +
-      sp.map(f => `${esc(f.nombre)} (CUIT ${esc(M.formatoCuit(f.cuit))})`).join(' · '));
+    if (sp.length) estado += aviso('warn', `<b>${sp.length} firmante${sp.length > 1 ? 's' : ''} de la planilla sin poder en el PDF.</b> Quedan cargados en el JSON único, sin grupo y con una advertencia. Revisá si falta el poder.`) +
+      `<div class="tabla-caja" style="margin-bottom:10px"><table><thead><tr><th>Nombre</th><th>CUIT</th><th>Situación</th></tr></thead><tbody>` +
+      sp.map(f => `<tr><td>${esc(f.nombre)}</td><td>${esc(M.formatoCuit(f.cuit))}</td><td><span class="chip warn">en la planilla, sin poder</span></td></tr>`).join('') + '</tbody></table></div>';
     $('bastEstado').innerHTML = estado;
     renderBastUnico();
     $('bastPoderes').innerHTML = bast.poderes.map((p, i) => {
