@@ -951,6 +951,303 @@
     return `${n < 0 ? 'MENOS ' : ''}${entero(ent)} CON ${ceros(cent, 2)}/100`;
   }
 
+  // ------------------------------------------------------------ BASTANTEO DE FIRMANTES
+  // A partir del "Resumen documentos OCR" (PDF) y la planilla del cliente (Excel con los firmantes y sus CUIT) se arma
+  // un JSON por poder (modelo PODER_COMPLEJO_AR). Catálogo de circuitos operativos: código, nombre y clave del JSON.
+  const BASTANTEO_CATALOGO = [
+    ['CA_ABRIR', 'Abrir caja de ahorro', 'abrir_caja_de_ahorro'], ['CA_CERRAR', 'Cerrar caja de ahorro', 'cerrar_caja_de_ahorro'],
+    ['CA_EXTRAER', 'Extraer fondos', 'extraer_fondos'], ['CA_SOBREGIRO_FCI', 'Sobregiro de FCI', 'sobregiro_de_fci'],
+    ['CC_ABRIR', 'Abrir cuentas corrientes', 'abrir_cuentas_corrientes'], ['CC_CERRAR', 'Cerrar cuentas corrientes', 'cerrar_cuentas_corrientes'],
+    ['CC_GIRAR_DESC', 'Girar descubierto dentro limites', 'girar_descubierto_dentro_limites'], ['CC_SOL_ACUERDO_DESC', 'Solicitar acuerdo descubierto', 'solicitar_acuerdo_descubierto'],
+    ['CG_CEDER_CREDITO_GAR', 'Ceder credito en garantia', 'ceder_credito_en_garantia'], ['CG_CREDITO_MONEDA_EX', 'Tomar credito en moneda extranjera', 'tomar_credito_en_moneda_extranjera'],
+    ['CG_CREDITO_PESOS', 'Tomar credito en pesos', 'tomar_credito_en_pesos'], ['CG_GAR_ADUANERA', 'Solicitar garantia aduanera', 'solicitar_garantia_aduanera'],
+    ['CG_HIPOTECA', 'Constituir hipoteca', 'construir_hipoteca'], ['CG_OTORGAR_FIANZAS', 'Otorgar fianzas', 'otorgar_fianzas'],
+    ['CG_PERCIBIR_CREDITOS', 'Percibir importes de creditos', 'percibir_importes_de_creditos'], ['CG_PRENDA_REG', 'Constituir prenda con registro', 'construir_prenda_con_registro'],
+    ['CG_PRENDA_SIN_REG', 'Constituir prenda sin registro', 'construir_prenda_sin_registro'], ['CG_SOL_GARANTIAS', 'Solicitar garantias', 'solicitar_garantias'],
+    ['COMEX_CAMBIO_MONEDA', 'Operaciones cambio moneda', 'operaciones_cambio_moneda'], ['COMEX_CARTA_CRED_IMP', 'Solicitar apertura carta credito importacion', 'solicitar_apertura_carta_credito_importacion'],
+    ['COMEX_POSTFIN_EXPORT', 'Solicitar postfinanciacion de exportaciones', 'solicitar_postfinanciacion_de_exportaciones'], ['COMEX_PREFIN_EXPORT', 'Solicitar prefinanciacion de exportaciones', 'solicitar_prefinanciacion_de_exportaciones'],
+    ['CONS_SOLICITAR_SALDO', 'Solicitar saldo de cuentas', 'solicitar_saldo_de_cuentas'], ['CSEG_ABRIR', 'Abrir caja de seguridad', 'abrir_caja_de_seguridad'],
+    ['CSEG_ACCEDER', 'Acceder caja de seguridad', 'acceder_caja_de_seguridad'], ['CSEG_CERRAR', 'Cerrar caja de seguridad', 'cerrar_caja_de_seguridad'],
+    ['CTR_BANCA_ELECTRON', 'Firmar contratos de banca electronica', 'firmar_contratos_de_banca_electronica'], ['CTR_FIDEICOMISO', 'Celebrar contratos fideicomiso', 'celebrar_contratos_fideicomiso'],
+    ['CTR_FIRMA_DIGITAL', 'Firma digital', 'firma_digital'], ['CTR_FIRMAR_SERVICIOS', 'Firmar contratos de prestacion de servicios', 'firmar_contratos_de_prestacion_de_servicios'],
+    ['CTR_LEASING', 'Tomar bienes en leasing', 'tomar_bienes_en_leasing'], ['ECHEQ_COBRAR', 'Cobrar cheques', 'cobrar_cheques'],
+    ['ECHEQ_DEPOSITAR', 'Depositar eCheqs', 'depositar_echeqs'], ['ECHEQ_DESC_PAGO_DIF', 'Descontar cheques pagos diferidos', 'descontar_cheques_pagos_diferidos'],
+    ['ECHEQ_DESCONTAR', 'Descontar cheques', 'descontar_cheques'], ['ECHEQ_ENDOSAR', 'Endosar cheques', 'endosar_cheques'],
+    ['ECHEQ_ENDOSAR_DEP', 'Endosar para deposito', 'endosar_para_deposito'], ['ECHEQ_FIRMAR', 'Firmar cheques', 'firmar_cheques'],
+    ['ECHEQ_FIRMAR_PROV', 'Proveedores firmar cheques', 'proveedores_firmar_cheques'], ['ECHEQ_RET_CHEQUERAS', 'Retirar chequeras', 'retirar_chequeras'],
+    ['ECHEQ_RET_RECHAZADOS', 'Retirar cheques rechazados', 'retirar_cheques_rechazados'], ['ECHEQ_SOL_CHEQUERAS', 'Solicitar chequeras', 'solicitar_chequeras'],
+    ['LYP_ACEPTAR_LETRAS', 'Aceptar letras de cambio', 'aceptar_letras_de_cambio'], ['LYP_AVALAR_LETRAS', 'Avalar letras de cambio', 'avalar_letras_de_cambio'],
+    ['LYP_DESC_PAGARES', 'Descontar pagares', 'descontar_pagares'], ['LYP_ENDOSAR_PAGARES', 'Endosar pagares', 'endosar_pagares'],
+    ['LYP_FIRMAR_LETRAS', 'Firmar letras de cambio', 'firmar_letras_de_cambio'], ['LYP_FIRMAR_PAGARES', 'Firmar pagares', 'firmar_pagares'],
+    ['PF_CEDER', 'Ceder plazo fijo', 'ceder_plazo_fijo'], ['PF_COBRAR', 'Cobrar plazo fijo', 'cobrar_plazo_fijo'],
+    ['PF_CONSTITUIR', 'Constituir plazo fijo', 'constituir_plazo_fijo'], ['PF_ENDOSAR', 'Endosar plazo fijo', 'endosar_plazo_fijo'],
+    ['TRF_A_TERCEROS', 'Transferencias a cuentas de terceros', 'transferencias_a_cuentas_de_terceros'], ['TRF_ENTRE_CTAS_EMP', 'Transferencias entre cuentas de la empresa', 'transferencias_entre_cuentas_de_la_empresa'],
+    ['VN_ABRIR_CUENTA_ALYC', 'Abrir cuentas ALyC', 'abrir_cuentas_alyc'], ['VN_CAUCIONAR', 'Caucionar valores negociables', 'caucionar_valores_negociables'],
+    ['VN_DEPOSITAR', 'Depositar valores negociables', 'depositar_valores_negociables'], ['VN_OPERAR_BOLSAS', 'Operar en bolsas', 'operar_en_bolsas'],
+    ['VN_ORDEN_COMPRA', 'Ordenar compra valores negociables', 'ordenar_compra_valores_negociables'], ['VN_ORDEN_VENTA', 'Ordenar venta valores negociables', 'ordenar_venta_valores_negociables'],
+    ['VN_RETIRAR', 'Retirar valores negociables', 'retirar_valores_negociables'],
+  ];
+  // Orden de las facultades en el JSON (el del modelo PODER_COMPLEJO_AR); incluye tres sin código en el catálogo.
+  const BASTANTEO_CLAVES = ['extraer_fondos', 'operar_en_bolsas', 'abrir_cuentas_alyc', 'tomar_bienes_en_leasing', 'solicitar_saldo_de_cuentas',
+    'firmar_contratos_de_prestacion_de_servicios', 'firmar_contratos_de_banca_electronica', 'operaciones_cambio_moneda', 'proveedores_firmar_cheques',
+    'firma_digital', 'celebrar_contratos_fideicomiso', 'construir_prenda_con_registro', 'construir_prenda_sin_registro', 'construir_hipoteca',
+    'otorgar_fianzas', 'ceder_credito_en_garantia', 'tomar_credito_en_pesos', 'tomar_credito_en_moneda_extranjera',
+    'solicitar_apertura_carta_credito_importacion', 'solicitar_prefinanciacion_de_exportaciones', 'solicitar_postfinanciacion_de_exportaciones',
+    'percibir_importes_de_creditos', 'descontar_pagares', 'solicitar_garantia_aduanera', 'descontar_cheques_pagos_diferidos', 'solicitar_garantias',
+    'abrir_caja_de_seguridad', 'cerrar_caja_de_seguridad', 'acceder_caja_de_seguridad', 'firmar_letras_de_cambio', 'aceptar_letras_de_cambio',
+    'avalar_letras_de_cambio', 'firmar_pagares', 'endosar_pagares', 'depositar_valores_negociables', 'retirar_valores_negociables',
+    'ordenar_compra_valores_negociables', 'ordenar_venta_valores_negociables', 'alquilar_valores_negociables', 'caucionar_valores_negociables',
+    'celebrar_contratos_colocacion', 'celebrar_contratos_underwriting', 'firmar_cheques', 'endosar_cheques', 'endosar_para_deposito', 'cobrar_cheques',
+    'descontar_cheques', 'retirar_cheques_rechazados', 'depositar_echeqs', 'solicitar_chequeras', 'retirar_chequeras', 'constituir_plazo_fijo',
+    'cobrar_plazo_fijo', 'endosar_plazo_fijo', 'ceder_plazo_fijo', 'transferencias_entre_cuentas_de_la_empresa', 'transferencias_a_cuentas_de_terceros',
+    'abrir_caja_de_ahorro', 'cerrar_caja_de_ahorro', 'sobregiro_de_fci', 'abrir_cuentas_corrientes', 'cerrar_cuentas_corrientes',
+    'girar_descubierto_dentro_limites', 'solicitar_acuerdo_descubierto'];
+  const BASTANTEO_EXTRA = { alquilar_valores_negociables: 'Alquilar valores negociables', celebrar_contratos_colocacion: 'Celebrar contratos de colocación',
+    celebrar_contratos_underwriting: 'Celebrar contratos de underwriting' };
+
+  // Facultades tal como aparecen en el resumen OCR: [grupo, texto] → clave del JSON.
+  const FACULTADES_OCR = [
+    ['cuentas corrientes', 'abrir', 'abrir_cuentas_corrientes'], ['cuentas corrientes', 'cerrar', 'cerrar_cuentas_corrientes'],
+    ['cuentas corrientes', 'girar en descubierto', 'girar_descubierto_dentro_limites'], ['cuentas corrientes', 'solicitar acuerdo en descubierto', 'solicitar_acuerdo_descubierto'],
+    ['cajas de ahorro', 'abrir', 'abrir_caja_de_ahorro'], ['cajas de ahorro', 'cerrar', 'cerrar_caja_de_ahorro'],
+    ['', 'extraer fondos', 'extraer_fondos'], ['', 'sobregiro de fci', 'sobregiro_de_fci'],
+    ['caja de seguridad', 'abrir', 'abrir_caja_de_seguridad'], ['caja de seguridad', 'cerrar', 'cerrar_caja_de_seguridad'], ['caja de seguridad', 'acceder', 'acceder_caja_de_seguridad'],
+    ['plazos fijos', 'constituir', 'constituir_plazo_fijo'], ['plazos fijos', 'cobrar', 'cobrar_plazo_fijo'], ['plazos fijos', 'endosar', 'endosar_plazo_fijo'], ['plazos fijos', 'ceder', 'ceder_plazo_fijo'],
+    ['transferencias', 'entre cuentas de la empresa', 'transferencias_entre_cuentas_de_la_empresa'], ['transferencias', 'a cuentas de terceros', 'transferencias_a_cuentas_de_terceros'],
+    ['chequeras', 'solicitar', 'solicitar_chequeras'], ['chequeras', 'retirar', 'retirar_chequeras'],
+    ['cheques', 'firmar', 'firmar_cheques'], ['cheques', 'endosar', 'endosar_cheques'], ['cheques', 'cobrar', 'cobrar_cheques'], ['cheques', 'descontar', 'descontar_cheques'],
+    ['cheques', 'retirar rechazados', 'retirar_cheques_rechazados'], ['cheques', 'depositar e cheqs', 'depositar_echeqs'], ['cheques', 'depositar echeqs', 'depositar_echeqs'],
+    ['cheques', 'endosar para deposito', 'endosar_para_deposito'], ['cheques', 'descontar pagos diferidos', 'descontar_cheques_pagos_diferidos'],
+    ['creditos', 'tomar en pesos', 'tomar_credito_en_pesos'], ['creditos', 'tomar en moneda extranjera', 'tomar_credito_en_moneda_extranjera'],
+    ['creditos', 'solicitar apertura carta de credito importacion', 'solicitar_apertura_carta_credito_importacion'],
+    ['creditos', 'solicitar prefinanciacion de exportaciones', 'solicitar_prefinanciacion_de_exportaciones'],
+    ['creditos', 'solicitar post financiacion de exportaciones', 'solicitar_postfinanciacion_de_exportaciones'],
+    ['creditos', 'solicitar postfinanciacion de exportaciones', 'solicitar_postfinanciacion_de_exportaciones'],
+    ['creditos', 'solicitar garantias', 'solicitar_garantias'], ['creditos', 'percibir importes de credito', 'percibir_importes_de_creditos'],
+    ['creditos', 'descontar pagares', 'descontar_pagares'], ['creditos', 'solicitar garantia aduanera', 'solicitar_garantia_aduanera'],
+    ['garantias', 'construir prenda con registro', 'construir_prenda_con_registro'], ['garantias', 'construir prenda sin registro', 'construir_prenda_sin_registro'],
+    ['garantias', 'constituir prenda con registro', 'construir_prenda_con_registro'], ['garantias', 'constituir prenda sin registro', 'construir_prenda_sin_registro'],
+    ['garantias', 'construir hipoteca', 'construir_hipoteca'], ['garantias', 'constituir hipoteca', 'construir_hipoteca'],
+    ['garantias', 'otorgar fianzas', 'otorgar_fianzas'], ['garantias', 'ceder credito en garantia', 'ceder_credito_en_garantia'],
+    ['valores negociables', 'depositar', 'depositar_valores_negociables'], ['valores negociables', 'retirar', 'retirar_valores_negociables'],
+    ['valores negociables', 'ordenar compra', 'ordenar_compra_valores_negociables'], ['valores negociables', 'ordenar venta', 'ordenar_venta_valores_negociables'],
+    ['valores negociables', 'alquilar', 'alquilar_valores_negociables'], ['valores negociables', 'caucionar', 'caucionar_valores_negociables'],
+    ['valores negociables', 'operar en bolsas', 'operar_en_bolsas'], ['valores negociables', 'abrir cuentas alyc', 'abrir_cuentas_alyc'],
+    ['cambiarias', 'firmar letras de cambio', 'firmar_letras_de_cambio'], ['cambiarias', 'aceptar letras de cambio', 'aceptar_letras_de_cambio'],
+    ['cambiarias', 'avalar letras de cambio', 'avalar_letras_de_cambio'], ['cambiarias', 'firmar pagares', 'firmar_pagares'], ['cambiarias', 'endosar pagares', 'endosar_pagares'],
+  ];
+  const GRUPOS_OCR = [...new Set(FACULTADES_OCR.map(f => f[0]).filter(Boolean))];
+  function claveFacultadOcr(grupo, texto) {
+    const t = normalizar(texto), g = normalizar(grupo || '');
+    const f = FACULTADES_OCR.find(x => x[0] === g && x[1] === t) || FACULTADES_OCR.find(x => !x[0] && x[1] === t)
+      || FACULTADES_OCR.find(x => x[1] === t && x[1].split(' ').length > 1);
+    if (f) return f[2];
+    // También vale el nombre del catálogo o la clave escrita con espacios.
+    const c = BASTANTEO_CATALOGO.find(x => normalizar(x[1]) === t || normalizar(x[2]) === t);
+    return c ? c[2] : null;
+  }
+
+  // Lee el "Resumen documentos OCR" (líneas de texto del PDF) y devuelve los poderes ("Acreditación de Poderes").
+  function leerPoderesOcr(lineas) {
+    const L = lineas.map(l => String(l || '').replace(/\s+/g, ' ').trim()).filter(Boolean);
+    const inicios = [];
+    L.forEach((l, i) => { if (/^acreditaci[oó]n de poderes$/i.test(l)) inicios.push(i); });
+    const finSeccion = l => /^(acreditaci[oó]n de poderes|balance|dictamen\b)/i.test(l);
+    const valor = (bloque, etiqueta) => { const re = new RegExp('^' + etiqueta + '\\s*:\\s*(.*)$', 'i'); const l = bloque.find(x => re.test(x)); return l ? l.match(re)[1].trim() : ''; };
+    return inicios.map(ini => {
+      let fin = L.length;
+      for (let j = ini + 1; j < L.length; j++) if (finSeccion(L[j])) { fin = j; break; }
+      const b = L.slice(ini, fin).filter(l => l !== '<<PAGINA>>');
+      const io = b.findIndex(l => /^otorgante$/i.test(l));
+      const otorg = io > -1 ? b.slice(io) : b;
+      const poder = {
+        razon_social: valor(b, 'Raz[oó]n Social'), cuit_empresa: valor(b, 'CUIT').replace(/\D/g, ''), fecha_emision: valor(b, 'Fecha de Emisi[oó]n'),
+        otorgante: { nombre_completo: valor(otorg, 'Nombre Completo'), dni: valor(otorg, 'Numero de Identificaci[oó]n').replace(/\D/g, ''), fecha_nacimiento: valor(otorg, 'Fecha de Nacimiento') || null },
+        apoderados: [], usos: [],
+      };
+      // Apoderados: entre "Resumen de Apoderadores" y "Uso de Firmas" (nombre y número en la misma línea o en líneas seguidas).
+      const ia = b.findIndex(l => /^resumen de apoderad/i.test(l)), iu = b.findIndex(l => /^uso de firmas?$/i.test(l));
+      if (ia > -1) {
+        let nombre = '';
+        b.slice(ia + 1, iu > -1 ? iu : undefined).forEach(l => {
+          if (/^(nombre completo|identificaci[oó]n|grupo)(\s|$)/i.test(l)) return;
+          const m = l.match(/^(.*?)\s*(\d{6,9})(?:\s+(.+))?$/);
+          if (m) {
+            const n = (nombre + ' ' + m[1]).trim();
+            poder.apoderados.push({ nombre_completo: n, dni: m[2], grupo: m[3] ? m[3].trim() : null });
+            nombre = '';
+          } else nombre = (nombre + ' ' + l).trim();
+        });
+      }
+      // Usos de firma: descripción, tipo, limitaciones y la tabla de facultades (una columna Si/No por uso).
+      const iUsos = [];
+      b.forEach((l, i) => { if (/^uso de firma \d+$/i.test(l)) iUsos.push(i); });
+      const iFac = b.findIndex(l => /^facultades otorgadas$/i.test(l));
+      iUsos.forEach((i, k) => {
+        const hasta = k + 1 < iUsos.length ? iUsos[k + 1] : (iFac > -1 && iFac > i ? iFac : b.length);
+        const tramo = b.slice(i + 1, hasta);
+        const texto = (et, corte) => {
+          const p = tramo.findIndex(x => new RegExp('^' + et + '\\s*:', 'i').test(x));
+          if (p < 0) return '';
+          const partes = [tramo[p].replace(new RegExp('^' + et + '\\s*:\\s*', 'i'), '')];
+          for (let q = p + 1; q < tramo.length && !corte.test(tramo[q]); q++) partes.push(tramo[q]);
+          return partes.join(' ').replace(/\s+/g, ' ').trim();
+        };
+        poder.usos.push({
+          descripcion: texto('Descripci[oó]n', /^(tipo de firma|limitaciones|facultades otorgadas)\s*:?/i),
+          tipo: (texto('Tipo de Firma', /^(limitaciones|facultades otorgadas|descripci)/i) || '').toUpperCase(),
+          limitaciones: texto('Limitaciones', /^(facultades otorgadas|uso de firma|descripci|tipo de firma)/i) || null,
+          facultades: {},
+        });
+      });
+      if (!poder.usos.length) poder.usos.push({ descripcion: '', tipo: '', limitaciones: null, facultades: {} });
+      // Tabla de facultades: grupos (Cuentas Corrientes, Cheques…) y renglones "texto Si/No"; los textos largos pueden
+      // venir partidos en dos renglones con el Si/No en el medio.
+      if (iFac > -1) {
+        let grupo = '', buf = [], pend = null;
+        const asignar = (texto, vals) => {
+          const k = claveFacultadOcr(grupo, texto);
+          if (!k) return false;
+          poder.usos.forEach((u, n) => { const v = vals[Math.min(n, vals.length - 1)]; u.facultades[k] = /^s/i.test(v); });
+          return true;
+        };
+        for (const l of b.slice(iFac + 1)) {
+          if (/^conclusi[oó]n/i.test(l)) break;
+          if (/^facultad(\s+\d+)*$/i.test(l) || /^\d+(\s+\d+)*$/.test(l)) continue;
+          const m = l.match(/^(.*?)\s*((?:\b(?:Si|Sí|No)\b\s*)+)$/i);
+          if (m) {
+            const vals = m[2].trim().split(/\s+/);
+            const texto = [...buf, m[1]].join(' ').trim();
+            buf = [];
+            if (texto && asignar(texto, vals)) { pend = null; continue; }
+            pend = { texto, vals };
+            continue;
+          }
+          if (pend) {
+            const texto = (pend.texto + ' ' + l).trim();
+            if (asignar(texto, pend.vals)) { pend = null; continue; }
+            pend.texto = texto;
+            continue;
+          }
+          if (!buf.length && GRUPOS_OCR.includes(normalizar(l))) { grupo = l; continue; }
+          buf.push(l);
+        }
+      }
+      return poder;
+    });
+  }
+
+  // Planilla del cliente: firmantes (CUIT y nombre), CUIT de la empresa, escrituras (fecha y número) y las marcas "X".
+  const MARCAS_BASTANTEO = [
+    ['apertura de cuenta', ['abrir_cuentas_corrientes', 'abrir_caja_de_ahorro']], ['cierre de cuenta', ['cerrar_cuentas_corrientes', 'cerrar_caja_de_ahorro']],
+    ['transferencias', ['transferencias_entre_cuentas_de_la_empresa', 'transferencias_a_cuentas_de_terceros']], ['endoso cheques', ['endosar_cheques']],
+    ['retirar cheque rechazado', ['retirar_cheques_rechazados']], ['cobrar y percibir', ['cobrar_cheques', 'percibir_importes_de_creditos']],
+    ['librar cheques', ['firmar_cheques']], ['girar en descubierto', ['girar_descubierto_dentro_limites']],
+    ['tomar prestamos pesos', ['tomar_credito_en_pesos']], ['tomar prestamos me', ['tomar_credito_en_moneda_extranjera']],
+    ['efectuar op de exterior y cambio', ['operaciones_cambio_moneda']], ['firma digital', ['firma_digital']],
+    ['celebrar contratos fideico', ['celebrar_contratos_fideicomiso']], ['celebrar contratos colocac', ['celebrar_contratos_colocacion']],
+    ['celebrar contratos under', ['celebrar_contratos_underwriting']], ['constituir pf', ['constituir_plazo_fijo']],
+    ['apertura caja de seguridad', ['abrir_caja_de_seguridad']], ['cierre de caja de seguridad', ['cerrar_caja_de_seguridad']],
+    ['homebanking', ['firmar_contratos_de_banca_electronica']], ['interbanking', ['firmar_contratos_de_banca_electronica']],
+  ];
+  function leerClienteBastanteo(hojas) {
+    const r = { cliente: '', cuit: '', firmantes: [], escrituras: [], marcas: {} };
+    const iso = v => {
+      if (v instanceof Date && !isNaN(v)) return `${v.getFullYear()}-${ceros(v.getMonth() + 1, 2)}-${ceros(v.getDate(), 2)}`;
+      if (typeof v === 'number' && v > 20000 && v < 80000) { const d = new Date(Math.round((v - 25569) * 864e5)); return `${d.getUTCFullYear()}-${ceros(d.getUTCMonth() + 1, 2)}-${ceros(d.getUTCDate(), 2)}`; }
+      return '';
+    };
+    const vistos = new Set();
+    hojas.forEach(h => {
+      const t = h.filas || [];
+      t.forEach((fila, i) => {
+        const f = (fila || []).map(c => (c == null ? '' : c));
+        const n = f.map(c => normalizar(c));
+        // Datos del cliente.
+        const ic = n.indexOf('cliente');
+        if (ic > -1 && !r.cliente) { const v = f.slice(ic + 1).find(c => String(c).trim() && !/^\d+$/.test(String(c))); if (v) r.cliente = String(v).trim(); }
+        const icu = n.indexOf('cuit');
+        if (icu > -1 && !r.cuit) { const v = f.slice(icu + 1).map(c => String(c).replace(/\D/g, '')).find(c => c.length === 11); if (v) r.cuit = v; }
+        // Encabezado de firmantes: tiene "cuit" y una columna de nombre.
+        const iNom = n.findIndex(c => /nombre/.test(c) && /firmante|apellido|nombre/.test(c));
+        if (icu > -1 && iNom > -1) {
+          for (const g of t.slice(i + 1)) {
+            const cuit = String((g || [])[icu] == null ? '' : g[icu]).replace(/\D/g, '');
+            if (cuit.length !== 11) { if ((g || []).some(c => c != null && String(c).trim())) { if (r.firmantes.length) break; } continue; }
+            if (vistos.has(cuit)) continue;
+            vistos.add(cuit);
+            r.firmantes.push({ cuit, nombre: String(g[iNom] || '').trim() });
+          }
+        }
+        // Escrituras: encabezado con "escritura" (fecha y número debajo).
+        const ie = n.findIndex(c => /^escritura/.test(c));
+        if (ie > -1) {
+          const iF = n.findIndex(c => c === 'fecha');
+          for (const g of t.slice(i + 1)) {
+            const fecha = iso((g || [])[iF > -1 ? iF : ie - 1]), num = (g || [])[ie];
+            if (!fecha || num == null || !/^\d+$/.test(String(num).trim())) { if (r.escrituras.length) break; continue; }
+            if (!r.escrituras.some(e => e.fecha === fecha && e.numero === String(num))) r.escrituras.push({ fecha, numero: String(num).trim() });
+          }
+        }
+        // Marcas "X" al lado de un concepto.
+        f.forEach((c, k) => {
+          const txt = normalizar(c);
+          if (!txt || txt === 'x') return;
+          const sig = f.slice(k + 1).find(x => String(x).trim() !== '');
+          if (sig == null || normalizar(sig) !== 'x') return;
+          const m = MARCAS_BASTANTEO.find(([et]) => txt === et || txt.startsWith(et));
+          if (m) m[1].forEach(cl => { r.marcas[cl] = true; });
+        });
+      });
+    });
+    return r;
+  }
+
+  const formatoCuit = c => { const d = String(c || '').replace(/\D/g, ''); return d.length === 11 ? `${d.slice(0, 2)}-${d.slice(2, 10)}-${d.slice(10)}` : (c || null); };
+  // CUIT que contiene el DNI (posiciones 3 a 10): primero los firmantes de la planilla, después la lista extra.
+  function cuitPorDni(dni, ...listas) {
+    const d = String(dni || '').replace(/\D/g, '');
+    if (!d) return '';
+    const d8 = d.padStart(8, '0');
+    for (const l of listas) {
+      const c = (l || []).map(x => String(x.cuit || x).replace(/\D/g, '')).find(x => x.length === 11 && x.slice(2, 10) === d8);
+      if (c) return c;
+    }
+    return '';
+  }
+
+  // Arma el JSON de un poder. edicion: { deed_number, board_resolution_power_attorney, power_attorney_type, cuits: {dni: cuit} }.
+  function jsonPoder(poder, cliente, edicion = {}) {
+    const cuits = edicion.cuits || {};
+    const ident = dni => { const c = cuits[dni] || cuitPorDni(dni, cliente && cliente.firmantes); return c ? Number(c) : (dni ? Number(dni) : null); };
+    const marcas = (cliente && cliente.marcas) || {};
+    return {
+      deed_number: edicion.deed_number || null,
+      incorporation_date: null,
+      incorporation_resolution_number: null,
+      board_resolution_power_attorney: edicion.board_resolution_power_attorney || null,
+      power_attorney_type: edicion.power_attorney_type || 'Poder Especial para Operaciones Bancarias',
+      power_attorney_scope: Object.assign({ new: true, revoke: false, complementary: false }, edicion.scope || {}),
+      fecha_emision: poder.fecha_emision || null,
+      razon_social: poder.razon_social || null,
+      cuit_empresa: formatoCuit(poder.cuit_empresa),
+      otorgante: { numero_de_identificacion: ident(poder.otorgante.dni), nombre_completo: poder.otorgante.nombre_completo || null, fecha_nacimiento: poder.otorgante.fecha_nacimiento || null },
+      apoderados: poder.apoderados.map(a => ({ numero_de_identificacion: ident(a.dni), nombre_completo: a.nombre_completo, grupo: a.grupo || null })),
+      estructuras_de_firma: poder.usos.map((u, n) => {
+        const ed = (edicion.facultades || [])[n] || {};
+        return {
+          tipo_de_firma: u.tipo || null,
+          estructura_de_firma: u.descripcion || null,
+          firma_individual: /INDIVIDUAL|INDISTINTA/.test(u.tipo),
+          firma_conjunta: /CONJUNTA/.test(u.tipo),
+          facultades: Object.fromEntries(BASTANTEO_CLAVES.map(k => [k, k in ed ? !!ed[k] : k in u.facultades ? u.facultades[k] : !!marcas[k]])),
+          limitaciones: u.limitaciones || null,
+          limite_de_operacion: null,
+        };
+      }),
+    };
+  }
+
   // ------------------------------------------------------------ TXT NO COBIS
   // Diseño (hoja "NO COBIS" del archivo de inventario Payway), 156 caracteres por línea, una por ente (MIS):
   // código cliente = MIS (10, ceros a la izq.) · tipo de crédito CCASR (10, espacios a la der.) · tasa 0100000000 (10)
@@ -2077,7 +2374,7 @@ try {
     leerTxtMeli, bancoMeliDeTxt, bancosParaMeli,
     sqlExtraccionCartera, bookmarkletCartera, scriptPowerShellCartera, comandoTareaCartera, IMPORTES_CARTERA,
     NO_COBIS, ultimoDiaHabil, fechasNoCobis, lineaNoCobis, txtNoCobis, loteApiNoCobis, scriptPowerShellNoCobis, scriptPowerShellProbarNoCobis, scriptPowerShellAgenteNoCobis, cmdEnvioNoCobis,
-    leerCartera, leerInventarioGarantias, INVENTARIOS_CONTABLES, INVENTARIO_DENOMINACION, INVENTARIO_FIRMAS, fechaReporteIso, fechaInventarioDesdeReporte, leerPadronDesdeInventarios, leerBaseEntes, unirPadron, armarInventariosContables, leerCom3500, leerTcApiBcra, elegirTipoCambio, numeroEnLetras, daxCarteraPowerBI, daxDiagnosticoPowerBI, leerFilasPowerBI, sugerirColumnaCartera, columnasNumericasCartera, agruparCartera, valoresDistintos, sqlCartera,
+    leerCartera, BASTANTEO_CATALOGO, BASTANTEO_CLAVES, BASTANTEO_EXTRA, leerPoderesOcr, leerClienteBastanteo, cuitPorDni, formatoCuit, jsonPoder, leerInventarioGarantias, INVENTARIOS_CONTABLES, INVENTARIO_DENOMINACION, INVENTARIO_FIRMAS, fechaReporteIso, fechaInventarioDesdeReporte, leerPadronDesdeInventarios, leerBaseEntes, unirPadron, armarInventariosContables, leerCom3500, leerTcApiBcra, elegirTipoCambio, numeroEnLetras, daxCarteraPowerBI, daxDiagnosticoPowerBI, leerFilasPowerBI, sugerirColumnaCartera, columnasNumericasCartera, agruparCartera, valoresDistintos, sqlCartera,
     leerCsv, encabezadosEjemplo, leerDefinicionInterfaz, sugerirColumna, detectarHojaInterfaz,
     normalizar, provinciaPorNombre, crearBuscadorBancoPorNombre, round2, aNumero, aFechaSerial, aCodigoBanco,
     fechaDDMMYY, fechaYYYYMMDD, fechaLegible, hoyDDMMYY,
