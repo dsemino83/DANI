@@ -120,7 +120,9 @@ Después de modificar el código, regenerar el archivo único con `python3 const
    estructuras de firma con las 64 facultades del catálogo de circuitos operativos y sus códigos). El número de
    identificación de cada persona es el **CUIT que contiene su DNI** (planilla o base de entes); si no se encuentra, el
    DNI. Las facultades salen del PDF; las que el PDF no trae, de las marcas X de la planilla, y si no, "no". Se pueden
-   corregir a mano antes de descargar. El PDF se lee en el navegador con pdf.js (`vendor/`, o CDN); no se guarda nada.
+   corregir a mano antes de descargar. También se descarga un **JSON único** del cliente: junta todos los poderes, agrupa
+   a los apoderados por tipo de firma y facultades (grupos A, B, C…) y arma una estructura de firma por grupo, con sus
+   apoderados y escrituras; al final lista los poderes de origen. El PDF se lee en el navegador con pdf.js (`vendor/`, o CDN); no se guarda nada.
 
 ## Datos
 

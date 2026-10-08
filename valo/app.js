@@ -1955,6 +1955,7 @@
     let estado = '';
     if (hay && !bast.cliente) estado = aviso('warn', 'Falta la planilla del cliente: sin ella no se completan los CUIT de los firmantes ni la escritura.');
     $('bastEstado').innerHTML = estado;
+    renderBastUnico();
     $('bastPoderes').innerHTML = bast.poderes.map((p, i) => {
       const ed = bast.ediciones[i] || {};
       const j = jsonDe(i);
@@ -2023,6 +2024,20 @@
     if (b) { const i = Number(b.dataset.bastBajar), j = jsonDe(i); descargar(nombreJsonPoder(i, j), JSON.stringify(j, null, 2), true); }
     if (v) { const i = Number(v.dataset.bastVer), pre = $('bastJson' + i); pre.textContent = JSON.stringify(jsonDe(i), null, 2); pre.classList.toggle('oculto'); }
   });
+  // Un solo JSON con todos los poderes, agrupando apoderados por tipo de firma y facultades.
+  function jsonUnico() { return M.jsonBastanteoUnico(bast.poderes.map((p, i) => jsonDe(i)), bast.cliente); }
+  function renderBastUnico() {
+    if (!bast.poderes.length) { $('bastUnico').innerHTML = ''; return; }
+    const u = jsonUnico();
+    $('bastUnico').innerHTML = `<h3>JSON único: ${u.estructuras_de_firma.length} grupos de firma</h3><div class="tabla-caja"><table><thead><tr><th>Grupo</th><th>Tipo</th><th>Apoderados</th><th class="num">Facultades</th><th>Escrituras</th></tr></thead><tbody>` +
+      u.estructuras_de_firma.map(e => `<tr><td><b>${esc(e.grupo)}</b></td><td>${esc(e.tipo_de_firma || '')}</td><td>${esc(u.apoderados.filter(a => e.apoderados.includes(a.numero_de_identificacion)).map(a => a.nombre_completo).join(', '))}</td>` +
+        `<td class="num">${Object.values(e.facultades).filter(Boolean).length}</td><td>${esc(e.escrituras.join(', '))}</td></tr>`).join('') + '</tbody></table></div>';
+  }
+  $('btnBastUnico').addEventListener('click', () => {
+    const u = jsonUnico();
+    descargar(`BASTANTEO_${String(u.razon_social || 'cliente').replace(/[^A-Za-z0-9]+/g, '_').replace(/^_|_$/g, '').slice(0, 50)}.json`, JSON.stringify(u, null, 2), true);
+  });
+  $('btnBastUnicoVer').addEventListener('click', () => { const pre = $('bastUnicoJson'); pre.textContent = JSON.stringify(jsonUnico(), null, 2); pre.classList.toggle('oculto'); });
   $('btnBastTodos').addEventListener('click', async () => {
     for (let i = 0; i < bast.poderes.length; i++) {
       const j = jsonDe(i);
