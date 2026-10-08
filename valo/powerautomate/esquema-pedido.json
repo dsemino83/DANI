@@ -1,0 +1,36 @@
+{
+  "type": "object",
+  "properties": {
+    "clave": { "type": "string" },
+    "accion": { "type": "string" },
+    "reemplazar": { "type": "boolean" },
+    "lote": {
+      "type": "object",
+      "properties": {
+        "tipo": { "type": "string" },
+        "fechaConcesion": { "type": "string" },
+        "fechaVencimiento": { "type": "string" },
+        "total": { "type": "number" },
+        "operaciones": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "cliente": { "type": "integer" },
+              "banco": { "type": "string" },
+              "tipoCredito": { "type": "string" },
+              "moneda": { "type": "integer" },
+              "saldoCapital": { "type": "number" },
+              "saldoInteres": { "type": "number" },
+              "saldoOcif": { "type": "number" },
+              "fechaConcesion": { "type": "string" },
+              "fechaVencimiento": { "type": "string" },
+              "tasaInteres": { "type": "number" }
+            }
+          }
+        }
+      }
+    }
+  },
+  "required": ["clave", "accion"]
+}

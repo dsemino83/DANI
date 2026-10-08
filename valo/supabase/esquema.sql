@@ -1,0 +1,160 @@
+-- VALO - EPORTFOLIO · Base compartida en Supabase.
+-- Ejecutar una sola vez en el proyecto: Supabase → SQL Editor → New query → pegar todo → Run.
+--
+-- Modelo: igual que la base de claude.ai, cada registro es un "documento" JSON con una ruta
+--   clientes/<id>, lotes/<id>, lotesTxt/<id>_cuotas_<n>, maestros/bancos, maestros/bancosMeli, maestros/carteraConfig ...
+-- Acceso: solo usuarios con sesión cuyo correo termine en @valo.ar o figure en la tabla "permitidos".
+-- Los usuarios los crea el administrador desde Authentication → Users → Add user (con "Auto Confirm User").
+
+create table if not exists public.docs (
+  path        text primary key,
+  coleccion   text not null,
+  data        jsonb not null,
+  actualizado timestamptz not null default now()
+);
+create index if not exists docs_coleccion_idx on public.docs (coleccion);
+
+-- Correos habilitados además de los @valo.ar.
+create table if not exists public.permitidos (email text primary key);
+insert into public.permitidos (email) values ('d.semino83@gmail.com') on conflict do nothing;
+
+-- Nombre visible de cada usuario (para el historial: quién procesó cada lote).
+create table if not exists public.perfiles (
+  id     uuid primary key,
+  email  text,
+  nombre text
+);
+
+-- Bloqueos cortos para que dos usuarios no tomen la misma secuencia de un cliente al mismo tiempo.
+create table if not exists public.bloqueos (
+  path   text primary key,
+  holder text not null,
+  vence  timestamptz not null
+);
+
+-- ¿El usuario de la sesión está habilitado?
+create or replace function public.es_valo() returns boolean
+language sql stable security definer set search_path = public as $$
+  select auth.uid() is not null and (
+    coalesce(lower(auth.jwt() ->> 'email') like '%@valo.ar', false)
+    or exists (select 1 from public.permitidos p where lower(p.email) = lower(auth.jwt() ->> 'email'))
+  );
+$$;
+
+alter table public.docs       enable row level security;
+alter table public.permitidos enable row level security;
+alter table public.perfiles   enable row level security;
+alter table public.bloqueos   enable row level security;
+
+drop policy if exists docs_leer on public.docs;
+drop policy if exists docs_crear on public.docs;
+drop policy if exists docs_modificar on public.docs;
+drop policy if exists docs_borrar on public.docs;
+create policy docs_leer      on public.docs for select to authenticated using (public.es_valo());
+create policy docs_crear     on public.docs for insert to authenticated with check (public.es_valo());
+create policy docs_modificar on public.docs for update to authenticated using (public.es_valo()) with check (public.es_valo());
+create policy docs_borrar    on public.docs for delete to authenticated using (public.es_valo());
+
+drop policy if exists perfiles_leer on public.perfiles;
+drop policy if exists perfiles_propio_crear on public.perfiles;
+drop policy if exists perfiles_propio_modificar on public.perfiles;
+create policy perfiles_leer             on public.perfiles for select to authenticated using (public.es_valo());
+create policy perfiles_propio_crear     on public.perfiles for insert to authenticated with check (id = auth.uid());
+create policy perfiles_propio_modificar on public.perfiles for update to authenticated using (id = auth.uid()) with check (id = auth.uid());
+-- permitidos y bloqueos: sin políticas (solo desde el panel o las funciones de abajo).
+
+-- Toma el bloqueo de una ruta si está libre, vencido o ya era de quien lo pide.
+create or replace function public.adquirir(p_path text, p_holder text, p_ttl_ms integer) returns boolean
+language plpgsql security definer set search_path = public as $$
+declare tomado boolean;
+begin
+  if not public.es_valo() then raise exception 'sin permiso' using errcode = '42501'; end if;
+  insert into public.bloqueos as b (path, holder, vence)
+  values (p_path, p_holder, now() + make_interval(secs => p_ttl_ms / 1000.0))
+  on conflict (path) do update set holder = excluded.holder, vence = excluded.vence
+    where b.vence < now() or b.holder = excluded.holder
+  returning true into tomado;
+  return coalesce(tomado, false);
+end;
+$$;
+
+-- Actualiza campos de un documento (mezcla de primer nivel), sin pisar el resto.
+create or replace function public.doc_update(p_path text, p_patch jsonb) returns void
+language plpgsql security invoker set search_path = public as $$
+begin
+  update public.docs set data = data || p_patch, actualizado = now() where path = p_path;
+  if not found then raise exception 'el documento % no existe', p_path using errcode = 'P0002'; end if;
+end;
+$$;
+
+revoke all on function public.adquirir(text, text, integer) from public, anon;
+revoke all on function public.doc_update(text, jsonb) from public, anon;
+revoke all on function public.es_valo() from public, anon;
+grant execute on function public.adquirir(text, text, integer) to authenticated;
+grant execute on function public.doc_update(text, jsonb) to authenticated;
+grant execute on function public.es_valo() to authenticated;
+
+-- Cambios en vivo para todos los usuarios conectados.
+do $$ begin
+  alter publication supabase_realtime add table public.docs;
+exception when duplicate_object then null; end $$;
+
+-- ===================================================== Cola de envíos NO COBIS (agente en la red de VALO)
+-- La página guarda envios/<id> con estado 'pendiente'; el agente (nocobis-agente.ps1, en una PC de la red) lo toma
+-- con tomar_envio (solo uno lo puede tomar), lo ingresa en la API y deja los resultados con estado 'terminado'.
+create or replace function public.tomar_envio(p_path text, p_agente text) returns boolean
+language plpgsql security invoker set search_path = public as $$
+begin
+  update public.docs
+     set data = data || jsonb_build_object('estado', 'procesando', 'tomadoPor', p_agente, 'tomado', to_char(now() at time zone 'utc', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')),
+         actualizado = now()
+   where path = p_path and coleccion = 'envios' and data ->> 'estado' = 'pendiente';
+  return found;
+end;
+$$;
+revoke all on function public.tomar_envio(text, text) from public, anon;
+grant execute on function public.tomar_envio(text, text) to authenticated;
+
+-- ===================================================== Tipo de cambio Com. A 3500 (BCRA)
+-- La página no puede consultar al BCRA directo (el BCRA no lo permite desde otros sitios): esta función lo consulta
+-- desde la base. Variable 5 de la API de estadísticas del BCRA = Tipo de cambio mayorista Com. A 3500 (referencia).
+create extension if not exists http with schema extensions;
+create or replace function public.tc_bcra(p_desde date, p_hasta date) returns jsonb
+language plpgsql security definer set search_path = public, extensions as $$
+declare r extensions.http_response; v text;
+begin
+  if not public.es_valo() then raise exception 'sin permiso' using errcode = '42501'; end if;
+  perform extensions.http_set_curlopt('CURLOPT_TIMEOUT', '25');
+  foreach v in array array['v4.0', 'v3.0'] loop
+    begin
+      select * into r from extensions.http_get(format('https://api.bcra.gob.ar/estadisticas/%s/monetarias/5?desde=%s&hasta=%s', v, p_desde, p_hasta));
+      if r.status = 200 then return jsonb_build_object('status', r.status, 'version', v, 'body', r.content::jsonb); end if;
+    exception when others then r := null;
+    end;
+  end loop;
+  return jsonb_build_object('status', coalesce(r.status, 0), 'error', coalesce(left(r.content, 300), 'sin respuesta del BCRA'));
+end;
+$$;
+revoke all on function public.tc_bcra(date, date) from public, anon;
+grant execute on function public.tc_bcra(date, date) to authenticated;
+notify pgrst, 'reload schema';
+
+-- ===================================================== Base de entes (CUIT) para los inventarios de garantías
+-- ente = código de cliente del sistema de cartera (external_code de las bases de personas humanas y jurídicas).
+-- Se carga masivamente desde Excel o de a uno desde el inventario. Solo nombre y CUIT (sin datos personales extra).
+create table if not exists public.entes (
+  ente           text primary key,
+  cuit           text not null,
+  nombre         text,
+  tipo           text,
+  actualizado    timestamptz not null default now(),
+  actualizado_por uuid default auth.uid()
+);
+alter table public.entes enable row level security;
+drop policy if exists entes_leer on public.entes;
+drop policy if exists entes_crear on public.entes;
+drop policy if exists entes_modificar on public.entes;
+create policy entes_leer      on public.entes for select to authenticated using (public.es_valo());
+create policy entes_crear     on public.entes for insert to authenticated with check (public.es_valo());
+create policy entes_modificar on public.entes for update to authenticated using (public.es_valo()) with check (public.es_valo());
+notify pgrst, 'reload schema';
