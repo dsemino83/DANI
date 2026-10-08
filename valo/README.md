@@ -114,6 +114,14 @@ Después de modificar el código, regenerar el archivo único con `python3 const
    `tax_id_number`) o una planilla Ente · CUIT · Nombre, o de a uno desde el inventario; la base no se muestra, solo se
    consultan los entes de los reportes cargados. Las planillas de personas no se suben al repositorio. Las librerías de exportación se cargan al usarlas (`vendor/`, o CDN).
 
+7. **Bastanteo** (menú *Más ▾*) – se sube el **resumen OCR** de los documentos del cliente (PDF con las secciones
+   "Acreditación de Poderes") y la **planilla del cliente** (Excel con los firmantes y sus CUIT, las escrituras y las marcas
+   X). Se arma un JSON por poder con el formato `PODER_COMPLEJO_AR` (escritura, tipo, empresa, otorgante, apoderados,
+   estructuras de firma con las 64 facultades del catálogo de circuitos operativos y sus códigos). El número de
+   identificación de cada persona es el **CUIT que contiene su DNI** (planilla o base de entes); si no se encuentra, el
+   DNI. Las facultades salen del PDF; las que el PDF no trae, de las marcas X de la planilla, y si no, "no". Se pueden
+   corregir a mano antes de descargar. El PDF se lee en el navegador con pdf.js (`vendor/`, o CDN); no se guarda nada.
+
 ## Datos
 
 - **Versión compartida (recomendada):** página publicada en claude.ai (`compartido/conversor-valo-compartido.html`).

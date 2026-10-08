@@ -1846,6 +1846,191 @@
   $('btnInvTodosExcel').addEventListener('click', () => exportarInventarios('excel', M.INVENTARIOS_CONTABLES.map((d, k) => k)));
   $('btnInvTodosPdf').addEventListener('click', () => exportarInventarios('pdf', M.INVENTARIOS_CONTABLES.map((d, k) => k)));
 
+  // ============================================================ BASTANTEO DE FIRMANTES
+  // PDF (resumen OCR) + Excel del cliente → un JSON por poder. Todo en el navegador; nada se guarda.
+  LIBRERIAS.pdfjs = { listo: () => window.pdfjsLib, urls: ['../vendor/pdf.min.js', 'vendor/pdf.min.js',
+    'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js', 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js'] };
+  LIBRERIAS.pdfworker = { listo: () => window.pdfjsWorker, urls: ['../vendor/pdf.worker.min.js', 'vendor/pdf.worker.min.js',
+    'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js', 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js'] };
+  // Texto del PDF por renglón: agrupa los textos a la misma altura y los ordena de izquierda a derecha.
+  async function lineasPdf(buf) {
+    await cargarLibreria('pdfjs');
+    await cargarLibreria('pdfworker'); // con el worker en la página no hace falta otro archivo (funciona también sin servidor)
+    const doc = await window.pdfjsLib.getDocument({ data: new Uint8Array(buf) }).promise;
+    const lineas = [];
+    for (let n = 1; n <= doc.numPages; n++) {
+      const tc = await (await doc.getPage(n)).getTextContent();
+      const filas = [];
+      tc.items.forEach(it => {
+        if (!it.str || !it.str.trim()) return;
+        const y = it.transform[5], x = it.transform[4];
+        let f = filas.find(f => Math.abs(f.y - y) < 2.5);
+        if (!f) { f = { y, items: [] }; filas.push(f); }
+        f.items.push({ x, t: it.str, w: it.width });
+      });
+      filas.sort((a, b) => b.y - a.y).forEach(f => {
+        f.items.sort((a, b) => a.x - b.x);
+        let s = '', fin = null;
+        f.items.forEach(i => { if (fin != null && i.x - fin > 1.5 && !s.endsWith(' ')) s += ' '; s += i.t; fin = i.x + i.w; });
+        lineas.push(s.replace(/\s+/g, ' ').trim());
+      });
+      lineas.push('<<PAGINA>>');
+    }
+    return lineas;
+  }
+
+  const bast = { pdf: null, xls: null, poderes: [], cliente: null, ediciones: [], cuitsBase: {} };
+  const nombreCatalogo = Object.fromEntries(M.BASTANTEO_CATALOGO.map(c => [c[2], c])); // clave → [código, nombre, clave]
+  function zonaArchivo(zona, input, alElegir) {
+    const z = $(zona);
+    z.addEventListener('click', () => $(input).click());
+    z.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); $(input).click(); } });
+    z.addEventListener('dragover', e => { e.preventDefault(); z.classList.add('encima'); });
+    z.addEventListener('dragleave', () => z.classList.remove('encima'));
+    z.addEventListener('drop', e => { e.preventDefault(); z.classList.remove('encima'); if (e.dataTransfer.files[0]) alElegir(e.dataTransfer.files[0]); });
+    $(input).addEventListener('change', e => { const f = e.target.files[0]; e.target.value = ''; if (f) alElegir(f); });
+  }
+  zonaArchivo('zonaBastPdf', 'archivoBastPdf', async f => {
+    $('bastPdfNombre').textContent = 'Leyendo ' + f.name + '…';
+    try {
+      const lineas = await lineasPdf(await f.arrayBuffer());
+      const poderes = M.leerPoderesOcr(lineas);
+      if (!poderes.length) throw new Error('El PDF no tiene secciones "Acreditación de Poderes".');
+      bast.pdf = f.name; bast.poderes = poderes;
+      $('bastPdfNombre').textContent = `${f.name} · ${poderes.length} poderes`;
+      prepararBastanteo();
+    } catch (e) { $('bastPdfNombre').textContent = f.name; $('bastEstado').innerHTML = aviso('bad', 'No se pudo leer el PDF: ' + esc(e.message || e)); }
+  });
+  zonaArchivo('zonaBastXls', 'archivoBastXls', async f => {
+    try {
+      bast.cliente = M.leerClienteBastanteo(await leerHojas(f));
+      bast.xls = f.name;
+      $('bastXlsNombre').textContent = `${f.name} · ${bast.cliente.firmantes.length} firmantes`;
+      prepararBastanteo();
+    } catch (e) { $('bastEstado').innerHTML = aviso('bad', 'No se pudo leer el Excel: ' + esc(e.message || e)); }
+  });
+
+  // Ediciones por poder: escritura (por la fecha de emisión, entre las de la planilla), acta, tipo y CUIT de cada DNI.
+  async function prepararBastanteo() {
+    if (!bast.poderes.length) { renderBastanteo(); return; }
+    const esc_ = (bast.cliente && bast.cliente.escrituras) || [];
+    bast.ediciones = bast.poderes.map((p, i) => {
+      const prev = bast.ediciones[i] || {};
+      const candidatas = esc_.filter(e => e.fecha === p.fecha_emision);
+      const ed = Object.assign({ deed_number: '', board_resolution_power_attorney: '',
+        power_attorney_type: 'Poder Especial para Operaciones Bancarias', cuits: {}, facultades: p.usos.map(() => ({})) }, prev, { candidatas });
+      // Si con esa fecha hay varias escrituras se propone la última (en la planilla, la del poder va después del acta).
+      if (!ed.deed_number && candidatas.length) ed.deed_number = candidatas[candidatas.length - 1].numero;
+      return ed;
+    });
+    // CUIT de los DNI que no están en la planilla: base de entes.
+    const dnis = bast.poderes.flatMap(p => [p.otorgante.dni].concat(p.apoderados.map(a => a.dni))).filter(Boolean)
+      .filter(d => !M.cuitPorDni(d, bast.cliente && bast.cliente.firmantes) && !(d in bast.cuitsBase));
+    if (dnis.length && almacen && typeof almacen.buscarCuitPorDni === 'function') {
+      try { Object.assign(bast.cuitsBase, await almacen.buscarCuitPorDni(dnis)); } catch (e) { /* sin base: queda el DNI */ }
+      dnis.forEach(d => { if (!(d in bast.cuitsBase)) bast.cuitsBase[d] = ''; });
+    }
+    renderBastanteo();
+  }
+
+  function cuitDe(i, dni) {
+    const ed = bast.ediciones[i] || {};
+    if (ed.cuits && ed.cuits[dni]) return { cuit: ed.cuits[dni], fuente: 'cargado' };
+    const c = M.cuitPorDni(dni, bast.cliente && bast.cliente.firmantes);
+    if (c) return { cuit: c, fuente: 'planilla' };
+    if (bast.cuitsBase[dni]) return { cuit: bast.cuitsBase[dni], fuente: 'base de entes' };
+    return { cuit: '', fuente: '' };
+  }
+  function jsonDe(i) {
+    const ed = bast.ediciones[i];
+    const cuits = {};
+    const p = bast.poderes[i];
+    [p.otorgante.dni].concat(p.apoderados.map(a => a.dni)).forEach(d => { const c = cuitDe(i, d).cuit; if (c) cuits[d] = c; });
+    return M.jsonPoder(p, bast.cliente, Object.assign({}, ed, { cuits }));
+  }
+
+  function renderBastanteo() {
+    const hay = bast.poderes.length > 0;
+    $('bastAcciones').classList.toggle('oculto', !hay);
+    let estado = '';
+    if (hay && !bast.cliente) estado = aviso('warn', 'Falta la planilla del cliente: sin ella no se completan los CUIT de los firmantes ni la escritura.');
+    $('bastEstado').innerHTML = estado;
+    $('bastPoderes').innerHTML = bast.poderes.map((p, i) => {
+      const ed = bast.ediciones[i] || {};
+      const j = jsonDe(i);
+      const personas = [['Otorgante', p.otorgante]].concat(p.apoderados.map(a => ['Apoderado', a]));
+      const filaPersona = ([rol, x]) => {
+        const c = cuitDe(i, x.dni);
+        return `<tr><td>${rol}</td><td>${esc(x.nombre_completo)}</td><td>${esc(x.dni)}</td>` +
+          `<td><input data-bast-cuit="${i}" data-dni="${esc(x.dni)}" value="${esc(c.cuit)}" placeholder="CUIT (11 dígitos)" inputmode="numeric" style="max-width:150px"></td>` +
+          `<td>${c.cuit ? `<span class="chip ok">${esc(c.fuente)}</span>` : '<span class="chip warn">sin CUIT: va el DNI</span>'}</td></tr>`;
+      };
+      const usos = p.usos.map((u, n) => {
+        const fac = j.estructuras_de_firma[n].facultades;
+        const celdas = M.BASTANTEO_CLAVES.map(k => {
+          const cat = nombreCatalogo[k], nombre = cat ? cat[1] : M.BASTANTEO_EXTRA[k] || k;
+          const fuente = (ed.facultades[n] || {})[k] !== undefined ? 'man' : k in u.facultades ? 'pdf' : bast.cliente && bast.cliente.marcas[k] ? 'xls' : 'nd';
+          const tit = { man: 'cambiado a mano', pdf: 'del PDF', xls: 'de las marcas X de la planilla', nd: 'sin dato en el PDF ni en la planilla' }[fuente];
+          return `<label class="check" title="${esc(tit)}" style="justify-content:flex-start;${fuente === 'nd' ? 'opacity:.7;' : ''}${fuente === 'xls' ? 'border-color:var(--warn);' : ''}${fuente === 'man' ? 'border-color:var(--accent);' : ''}">` +
+            `<input type="checkbox" style="flex:none" data-bast-fac="${i}" data-uso="${n}" data-clave="${k}" ${fac[k] ? 'checked' : ''}> <span><b style="font-size:11px">${esc(cat ? cat[0] : '—')}</b> ${esc(nombre)}</span></label>`;
+        }).join('');
+        const si = Object.values(fac).filter(Boolean).length;
+        return `<h3>Uso de firma ${n} · ${esc(u.tipo || '—')} · ${esc(u.descripcion || '')}</h3>` +
+          (u.limitaciones ? `<p class="sub" style="margin:0 0 8px">Limitaciones: ${esc(u.limitaciones)}</p>` : '') +
+          `<p class="sub" style="margin:0 0 6px">${si} de ${M.BASTANTEO_CLAVES.length} facultades habilitadas. Borde normal = del PDF · <span style="color:var(--warn)">ámbar</span> = de la planilla · tenue = sin dato (va "no") · <span style="color:var(--accent)">rojo</span> = cambiado a mano.</p>` +
+          `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(270px,1fr));gap:6px">${celdas}</div>`;
+      }).join('');
+      const opcEsc = (ed.candidatas || []).map(e => e.numero);
+      return `<div class="card">
+        <h2>${esc(p.razon_social || 'Poder ' + (i + 1))}</h2>
+        <p class="sub">CUIT ${esc(M.formatoCuit(p.cuit_empresa) || '—')} · emitido el ${esc(p.fecha_emision || '—')}</p>
+        <div class="grid">
+          <label class="campo">Escritura Nº <input data-bast-campo="deed_number" data-i="${i}" value="${esc(ed.deed_number || '')}" list="bastEsc${i}">
+            <datalist id="bastEsc${i}">${opcEsc.map(n => `<option value="${esc(n)}">`).join('')}</datalist>
+            <span class="ayuda">${opcEsc.length > 1 ? `En la planilla hay ${opcEsc.length} escrituras con esa fecha: ${esc(opcEsc.join(', '))}` : opcEsc.length ? 'Tomada de la planilla (misma fecha)' : 'No está en la planilla: cargala'}</span></label>
+          <label class="campo">Acta de directorio (poder) <input data-bast-campo="board_resolution_power_attorney" data-i="${i}" value="${esc(ed.board_resolution_power_attorney || '')}"></label>
+          <label class="campo">Tipo de poder <input data-bast-campo="power_attorney_type" data-i="${i}" value="${esc(ed.power_attorney_type || '')}"></label>
+        </div>
+        <h3>Personas</h3>
+        <div class="tabla-caja"><table><thead><tr><th>Rol</th><th>Nombre</th><th>DNI</th><th>CUIT (número de identificación)</th><th>Origen</th></tr></thead><tbody>${personas.map(filaPersona).join('')}</tbody></table></div>
+        ${usos}
+        <div class="acciones">
+          <button class="btn primario" type="button" data-bast-bajar="${i}">Descargar JSON</button>
+          <button class="btn" type="button" data-bast-ver="${i}">Ver JSON</button>
+        </div>
+        <pre class="codigo oculto" id="bastJson${i}"></pre>
+      </div>`;
+    }).join('');
+  }
+  $('bastPoderes').addEventListener('change', e => {
+    const t = e.target;
+    if (t.dataset.bastCuit != null) {
+      const i = Number(t.dataset.bastCuit), d = t.value.replace(/\D/g, '');
+      if (d && d.length !== 11) { toast('El CUIT tiene que tener 11 dígitos'); return; }
+      bast.ediciones[i].cuits[t.dataset.dni] = d;
+      renderBastanteo();
+    } else if (t.dataset.bastCampo) {
+      bast.ediciones[Number(t.dataset.i)][t.dataset.bastCampo] = t.value.trim();
+    } else if (t.dataset.bastFac != null) {
+      const ed = bast.ediciones[Number(t.dataset.bastFac)];
+      ed.facultades[Number(t.dataset.uso)][t.dataset.clave] = t.checked;
+      renderBastanteo();
+    }
+  });
+  const nombreJsonPoder = (i, j) => `PODER_${String(j.razon_social || 'poder').replace(/[^A-Za-z0-9]+/g, '_').replace(/^_|_$/g, '').slice(0, 50)}${j.deed_number ? '_esc' + j.deed_number : ''}.json`;
+  $('bastPoderes').addEventListener('click', e => {
+    const b = e.target.closest('[data-bast-bajar]'), v = e.target.closest('[data-bast-ver]');
+    if (b) { const i = Number(b.dataset.bastBajar), j = jsonDe(i); descargar(nombreJsonPoder(i, j), JSON.stringify(j, null, 2), true); }
+    if (v) { const i = Number(v.dataset.bastVer), pre = $('bastJson' + i); pre.textContent = JSON.stringify(jsonDe(i), null, 2); pre.classList.toggle('oculto'); }
+  });
+  $('btnBastTodos').addEventListener('click', async () => {
+    for (let i = 0; i < bast.poderes.length; i++) {
+      const j = jsonDe(i);
+      await descargar(nombreJsonPoder(i, j), JSON.stringify(j, null, 2), true);
+      await new Promise(r => setTimeout(r, 400));
+    }
+  });
+
   // ============================================================ LOTE
 
   function periodoActual() {
