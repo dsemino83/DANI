@@ -76,3 +76,16 @@ Videos en `recursos/videos/hotel/<id>.{mp4,webm,jpg}`; el juego los usa si `perf
 - `/tmp/.../hotel/preparar.sh <id>` = `preparar_video.sh` hacia `hotel/<id>` + portada .jpg.
 - Costo: 9 imágenes × 15 + 9 videos × 70 ≈ 765 créditos.
 - Marco de la foto: con este escenario se dibuja con luna, murciélagos, telarañas, calabaza y borde verde.
+
+### Hotel de monstruos en toda la app
+
+Al elegir el escenario hotel, `#escenario` lleva la clase `tema-hotel` y cambia todo junto:
+- Inicio: `recursos/videos/hotel/inicio.*`. El niño de siempre frente a un castillo-hotel de noche con
+  luna, murciélagos y calabazas (Seedream 4.5 desde el primer cuadro de `inicio`, más PixVerse V6 720p).
+- Misión: `recursos/videos/hotel/mision.*`. Superdiente en el baño del castillo con murciélagos
+  vampiro, calabazas iluminadas y esqueletos bailando.
+- Final: fondo `recursos/fondo-hotel.jpg` (Seedream 4.5 text2image) en vez del cielo estrellado.
+- Colores: títulos naranja/lima, botones naranja, flechas violetas.
+- Capa `.monstruos` (SVG propio, animado con CSS): murciélagos que cruzan volando, calabazas que brillan
+  y esqueletos que bailan, sobre inicio (solo murciélagos), misión y final.
+- Costo: 3 imágenes × 15 + 2 videos × 70 ≈ 185 créditos (más 15 de una imagen de inicio repetida).

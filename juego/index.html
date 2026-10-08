@@ -218,6 +218,77 @@
   .chau-texto { color: #fff; font-size: 44px; font-weight: 700; line-height: 1.2; }
   #btn-volver-jugar { position: static; width: 480px; height: 104px; }
 
+
+  /* ---------- Escenario «Hotel de monstruos»: colores y animaciones extra ---------- */
+  #escenario.tema-hotel { background: #2E1452; }
+  #escenario.tema-hotel .noche { background: radial-gradient(ellipse at 72% 28%, #5B2C8F 0%, #2E1452 45%, #140726 100%); }
+  #escenario.tema-hotel .titulo .t1 { -webkit-text-stroke-color: #4A1A7A; }
+  #escenario.tema-hotel .titulo .t2 { color: #FF9A1F; -webkit-text-stroke-color: #4A1A7A; text-shadow: 0 9px 0 #2A0B47; }
+  #escenario.tema-hotel .titulo .t3 { color: #B6F36A; -webkit-text-stroke-color: #4A1A7A; text-shadow: 0 9px 0 #2A0B47; }
+  #escenario.tema-hotel .boton-amarillo { background: linear-gradient(#FFC56B, #FF8A1F); color: #3D1066;
+    box-shadow: 0 8px 0 #B8500A, 0 14px 30px rgba(0,0,0,.4); }
+  #escenario.tema-hotel .boton-amarillo:active { box-shadow: 0 2px 0 #B8500A; }
+  #escenario.tema-hotel .boton-amarillo svg [fill="#1753C9"] { fill: #3D1066; }
+  #escenario.tema-hotel .boton-amarillo svg [stroke="#1753C9"] { stroke: #3D1066; }
+  #escenario.tema-hotel .fin-titulo, #escenario.tema-hotel .chau-titulo { color: #FF9A1F; -webkit-text-stroke-color: #4A1A7A; }
+  #escenario.tema-hotel .racha { background: #3A1764; border-color: #B6F36A; }
+  #escenario.tema-hotel .racha .num { background: #FF9A1F; color: #3D1066; }
+  #escenario.tema-hotel .flecha, #escenario.tema-hotel .ui-consejo button { background: radial-gradient(circle at 35% 30%, #B072FF, #5A1FA8 72%); }
+  #escenario.tema-hotel .pista { background: #FF9A1F; color: #3D1066; box-shadow: 0 6px 0 #B8500A, 0 10px 20px rgba(0,0,0,.3); }
+  #escenario.tema-hotel .ui-paso .nombre, #escenario.tema-hotel .ui-consejo .l1 { color: #3D1066; }
+  #escenario.tema-hotel .ui-consejo .l2 { color: #5B2C8F; }
+  #escenario.tema-hotel #btn-config svg circle[fill="#1753C9"] { fill: #5A1FA8; }
+  /* Fondo del final: imagen del castillo en vez del cielo con estrellas. */
+  .fondo-tema { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: none; }
+  #escenario.tema-hotel .fondo-tema { display: block; }
+  #escenario.tema-hotel #svg-final .fondo, #escenario.tema-hotel #svg-final .estrellas-fin { display: none; }
+  /* Murciélagos, calabazas y esqueletos dibujados que se mueven encima del video. */
+  .monstruos { position: absolute; inset: 0; pointer-events: none; overflow: hidden; display: none; }
+  #escenario.tema-hotel .monstruos { display: block; }
+  .monstruos > * { position: absolute; }
+  .monstruos .murcielago { width: 130px; left: -160px; animation: vuelo 9s linear infinite; }
+  .monstruos .murcielago .ala-i, .monstruos .murcielago .ala-d { animation: aleteo .32s ease-in-out infinite alternate; transform-box: view-box; }
+  .monstruos .murcielago .ala-i { transform-origin: 54px 32px; }
+  .monstruos .murcielago .ala-d { transform-origin: 66px 32px; }
+  @keyframes aleteo { from { transform: scaleY(1); } to { transform: scaleY(-.35); } }
+  @keyframes vuelo {
+    0% { transform: translate(0, 0); } 25% { transform: translate(calc(var(--ancho) * .27), 40px); }
+    50% { transform: translate(calc(var(--ancho) * .55), -30px); } 75% { transform: translate(calc(var(--ancho) * .82), 30px); }
+    100% { transform: translate(calc(var(--ancho) + 200px), 0); } }
+  .monstruos .calabaza { width: 120px; animation: brilla-calabaza 1.6s ease-in-out infinite; }
+  .monstruos .calabaza .cara { animation: titila 0.9s ease-in-out infinite alternate; }
+  @keyframes brilla-calabaza { 0%, 100% { filter: drop-shadow(0 0 8px rgba(255,150,30,.6)); transform: scale(1); }
+    50% { filter: drop-shadow(0 0 26px rgba(255,190,40,1)); transform: scale(1.06); } }
+  @keyframes titila { from { opacity: .75; } to { opacity: 1; } }
+  .monstruos .esqueleto { width: 120px; transform-origin: 50% 100%; animation: baile 1.1s ease-in-out infinite; }
+  .monstruos .esqueleto.der { animation-delay: -.55s; }
+  .monstruos .esqueleto .brazo-i, .monstruos .esqueleto .brazo-d { transform-box: view-box; animation: brazo .55s ease-in-out infinite alternate; }
+  .monstruos .esqueleto .brazo-i { transform-origin: 38px 62px; }
+  .monstruos .esqueleto .brazo-d { transform-origin: 62px 62px; animation-direction: alternate-reverse; }
+  .monstruos .esqueleto .pierna-i, .monstruos .esqueleto .pierna-d { transform-box: view-box; animation: pierna .55s ease-in-out infinite alternate; }
+  .monstruos .esqueleto .pierna-i { transform-origin: 44px 112px; }
+  .monstruos .esqueleto .pierna-d { transform-origin: 56px 112px; animation-direction: alternate-reverse; }
+  @keyframes baile { 0%, 100% { transform: rotate(-8deg) translateY(0); } 25% { transform: rotate(0) translateY(-14px); }
+    50% { transform: rotate(8deg) translateY(0); } 75% { transform: rotate(0) translateY(-14px); } }
+  @keyframes brazo { from { transform: rotate(-35deg); } to { transform: rotate(45deg); } }
+  @keyframes pierna { from { transform: rotate(-12deg); } to { transform: rotate(14deg); } }
+  /* Ubicación (horizontal): arriba vuelan, abajo a los costados bailan y brillan. */
+  .monstruos { --ancho: 1200px; }
+  .monstruos .m1 { top: 40px; animation-delay: 0s; }
+  .monstruos .m2 { top: 150px; width: 100px; animation-delay: -3s; animation-duration: 11s; }
+  .monstruos .m3 { top: 90px; width: 80px; animation-delay: -6.5s; animation-duration: 8s; }
+  .monstruos .c1 { left: 20px; bottom: 170px; }
+  .monstruos .c2 { right: 140px; bottom: 170px; width: 100px; animation-delay: -.8s; }
+  .monstruos .e1 { left: 130px; bottom: 165px; }
+  .monstruos .e2 { right: 10px; bottom: 165px; }
+  #p-inicio .monstruos .e1, #p-inicio .monstruos .e2 { display: none; }
+  /* En el inicio el video ya trae calabazas: solo vuelan murciélagos. */
+  #p-inicio .monstruos .c1, #p-inicio .monstruos .c2 { display: none; }
+  #p-final .monstruos .c1, #p-final .monstruos .e1 { bottom: 40px; }
+  #p-final .monstruos .c2, #p-final .monstruos .e2 { bottom: 40px; }
+  #p-final .monstruos .c2 { right: 150px; }
+  #p-mision .monstruos .c2, #p-mision .monstruos .e1 { display: none; }
+
   /* ---------- Celular vertical ----------
      La imagen ocupa toda la pantalla (se recorta a los costados, encuadrada en lo importante)
      y los carteles y botones van encima, como en horizontal. El escenario mide 1000 de ancho
@@ -225,7 +296,9 @@
   #escenario.vertical .cuadro { width: 100%; height: 100%; }
   #escenario.vertical .video-escena { object-position: 50% 50%; }
   #escenario.vertical #video-inicio { object-position: 15% 50%; }
+  #escenario.vertical.tema-hotel #video-inicio { object-position: 22% 50%; }
   #escenario.vertical #video-mision { object-position: 34% 50%; }
+  #escenario.vertical.tema-hotel #video-mision { object-position: 56% 50%; }
   /* Pasos: la cara del niño entera (se ve ~740 de los 1200 de ancho) y, arriba y abajo,
      la misma imagen desenfocada para que toda la pantalla quede cubierta. */
   #escenario.vertical #p-paso .cuadro { overflow: hidden; }
@@ -274,6 +347,23 @@
   #escenario.vertical #cuenta { font-size: 300px; }
   #escenario.vertical #p-foto { background: linear-gradient(#1D4BA8, #0B2466); }
   #escenario.vertical .chau-titulo { font-size: 96px; }
+  #escenario.vertical .monstruos { --ancho: 1000px; }
+  #escenario.vertical .monstruos .m1 { top: 300px; }
+  #escenario.vertical .monstruos .m2 { top: 470px; }
+  #escenario.vertical .monstruos .m3 { top: 380px; }
+  #escenario.vertical #p-mision .monstruos .c1, #escenario.vertical #p-mision .monstruos .e1 { bottom: 400px; }
+  #escenario.vertical #p-mision .monstruos .c2, #escenario.vertical #p-mision .monstruos .e2 { bottom: 400px; }
+  #escenario.vertical #p-mision .monstruos .e1 { left: 20px; display: block; }
+  #escenario.vertical #p-mision .monstruos .c1 { left: 150px; }
+  #escenario.vertical #p-mision .monstruos .e2 { right: 20px; }
+  #escenario.vertical #p-mision .monstruos .c2 { right: 150px; display: block; }
+  #escenario.vertical #p-final .monstruos .c1, #escenario.vertical #p-final .monstruos .e1,
+  #escenario.vertical #p-final .monstruos .c2, #escenario.vertical #p-final .monstruos .e2 { bottom: 330px; }
+  #escenario.vertical #p-final .monstruos .e1 { left: 20px; }
+  #escenario.vertical #p-final .monstruos .c1 { left: 150px; }
+  #escenario.vertical #p-final .monstruos .e2 { right: 20px; }
+  #escenario.vertical #p-final .monstruos .c2 { right: 150px; }
+
 
   #bien { position: absolute; left: 50%; top: 230px; transform: translateX(-50%) scale(0); font-size: 110px;
     font-weight: 800; color: #FFD23F; -webkit-text-stroke: 12px #1753C9; paint-order: stroke fill;
@@ -343,6 +433,7 @@
       <div class="cuadro">
         <video class="video-escena" id="video-inicio" muted loop playsinline preload="auto"></video>
         <svg id="svg-inicio" viewBox="0 0 1200 900" width="1200" height="900"></svg>
+        <div class="monstruos"></div>
       </div>
       <div class="titulo"><span class="t1">Misión:</span><span class="t2">Dientes</span><span class="t3">Limpios</span></div>
       <div class="lema"><span id="lema-nombre">¿Estás listo, Rami?</span><br>¡Vamos a cepillarnos!</div>
@@ -365,6 +456,7 @@
       <div class="cuadro">
         <video class="video-escena" id="video-mision" muted loop playsinline preload="auto"></video>
         <svg id="svg-mision" viewBox="0 0 1200 900" width="1200" height="900"></svg>
+        <div class="monstruos"></div>
         <div class="pista" id="pista-cepillo">¡Tocalo o decí «sí»!</div>
       </div>
       <div class="ui-paso">
@@ -433,7 +525,9 @@
     <!-- ================= FINAL ================= -->
     <section id="p-final" class="pantalla noche">
       <div class="cuadro">
+      <img class="fondo-tema" src="recursos/fondo-hotel.jpg" alt="">
       <svg id="svg-final" viewBox="0 0 1200 900" width="1200" height="900"></svg>
+      <div class="monstruos"></div>
       <div class="fin-titulo">¡Lo hiciste!</div>
       <div class="fin-texto">¡Dientes limpios<br>y una gran sonrisa!</div>
       <div class="racha">
@@ -1013,8 +1107,8 @@
     superDiente('sd-inicio', 530, 170, .4, 'varita');
   $('svg-paso').innerHTML = fondoBano('-paso', 3) + '<g transform="' + ENCUADRE_PASO + '">' + nino('paso') + '</g>';
   $('svg-final').innerHTML =
-    fotoFondo(FONDO_NOCHE) +
-    '<g>' + estrellas(18, 21) + '</g>' +
+    '<g class="fondo">' + fotoFondo(FONDO_NOCHE) + '</g>' +
+    '<g class="estrellas-fin">' + estrellas(18, 21) + '</g>' +
     superDiente('sd-final', 600, 170, .62, 'varita') +
     '<g fill="#FFD23F">' +
       '<path d="M360 180l10 22 24 3-18 16 5 24-21-12-21 12 5-24-18-16 24-3z"/>' +
@@ -1037,6 +1131,52 @@
     cep.querySelector('#espuma').style.display = 'none';
     colocarProp(svg, cep, 470, 300, -90, [-320, 30]);
   })();
+
+
+  /* ---------- Escenario «Hotel de monstruos»: personajes animados extra ----------
+     Dibujos propios (murciélagos vampiro, calabazas y esqueletos simpáticos) que se mueven
+     con CSS encima del video. Solo se ven con el escenario hotel (clase tema-hotel). */
+  var MURCIELAGO = '<svg class="murcielago {c}" viewBox="0 0 120 64">' +
+    '<path class="ala-i" d="M54 32C44 14 26 10 4 16C12 22 12 30 8 36C18 32 24 38 24 46C32 38 42 40 48 46C48 40 50 36 54 32Z" fill="#3B1F5C" stroke="#1E0D33" stroke-width="2.5" stroke-linejoin="round"/>' +
+    '<path class="ala-d" d="M66 32C76 14 94 10 116 16C108 22 108 30 112 36C102 32 96 38 96 46C88 38 78 40 72 46C72 40 70 36 66 32Z" fill="#3B1F5C" stroke="#1E0D33" stroke-width="2.5" stroke-linejoin="round"/>' +
+    '<path d="M50 20L52 8L57 17L63 17L68 8L70 20Z" fill="#4E2A78"/>' +
+    '<ellipse cx="60" cy="32" rx="14" ry="15" fill="#4E2A78" stroke="#1E0D33" stroke-width="2.5"/>' +
+    '<circle cx="54" cy="28" r="4.5" fill="#fff"/><circle cx="66" cy="28" r="4.5" fill="#fff"/>' +
+    '<circle cx="55" cy="29" r="2" fill="#1E0D33"/><circle cx="67" cy="29" r="2" fill="#1E0D33"/>' +
+    '<path d="M54 37Q60 42 66 37" stroke="#1E0D33" stroke-width="2" fill="none" stroke-linecap="round"/>' +
+    '<path d="M56 38.5L57.5 43L59 39M61 39L62.5 43L64 38.5" fill="#fff"/></svg>';
+  var CALABAZA = '<svg class="calabaza {c}" viewBox="0 0 120 104">' +
+    '<path d="M60 22Q58 10 66 4" stroke="#3E8E2F" stroke-width="7" stroke-linecap="round" fill="none"/>' +
+    '<path d="M64 14Q78 6 86 14Q76 20 64 14Z" fill="#5DBB3F"/>' +
+    '<ellipse cx="34" cy="62" rx="28" ry="38" fill="#E8640F"/><ellipse cx="86" cy="62" rx="28" ry="38" fill="#E8640F"/>' +
+    '<ellipse cx="60" cy="62" rx="30" ry="40" fill="#FF8A1F"/>' +
+    '<path d="M60 24Q50 62 60 100M60 24Q70 62 60 100" stroke="#D45A0A" stroke-width="2.5" fill="none" opacity=".6"/>' +
+    '<g class="cara" fill="#FFE45C"><path d="M34 52L44 40L50 56Z"/><path d="M86 52L76 40L70 56Z"/><path d="M60 58L54 68H66Z"/>' +
+    '<path d="M30 74Q60 98 90 74Q84 76 78 75L74 82L68 77Q60 79 52 77L46 82L42 75Q36 76 30 74Z"/></g></svg>';
+  var ESQUELETO = '<svg class="esqueleto {c}" viewBox="0 0 100 170">' +
+    '<g stroke="#3B2A55" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" fill="#F7F3E6">' +
+    '<g class="pierna-i"><path d="M44 112L38 138L36 160" fill="none" stroke="#F7F3E6" stroke-width="9"/><path d="M44 112L38 138L36 160" fill="none" stroke="#3B2A55" stroke-width="2"/><ellipse cx="32" cy="162" rx="11" ry="5"/></g>' +
+    '<g class="pierna-d"><path d="M56 112L62 138L64 160" fill="none" stroke="#F7F3E6" stroke-width="9"/><path d="M56 112L62 138L64 160" fill="none" stroke="#3B2A55" stroke-width="2"/><ellipse cx="68" cy="162" rx="11" ry="5"/></g>' +
+    '<path d="M50 50V108" fill="none" stroke="#F7F3E6" stroke-width="7"/><path d="M50 50V108" fill="none"/>' +
+    '<path d="M36 104Q50 96 64 104L60 116H40Z"/>' +
+    '<path d="M34 62Q50 56 66 62M34 72Q50 66 66 72M36 82Q50 76 64 82M38 92Q50 86 62 92" fill="none" stroke="#F7F3E6" stroke-width="7"/>' +
+    '<path d="M34 62Q50 56 66 62M34 72Q50 66 66 72M36 82Q50 76 64 82M38 92Q50 86 62 92" fill="none" stroke-width="2"/>' +
+    '<g class="brazo-i"><path d="M38 62L22 80L12 66" fill="none" stroke="#F7F3E6" stroke-width="8"/><path d="M38 62L22 80L12 66" fill="none" stroke-width="2"/><circle cx="10" cy="62" r="6"/></g>' +
+    '<g class="brazo-d"><path d="M62 62L78 80L88 66" fill="none" stroke="#F7F3E6" stroke-width="8"/><path d="M62 62L78 80L88 66" fill="none" stroke-width="2"/><circle cx="90" cy="62" r="6"/></g>' +
+    '<path d="M28 26A22 22 0 0 1 72 26C72 36 68 40 64 42V50H36V42C32 40 28 36 28 26Z"/></g>' +
+    '<ellipse cx="41" cy="27" rx="7" ry="8" fill="#3B2A55"/><ellipse cx="59" cy="27" rx="7" ry="8" fill="#3B2A55"/>' +
+    '<circle cx="43" cy="25" r="2.5" fill="#B6F36A"/><circle cx="61" cy="25" r="2.5" fill="#B6F36A"/>' +
+    '<path d="M47 36L50 32L53 36Z" fill="#3B2A55"/><path d="M40 43Q50 49 60 43" stroke="#3B2A55" stroke-width="2.5" fill="none" stroke-linecap="round"/>' +
+    '<path d="M38 50Q50 46 62 50L58 46Q50 54 42 46Z" fill="#7A2EC9"/></svg>';
+  function figura(svg, clases) { return svg.replace('{c}', clases); }
+  Array.prototype.forEach.call(document.querySelectorAll('.monstruos'), function (capa) {
+    capa.innerHTML = figura(MURCIELAGO, 'm1') + figura(MURCIELAGO, 'm2') + figura(MURCIELAGO, 'm3') +
+      figura(CALABAZA, 'c1') + figura(CALABAZA, 'c2') +
+      figura(ESQUELETO, 'e1') + figura(ESQUELETO, 'e2 der');
+  });
+  // Videos de inicio y misión según el escenario elegido.
+  function videoEscenario(nombre) { return (escenario() === 'hotel' ? 'hotel/' : '') + nombre; }
+  function videoInicio() { ponerVideo($('video-inicio'), videoEscenario('inicio'), $('svg-inicio'), '.fondo, .nino-inicio, #sd-inicio'); }
 
   /* Videos por escena: si existe recursos/videos/<nombre>.mp4 se muestra en bucle
      debajo de la interfaz; si no existe, queda el dibujo animado de siempre. */
@@ -1073,7 +1213,7 @@
     estado.pantalla = nombre;
     escuchar(false);
     $('escenario').setAttribute('data-pantalla', nombre);
-    if (nombre === 'inicio') ponerVideo($('video-inicio'), 'inicio', $('svg-inicio'), '.fondo, .nino-inicio, #sd-inicio');
+    if (nombre === 'inicio') videoInicio();
     if (nombre !== 'foto') { detenerCamara(); borrarFoto(); }
     ['inicio', 'mision', 'paso', 'final', 'foto', 'chau'].forEach(function (p) { $('p-' + p).classList.toggle('activa', p === nombre); });
     Array.prototype.forEach.call($('p-' + nombre).querySelectorAll('.superdiente'), function (g) {
@@ -1267,7 +1407,7 @@
   /* ---------- Misión: agarrar el cepillo ---------- */
   var agarre = null; // instante en que se tocó el cepillo
   function empezarMision() {
-    ponerVideo($('video-mision'), 'mision', $('svg-mision'), '.fondo, #sd-mision');
+    ponerVideo($('video-mision'), videoEscenario('mision'), $('svg-mision'), '.fondo, #sd-mision');
     agarre = null;
     $('mision-1').textContent = '¡Hola! Soy Superdiente.';
     $('mision-2').textContent = '¡Agarrá tu cepillo de dientes para empezar! ¡Decí sí!';
@@ -1944,6 +2084,12 @@
   var NOMBRE = 'Rami';
   function aplicarPerfil() {
     NOMBRE = trato();
+    // Todo lo del escenario: colores, fondo del final, animaciones extra y video de inicio.
+    var hotel = escenario() === 'hotel';
+    if ($('escenario').classList.contains('tema-hotel') !== hotel) {
+      $('escenario').classList.toggle('tema-hotel', hotel);
+      if (estado.pantalla === 'inicio') videoInicio();
+    }
     $('lema-nombre').textContent = '¿Estás listo, ' + NOMBRE + '?';
     marcarSegundos();
     marcarVoz();
@@ -2041,7 +2187,7 @@
     window.addEventListener('load', function () { navigator.serviceWorker.register('sw.js').catch(function () {}); });
   }
   ajustar();
-  ponerVideo($('video-inicio'), 'inicio', $('svg-inicio'), '.fondo, .nino-inicio, #sd-inicio');
+  videoInicio();
 
   var ultimo = null, t = 0, congelado = false;
   function tReloj() { return t; }
