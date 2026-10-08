@@ -2705,6 +2705,24 @@
     aplicarPermisos();
   }
 
+  // Aviso de versión nueva: en el sitio publicado se relee la página (sin caché) cada 5 minutos y se compara la versión.
+  function vigilarVersion() {
+    if (!/^https?:/.test(location.protocol)) return;
+    const actual = ($('versionPagina').textContent.match(/\d{4}-\d{2}-\d{2}\.\d+/) || [])[0];
+    if (!actual) return;
+    const revisar = async () => {
+      try {
+        const r = await fetch(location.pathname + '?v=' + Date.now(), { cache: 'no-store' });
+        const nueva = ((await r.text()).match(/id="versionPagina">versión (\d{4}-\d{2}-\d{2}\.\d+)/) || [])[1];
+        if (nueva && nueva !== actual) { $('avisoVersionNum').textContent = nueva; $('avisoVersion').classList.remove('oculto'); }
+      } catch (e) { /* sin conexión: se reintenta */ }
+    };
+    setTimeout(revisar, 20000);
+    setInterval(revisar, 300000);
+  }
+  $('btnRecargarVersion').addEventListener('click', () => { location.replace(location.pathname + '?v=' + Date.now()); });
+  vigilarVersion();
+
   async function iniciar() {
     $('fPeriodo').value = periodoActual();
     try {
