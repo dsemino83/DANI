@@ -2085,6 +2085,14 @@
     descargar(`BASTANTEO_${String(u.razon_social || 'cliente').replace(/[^A-Za-z0-9]+/g, '_').replace(/^_|_$/g, '').slice(0, 50)}.json`, JSON.stringify(u, null, 2), true);
   });
   $('btnBastUnicoVer').addEventListener('click', () => { const pre = $('bastUnicoJson'); pre.textContent = JSON.stringify(jsonUnico(), null, 2); pre.classList.toggle('oculto'); });
+  $('btnBastLimpiar').addEventListener('click', () => {
+    Object.assign(bast, { pdf: null, xls: null, poderes: [], cliente: null, ediciones: [], cuitsBase: {} });
+    $('bastPdfNombre').textContent = 'Arrastrá el PDF o hacé clic';
+    $('bastXlsNombre').textContent = 'Arrastrá el Excel o hacé clic';
+    $('bastUnicoJson').classList.add('oculto');
+    renderBastanteo();
+    toast('Bastanteo limpio: cargá los archivos del próximo cliente');
+  });
   $('btnBastTodos').addEventListener('click', async () => {
     for (let i = 0; i < bast.poderes.length; i++) {
       const j = jsonDe(i);
@@ -2720,6 +2728,11 @@
     setTimeout(revisar, 20000);
     setInterval(revisar, 300000);
   }
+  // Limpiar pantalla: recarga la página sin caché (como un inicio nuevo); la sesión y los datos guardados quedan.
+  $('btnLimpiarPantalla').addEventListener('click', async () => {
+    const ok = await confirmar('Limpiar pantalla', 'Se borran de la pantalla los archivos cargados, búsquedas, filtros y resultados (Carga de lote, Cartera, Inventario, Bastanteo). <b>No</b> se cierra la sesión ni se borra nada guardado en la base.', 'Limpiar');
+    if (ok) location.replace(location.pathname + '?v=' + Date.now());
+  });
   $('btnRecargarVersion').addEventListener('click', () => { location.replace(location.pathname + '?v=' + Date.now()); });
   vigilarVersion();
 
