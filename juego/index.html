@@ -169,6 +169,11 @@
   #config-nombre { height: 72px; }
   .opciones:not(.escenarios) button { height: 100px; font-size: 54px; }
   #config-listo { margin-top: 12px; height: 88px; }
+  .tarjeta.ayuda { text-align: left; }
+  .tarjeta.ayuda h2 { text-align: center; }
+  .tarjeta.ayuda ol { margin: 0 0 14px; padding-left: 40px; font-size: 30px; line-height: 1.3; color: var(--texto); }
+  .tarjeta.ayuda li { margin-bottom: 10px; }
+  #ayuda-mic-ok { position: static; width: 360px; height: 90px; margin: 0 auto; display: flex; }
   /* En el celular vertical la ventana se agranda. */
   #escenario.vertical .tarjeta { width: 940px; max-height: none; transform: scale(1.05); }
   .opciones button.elegida { background: var(--verde); color: #fff; box-shadow: 0 0 0 6px #BFE8C9, inset 0 -6px 0 rgba(0,0,0,.15); }
@@ -179,7 +184,7 @@
   #p-final #btn-volver { left: 620px; width: 480px; height: 100px; font-size: 44px; }
   #foto { position: absolute; inset: 0; width: 100%; height: 100%; display: none; z-index: 1; }
   /* La cámara se ve dentro del mismo recuadro que tendrá la foto: lo que se ve es lo que sale. */
-  #camara { position: absolute; left: 30px; top: 196px; width: 1140px; height: 604px; border-radius: 28px;
+  #camara { position: absolute; left: 2.5%; top: 21.8%; width: 95%; height: 67.1%; border-radius: 28px;
     object-fit: cover; display: none; transform: scaleX(-1); /* como un espejo */ }
   #cuenta, #foto-flash, .foto-aviso, .foto-botones { z-index: 2; }
   #cuenta { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); font-size: 360px; font-weight: 800;
@@ -263,9 +268,10 @@
   #escenario.vertical #p-final #btn-volver { bottom: 50px; }
   #escenario.vertical[data-pantalla="final"] .aviso { left: 500px; top: 140px; bottom: auto; }
   /* foto: el formato con marco se mantiene (4:3), centrado y lo más grande posible */
-  #escenario.vertical #p-foto .cuadro { width: 1200px; height: 900px; left: 0; top: calc(50% - 460px); transform: scale(.8333); transform-origin: 0 0; }
-  #escenario.vertical .foto-botones { bottom: 60px; flex-direction: column; align-items: center; gap: 24px; }
-  #escenario.vertical .foto-botones .boton-amarillo { width: 640px; height: 110px; font-size: 44px; }
+  #escenario.vertical #p-foto .cuadro { transform: none; }
+  #escenario.vertical .foto-botones { bottom: 40px; gap: 16px; }
+  #escenario.vertical .foto-botones .boton-amarillo { width: 310px; height: 108px; font-size: 34px; gap: 8px; }
+  #escenario.vertical #cuenta { font-size: 300px; }
   #escenario.vertical #p-foto { background: linear-gradient(#1D4BA8, #0B2466); }
   #escenario.vertical .chau-titulo { font-size: 96px; }
 
@@ -287,6 +293,20 @@
       <svg width="34" height="34" viewBox="0 0 54 54"><path d="M8 20h9l12-10v34L17 34H8z" fill="#1753C9"/><path d="M36 18q6 9 0 18M42 12q11 15 0 30" stroke="#1753C9" stroke-width="5" stroke-linecap="round" fill="none"/></svg>
       Tocá para escuchar
     </button>
+
+    <div id="ayuda-mic" class="modal" role="dialog" aria-label="Cómo activar el micrófono">
+      <div class="tarjeta ayuda">
+        <h2>Activá el micrófono</h2>
+        <p>El micrófono está bloqueado para el juego. Para decir «sí» con la voz:</p>
+        <ol>
+          <li><b>App instalada:</b> mantené apretado el ícono de Superdiente → <b>Información de la app</b> → <b>Permisos</b> → <b>Micrófono</b> → <b>Permitir</b>.</li>
+          <li><b>En Chrome:</b> tocá el candado junto a la dirección → <b>Permisos</b> → <b>Micrófono</b> → <b>Permitir</b>.</li>
+          <li>Cerrá el juego y volvé a abrirlo.</li>
+        </ol>
+        <p>Mientras tanto, podés tocar los botones para avanzar.</p>
+        <button id="ayuda-mic-ok" class="boton-amarillo">Entendido</button>
+      </div>
+    </div>
 
     <div id="config" class="modal" role="dialog" aria-label="Configuración">
       <div class="tarjeta">
@@ -1424,6 +1444,7 @@
   }
   function abrirCamara() {
     mostrar('foto');
+    elegirFormatoFoto();
     borrarFoto();
     $('cuenta').textContent = '';
     $('foto-botones').classList.remove('ver');
@@ -1461,16 +1482,16 @@
   // con el recuadro vacío para que se vea el video por debajo.
   function marcoEnVivo() {
     var c = $('foto');
-    c.width = 1200; c.height = 900;
+    c.width = FOTO.W; c.height = FOTO.H;
     var g = c.getContext('2d');
     pintarMarco(g);
-    g.save(); recuadro(g); g.clip(); g.clearRect(0, 0, 1200, 900); g.restore();
+    g.save(); recuadro(g); g.clip(); g.clearRect(0, 0, FOTO.W, FOTO.H); g.restore();
     decorarFoto(g);
     c.style.display = 'block';
   }
   function sacarFoto() {
     var v = $('camara'), c = $('foto'), g;
-    c.width = 1200; c.height = 900;
+    c.width = FOTO.W; c.height = FOTO.H;
     g = c.getContext('2d');
     pintarMarco(g);
     // La foto va dentro del recuadro, recortada tipo "cover" y en espejo, como se veía en pantalla.
@@ -1498,14 +1519,14 @@
       : bloqueada ? 'Falta el permiso de la cámara.<small>Permitila en el navegador y tocá «Otra foto».</small>'
       : 'No se encontró la cámara.';
     var c = $('foto');
-    c.width = 1200; c.height = 900;
+    c.width = FOTO.W; c.height = FOTO.H;
     var g = c.getContext('2d');
     pintarMarco(g);
     function azar(n) { var x = Math.sin(n * 12.9898) * 43758.5453; return x - Math.floor(x); }
     // En el lugar de la foto, un cielo nocturno con estrellas.
     g.save();
     recuadro(g); g.clip();
-    var cielo = g.createRadialGradient(840, 350, 40, 600, 500, 800);
+    var cielo = g.createRadialGradient(MARCO.x + MARCO.w * .7, MARCO.y + MARCO.h * .3, 40, MARCO.x + MARCO.w / 2, MARCO.y + MARCO.h / 2, Math.max(MARCO.w, MARCO.h));
     cielo.addColorStop(0, '#1F4FB5'); cielo.addColorStop(.5, '#10307A'); cielo.addColorStop(1, '#081B4F');
     g.fillStyle = cielo; g.fillRect(MARCO.x, MARCO.y, MARCO.w, MARCO.h);
     g.fillStyle = 'rgba(255,255,255,.85)';
@@ -1525,7 +1546,33 @@
   }
   /* Formato de la foto: una franja arriba con Superdiente (margen superior izquierdo) y el
      mensaje, y la foto entera en el recuadro de abajo; nada se dibuja encima de la foto. */
-  var MARCO = { x: 30, y: 196, w: 1140, h: 604, r: 28 };
+  // Dos formatos: horizontal (1200×900) y vertical para pantalla de celular (900×1600).
+  var FORMATOS = {
+    horizontal: { W: 1200, H: 900, marco: { x: 30, y: 196, w: 1140, h: 604, r: 28 },
+      sello: { cx: 112, cy: 98, r: 80 }, texto: { x: 680, y1: 88, y2: 168, max: 920, t1: 76, t2: 62 } },
+    vertical: { W: 900, H: 1600, marco: { x: 36, y: 290, w: 828, h: 1150, r: 40 },
+      sello: { cx: 135, cy: 145, r: 105 }, texto: { x: 585, y1: 122, y2: 212, max: 560, t1: 68, t2: 56 } }
+  };
+  var FOTO = FORMATOS.horizontal, MARCO = FOTO.marco;
+  // Elige el formato según la pantalla y ubica el cuadro y la cámara en vivo sobre el recuadro.
+  function elegirFormatoFoto() {
+    var vertical = $('escenario').classList.contains('vertical');
+    FOTO = vertical ? FORMATOS.vertical : FORMATOS.horizontal; MARCO = FOTO.marco;
+    var cuadro = $('p-foto').querySelector('.cuadro');
+    if (vertical) {
+      var altoEsc = $('escenario').offsetHeight || 1650;
+      var ancho = Math.min(960, Math.round((altoEsc - 190) * FOTO.W / FOTO.H)), alto = Math.round(ancho * FOTO.H / FOTO.W);
+      cuadro.style.width = ancho + 'px'; cuadro.style.height = alto + 'px';
+      cuadro.style.left = Math.round((1000 - ancho) / 2) + 'px';
+      cuadro.style.top = Math.max(20, Math.round((altoEsc - 170 - alto) / 2)) + 'px';
+    } else {
+      cuadro.style.width = cuadro.style.height = cuadro.style.left = cuadro.style.top = '';
+    }
+    var v = $('camara'), m = MARCO;
+    v.style.left = (m.x / FOTO.W * 100) + '%'; v.style.top = (m.y / FOTO.H * 100) + '%';
+    v.style.width = (m.w / FOTO.W * 100) + '%'; v.style.height = (m.h / FOTO.H * 100) + '%';
+    v.style.borderRadius = (m.r / m.w * 100) + '% / ' + (m.r / m.h * 100) + '%';
+  }
   function recuadro(g) {
     var m = MARCO;
     g.beginPath();
@@ -1544,9 +1591,9 @@
   }
   function pintarMarco(g) {
     var t = temaFoto();
-    var fondo = g.createLinearGradient(0, 0, 0, 900);
+    var fondo = g.createLinearGradient(0, 0, 0, FOTO.H);
     fondo.addColorStop(0, t.arriba); fondo.addColorStop(1, t.abajo);
-    g.fillStyle = fondo; g.fillRect(0, 0, 1200, 900);
+    g.fillStyle = fondo; g.fillRect(0, 0, FOTO.W, FOTO.H);
     if (escenario() === 'hotel') adornosHotel(g);
   }
   // Adornos del hotel de monstruos: luna, murciélagos, telarañas y calabaza (dibujados).
@@ -1596,15 +1643,17 @@
     g.restore();
   }
   function adornosHotel(g) {
-    var luna = g.createRadialGradient(1050, 100, 10, 1050, 100, 140);
+    var W = FOTO.W, H = FOTO.H, lx = W - 150;
+    var luna = g.createRadialGradient(lx, 100, 10, lx, 100, 140);
     luna.addColorStop(0, 'rgba(255,250,215,.9)'); luna.addColorStop(.45, 'rgba(255,240,180,.35)'); luna.addColorStop(1, 'rgba(255,240,180,0)');
-    g.fillStyle = luna; g.beginPath(); g.arc(1050, 100, 140, 0, 7); g.fill();
-    g.fillStyle = '#FFF6D0'; g.beginPath(); g.arc(1050, 100, 58, 0, 7); g.fill();
+    g.fillStyle = luna; g.beginPath(); g.arc(lx, 100, 140, 0, 7); g.fill();
+    g.fillStyle = '#FFF6D0'; g.beginPath(); g.arc(lx, 100, 58, 0, 7); g.fill();
     g.fillStyle = 'rgba(255,255,255,.75)';
-    for (var k = 0; k < 40; k++) { g.beginPath(); g.arc((k * 293) % 1200, (k * 131) % 190, 1.4 + (k % 3), 0, 7); g.fill(); }
-    murcielago(g, 960, 60, 1); murcielago(g, 1120, 160, .8); murcielago(g, 300, 40, .7);
-    telarana(g, 0, 0, 1, 1); telarana(g, 1200, 900, -1, -1);
-    calabaza(g, 1110, 845, .75);
+    for (var k = 0; k < 40; k++) { g.beginPath(); g.arc((k * 293) % W, (k * 131) % 190, 1.4 + (k % 3), 0, 7); g.fill(); }
+    murcielago(g, W - 240, 60, 1); murcielago(g, W - 80, 170, .8); murcielago(g, W * .25, 40, .7);
+    telarana(g, 0, 0, 1, 1); telarana(g, W, H, -1, -1);
+    if (H > W) { murcielago(g, 140, H - 70, .9); murcielago(g, 330, H - 110, .7); }
+    calabaza(g, W - 90, H - 55, .75);
   }
   function decorarFoto(g) {
     // Borde dorado alrededor de la foto (por fuera del recuadro).
@@ -1615,7 +1664,7 @@
     recuadro(g); g.stroke();
     g.restore();
     // Sello de Superdiente en el margen superior izquierdo.
-    var cx = 112, cy = 98, r = 80;
+    var cx = FOTO.sello.cx, cy = FOTO.sello.cy, r = FOTO.sello.r;
     g.save();
     g.beginPath(); g.arc(cx, cy, r, 0, Math.PI * 2); g.closePath();
     g.fillStyle = t.sello; g.fill();
@@ -1625,18 +1674,18 @@
     g.lineWidth = 9; g.strokeStyle = t.borde;
     g.beginPath(); g.arc(cx, cy, r, 0, Math.PI * 2); g.stroke();
     // Mensaje de aliento en la franja de arriba, a la derecha del sello.
-    var tx = 680;
+    var tx = FOTO.texto.x;
     g.textAlign = 'center'; g.lineJoin = 'round';
     function texto(t, y, tam, color) {
       g.font = '800 ' + tam + 'px "Baloo 2", "Trebuchet MS", sans-serif';
-      while (tam > 36 && g.measureText(t).width > 920) {
+      while (tam > 32 && g.measureText(t).width > FOTO.texto.max) {
         tam -= 4; g.font = '800 ' + tam + 'px "Baloo 2", "Trebuchet MS", sans-serif';
       }
       g.lineWidth = tam / 6; g.strokeStyle = temaFoto().trazo; g.strokeText(t, tx, y);
       g.fillStyle = color; g.fillText(t, tx, y);
     }
-    texto('¡Felicidades, ' + NOMBRE + '!', 88, 76, t.titulo);
-    texto('¡Lo lograste!', 168, 62, t.sub);
+    texto('¡Felicidades, ' + NOMBRE + '!', FOTO.texto.y1, FOTO.texto.t1, t.titulo);
+    texto('¡Lo lograste!', FOTO.texto.y2, FOTO.texto.t2, t.sub);
   }
   // Si se sale de la aplicación (otra app, bloqueo de pantalla, cerrar), la foto se borra.
   document.addEventListener('visibilitychange', function () {
@@ -1777,11 +1826,13 @@
     c.classList.toggle('ver', modo !== 'oculto');
     c.classList.toggle('toca', modo === 'bloqueado');
     if (modo === 'escuchando') textoMic.textContent = 'Decí «sí»';
-    if (modo === 'bloqueado') textoMic.textContent = 'Tocá para activar el micrófono';
+    if (modo === 'bloqueado') textoMic.textContent = mic.motivo === 'permiso' ? 'Micrófono bloqueado: tocá acá'
+      : mic.motivo === 'internet' ? 'El micrófono necesita internet' : 'Tocá para activar el micrófono';
     if (modo === 'oido') textoMic.textContent = 'Escuché: «' + oido + '»';
   }
-  function marcarBloqueado() {
+  function marcarBloqueado(motivo) {
     mic.bloqueado = true; mic.activo = false;
+    if (motivo) mic.motivo = motivo;
     var esperaba = mic.quiere; mic.quiere = false;
     if (esperaba && (estado.pantalla === 'inicio' || estado.pantalla === 'mision' || estado.pantalla === 'final')) cartelMic('bloqueado');
     else cartelMic('oculto');
@@ -1806,7 +1857,9 @@
     };
     r.onerror = function (ev) {
       if (ev.error === 'language-not-supported' && mic.idioma !== 'es-ES') { mic.idioma = 'es-ES'; mic.rec = null; return; }
-      if (ev.error === 'not-allowed' || ev.error === 'service-not-allowed' || ev.error === 'audio-capture' || ev.error === 'network') marcarBloqueado();
+      if (ev.error === 'not-allowed' || ev.error === 'service-not-allowed') marcarBloqueado(mic.permiso === 'ok' ? 'servicio' : 'permiso');
+      else if (ev.error === 'audio-capture') marcarBloqueado('permiso');
+      else if (ev.error === 'network') marcarBloqueado('internet');
     };
     r.onend = function () {
       mic.activo = false;
@@ -1819,7 +1872,7 @@
     try { mic.rec = mic.rec || crearReconocedor(); mic.rec.start(); } catch (e) {}
     // Si en 2 s no arrancó, se considera bloqueado (se ofrece tocar para activarlo).
     clearTimeout(mic.espera);
-    mic.espera = setTimeout(function () { if (mic.quiere && !mic.activo) marcarBloqueado(); }, 2000);
+    mic.espera = setTimeout(function () { if (mic.quiere && !mic.activo) marcarBloqueado('arranque'); }, 2000);
   }
   function escuchar(si) {
     mic.quiere = si && micUsable();
@@ -1829,14 +1882,50 @@
     if (mic.quiere && !mic.activo) encender();
     else if (!mic.quiere && mic.activo) { try { mic.rec.abort(); } catch (e) {} }
   }
-  // Tocar el cartel bloqueado lo vuelve a intentar dentro del toque (lo que pide Chrome).
+  // Permiso del micrófono: se pide solo, con el primer toque en la app (Chrome lo pide así).
+  // Si se acepta, el micrófono queda andando solo en todo el juego.
+  function pedirMicrofono(alTerminar) {
+    if (mic.sinApi || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { if (alTerminar) alTerminar(); return; }
+    mic.permiso = 'pidiendo';
+    navigator.mediaDevices.getUserMedia({ audio: true }).then(function (flujo) {
+      flujo.getTracks().forEach(function (t) { t.stop(); });
+      mic.permiso = 'ok';
+      if (mic.bloqueado) { mic.bloqueado = false; cartelMic('oculto'); }
+      if (alTerminar) alTerminar();
+    }).catch(function (e) {
+      // Solo un «no» real bloquea; otros errores (sin micrófono para grabar, navegador raro)
+      // no impiden probar igual con el reconocimiento de voz.
+      mic.permiso = (e && (e.name === 'NotAllowedError' || e.name === 'SecurityError')) ? 'denegado' : 'error';
+      if (mic.permiso === 'denegado') { mic.motivo = 'permiso'; mic.bloqueado = true; }
+      if (alTerminar) alTerminar();
+    });
+  }
+  document.addEventListener('pointerdown', function permisoMic() {
+    document.removeEventListener('pointerdown', permisoMic, true);
+    if (!mic.permiso) pedirMicrofono(function () {
+      // Si ya estaba esperando el «sí», arranca a escuchar.
+      if (mic.permiso === 'ok' && mic.quiere && !mic.activo) encender();
+    });
+  }, true);
+  // Si el navegador ya sabe que el micrófono está bloqueado, se avisa desde el principio.
+  try {
+    if (navigator.permissions && navigator.permissions.query) navigator.permissions.query({ name: 'microphone' }).then(function (r) {
+      if (r.state === 'denied') { mic.bloqueado = true; mic.motivo = 'permiso'; mic.permiso = 'denegado'; }
+      if (r.state === 'granted') mic.permiso = 'ok';
+    }).catch(function () {});
+  } catch (e) {}
+  // Tocar el cartel: si el permiso está bloqueado, explica cómo habilitarlo; si no, lo reintenta.
   $('aviso-mic').addEventListener('click', function (ev) {
     if (!$('aviso-mic').classList.contains('toca')) return;
     ev.stopPropagation();
-    mic.bloqueado = false;
-    mic.quiere = vozActiva;
-    encender();
+    pedirMicrofono(function () {
+      if (mic.permiso === 'denegado') { $('ayuda-mic').classList.add('ver'); return; }
+      mic.bloqueado = false;
+      mic.quiere = vozActiva;
+      encender();
+    });
   });
+  $('ayuda-mic-ok').onclick = function () { $('ayuda-mic').classList.remove('ver'); };
   // Espera el «sí» en una pantalla, si sigue siendo la misma cuando termina de hablar.
   function esperarSi(pantalla) {
     if (estado.pantalla !== pantalla) return;
