@@ -159,6 +159,18 @@
     font-size: 64px; font-weight: 800; line-height: 1; display: flex; flex-direction: column;
     align-items: center; justify-content: center; box-shadow: inset 0 -6px 0 rgba(0,0,0,.08); }
   .opciones button small { font-size: 28px; font-weight: 700; }
+  .opciones.escenarios button { width: 300px; height: 196px; font-size: 28px; gap: 4px; padding: 8px; line-height: 1; }
+  .opciones.escenarios img { width: 276px; height: 140px; object-fit: cover; border-radius: 16px; }
+  /* Ventana compacta para que entre en la pantalla horizontal (900 de alto). */
+  .tarjeta { max-height: 880px; overflow-y: auto; }
+  .tarjeta h2 { font-size: 46px; line-height: 1.05; }
+  .tarjeta .campo { margin: 6px 0; font-size: 30px; }
+  .tarjeta p { margin: 0 0 6px; }
+  #config-nombre { height: 72px; }
+  .opciones:not(.escenarios) button { height: 100px; font-size: 54px; }
+  #config-listo { margin-top: 12px; height: 88px; }
+  /* En el celular vertical la ventana se agranda. */
+  #escenario.vertical .tarjeta { width: 940px; max-height: none; transform: scale(1.05); }
   .opciones button.elegida { background: var(--verde); color: #fff; box-shadow: 0 0 0 6px #BFE8C9, inset 0 -6px 0 rgba(0,0,0,.15); }
   #config-listo { position: static; width: 360px; height: 96px; margin: 20px auto 0; font-size: 46px; }
 
@@ -184,7 +196,8 @@
   .foto-aviso.abajo { top: auto; bottom: 160px; text-align: center; z-index: 2; }
   .foto-botones { position: absolute; left: 0; right: 0; bottom: 12px; display: none; justify-content: center; gap: 30px; }
   .foto-botones.ver { display: flex; }
-  .foto-botones .boton-amarillo { position: static; width: 440px; height: 80px; font-size: 36px; white-space: nowrap; }
+  .foto-botones .boton-amarillo { position: static; width: 370px; height: 80px; font-size: 34px; white-space: nowrap; }
+  .boton-rojo { background: linear-gradient(#FF7A7A, #D93030); color: #fff; box-shadow: 0 8px 0 #9E1C1C, 0 14px 30px rgba(0,0,0,.35); }
   /* Botones redondos: casita (menú principal) y salir. */
   #barra { position: absolute; top: 24px; right: 24px; z-index: 25; display: flex; gap: 14px; }
   .redondo { width: 88px; height: 88px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
@@ -286,6 +299,11 @@
           <button data-seg="20">20<small>segundos</small></button>
           <button data-seg="15">15<small>segundos</small></button>
           <button data-seg="10">10<small>segundos</small></button>
+        </div>
+        <div class="campo">Escenario de los pasos</div>
+        <div class="opciones escenarios">
+          <button data-fondo="bano"><img src="recursos/videos/dientes-adelante.jpg" alt="">Baño</button>
+          <button data-fondo="hotel"><img src="recursos/videos/hotel/dientes-adelante.jpg" alt="">Hotel de monstruos</button>
         </div>
         <button id="config-listo" class="boton-amarillo">Listo</button>
       </div>
@@ -438,6 +456,10 @@
           <svg width="50" height="50" viewBox="0 0 54 54"><path d="M8 17h9l4-6h12l4 6h9v26H8z" fill="#1753C9"/><circle cx="27" cy="30" r="9" fill="#FFD23F" stroke="#1753C9" stroke-width="4"/></svg>
           Otra foto
         </button>
+        <button id="btn-foto-salir" class="boton-amarillo boton-rojo">
+          <svg width="44" height="44" viewBox="0 0 54 54"><path d="M14 14L40 40M40 14L14 40" stroke="#fff" stroke-width="8" stroke-linecap="round" fill="none"/></svg>
+          Salir
+        </button>
         <button id="btn-foto-volver" class="boton-amarillo">
           <svg width="50" height="50" viewBox="0 0 54 54"><path d="M8 26L27 9L46 26M14 22V45H24V33H30V45H40V22" stroke="#1753C9" stroke-width="6" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>
           Volver al inicio
@@ -487,6 +509,8 @@
   var perfil = null;
   try { perfil = JSON.parse(localStorage.getItem('dl-perfil') || 'null'); } catch (e) {}
   if (perfil && OPCIONES_SEGUNDOS.indexOf(perfil.segundos) >= 0) SEGUNDOS_POR_PASO = perfil.segundos;
+  // Escenario de los pasos: «bano» (el original) u «hotel» (hotel de monstruos).
+  function escenario() { return (perfil && perfil.fondo === 'hotel') ? 'hotel' : 'bano'; }
   function guardarPerfil() {
     try { localStorage.setItem('dl-perfil', JSON.stringify(perfil)); } catch (e) {}
   }
@@ -1067,7 +1091,7 @@
     dibujarSarro(svg, p);
     dibujarGuias(svg, p);
     svg.querySelector('#destellos').innerHTML = '';
-    ponerVideo($('video-paso'), PASOS[i].id, $('svg-paso'), '.fondo, #nino > :not(#guias):not(#destellos)',
+    ponerVideo($('video-paso'), (escenario() === 'hotel' ? 'hotel/' : '') + PASOS[i].id, $('svg-paso'), '.fondo, #nino > :not(#guias):not(#destellos)',
       function (enVideo) { dibujarGuias($('svg-paso'), PASOS[i], enVideo); });
     // El paso se activa con la voz: el reloj empieza cuando termina la consigna.
     estado.esperandoVoz = true;
@@ -1334,7 +1358,7 @@
   function abrirConfig(si) {
     var primeraVez = !perfil;
     if (si) {
-      borrador = { nombre: perfil ? perfil.nombre : '', segundos: SEGUNDOS_POR_PASO, voz: perfil ? perfil.voz : 'narrador' };
+      borrador = { nombre: perfil ? perfil.nombre : '', segundos: SEGUNDOS_POR_PASO, voz: perfil ? perfil.voz : 'narrador', fondo: escenario() };
       $('config-nombre').value = borrador.nombre;
       $('config-nombre').classList.remove('falta');
       $('config-titulo').textContent = primeraVez ? '¡Bienvenido a la misión!' : 'Configuración';
@@ -1345,12 +1369,13 @@
     $('config').classList.toggle('ver', si);
     $('config').classList.toggle('primera', primeraVez);
     marcarVoz();
+    marcarFondo();
   }
   function confirmarConfig() {
     var nombre = $('config-nombre').value.trim().replace(/\s+/g, ' ');
     if (!nombre) { $('config-nombre').classList.add('falta'); $('config-nombre').focus(); return; }
     var primeraVez = !perfil;
-    perfil = { nombre: nombre, segundos: borrador.segundos, voz: borrador.voz };
+    perfil = { nombre: nombre, segundos: borrador.segundos, voz: borrador.voz, fondo: borrador.fondo };
     SEGUNDOS_POR_PASO = perfil.segundos;
     guardarPerfil();
     borrador = null;
@@ -1367,6 +1392,15 @@
         o.classList.toggle('elegida', o === b);
       });
     };
+  });
+  function marcarFondo() {
+    var f = borrador ? borrador.fondo : escenario();
+    Array.prototype.forEach.call(document.querySelectorAll('.opciones.escenarios button'), function (b) {
+      b.classList.toggle('elegida', b.getAttribute('data-fondo') === f);
+    });
+  }
+  Array.prototype.forEach.call(document.querySelectorAll('.opciones.escenarios button'), function (b) {
+    b.onclick = function () { borrador.fondo = b.getAttribute('data-fondo'); marcarFondo(); };
   });
   $('config-nombre').addEventListener('keydown', function (ev) { if (ev.key === 'Enter') confirmarConfig(); });
 
@@ -1502,26 +1536,93 @@
     g.arcTo(m.x, m.y, m.x + m.w, m.y, m.r);
     g.closePath();
   }
+  // Colores del marco según el escenario elegido.
+  function temaFoto() {
+    return escenario() === 'hotel'
+      ? { arriba: '#3B1466', abajo: '#120726', borde: '#7CFF6B', sello: '#2A0F4F', titulo: '#FF9F1C', sub: '#B9FF7A', trazo: '#1A0633' }
+      : { arriba: '#1F4FB5', abajo: '#0B2466', borde: '#FFD23F', sello: '#10307A', titulo: '#FFD23F', sub: '#FFFFFF', trazo: '#0E2F86' };
+  }
   function pintarMarco(g) {
+    var t = temaFoto();
     var fondo = g.createLinearGradient(0, 0, 0, 900);
-    fondo.addColorStop(0, '#1F4FB5'); fondo.addColorStop(1, '#0B2466');
+    fondo.addColorStop(0, t.arriba); fondo.addColorStop(1, t.abajo);
     g.fillStyle = fondo; g.fillRect(0, 0, 1200, 900);
+    if (escenario() === 'hotel') adornosHotel(g);
+  }
+  // Adornos del hotel de monstruos: luna, murciélagos, telarañas y calabaza (dibujados).
+  function murcielago(g, x, y, e) {
+    g.save(); g.translate(x, y); g.scale(e, e);
+    g.beginPath();
+    g.moveTo(0, 6);
+    g.quadraticCurveTo(-14, -14, -40, -6); g.quadraticCurveTo(-34, 2, -36, 12);
+    g.quadraticCurveTo(-26, 6, -20, 14); g.quadraticCurveTo(-12, 8, 0, 16);
+    g.quadraticCurveTo(12, 8, 20, 14); g.quadraticCurveTo(26, 6, 36, 12);
+    g.quadraticCurveTo(34, 2, 40, -6); g.quadraticCurveTo(14, -14, 0, 6);
+    g.fillStyle = '#0B0416'; g.fill();
+    g.beginPath(); g.arc(0, 4, 8, 0, Math.PI * 2); g.fill();
+    g.beginPath(); g.moveTo(-6, -2); g.lineTo(-4, -10); g.lineTo(-1, -3); g.moveTo(6, -2); g.lineTo(4, -10); g.lineTo(1, -3); g.fill();
+    g.fillStyle = '#FFD23F'; g.beginPath(); g.arc(-3, 3, 1.8, 0, 7); g.arc(3, 3, 1.8, 0, 7); g.fill();
+    g.restore();
+  }
+  function telarana(g, x, y, sx, sy) {
+    g.save(); g.translate(x, y); g.scale(sx, sy);
+    g.strokeStyle = 'rgba(230,220,255,.55)'; g.lineWidth = 2.2;
+    for (var a = 0; a <= 4; a++) {
+      var ang = a * Math.PI / 8;
+      g.beginPath(); g.moveTo(0, 0); g.lineTo(Math.cos(ang) * 150, Math.sin(ang) * 150); g.stroke();
+    }
+    for (var r = 30; r <= 150; r += 30) {
+      g.beginPath();
+      for (var b = 0; b <= 4; b++) {
+        var an = b * Math.PI / 8, px = Math.cos(an) * r, py = Math.sin(an) * r;
+        if (b === 0) g.moveTo(px, py); else g.quadraticCurveTo(Math.cos(an - Math.PI / 16) * r * .82, Math.sin(an - Math.PI / 16) * r * .82, px, py);
+      }
+      g.stroke();
+    }
+    g.restore();
+  }
+  function calabaza(g, x, y, e) {
+    g.save(); g.translate(x, y); g.scale(e, e);
+    var luz = g.createRadialGradient(0, 0, 10, 0, 0, 90);
+    luz.addColorStop(0, 'rgba(255,200,80,.55)'); luz.addColorStop(1, 'rgba(255,160,40,0)');
+    g.fillStyle = luz; g.beginPath(); g.arc(0, 0, 90, 0, 7); g.fill();
+    g.fillStyle = '#FF8A1C'; g.strokeStyle = '#B4520A'; g.lineWidth = 4;
+    [-26, 0, 26].forEach(function (dx) { g.beginPath(); g.ellipse(dx, 4, 30, 40, 0, 0, 7); g.fill(); g.stroke(); });
+    g.fillStyle = '#3E7D1E'; g.fillRect(-5, -44, 10, 14);
+    g.fillStyle = '#FFE38A';
+    g.beginPath(); g.moveTo(-22, -6); g.lineTo(-10, -6); g.lineTo(-16, -18); g.fill();
+    g.beginPath(); g.moveTo(22, -6); g.lineTo(10, -6); g.lineTo(16, -18); g.fill();
+    g.beginPath(); g.moveTo(-26, 12); g.quadraticCurveTo(0, 34, 26, 12); g.lineTo(14, 16); g.lineTo(8, 10); g.lineTo(0, 18); g.lineTo(-8, 10); g.lineTo(-14, 16); g.closePath(); g.fill();
+    g.restore();
+  }
+  function adornosHotel(g) {
+    var luna = g.createRadialGradient(1050, 100, 10, 1050, 100, 140);
+    luna.addColorStop(0, 'rgba(255,250,215,.9)'); luna.addColorStop(.45, 'rgba(255,240,180,.35)'); luna.addColorStop(1, 'rgba(255,240,180,0)');
+    g.fillStyle = luna; g.beginPath(); g.arc(1050, 100, 140, 0, 7); g.fill();
+    g.fillStyle = '#FFF6D0'; g.beginPath(); g.arc(1050, 100, 58, 0, 7); g.fill();
+    g.fillStyle = 'rgba(255,255,255,.75)';
+    for (var k = 0; k < 40; k++) { g.beginPath(); g.arc((k * 293) % 1200, (k * 131) % 190, 1.4 + (k % 3), 0, 7); g.fill(); }
+    murcielago(g, 960, 60, 1); murcielago(g, 1120, 160, .8); murcielago(g, 300, 40, .7);
+    telarana(g, 0, 0, 1, 1); telarana(g, 1200, 900, -1, -1);
+    calabaza(g, 1110, 845, .75);
   }
   function decorarFoto(g) {
     // Borde dorado alrededor de la foto (por fuera del recuadro).
     g.save();
-    g.lineWidth = 10; g.strokeStyle = '#FFD23F';
+    var t = temaFoto();
+    if (escenario() === 'hotel') { g.shadowColor = t.borde; g.shadowBlur = 22; }
+    g.lineWidth = 10; g.strokeStyle = t.borde;
     recuadro(g); g.stroke();
     g.restore();
     // Sello de Superdiente en el margen superior izquierdo.
     var cx = 112, cy = 98, r = 80;
     g.save();
     g.beginPath(); g.arc(cx, cy, r, 0, Math.PI * 2); g.closePath();
-    g.fillStyle = '#10307A'; g.fill();
+    g.fillStyle = t.sello; g.fill();
     g.clip();
     if (sello.complete && sello.naturalWidth) g.drawImage(sello, cx - r, cy - r, r * 2, r * 2);
     g.restore();
-    g.lineWidth = 9; g.strokeStyle = '#FFD23F';
+    g.lineWidth = 9; g.strokeStyle = t.borde;
     g.beginPath(); g.arc(cx, cy, r, 0, Math.PI * 2); g.stroke();
     // Mensaje de aliento en la franja de arriba, a la derecha del sello.
     var tx = 680;
@@ -1531,11 +1632,11 @@
       while (tam > 36 && g.measureText(t).width > 920) {
         tam -= 4; g.font = '800 ' + tam + 'px "Baloo 2", "Trebuchet MS", sans-serif';
       }
-      g.lineWidth = tam / 6; g.strokeStyle = '#0E2F86'; g.strokeText(t, tx, y);
+      g.lineWidth = tam / 6; g.strokeStyle = temaFoto().trazo; g.strokeText(t, tx, y);
       g.fillStyle = color; g.fillText(t, tx, y);
     }
-    texto('¡Felicidades, ' + NOMBRE + '!', 88, 76, '#FFD23F');
-    texto('¡Lo lograste!', 168, 62, '#FFFFFF');
+    texto('¡Felicidades, ' + NOMBRE + '!', 88, 76, t.titulo);
+    texto('¡Lo lograste!', 168, 62, t.sub);
   }
   // Si se sale de la aplicación (otra app, bloqueo de pantalla, cerrar), la foto se borra.
   document.addEventListener('visibilitychange', function () {
@@ -1814,6 +1915,7 @@
   $('btn-foto').onclick = abrirCamara;
   $('btn-otra-foto').onclick = abrirCamara;
   $('btn-foto-volver').onclick = function () { mostrar('inicio'); saludar(); };
+  $('btn-foto-salir').onclick = function () { $('btn-salir').onclick(); };
   // Algunos navegadores sí dejan hablar al abrir; si no arrancó, queda para el primer toque.
   setTimeout(function () {
     saludar();

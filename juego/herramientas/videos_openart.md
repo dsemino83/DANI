@@ -60,3 +60,19 @@ si no, la voz del navegador (es-AR). El reloj de cada paso arranca cuando termin
 
 Audios grabados con Fish Audio, voz «Narrador v2» con la etiqueta [excited] (13 frases, ~1000 créditos).
 Para agregar una frase: grabarla en `recursos/audio/<clave>.mp3` y sumar la clave en `AUDIOS_GRABADOS` (index.html).
+
+## Escenario «Hotel de monstruos» (octubre 2026)
+
+Segundo escenario para los 9 pasos, elegible en la configuración (ruedita o bienvenida).
+Videos en `recursos/videos/hotel/<id>.{mp4,webm,jpg}`; el juego los usa si `perfil.fondo === 'hotel'`.
+
+- Imagen de arranque: Seedream 4.5 image2image a partir del primer cuadro de cada video del baño,
+  con el mismo niño y pose; cambia solo el fondo: baño de un castillo-hotel gótico de noche
+  (paredes violetas, ventana con luna llena y murciélagos, candelabro, espejo dorado, bañera con patas,
+  telaraña, calabaza iluminada, niebla verde). Inspirado en el estilo de películas de hoteles de
+  monstruos, sin personajes, logos ni nombres de ninguna película.
+- Video: PixVerse V6 720p 5 s con el movimiento de cada paso + «los murciélagos aletean y vuelan frente
+  a la luna, la calabaza brilla con una vela que titila, las velas titilan, la niebla verde se mueve».
+- `/tmp/.../hotel/preparar.sh <id>` = `preparar_video.sh` hacia `hotel/<id>` + portada .jpg.
+- Costo: 9 imágenes × 15 + 9 videos × 70 ≈ 765 créditos.
+- Marco de la foto: con este escenario se dibuja con luna, murciélagos, telarañas, calabaza y borde verde.
