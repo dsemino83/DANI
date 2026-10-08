@@ -1945,7 +1945,13 @@
     const ed = bast.ediciones[i];
     const cuits = {};
     const p = bast.poderes[i];
-    [p.otorgante.dni].concat(p.apoderados.map(a => a.dni)).forEach(d => { const c = cuitDe(i, d).cuit; if (c) cuits[d] = c; });
+    const firmantes = bast.cliente && bast.cliente.firmantes;
+    // CUIT cargado a mano; si no, el de la planilla (lo resuelve jsonPoder); si no, el de la base de entes.
+    [p.otorgante].concat(p.apoderados).forEach(x => {
+      const d = x.dni;
+      if ((ed.cuits || {})[d]) cuits[d] = ed.cuits[d];
+      else if (!(firmantes && M.firmanteDe(x, firmantes)) && bast.cuitsBase[d]) cuits[d] = bast.cuitsBase[d];
+    });
     return M.jsonPoder(p, bast.cliente, Object.assign({}, ed, { cuits }));
   }
 
@@ -1953,15 +1959,23 @@
     const hay = bast.poderes.length > 0;
     $('bastAcciones').classList.toggle('oculto', !hay);
     let estado = '';
-    if (hay && !bast.cliente) estado = aviso('warn', 'Falta la planilla del cliente: sin ella no se completan los CUIT de los firmantes ni la escritura.');
+    if (hay && !bast.cliente) estado = aviso('warn', 'Falta la planilla del cliente: sin ella no se completan los CUIT de los firmantes ni la escritura, y se muestran todas las personas del PDF.');
+    const sp = hay ? sinPoder() : [];
+    if (sp.length) estado += aviso('warn', `<b>${sp.length} firmante${sp.length > 1 ? 's' : ''} de la planilla sin poder</b> en el PDF (quedan cargados en el JSON único con una advertencia): ` +
+      sp.map(f => `${esc(f.nombre)} (CUIT ${esc(M.formatoCuit(f.cuit))})`).join(' · '));
     $('bastEstado').innerHTML = estado;
     renderBastUnico();
     $('bastPoderes').innerHTML = bast.poderes.map((p, i) => {
       const ed = bast.ediciones[i] || {};
       const j = jsonDe(i);
-      const personas = [['Otorgante', p.otorgante]].concat(p.apoderados.map(a => ['Apoderado', a]));
+      const firmantes = bast.cliente && bast.cliente.firmantes && bast.cliente.firmantes.length ? bast.cliente.firmantes : null;
+      // Con planilla, los apoderados del PDF que no están en ella no se muestran ni van al JSON.
+      const apod = firmantes ? p.apoderados.filter(a => M.firmanteDe(a, firmantes)) : p.apoderados;
+      const fuera = firmantes ? p.apoderados.filter(a => !M.firmanteDe(a, firmantes)) : [];
+      const personas = [['Otorgante', p.otorgante]].concat(apod.map(a => ['Apoderado', a]));
       const filaPersona = ([rol, x]) => {
-        const c = cuitDe(i, x.dni);
+        const f = rol === 'Apoderado' && firmantes ? M.firmanteDe(x, firmantes) : null;
+        const c = f && !(bast.ediciones[i].cuits || {})[x.dni] ? { cuit: String(f.cuit).replace(/\D/g, ''), fuente: 'planilla' } : cuitDe(i, x.dni);
         return `<tr><td>${rol}</td><td>${esc(x.nombre_completo)}</td><td>${esc(x.dni)}</td>` +
           `<td><input data-bast-cuit="${i}" data-dni="${esc(x.dni)}" value="${esc(c.cuit)}" placeholder="CUIT (11 dígitos)" inputmode="numeric" style="max-width:150px"></td>` +
           `<td>${c.cuit ? `<span class="chip ok">${esc(c.fuente)}</span>` : '<span class="chip warn">sin CUIT: va el DNI</span>'}</td></tr>`;
@@ -1994,6 +2008,8 @@
         </div>
         <h3>Personas</h3>
         <div class="tabla-caja"><table><thead><tr><th>Rol</th><th>Nombre</th><th>DNI</th><th>CUIT (número de identificación)</th><th>Origen</th></tr></thead><tbody>${personas.map(filaPersona).join('')}</tbody></table></div>
+        ${!apod.length && p.apoderados.length ? aviso('warn', 'Ningún apoderado de este poder está en la planilla del cliente.') : ''}
+        ${fuera.length ? `<p class="sub" style="margin:6px 0 0">No se incluyen (están en el PDF pero no en la planilla): ${esc(fuera.map(a => a.nombre_completo).join(', '))}</p>` : ''}
         ${usos}
         <div class="acciones">
           <button class="btn primario" type="button" data-bast-bajar="${i}">Descargar JSON</button>
@@ -2025,7 +2041,8 @@
     if (v) { const i = Number(v.dataset.bastVer), pre = $('bastJson' + i); pre.textContent = JSON.stringify(jsonDe(i), null, 2); pre.classList.toggle('oculto'); }
   });
   // Un solo JSON con todos los poderes, agrupando apoderados por tipo de firma y facultades.
-  function jsonUnico() { return M.jsonBastanteoUnico(bast.poderes.map((p, i) => jsonDe(i)), bast.cliente); }
+  const sinPoder = () => (bast.cliente ? M.firmantesSinPoder(bast.poderes, bast.cliente.firmantes) : []);
+  function jsonUnico() { return M.jsonBastanteoUnico(bast.poderes.map((p, i) => jsonDe(i)), bast.cliente && Object.assign({}, bast.cliente, { sinPoder: sinPoder() })); }
   function renderBastUnico() {
     if (!bast.poderes.length) { $('bastUnico').innerHTML = ''; return; }
     const u = jsonUnico();

@@ -122,7 +122,9 @@ Después de modificar el código, regenerar el archivo único con `python3 const
    DNI. Las facultades salen del PDF; las que el PDF no trae, de las marcas X de la planilla, y si no, "no". Se pueden
    corregir a mano antes de descargar. También se descarga un **JSON único** del cliente: junta todos los poderes, agrupa
    a los apoderados por tipo de firma y facultades (grupos A, B, C…) y arma una estructura de firma por grupo, con sus
-   apoderados y escrituras; al final lista los poderes de origen. El PDF se lee en el navegador con pdf.js (`vendor/`, o CDN); no se guarda nada.
+   apoderados y escrituras; al final lista los poderes de origen. Con planilla, los apoderados del PDF que no están en ella no se
+   incluyen (se reconocen por el DNI dentro del CUIT o, si no, por el nombre); los firmantes de la planilla que no figuran
+   en ningún poder quedan en el JSON único con una advertencia. El PDF se lee en el navegador con pdf.js (`vendor/`, o CDN); no se guarda nada.
 
 ## Datos
 
