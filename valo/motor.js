@@ -1248,6 +1248,73 @@
     };
   }
 
+  // Un solo JSON con todos los poderes: cada apoderado junta sus facultades (si tiene varios poderes con el mismo tipo de
+  // firma, vale lo que le dé cualquiera de ellos) y los apoderados con el mismo tipo de firma y las mismas facultades
+  // forman un grupo (A, B, C…). Hay una estructura de firma por grupo. jsons = los JSON de cada poder (ya revisados).
+  function jsonBastanteoUnico(jsons, cliente) {
+    const letra = n => { let s = ''; n++; while (n > 0) { const r = (n - 1) % 26; s = String.fromCharCode(65 + r) + s; n = Math.floor((n - 1) / 26); } return s; };
+    const personas = new Map(); // id + tipo → datos
+    jsons.forEach(j => j.estructuras_de_firma.forEach(e => j.apoderados.forEach(a => {
+      const k = a.numero_de_identificacion + '|' + (e.tipo_de_firma || '');
+      if (!personas.has(k)) personas.set(k, { apoderado: a, tipo: e.tipo_de_firma, individual: e.firma_individual, conjunta: e.firma_conjunta,
+        facultades: Object.fromEntries(BASTANTEO_CLAVES.map(c => [c, false])), limitaciones: new Set(), escrituras: new Set(), estructuras: new Set() });
+      const p = personas.get(k);
+      BASTANTEO_CLAVES.forEach(c => { if (e.facultades[c]) p.facultades[c] = true; });
+      if (e.limitaciones) p.limitaciones.add(e.limitaciones);
+      if (j.deed_number) p.escrituras.add(String(j.deed_number));
+      if (e.estructura_de_firma) p.estructuras.add(e.estructura_de_firma);
+    })));
+    const grupos = new Map();
+    personas.forEach(p => {
+      const k = (p.tipo || '') + '|' + BASTANTEO_CLAVES.map(c => (p.facultades[c] ? 1 : 0)).join('');
+      if (!grupos.has(k)) grupos.set(k, { tipo: p.tipo, individual: p.individual, conjunta: p.conjunta, facultades: p.facultades, personas: [], limitaciones: new Set(), escrituras: new Set() });
+      const g = grupos.get(k);
+      g.personas.push(p);
+      p.limitaciones.forEach(x => g.limitaciones.add(x));
+      p.escrituras.forEach(x => g.escrituras.add(x));
+    });
+    const lista = [...grupos.values()].sort((a, b) => b.personas.length - a.personas.length);
+    lista.forEach((g, n) => { g.grupo = letra(n); g.personas.forEach(p => { p.grupo = g.grupo; }); });
+    // Un apoderado puede quedar en más de un grupo (por ejemplo, firma individual en uno y conjunta en otro).
+    const apoderados = new Map();
+    personas.forEach(p => {
+      const id = p.apoderado.numero_de_identificacion;
+      if (!apoderados.has(id)) apoderados.set(id, { numero_de_identificacion: id, nombre_completo: p.apoderado.nombre_completo, grupo: [] });
+      apoderados.get(id).grupo.push(p.grupo);
+    });
+    const otorgantes = [...new Map(jsons.map(j => [j.otorgante.numero_de_identificacion, j.otorgante])).values()];
+    const fechas = jsons.map(j => j.fecha_emision).filter(Boolean).sort();
+    const nombres = g => g.personas.map(p => p.apoderado.nombre_completo).join(', ');
+    return {
+      deed_number: [...new Set(jsons.map(j => j.deed_number).filter(Boolean))].join(', ') || null,
+      incorporation_date: null,
+      incorporation_resolution_number: null,
+      board_resolution_power_attorney: [...new Set(jsons.map(j => j.board_resolution_power_attorney).filter(Boolean))].join(', ') || null,
+      power_attorney_type: [...new Set(jsons.map(j => j.power_attorney_type).filter(Boolean))].join(' / ') || null,
+      power_attorney_scope: { new: true, revoke: false, complementary: false },
+      fecha_emision: fechas.length ? fechas[fechas.length - 1] : null,
+      razon_social: (cliente && cliente.cliente) || (jsons[0] && jsons[0].razon_social) || null,
+      cuit_empresa: formatoCuit((cliente && cliente.cuit) || (jsons[0] && jsons[0].cuit_empresa)),
+      otorgante: otorgantes.length === 1 ? otorgantes[0] : otorgantes,
+      apoderados: [...apoderados.values()].map(a => Object.assign(a, { grupo: a.grupo.join(', ') })),
+      estructuras_de_firma: lista.map(g => ({
+        grupo: g.grupo,
+        tipo_de_firma: g.tipo || null,
+        estructura_de_firma: `Grupo ${g.grupo} - ${g.conjunta ? 'firma conjunta' : 'firma individual / indistinta'} (${nombres(g)})`,
+        firma_individual: !!g.individual,
+        firma_conjunta: !!g.conjunta,
+        apoderados: g.personas.map(p => p.apoderado.numero_de_identificacion),
+        escrituras: [...g.escrituras],
+        facultades: g.facultades,
+        limitaciones: [...g.limitaciones].join(' | ') || null,
+        limite_de_operacion: null,
+      })),
+      poderes: jsons.map(j => ({ deed_number: j.deed_number, fecha_emision: j.fecha_emision, razon_social: j.razon_social, cuit_empresa: j.cuit_empresa,
+        power_attorney_type: j.power_attorney_type, board_resolution_power_attorney: j.board_resolution_power_attorney,
+        apoderados: j.apoderados.map(a => a.numero_de_identificacion), estructuras: j.estructuras_de_firma.map(e => e.estructura_de_firma) })),
+    };
+  }
+
   // ------------------------------------------------------------ TXT NO COBIS
   // Diseño (hoja "NO COBIS" del archivo de inventario Payway), 156 caracteres por línea, una por ente (MIS):
   // código cliente = MIS (10, ceros a la izq.) · tipo de crédito CCASR (10, espacios a la der.) · tasa 0100000000 (10)
@@ -2374,7 +2441,7 @@ try {
     leerTxtMeli, bancoMeliDeTxt, bancosParaMeli,
     sqlExtraccionCartera, bookmarkletCartera, scriptPowerShellCartera, comandoTareaCartera, IMPORTES_CARTERA,
     NO_COBIS, ultimoDiaHabil, fechasNoCobis, lineaNoCobis, txtNoCobis, loteApiNoCobis, scriptPowerShellNoCobis, scriptPowerShellProbarNoCobis, scriptPowerShellAgenteNoCobis, cmdEnvioNoCobis,
-    leerCartera, BASTANTEO_CATALOGO, BASTANTEO_CLAVES, BASTANTEO_EXTRA, leerPoderesOcr, leerClienteBastanteo, cuitPorDni, formatoCuit, jsonPoder, leerInventarioGarantias, INVENTARIOS_CONTABLES, INVENTARIO_DENOMINACION, INVENTARIO_FIRMAS, fechaReporteIso, fechaInventarioDesdeReporte, leerPadronDesdeInventarios, leerBaseEntes, unirPadron, armarInventariosContables, leerCom3500, leerTcApiBcra, elegirTipoCambio, numeroEnLetras, daxCarteraPowerBI, daxDiagnosticoPowerBI, leerFilasPowerBI, sugerirColumnaCartera, columnasNumericasCartera, agruparCartera, valoresDistintos, sqlCartera,
+    leerCartera, BASTANTEO_CATALOGO, BASTANTEO_CLAVES, BASTANTEO_EXTRA, leerPoderesOcr, leerClienteBastanteo, cuitPorDni, formatoCuit, jsonPoder, jsonBastanteoUnico, leerInventarioGarantias, INVENTARIOS_CONTABLES, INVENTARIO_DENOMINACION, INVENTARIO_FIRMAS, fechaReporteIso, fechaInventarioDesdeReporte, leerPadronDesdeInventarios, leerBaseEntes, unirPadron, armarInventariosContables, leerCom3500, leerTcApiBcra, elegirTipoCambio, numeroEnLetras, daxCarteraPowerBI, daxDiagnosticoPowerBI, leerFilasPowerBI, sugerirColumnaCartera, columnasNumericasCartera, agruparCartera, valoresDistintos, sqlCartera,
     leerCsv, encabezadosEjemplo, leerDefinicionInterfaz, sugerirColumna, detectarHojaInterfaz,
     normalizar, provinciaPorNombre, crearBuscadorBancoPorNombre, round2, aNumero, aFechaSerial, aCodigoBanco,
     fechaDDMMYY, fechaYYYYMMDD, fechaLegible, hoyDDMMYY,
