@@ -1171,12 +1171,26 @@
         // Encabezado de firmantes: tiene "cuit" y una columna de nombre.
         const iNom = n.findIndex(c => /nombre/.test(c) && /firmante|apellido|nombre/.test(c));
         if (icu > -1 && iNom > -1) {
+          // La columna CUIT a veces trae el DNI (7 u 8 dígitos): queda como DNI y el CUIT se busca después en la base
+          // de entes (por número de ente o por DNI).
+          const iEnte = n.indexOf('ente');
+          let vacias = 0;
           for (const g of t.slice(i + 1)) {
-            const cuit = String((g || [])[icu] == null ? '' : g[icu]).replace(/\D/g, '');
-            if (cuit.length !== 11) { if ((g || []).some(c => c != null && String(c).trim())) { if (r.firmantes.length) break; } continue; }
-            if (vistos.has(cuit)) continue;
-            vistos.add(cuit);
-            r.firmantes.push({ cuit, nombre: String(g[iNom] || '').trim() });
+            const fila = g || [];
+            // El dato puede estar corrido una columna (filas con una marca adelante): se busca alrededor de la columna.
+            const cand = [icu, icu + 1, icu - 1].map(k => String(fila[k] == null ? '' : fila[k]).replace(/\D/g, ''));
+            const num = cand.find(x => x.length === 11) || cand.find(x => x.length >= 7 && x.length <= 8) || '';
+            const nombre = String(fila[iNom] || fila[iNom + 1] || '').trim();
+            if (!num || !nombre || /^\d+$/.test(nombre)) {
+              if (fila.some(c => c != null && String(c).trim())) { if (r.firmantes.length) break; } else if (r.firmantes.length && ++vacias > 1) break;
+              continue;
+            }
+            vacias = 0;
+            if (vistos.has(num)) continue;
+            vistos.add(num);
+            const enteVal = [iEnte, iEnte + 1].map(k => (k > -1 ? String(fila[k] == null ? '' : fila[k]).trim() : '')).find(x => /^\d{2,7}$/.test(x)) || '';
+            r.firmantes.push(num.length === 11 ? { cuit: num, dni: num.slice(2, 10).replace(/^0+/, ''), ente: enteVal, nombre }
+              : { cuit: '', dni: num, ente: enteVal, nombre });
           }
         }
         // Escrituras: encabezado con "escritura" (fecha y número debajo).
@@ -1220,8 +1234,10 @@
   // (mismas palabras en cualquier orden, sin acentos).
   function firmanteDe(persona, firmantes) {
     const lista = firmantes || [];
-    const c = cuitPorDni(persona.dni, lista);
-    if (c) return lista.find(f => String(f.cuit).replace(/\D/g, '') === c) || { cuit: c, nombre: persona.nombre_completo };
+    const d8 = String(persona.dni || '').replace(/\D/g, '').padStart(8, '0');
+    const porDni = persona.dni && lista.find(f => (f.dni && String(f.dni).padStart(8, '0') === d8)
+      || (String(f.cuit || '').replace(/\D/g, '').length === 11 && String(f.cuit).replace(/\D/g, '').slice(2, 10) === d8));
+    if (porDni) return porDni;
     const palabras = t => normalizar(t).split(' ').filter(Boolean).sort().join(' ');
     const n = palabras(persona.nombre_completo);
     return n ? lista.find(f => palabras(f.nombre) === n) || null : null;
@@ -1229,8 +1245,8 @@
   // Firmantes de la planilla que no aparecen como apoderados en ningún poder.
   function firmantesSinPoder(poderes, firmantes) {
     const usados = new Set();
-    poderes.forEach(p => p.apoderados.forEach(a => { const f = firmanteDe(a, firmantes); if (f) usados.add(String(f.cuit).replace(/\D/g, '')); }));
-    return (firmantes || []).filter(f => !usados.has(String(f.cuit).replace(/\D/g, '')));
+    poderes.forEach(p => p.apoderados.forEach(a => { const f = firmanteDe(a, firmantes); if (f) usados.add(f); }));
+    return (firmantes || []).filter(f => !usados.has(f));
   }
 
   // Arma el JSON de un poder. edicion: { deed_number, board_resolution_power_attorney, power_attorney_type, cuits: {dni: cuit} }.
@@ -1332,7 +1348,7 @@
       cuit_empresa: formatoCuit((cliente && cliente.cuit) || (jsons[0] && jsons[0].cuit_empresa)),
       otorgante: otorgantes.length === 1 ? otorgantes[0] : otorgantes,
       apoderados: [...apoderados.values()].map(a => Object.assign(a, { grupo: a.grupo.join(', ') }))
-        .concat(((cliente && cliente.sinPoder) || []).filter(f => !apoderados.has(Number(f.cuit))).map(f => ({ numero_de_identificacion: Number(f.cuit),
+        .concat(((cliente && cliente.sinPoder) || []).filter(f => !apoderados.has(Number(f.cuit || f.dni))).map(f => ({ numero_de_identificacion: Number(f.cuit || f.dni),
           nombre_completo: f.nombre, grupo: null, advertencia: 'Está en la planilla del cliente pero no figura en ningún poder' }))),
       estructuras_de_firma: lista.map(g => ({
         grupo: g.grupo,

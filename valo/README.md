@@ -124,7 +124,8 @@ Después de modificar el código, regenerar el archivo único con `python3 const
    a los apoderados por tipo de firma y facultades (grupos A, B, C…) y arma una estructura de firma por grupo, con sus
    apoderados y escrituras; al final lista los poderes de origen. Con planilla, los apoderados del PDF que no están en ella no se
    incluyen (se reconocen por el DNI dentro del CUIT o, si no, por el nombre); los firmantes de la planilla que no figuran
-   en ningún poder quedan en el JSON único con una advertencia. El PDF se lee en el navegador con pdf.js (`vendor/`, o CDN); no se guarda nada.
+   en ningún poder quedan en el JSON único con una advertencia. Si la columna CUIT de la planilla trae un DNI, el CUIT se busca en la base de
+   entes (por número de ente o por DNI); las planillas que traen CUIT y ente alimentan esa base. El PDF se lee en el navegador con pdf.js (`vendor/`, o CDN); no se guarda nada.
 
 ## Datos
 
