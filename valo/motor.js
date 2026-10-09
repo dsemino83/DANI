@@ -1065,7 +1065,9 @@
       b.slice(ia > -1 ? ia + 1 : 0).forEach(x => {
         if (/^(nombre completo|identificaci[oó]n|rol|duraci[oó]n)(\s|$)/i.test(x) || /:/.test(x)) return;
         const m = x.match(/^(.*?\D)\s*(\d{6,9})(?:\s+(.+))?$/);
+        const sinDni = !m && x.match(/^(.+?)\s+((?:director|directora|presidente|presidenta|vicepresidente|vicepresidenta|s[ií]ndico)\b.*)$/i);
         if (m && m[1].trim()) { ult = { nombre_completo: m[1].trim(), dni: m[2], rol: (m[3] || '').trim() }; acta.autoridades.push(ult); }
+        else if (sinDni) { ult = { nombre_completo: sinDni[1].trim(), dni: '', rol: sinDni[2].trim() }; acta.autoridades.push(ult); }
         else if (ult && !ult.rol) ult.rol = x;
       });
       acta.autoridades.forEach(a => { a.rol = a.rol.replace(/\s+(indefinid[oa]|indefinite|\d+(\s*(años?|ejercicios?))?)$/i, '').trim(); });
@@ -1090,6 +1092,17 @@
       };
     }
     return null;
+  }
+
+  // Grupo al que corresponde un uso de firma y combinaciones de firma, según la descripción del poder. "Grupo B con
+  // integrante de Grupo C o Grupo B conjuntamente" → grupo B, combinaciones B+B y B+C. Sin grupo en la descripción: null.
+  function gruposDelUso(u) {
+    const gs = [...String(u.descripcion || '').matchAll(/\bgrupos?\s+([A-Z0-9]{1,2})\b/gi)].map(m => m[1].toUpperCase());
+    if (!gs.length) return { grupo: null, combinaciones: [] };
+    const g = gs[0];
+    if (!/CONJUNTA/.test(u.tipo || '')) return { grupo: g, combinaciones: [g] };
+    const otros = gs.length > 1 ? gs.slice(1) : [g];
+    return { grupo: g, combinaciones: [...new Set(otros.map(o => [g, o].sort().join('+')))].sort() };
   }
 
   function leerPoderesOcr(lineas) {
@@ -1120,6 +1133,11 @@
             const n = (nombre + ' ' + m[1]).trim();
             poder.apoderados.push({ nombre_completo: n, dni: m[2], grupo: m[3] ? m[3].trim() : null });
             nombre = '';
+          } else if (/^\D+\s[A-Z]{1,2}$/.test(l) && l.split(' ').length > 2) {
+            // Sin número de identificación: nombre y grupo.
+            const g = l.match(/^(.*)\s([A-Z]{1,2})$/);
+            poder.apoderados.push({ nombre_completo: (nombre + ' ' + g[1]).trim(), dni: '', grupo: g[2] });
+            nombre = '';
           } else nombre = (nombre + ' ' + l).trim();
         });
       }
@@ -1145,6 +1163,7 @@
         });
       });
       if (!poder.usos.length) poder.usos.push({ descripcion: '', tipo: '', limitaciones: null, facultades: {} });
+      poder.usos.forEach(u => Object.assign(u, gruposDelUso(u)));
       // Tabla de facultades: grupos (Cuentas Corrientes, Cheques…) y renglones "texto Si/No"; los textos largos pueden
       // venir partidos en dos renglones con el Si/No en el medio.
       if (iFac > -1) {
@@ -1319,7 +1338,12 @@
       apoderados: apoderados.map(a => ({ numero_de_identificacion: ident(a.dni, a), nombre_completo: a.nombre_completo, grupo: a.grupo || null })),
       estructuras_de_firma: poder.usos.map((u, n) => {
         const ed = (edicion.facultades || [])[n] || {};
+        // Si el uso es de un grupo y el poder asigna grupos, el uso vale solo para los apoderados de ese grupo.
+        const delUso = u.grupo && apoderados.some(a => a.grupo) ? apoderados.filter(a => String(a.grupo || '').trim().toUpperCase() === u.grupo) : apoderados;
         return {
+          grupo: u.grupo || null,
+          combinaciones: u.combinaciones && u.combinaciones.length ? u.combinaciones : null,
+          apoderados: delUso.map(a => ident(a.dni, a)),
           tipo_de_firma: u.tipo || null,
           estructura_de_firma: u.descripcion || null,
           firma_individual: /INDIVIDUAL|INDISTINTA/.test(u.tipo),
@@ -1339,11 +1363,13 @@
   function jsonBastanteoUnico(jsons, cliente) {
     const letra = n => { let s = ''; n++; while (n > 0) { const r = (n - 1) % 26; s = String.fromCharCode(65 + r) + s; n = Math.floor((n - 1) / 26); } return s; };
     const personas = new Map(); // id + tipo → datos
-    jsons.forEach(j => j.estructuras_de_firma.forEach(e => j.apoderados.forEach(a => {
-      const k = a.numero_de_identificacion + '|' + (e.tipo_de_firma || '');
-      if (!personas.has(k)) personas.set(k, { apoderado: a, grupoPoder: a.grupo ? String(a.grupo).trim() : '', tipo: e.tipo_de_firma, individual: e.firma_individual, conjunta: e.firma_conjunta,
-        facultades: Object.fromEntries(BASTANTEO_CLAVES.map(c => [c, false])), limitaciones: new Set(), escrituras: new Set(), estructuras: new Set() });
+    jsons.forEach(j => j.estructuras_de_firma.forEach(e => (e.apoderados ? j.apoderados.filter(a => e.apoderados.includes(a.numero_de_identificacion)) : j.apoderados).forEach(a => {
+      const grupoPoder = e.grupo || (a.grupo ? String(a.grupo).trim() : '');
+      const k = a.numero_de_identificacion + '|' + (e.tipo_de_firma || '') + '|' + grupoPoder;
+      if (!personas.has(k)) personas.set(k, { apoderado: a, grupoPoder, tipo: e.tipo_de_firma, individual: e.firma_individual, conjunta: e.firma_conjunta,
+        facultades: Object.fromEntries(BASTANTEO_CLAVES.map(c => [c, false])), limitaciones: new Set(), escrituras: new Set(), estructuras: new Set(), combinaciones: new Set() });
       const p = personas.get(k);
+      (e.combinaciones || []).forEach(c => p.combinaciones.add(c));
       BASTANTEO_CLAVES.forEach(c => { if (e.facultades[c]) p.facultades[c] = true; });
       if (e.limitaciones) p.limitaciones.add(e.limitaciones);
       if (j.deed_number) p.escrituras.add(String(j.deed_number));
@@ -1354,13 +1380,14 @@
       const k = p.grupoPoder ? 'G|' + p.grupoPoder + '|' + (p.tipo || '')
         : (p.tipo || '') + '|' + BASTANTEO_CLAVES.map(c => (p.facultades[c] ? 1 : 0)).join('');
       if (!grupos.has(k)) grupos.set(k, { nombre: p.grupoPoder, tipo: p.tipo, individual: p.individual, conjunta: p.conjunta,
-        facultades: Object.assign({}, p.facultades), personas: [], limitaciones: new Set(), escrituras: new Set() });
+        facultades: Object.assign({}, p.facultades), personas: [], limitaciones: new Set(), escrituras: new Set(), combinaciones: new Set() });
       const g = grupos.get(k);
       // Grupo indicado por el poder: valen las facultades que tenga cualquiera de sus integrantes.
       BASTANTEO_CLAVES.forEach(c => { if (p.facultades[c]) g.facultades[c] = true; });
       g.personas.push(p);
       p.limitaciones.forEach(x => g.limitaciones.add(x));
       p.escrituras.forEach(x => g.escrituras.add(x));
+      p.combinaciones.forEach(x => g.combinaciones.add(x));
     });
     const lista = [...grupos.values()].sort((a, b) => b.personas.length - a.personas.length);
     const usados = new Set(lista.filter(g => g.nombre).map(g => g.nombre));
@@ -1380,6 +1407,13 @@
     const otorgantes = [...new Map(jsons.map(j => [j.otorgante.numero_de_identificacion, j.otorgante])).values()];
     const fechas = jsons.map(j => j.fecha_emision).filter(Boolean).sort();
     const nombres = g => g.personas.map(p => p.apoderado.nombre_completo).join(', ');
+    // Combinaciones posibles con los apoderados que quedaron (B+B necesita dos del grupo B; B+C, uno de cada uno).
+    const integrantes = {};
+    lista.forEach(g => { integrantes[g.grupo] = new Set(g.personas.map(p => p.apoderado.numero_de_identificacion)).size; });
+    const posible = c => { const n = {}; c.split('+').forEach(x => { n[x] = (n[x] || 0) + 1; }); return Object.keys(n).every(x => (integrantes[x] || 0) >= n[x]); };
+    lista.forEach(g => { const t = [...g.combinaciones].sort(); g.combOk = t.filter(posible); g.combNo = t.filter(c => !posible(c)); });
+    const descGrupo = g => `Grupo ${g.grupo} - ${g.conjunta ? 'firma conjunta' : 'firma individual / indistinta'}` +
+      (g.conjunta && g.combOk.length ? ' ' + g.combOk.join('; ') : '') + ` (${nombres(g)})`;
     return {
       deed_number: [...new Set(jsons.map(j => j.deed_number).filter(Boolean))].join(', ') || null,
       incorporation_date: null,
@@ -1397,7 +1431,9 @@
       estructuras_de_firma: lista.map(g => ({
         grupo: g.grupo,
         tipo_de_firma: g.tipo || null,
-        estructura_de_firma: `Grupo ${g.grupo} - ${g.conjunta ? 'firma conjunta' : 'firma individual / indistinta'} (${nombres(g)})`,
+        estructura_de_firma: descGrupo(g),
+        combinaciones: g.combOk.length ? g.combOk : null,
+        combinaciones_sin_firmantes: g.combNo.length ? g.combNo : undefined,
         firma_individual: !!g.individual,
         firma_conjunta: !!g.conjunta,
         apoderados: g.personas.map(p => p.apoderado.numero_de_identificacion),

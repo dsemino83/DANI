@@ -2113,8 +2113,8 @@
       return (mas.length ? `<div style="white-space:normal"><b style="color:var(--ok)">+</b> ${esc(mas.join(', '))}</div>` : '') +
         (menos.length ? `<div style="white-space:normal"><b style="color:var(--bad)">−</b> ${esc(menos.join(', '))}</div>` : '');
     };
-    $('bastUnico').innerHTML = `<h3>JSON único: ${u.estructuras_de_firma.length} grupos de firma</h3><div class="tabla-caja"><table><thead><tr><th>Grupo</th><th>Tipo</th><th>Apoderados</th><th class="num">Facultades</th><th>Escrituras</th><th>Diferencia con el grupo ${esc(base.grupo)}</th></tr></thead><tbody>` +
-      u.estructuras_de_firma.map(e => `<tr><td><b>${esc(e.grupo)}</b></td><td>${esc(e.tipo_de_firma || '')}</td><td>${esc(u.apoderados.filter(a => e.apoderados.includes(a.numero_de_identificacion)).map(a => a.nombre_completo).join(', '))}</td>` +
+    $('bastUnico').innerHTML = `<h3>JSON único: ${u.estructuras_de_firma.length} grupos de firma</h3><div class="tabla-caja"><table><thead><tr><th>Grupo</th><th>Tipo</th><th>Combinaciones</th><th>Apoderados</th><th class="num">Facultades</th><th>Escrituras</th><th>Diferencia con el grupo ${esc(base.grupo)}</th></tr></thead><tbody>` +
+      u.estructuras_de_firma.map(e => `<tr><td><b>${esc(e.grupo)}</b></td><td>${esc(e.tipo_de_firma || '')}</td><td>${esc((e.combinaciones || []).join('; '))}${e.combinaciones_sin_firmantes ? `<div style="color:var(--muted);font-size:12px" title="El poder la permite, pero no hay firmantes suficientes en la planilla">sin firmantes: ${esc(e.combinaciones_sin_firmantes.join('; '))}</div>` : ''}</td><td>${esc(u.apoderados.filter(a => e.apoderados.includes(a.numero_de_identificacion)).map(a => a.nombre_completo).join(', '))}</td>` +
         `<td class="num">${Object.values(e.facultades).filter(Boolean).length}</td><td>${esc(e.escrituras.join(', '))}</td><td style="min-width:260px">${diferencia(e)}</td></tr>`).join('') + '</tbody></table></div>';
   }
   $('btnBastUnico').addEventListener('click', () => {
