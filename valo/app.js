@@ -1261,12 +1261,16 @@
     const d = deuda;
     $('btnDeudaExcel').disabled = !(d && d.filas.length);
     if (!d || !d.filas.length) { $('deudaKpis').innerHTML = ''; $('deudaTabla').innerHTML = ''; return; }
-    $('deudaKpis').innerHTML = [['Deuda total', '$ ' + fmtMonto(d.total)], ['Fiduciantes', fmtEntero(d.filas.length)], ['Cuotas', fmtEntero(d.cuotas)],
+    $('deudaKpis').innerHTML = [['Saldo de deuda', '$ ' + fmtMonto(d.saldoDeuda)], ['Impago', `$ ${fmtMonto(d.total)} · ${fmtEntero(d.cuotas)} cuotas`],
+      ['Saldo Paga Parcial', `$ ${fmtMonto(d.pp)} · ${fmtEntero(d.ppCuotas)} cuotas`], ['Fiduciantes', fmtEntero(d.filas.length)],
       ['Vencidas hasta', fechaAr(d.hasta)], ['Foto de cartera', fechaAr(d.periodo)]]
       .map(([t, v]) => `<div class="kpi"><div class="sub" style="margin:0">${esc(t)}</div><b>${esc(v)}</b></div>`).join('');
-    $('deudaTabla').innerHTML = `<table><thead><tr><th>Fiduciante</th><th>CUIT</th>${d.meses.map(m => `<th class="num">${esc(nombreMes(m))}</th>`).join('')}<th class="num">Total</th></tr></thead><tbody>` +
-      d.filas.map(f => `<tr><td>${esc(f.fiduciante)}</td><td>${esc(M.formatoCuit(f.cuit))}</td>${d.meses.map(m => `<td class="num">${f.porMes[m] ? fmtMonto(f.porMes[m]) : ''}</td>`).join('')}<td class="num"><b>${fmtMonto(f.total)}</b></td></tr>`).join('') +
-      `</tbody><tfoot><tr><th colspan="2">Total</th>${d.meses.map(m => `<th class="num">${fmtMonto(d.totalesMes[m])}</th>`).join('')}<th class="num">${fmtMonto(d.total)}</th></tr></tfoot></table>`;
+    $('deudaTabla').innerHTML = `<table><thead><tr><th>Fiduciante</th><th>CUIT</th>${d.meses.map(m => `<th class="num">${esc(nombreMes(m))}</th>`).join('')}<th class="num">Total impago</th>` +
+      `<th class="num" title="Lo que falta cobrar de las cuotas vencidas en estado Paga Parcial (saldo de capital + interés)">Saldo Paga Parcial</th><th class="num">Saldo de deuda</th></tr></thead><tbody>` +
+      d.filas.map(f => `<tr><td>${esc(f.fiduciante)}</td><td>${esc(M.formatoCuit(f.cuit))}</td>${d.meses.map(m => `<td class="num">${f.porMes[m] ? fmtMonto(f.porMes[m]) : ''}</td>`).join('')}` +
+        `<td class="num">${fmtMonto(f.total)}</td><td class="num">${f.pp ? fmtMonto(f.pp) : ''}</td><td class="num"><b>${fmtMonto(f.saldoDeuda)}</b></td></tr>`).join('') +
+      `</tbody><tfoot><tr><th colspan="2">Total</th>${d.meses.map(m => `<th class="num">${fmtMonto(d.totalesMes[m])}</th>`).join('')}<th class="num">${fmtMonto(d.total)}</th>` +
+      `<th class="num">${fmtMonto(d.pp)}</th><th class="num">${fmtMonto(d.saldoDeuda)}</th></tr></tfoot></table>`;
   }
   $('btnDeudaTraer').addEventListener('click', () => traerDeuda());
   $('btnDeudaExcel').addEventListener('click', async () => {
@@ -1276,33 +1280,37 @@
       const wb = new window.ExcelJS.Workbook();
       wb.creator = 'VALO - EPORTFOLIO';
       const ws = wb.addWorksheet('Saldo de deuda');
-      ws.addRow([`Saldo de deuda por fiduciante · cuotas impagas vencidas hasta ${fechaAr(d.hasta)} · foto de cartera ${fechaAr(d.periodo)}`]).font = { bold: true };
+      ws.addRow([`Saldo de deuda por fiduciante (impago + saldo de Paga Parcial) · vencidas hasta ${fechaAr(d.hasta)} · foto de cartera ${fechaAr(d.periodo)}`]).font = { bold: true };
       ws.addRow([]);
-      const enc = ws.addRow(['Fiduciante', 'CUIT', ...d.meses.map(nombreMes), 'Total']);
+      const enc = ws.addRow(['Fiduciante', 'CUIT', ...d.meses.map(nombreMes), 'Total impago', 'Saldo Paga Parcial', 'Saldo de deuda']);
       enc.font = { bold: true, color: { argb: 'FFFFFFFF' } };
       enc.eachCell(c => { c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFC8102E' } }; });
-      d.filas.forEach(f => ws.addRow([f.fiduciante, M.formatoCuit(f.cuit), ...d.meses.map(m => f.porMes[m] || null), f.total]));
-      const tot = ws.addRow(['Total', '', ...d.meses.map(m => d.totalesMes[m]), d.total]);
+      d.filas.forEach(f => ws.addRow([f.fiduciante, M.formatoCuit(f.cuit), ...d.meses.map(m => f.porMes[m] || null), f.total, f.pp || null, f.saldoDeuda]));
+      const tot = ws.addRow(['Total', '', ...d.meses.map(m => d.totalesMes[m]), d.total, d.pp, d.saldoDeuda]);
       tot.font = { bold: true };
       ws.getColumn(1).width = 48; ws.getColumn(2).width = 16;
-      for (let k = 3; k <= d.meses.length + 3; k++) { ws.getColumn(k).width = 18; ws.getColumn(k).numFmt = '#,##0.00'; }
+      for (let k = 3; k <= d.meses.length + 5; k++) { ws.getColumn(k).width = 18; ws.getColumn(k).numFmt = '#,##0.00'; }
       // Apertura: cada mes en los días de vencimiento que tuvieron deuda, con su importe y el subtotal del mes.
       const wd = wb.addWorksheet('Apertura por día');
       wd.addRow(['Apertura por día de vencimiento']).font = { bold: true };
       wd.addRow([]);
-      const e2 = wd.addRow(['Fiduciante', 'CUIT', 'Mes', 'Fecha de vencimiento', 'Importe']);
+      const e2 = wd.addRow(['Fiduciante', 'CUIT', 'Mes', 'Fecha de vencimiento', 'Impago', 'Saldo Paga Parcial', 'Saldo de deuda']);
       e2.font = { bold: true, color: { argb: 'FFFFFFFF' } };
       e2.eachCell(c => { c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFC8102E' } }; });
-      d.filas.forEach(f => d.meses.forEach(m => {
-        const dias = Object.keys(f.porDia).filter(x => x.slice(0, 7) === m).sort();
+      const mesesTodos = [...new Set(d.filas.flatMap(f => Object.keys(f.porDia).concat(Object.keys(f.ppPorDia)).map(x => x.slice(0, 7))))].sort();
+      d.filas.forEach(f => mesesTodos.forEach(m => {
+        const dias = [...new Set(Object.keys(f.porDia).concat(Object.keys(f.ppPorDia)))].filter(x => x.slice(0, 7) === m).sort();
         if (!dias.length) return;
-        dias.forEach(x => wd.addRow([f.fiduciante, M.formatoCuit(f.cuit), nombreMes(m), new Date(x + 'T00:00:00'), f.porDia[x]]));
-        const st = wd.addRow([f.fiduciante, M.formatoCuit(f.cuit), nombreMes(m), 'Total del mes', f.porMes[m]]);
+        let imp = 0, pp = 0;
+        dias.forEach(x => { const a = f.porDia[x] || 0, b = f.ppPorDia[x] || 0; imp += a; pp += b;
+          wd.addRow([f.fiduciante, M.formatoCuit(f.cuit), nombreMes(m), new Date(x + 'T00:00:00'), a || null, b || null, M.round2(a + b)]); });
+        const st = wd.addRow([f.fiduciante, M.formatoCuit(f.cuit), nombreMes(m), 'Total del mes', M.round2(imp), M.round2(pp), M.round2(imp + pp)]);
         st.font = { bold: true };
       }));
-      wd.addRow(['Total', '', '', '', d.total]).font = { bold: true };
-      wd.getColumn(1).width = 48; wd.getColumn(2).width = 16; wd.getColumn(3).width = 12; wd.getColumn(4).width = 20; wd.getColumn(5).width = 18;
-      wd.getColumn(4).numFmt = 'dd/mm/yyyy'; wd.getColumn(5).numFmt = '#,##0.00';
+      wd.addRow(['Total', '', '', '', d.total, d.pp, d.saldoDeuda]).font = { bold: true };
+      wd.getColumn(1).width = 48; wd.getColumn(2).width = 16; wd.getColumn(3).width = 12; wd.getColumn(4).width = 20;
+      wd.getColumn(4).numFmt = 'dd/mm/yyyy';
+      [5, 6, 7].forEach(k => { wd.getColumn(k).width = 18; wd.getColumn(k).numFmt = '#,##0.00'; });
       const buf = await wb.xlsx.writeBuffer();
       await descargar(`Saldo_de_deuda_${d.hasta}.xlsx`, new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), true);
     } catch (e) { informar('No se pudo exportar', esc(e.message || e)); }
