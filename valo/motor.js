@@ -1048,6 +1048,50 @@
   }
 
   // Lee el "Resumen documentos OCR" (líneas de texto del PDF) y devuelve los poderes ("Acreditación de Poderes").
+  // "Dictamen Acta de Designación de Autoridades": razón social, fecha y autoridades (nombre, DNI, rol). El rol puede venir
+  // en la misma línea que el nombre y el DNI o en las líneas siguientes.
+  function leerAutoridadesOcr(lineas) {
+    const L = lineas.map(l => String(l || '').replace(/\s+/g, ' ').trim()).filter(l => l && l !== '<<PAGINA>>');
+    const actas = [];
+    L.forEach((l, i) => {
+      if (!/^dictamen acta de designaci[oó]n/i.test(l)) return;
+      let fin = L.length;
+      for (let j = i + 1; j < L.length; j++) if (/^(acreditaci[oó]n de poderes|balance|dictamen\b)/i.test(L[j])) { fin = j; break; }
+      const b = L.slice(i, fin);
+      const valor = et => { const re = new RegExp('^' + et + '\\s*:\\s*(.*)$', 'i'); const x = b.find(y => re.test(y)); return x ? x.match(re)[1].trim() : ''; };
+      const acta = { razon_social: valor('Raz[oó]n Social'), cuit_empresa: valor('CUIT').replace(/\D/g, ''), fecha: valor('Fecha del Documento'), autoridades: [] };
+      const ia = b.findIndex(x => /^autoridades designadas/i.test(x));
+      let ult = null;
+      b.slice(ia > -1 ? ia + 1 : 0).forEach(x => {
+        if (/^(nombre completo|identificaci[oó]n|rol|duraci[oó]n)(\s|$)/i.test(x) || /:/.test(x)) return;
+        const m = x.match(/^(.*?\D)\s*(\d{6,9})(?:\s+(.+))?$/);
+        if (m && m[1].trim()) { ult = { nombre_completo: m[1].trim(), dni: m[2], rol: (m[3] || '').trim() }; acta.autoridades.push(ult); }
+        else if (ult && !ult.rol) ult.rol = x;
+      });
+      acta.autoridades.forEach(a => { a.rol = a.rol.replace(/\s+(indefinid[oa]|indefinite|\d+(\s*(años?|ejercicios?))?)$/i, '').trim(); });
+      actas.push(acta);
+    });
+    return actas;
+  }
+  const esPresidente = rol => /\bpresident[ea]\b/i.test(normalizar(rol));
+  // Sin "Acreditación de Poderes": poder armado con el presidente del acta, con todas las facultades.
+  function poderDelPresidente(actas) {
+    for (const acta of [].concat(actas || []).reverse()) {
+      const pres = acta.autoridades.find(a => esPresidente(a.rol));
+      if (!pres) continue;
+      const persona = { nombre_completo: pres.nombre_completo, dni: pres.dni, grupo: null };
+      return {
+        razon_social: acta.razon_social, cuit_empresa: acta.cuit_empresa, fecha_emision: acta.fecha,
+        otorgante: { nombre_completo: pres.nombre_completo, dni: pres.dni, fecha_nacimiento: null },
+        apoderados: [persona],
+        usos: [{ tipo: 'INDIVIDUAL', descripcion: pres.rol + ' según el acta del ' + (acta.fecha || 's/f') + ': todas las facultades (el PDF no trae acreditación de poderes)', limitaciones: null,
+          facultades: Object.fromEntries(BASTANTEO_CLAVES.map(k => [k, true])) }],
+        presidente: persona, porActa: true,
+      };
+    }
+    return null;
+  }
+
   function leerPoderesOcr(lineas) {
     const L = lineas.map(l => String(l || '').replace(/\s+/g, ' ').trim()).filter(Boolean);
     const inicios = [];
@@ -2494,7 +2538,7 @@ try {
     leerTxtMeli, bancoMeliDeTxt, bancosParaMeli,
     sqlExtraccionCartera, bookmarkletCartera, scriptPowerShellCartera, comandoTareaCartera, IMPORTES_CARTERA,
     NO_COBIS, ultimoDiaHabil, fechasNoCobis, lineaNoCobis, txtNoCobis, loteApiNoCobis, scriptPowerShellNoCobis, scriptPowerShellProbarNoCobis, scriptPowerShellAgenteNoCobis, cmdEnvioNoCobis,
-    leerCartera, BASTANTEO_CATALOGO, BASTANTEO_CLAVES, BASTANTEO_EXTRA, leerPoderesOcr, leerClienteBastanteo, cuitPorDni, formatoCuit, firmanteDe, firmantesSinPoder, jsonPoder, jsonBastanteoUnico, leerInventarioGarantias, INVENTARIOS_CONTABLES, INVENTARIO_DENOMINACION, INVENTARIO_FIRMAS, fechaReporteIso, fechaInventarioDesdeReporte, leerPadronDesdeInventarios, leerBaseEntes, unirPadron, armarInventariosContables, leerCom3500, leerTcApiBcra, elegirTipoCambio, numeroEnLetras, daxCarteraPowerBI, daxDiagnosticoPowerBI, leerFilasPowerBI, sugerirColumnaCartera, columnasNumericasCartera, agruparCartera, valoresDistintos, sqlCartera,
+    leerCartera, BASTANTEO_CATALOGO, BASTANTEO_CLAVES, BASTANTEO_EXTRA, leerPoderesOcr, leerAutoridadesOcr, poderDelPresidente, leerClienteBastanteo, cuitPorDni, formatoCuit, firmanteDe, firmantesSinPoder, jsonPoder, jsonBastanteoUnico, leerInventarioGarantias, INVENTARIOS_CONTABLES, INVENTARIO_DENOMINACION, INVENTARIO_FIRMAS, fechaReporteIso, fechaInventarioDesdeReporte, leerPadronDesdeInventarios, leerBaseEntes, unirPadron, armarInventariosContables, leerCom3500, leerTcApiBcra, elegirTipoCambio, numeroEnLetras, daxCarteraPowerBI, daxDiagnosticoPowerBI, leerFilasPowerBI, sugerirColumnaCartera, columnasNumericasCartera, agruparCartera, valoresDistintos, sqlCartera,
     leerCsv, encabezadosEjemplo, leerDefinicionInterfaz, sugerirColumna, detectarHojaInterfaz,
     normalizar, provinciaPorNombre, crearBuscadorBancoPorNombre, round2, aNumero, aFechaSerial, aCodigoBanco,
     fechaDDMMYY, fechaYYYYMMDD, fechaLegible, hoyDDMMYY,
