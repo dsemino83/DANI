@@ -1921,6 +1921,13 @@
       // CUIT y razón social del Excel, listos para traer de Complif.
       if (bast.cliente.cuit) $('cmpCuit').value = M.formatoCuit(bast.cliente.cuit);
       if (bast.cliente.cliente) $('cmpNombre').value = bast.cliente.cliente;
+      // Sin PDF cargado, los poderes se traen solos de Complif (versión web).
+      const conPdf = bast.pdf && bast.pdf !== 'Complif';
+      if (!conPdf && hayComplif() && (bast.cliente.cuit || bast.cliente.cliente)) {
+        Object.assign(bast, { pdf: null, poderesTodos: [], poderPresidente: null, edPorPoder: {}, actas: [] });   // nada del cliente anterior
+        $('bastPdfNombre').textContent = 'Trayendo de Complif…';
+        prepararBastanteo(); traerComplif(); return;
+      }
       prepararBastanteo();
     } catch (e) { $('bastEstado').innerHTML = aviso('bad', 'No se pudo leer el Excel: ' + esc(e.message || e)); }
   });
@@ -1991,7 +1998,8 @@
     $('cmpCrudo').textContent = muestra.length ? JSON.stringify(muestra.slice(0, 3), null, 1).slice(0, 30000) : 'Todavía no se trajo nada de Complif.';
     $('cmpCrudo').classList.remove('oculto');
   });
-  $('btnCmpTraer').addEventListener('click', async () => {
+  $('btnCmpTraer').addEventListener('click', () => traerComplif());
+  async function traerComplif() {
     if (!hayComplif()) { $('cmpEstado').innerHTML = aviso('warn', 'Complif se usa desde la versión web (con la base compartida).'); return; }
     const cuit = $('cmpCuit').value.replace(/\D/g, '') || (bast.cliente && bast.cliente.cuit) || '';
     const nombre = $('cmpNombre').value.trim() || (bast.cliente && bast.cliente.cliente) || '';
@@ -2008,6 +2016,11 @@
       const pres = r.poderes.length ? null : M.poderDelPresidente(r.actas);
       if (!r.poderes.length && !pres) {
         const leidos = docs.filter(d => M.poderDesdeComplif(d) || M.actaDesdeComplif(d)).length;
+        if (!bast.pdf || bast.pdf === 'Complif') {
+          Object.assign(bast, { pdf: null, poderesTodos: [], poderPresidente: null, edPorPoder: {}, actas: [] });
+          $('bastPdfNombre').textContent = 'Arrastrá el PDF o hacé clic';
+          prepararBastanteo();
+        }
         $('cmpEstado').innerHTML = aviso('warn', `Complif no tiene poderes de <b>${quien}</b>${cuit ? ' (CUIT ' + esc(M.formatoCuit(cuit)) + ')' : ''}${r.actas.length ? ' (hay ' + r.actas.length + ' acta/s, sin presidente reconocible)' : ''}. Se revisaron ${docs.length} documentos` +
           (leidos < docs.length ? `; ${docs.length - leidos} no se pudieron interpretar (ver <i>Conexión con Complif → Ver la respuesta</i>)` : '') + '. Puede que el OCR no haya extraído el CUIT: probá con la razón social.');
         return;
@@ -2024,7 +2037,7 @@
       prepararBastanteo();
     } catch (e) { $('cmpEstado').innerHTML = aviso('bad', 'No se pudo consultar Complif: ' + esc(errorComplif(e))); }
     finally { btn.disabled = false; }
-  });
+  }
 
   // Firmantes de la planilla que traen el DNI en lugar del CUIT: el CUIT sale de la base de entes, por número de
   // ente o, si no, por el DNI.
