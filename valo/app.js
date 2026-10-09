@@ -1158,11 +1158,55 @@
     $('pbiDaxTexto').classList.remove('oculto');
     if (navigator.clipboard) navigator.clipboard.writeText(dax).then(() => toast('Consulta DAX copiada'), () => {});
   });
+  // Power BI por Supabase (pbi_consulta: API executeQueries con un service principal) si está configurado; si no, el flujo.
+  let pbiSb = null;   // estado de la conexión por Supabase (pbi_estado)
+  const hayPbiSb = () => !!(pbiSb && pbiSb.listo);
+  async function estadoPbiSb() {
+    if (!almacen || typeof almacen.rpc !== 'function') { pbiSb = null; $('pbiSbEstado').textContent = 'Disponible en la versión web (con la base compartida).'; return; }
+    try { pbiSb = await almacen.rpc('pbi_estado', {}); } catch (e) { pbiSb = null; $('pbiSbEstado').innerHTML = aviso('warn', esc(e.message || e)); return; }
+    const falta = ['tenant_id', 'client_id', 'group_id', 'dataset_id'].filter(k => !pbiSb[k]).concat(pbiSb.tiene_secret ? [] : ['client_secret']);
+    $('pbiSbEstado').innerHTML = pbiSb.listo ? `<span class="chip ok">Configurada: se usa Supabase</span> client ${esc(pbiSb.client_id)}… · secret cargado`
+      : `<span class="chip warn">Incompleta</span> falta: ${esc(falta.join(', '))}. Mientras tanto se usa el flujo de Power Automate.`;
+    $('pbiModo').textContent = pbiSb.listo ? '· por Supabase' : '· por Power Automate';
+  }
+  async function consultarPbi(consulta) {
+    if (pbiSb === null) await estadoPbiSb();
+    if (hayPbiSb()) {
+      const j = await almacen.rpc('pbi_consulta', { p_dax: consulta });
+      if (!j || j.status !== 200) {
+        const m = String((j && j.error) || '');
+        throw new Error(`Power BI (por Supabase) respondió HTTP ${j ? j.status : '?'}: ` + (/PowerBINotAuthorizedException|Unauthorized|401|403/.test(m)
+          ? 'la aplicación no tiene acceso al modelo (agregarla al área de trabajo y habilitar las API para service principals). ' : '') + m.slice(0, 300));
+      }
+      return j.rows;
+    }
+    const j = await llamarFlujo({ accion: 'consultar', consulta }, { url: $('pbiUrl').value.trim(), clave: $('pbiClave').value });
+    if (j && j.ok === false) throw new Error(j.mensaje || 'El flujo informó un error.');
+    return j;
+  }
+  $('detPbi').addEventListener('toggle', () => { if ($('detPbi').open) estadoPbiSb(); });
+  $('btnPbiSbGuardar').addEventListener('click', async () => {
+    try {
+      pbiSb = await almacen.rpc('pbi_guardar', { p_tenant_id: $('pbiSbTenant').value, p_client_id: $('pbiSbId').value, p_client_secret: $('pbiSbSecret').value,
+        p_group_id: $('pbiSbGroup').value, p_dataset_id: $('pbiSbDataset').value });
+      ['pbiSbSecret', 'pbiSbId', 'pbiSbTenant', 'pbiSbGroup', 'pbiSbDataset'].forEach(id => { $(id).value = ''; });
+      await estadoPbiSb();
+      toast('Conexión con Power BI por Supabase guardada para todos los usuarios');
+    } catch (e) { $('pbiSbEstado').innerHTML = aviso('bad', 'No se pudo guardar: ' + esc(e.message || e)); }
+  });
+  $('btnPbiSbProbar').addEventListener('click', async () => {
+    $('pbiSbEstado').textContent = 'Probando…';
+    try {
+      await estadoPbiSb();
+      if (!hayPbiSb()) return;
+      const filas = M.leerFilasPowerBI(await consultarPbi('EVALUATE ROW("ok", 1)'));
+      $('pbiSbEstado').innerHTML = aviso('ok', `Conexión OK: Power BI respondió por Supabase (${filas.datos.length} fila).`);
+    } catch (e) { $('pbiSbEstado').innerHTML = aviso('bad', esc(e.message || e)); }
+  });
   $('btnPbiDiag').addEventListener('click', async () => {
     const b = $('btnPbiDiag');
     b.disabled = true;
     $('pbiDiag').innerHTML = '<p class="sub">Consultando Power BI…</p>';
-    const conexion = { url: $('pbiUrl').value.trim(), clave: $('pbiClave').value };
     const tabla = (titulo, filas) => {
       const enc = filas.encabezados;
       return `<h3>${esc(titulo)}</h3><div class="tabla-caja"><table><thead><tr>${enc.map(h => `<th>${esc(h)}</th>`).join('')}</tr></thead><tbody>` +
@@ -1172,9 +1216,7 @@
     const q = M.daxDiagnosticoPowerBI();
     for (const [titulo, consulta] of [['Tabla de cuotas: fideicomiso, periodo y fecha de corte', q.porTabla], ['Por la tabla Fideicomiso (relación del modelo)', q.porDimension]]) {
       try {
-        const j = await llamarFlujo({ accion: 'consultar', consulta }, conexion);
-        if (j && j.ok === false) throw new Error(j.mensaje || 'El flujo informó un error.');
-        html += tabla(titulo, M.leerFilasPowerBI(j));
+        html += tabla(titulo, M.leerFilasPowerBI(await consultarPbi(consulta)));
       } catch (e) { html += `<h3>${esc(titulo)}</h3>` + aviso('bad', esc(e.message || e)); }
       $('pbiDiag').innerHTML = html;
     }
@@ -1182,10 +1224,13 @@
   });
   // Al abrir Cartera se trae sola la cartera de Power BI (una vez por sesión), si la conexión está configurada.
   let pbiAutoHecho = false;
-  function alAbrirCartera() {
+  async function alAbrirCartera() {
     if (pbiAutoHecho || cartera || !almacen || !flujoDisponible()) return;
     const f = datos().nocobisFlujo || {};
-    if (!f.pbiUrl || !f.pbiClave || f.pbiAuto === false) return;
+    if (f.pbiAuto === false) return;
+    if (pbiSb === null && typeof almacen.rpc === 'function') await estadoPbiSb();
+    if (!hayPbiSb() && (!f.pbiUrl || !f.pbiClave)) return;
+    if (pbiAutoHecho) return;
     pbiAutoHecho = true;
     cargarPbi();
     $('btnPbiTraer').click();
@@ -1202,10 +1247,7 @@
     $('carteraEstado').innerHTML = aviso('ok', 'Consultando Power BI (ePortfolio_Mensual)…');
     try {
       const periodo = $('pbiPeriodo').value.trim();
-      const j = await llamarFlujo({ accion: 'consultar', consulta: M.daxCarteraPowerBI({ periodo, negocios: negociosClientes() }) },
-        { url: $('pbiUrl').value.trim(), clave: $('pbiClave').value });
-      if (j && j.ok === false) throw new Error(j.mensaje || 'El flujo informó un error.');
-      const leido = M.leerFilasPowerBI(j);
+      const leido = M.leerFilasPowerBI(await consultarPbi(M.daxCarteraPowerBI({ periodo, negocios: negociosClientes() })));
       if (leido.datos.length >= 30000) toast('Power BI devolvió muchas filas: si falta algún negocio, la respuesta puede haber llegado cortada (límite de 15 MB).');
       if (!leido.datos.length) throw new Error('Power BI no devolvió filas' + (periodo ? ` para el periodo ${periodo}` : '') + '.');
       const per = [...new Set(leido.datos.map(r => r.Periodo))].join(', ');

@@ -1,5 +1,8 @@
 # Cartera desde Power BI (modelo ePortfolio_Mensual)
 
+> **Alternativa sin Power Automate (recomendada):** Supabase ejecuta la consulta directo contra la API REST de Power BI
+> (`executeQueries`). Ver *Por Supabase* al final. Mientras no esté configurada, la página sigue usando el flujo.
+
 La página (Cartera → **Traer cartera de Power BI**) manda una consulta DAX a un flujo de Power Automate; el flujo la
 ejecuta en el modelo semántico **ePortfolio_Mensual** (workspace **ePortfolio**) y devuelve las filas. **No necesita
 gateway**: el modelo está en el servicio de Power BI.
@@ -66,3 +69,32 @@ envío NO COBIS. Se puede probar antes en Power BI Desktop o en **DAX query view
 | *Power BI no devolvió filas* | el periodo no existe | dejar el periodo vacío o poner uno válido (como figura en la columna Periodo) |
 
 Límites de la API de Power BI: hasta 100.000 filas y 1.000.000 de valores por consulta (la consulta ya llega agregada).
+
+## Por Supabase (sin Power Automate)
+
+La página llama a la función `pbi_consulta` de Supabase (`supabase/powerbi.sql`), que pide un token a Microsoft Entra
+con una **aplicación (service principal)** y ejecuta la consulta DAX con
+`POST https://api.powerbi.com/v1.0/myorg/groups/{área}/datasets/{modelo}/executeQueries`. No necesita licencia Premium
+de Power Automate ni gateway. Las credenciales quedan en la tabla `pbi_config`, que la página no puede leer.
+
+Lo tiene que hacer TI / el administrador de Power BI (una sola vez):
+
+1. **Registrar una aplicación** en Microsoft Entra ID (portal de Azure → *App registrations* → *New registration*,
+   por ejemplo `VALO ePortfolio consultas`) y crearle un **client secret**. No hace falta darle permisos de API
+   (con service principal, el acceso lo da Power BI, no Entra).
+2. Portal de administración de Power BI → *Configuración del inquilino* → *Configuración del desarrollador*:
+   - **"Las entidades de servicio pueden usar las API de Fabric/Power BI"** habilitado (para un grupo de seguridad que
+     incluya a la aplicación).
+   - **"Dataset Execute Queries REST API"** habilitado (ya lo está, lo usa el flujo).
+3. En el área de trabajo **ePortfolio** → *Administrar acceso* → agregar la aplicación como **Miembro** o
+   **Colaborador** (con *Visor* no alcanza para ejecutar consultas).
+4. Si el modelo tiene seguridad por filas (RLS), la API no deja consultarlo con service principal.
+
+En la página: **Cartera → Conexión con Power BI → Por Supabase**: client id y client secret de la aplicación (el tenant,
+el área de trabajo y el modelo ya están cargados). **Guardar** y **Probar**.
+
+| La página muestra | Causa |
+|---|---|
+| *Power BI login HTTP 400/401* | client id o secret mal copiados, o el secret venció |
+| *HTTP 401/403 … PowerBINotAuthorizedException* | la aplicación no está en el área de trabajo o falta habilitar las API para service principals |
+| *statement timeout* | consulta larga: `alter role authenticated set statement_timeout = '120s'; notify pgrst, 'reload config';` |
