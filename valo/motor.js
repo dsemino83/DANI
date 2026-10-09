@@ -626,9 +626,10 @@
   }
 
   // Saldo de deuda por fiduciante y mes de vencimiento, sin filtrar negocios. Cuotas de la última foto mensual
-  // (Periodo más reciente) vencidas hasta ayer (la cobranza del día no está bajada) en estado Impaga (4); quedan afuera Normal (0), Paga Parcial (1), Paga (2)
-  // y Paga a Regularizar (3). Valor = valor de la cuota (capital + interés, "ficuo valor cuota").
-  const DEUDA_ESTADOS = ['4'];
+  // (Periodo más reciente) vencidas hasta ayer (la cobranza del día no está bajada). Deuda impaga = cuotas en estado
+  // Impaga (4) por su valor (capital + interés, "ficuo valor cuota"); además, lo que falta cobrar de las Paga Parcial (1)
+  // = saldo de capital + saldo de interés. Saldo de deuda = impago + saldo de Paga Parcial. Quedan afuera Normal (0),
+  // Paga (2) y Paga a Regularizar (3) (cobradas, saldo 0).
   function daxSaldoDeuda(opciones = {}) {
     const t = opciones.tabla || PBI_TABLA, c = n => `'${t}'[${n}]`;
     const hasta = opciones.hasta ? `DATE ( ${opciones.hasta.slice(0, 4)}, ${Number(opciones.hasta.slice(5, 7))}, ${Number(opciones.hasta.slice(8, 10))} )` : 'TODAY () - 1';
@@ -650,13 +651,15 @@
       `      "Est", ${c('FideicomisoCreditoCuotaEstadoId')} & "",`,
       `      "Vto", FORMAT ( ${c('CuotaFechaVencimientoId')}, "yyyy-MM-dd" ),`,
       `      "Calc", ${c('Fecha de Calculo')},`,
-      `      "Valor", ${c('Capital')} + ${c('Interes')} )`,
+      `      "Valor", ${c('Capital')} + ${c('Interes')},`,
+      `      "Saldo", ${c('Saldo_Capital')} + ${c('Saldo_Interes')} )`,
       '  VAR Ult = SELECTCOLUMNS ( GROUPBY ( T, [Clave], "M", MAXX ( CURRENTGROUP (), [Orden] ) ), "Clave", [Clave] & "", "Orden", [M] & "" )',
       '  VAR Ultimas = NATURALINNERJOIN ( T, Ult )',
-      '  VAR G = GROUPBY ( FILTER ( Ultimas, [Est] IN { ' + DEUDA_ESTADOS.map(e => `"${e}"`).join(', ') + ' } ), [Fid], [Vto],',
-      '      "Cuotas", COUNTX ( CURRENTGROUP (), 1 ), "Deuda", SUMX ( CURRENTGROUP (), [Valor] ), "UltCalculo", MAXX ( CURRENTGROUP (), [Calc] ) )',
+      '  VAR G = GROUPBY ( FILTER ( Ultimas, [Est] IN { "1", "4" } ), [Fid], [Vto],',
+      '      "Cuotas", SUMX ( CURRENTGROUP (), IF ( [Est] = "4", 1, 0 ) ), "Deuda", SUMX ( CURRENTGROUP (), IF ( [Est] = "4", [Valor], 0 ) ),',
+      '      "CuotasPP", SUMX ( CURRENTGROUP (), IF ( [Est] = "1", 1, 0 ) ), "SaldoPP", SUMX ( CURRENTGROUP (), IF ( [Est] = "1", [Saldo], 0 ) ) )',
       '  VAR SinMarcar = SELECTCOLUMNS ( GROUPBY ( Ultimas, [Fid], "N", SUMX ( CURRENTGROUP (), IF ( [Est] = "0", 1, 0 ) ), "V", SUMX ( CURRENTGROUP (), IF ( [Est] = "0", [Valor], 0 ) ),',
-      '      "C", MAXX ( CURRENTGROUP (), [Calc] ) ), "Fid", [Fid], "Vto", "", "Cuotas", [N], "Deuda", [V], "UltCalculo", [C] )',
+      '      "C", MAXX ( CURRENTGROUP (), [Calc] ) ), "Fid", [Fid], "Vto", "", "Cuotas", [N], "Deuda", [V], "CuotasPP", 0, "SaldoPP", 0 )',
       'EVALUATE',
       '  ADDCOLUMNS ( UNION ( G, SinMarcar ),',
       "    \"Fiduciante\", LOOKUPVALUE ( 'Fiduciante'[Ente], 'Fiduciante'[EnteId], [Fid] ),",
@@ -679,12 +682,16 @@
     });
     const datos = todos.filter(r => r.Vto);
     datos.forEach(r => { r.Vto = String(r.Vto).slice(0, 10); r.Mes = r.Vto.slice(0, 7); });
-    const meses = [...new Set(datos.map(r => String(r.Mes)))].sort();
+    const meses = [...new Set(datos.filter(r => Number(r.Deuda)).map(r => String(r.Mes)))].sort();
     const porFid = new Map();
     datos.forEach(r => {
       const cuit = String(r.Fid == null ? '' : r.Fid);
-      if (!porFid.has(cuit)) porFid.set(cuit, { cuit, fiduciante: r.Fiduciante || cuit, porMes: {}, fechas: {}, porDia: {}, cuotas: 0, total: 0 });
-      const f = porFid.get(cuit), v = Number(r.Deuda) || 0;
+      if (!porFid.has(cuit)) porFid.set(cuit, { cuit, fiduciante: r.Fiduciante || cuit, porMes: {}, fechas: {}, porDia: {}, ppPorDia: {}, cuotas: 0, total: 0, ppCuotas: 0, pp: 0 });
+      const f = porFid.get(cuit), v = Number(r.Deuda) || 0, pp = Number(r.SaldoPP) || 0;
+      f.ppCuotas += Number(r.CuotasPP) || 0;
+      f.pp = round2(f.pp + pp);
+      if (r.Vto && pp) f.ppPorDia[r.Vto] = round2((f.ppPorDia[r.Vto] || 0) + pp);
+      if (!v) return;
       f.porMes[r.Mes] = round2((f.porMes[r.Mes] || 0) + v);
       if (r.Vto) f.porDia[r.Vto] = round2((f.porDia[r.Vto] || 0) + v);
       if (r.Vto) { f.fechas[r.Mes] = f.fechas[r.Mes] || []; if (!f.fechas[r.Mes].includes(r.Vto)) f.fechas[r.Mes].push(r.Vto); f.fechas[r.Mes].sort(); }
@@ -692,9 +699,12 @@
       f.total = round2(f.total + v);
     });
     sinMarcar.sort((a, b) => b.valor - a.valor);
-    const filas = [...porFid.values()].sort((a, b) => b.total - a.total);
+    porFid.forEach(f => { f.saldoDeuda = round2(f.total + f.pp); });
+    const filas = [...porFid.values()].filter(f => f.total || f.pp).sort((a, b) => (b.total + b.pp) - (a.total + a.pp));
     const totalesMes = Object.fromEntries(meses.map(m => [m, round2(filas.reduce((s, f) => s + (f.porMes[m] || 0), 0))]));
-    return { meses, filas, totalesMes, total: round2(filas.reduce((s, f) => s + f.total, 0)), cuotas: filas.reduce((s, f) => s + f.cuotas, 0), periodo, hasta, sinMarcar };
+    const total = round2(filas.reduce((s, f) => s + f.total, 0)), pp = round2(filas.reduce((s, f) => s + f.pp, 0));
+    return { meses, filas, totalesMes, total, cuotas: filas.reduce((s, f) => s + f.cuotas, 0), pp, ppCuotas: filas.reduce((s, f) => s + f.ppCuotas, 0),
+      saldoDeuda: round2(total + pp), periodo, hasta, sinMarcar };
   }
 
   // Consultas de diagnóstico: qué fideicomisos y periodos hay en la tabla de cuotas y cómo se ven por la dimensión Fideicomiso.
