@@ -1183,7 +1183,9 @@
       if (!p) return;
       const dc = p.cuit_empresa || complifNumero(complifCampo(doc, ['cuit_empresa', 'cuit', 'tax_id']));
       const dn = razonClave(p.razon_social || complifCampo(doc, ['razon_social', 'company_name']));
-      if (!((c && dc === c) || (n && dn && (dn === n || (n.length > 5 && (dn.includes(n) || n.includes(dn))))))) return;
+      // El CUIT se busca con guiones (30-70819244-5, como lo guarda Complif) y sin guiones, en cualquier campo del documento.
+      const enDoc = c.length === 11 && (texto => texto.includes(formatoCuit(c)) || texto.includes(c))(JSON.stringify(doc));
+      if (!((c && (dc === c || enDoc)) || (n && dn && (dn === n || (n.length > 5 && (dn.includes(n) || n.includes(dn))))))) return;
       (p.autoridades ? actas : poderes).push(p);
     });
     poderes.sort((a, b) => String(a.fecha_emision || '').localeCompare(String(b.fecha_emision || '')));
