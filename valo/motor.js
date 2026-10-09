@@ -663,9 +663,10 @@
     let periodo = '', hasta = '';
     datos.forEach(r => {
       const cuit = String(r.Fid == null ? '' : r.Fid);
-      if (!porFid.has(cuit)) porFid.set(cuit, { cuit, fiduciante: r.Fiduciante || cuit, porMes: {}, fechas: {}, cuotas: 0, total: 0 });
+      if (!porFid.has(cuit)) porFid.set(cuit, { cuit, fiduciante: r.Fiduciante || cuit, porMes: {}, fechas: {}, porDia: {}, cuotas: 0, total: 0 });
       const f = porFid.get(cuit), v = Number(r.Deuda) || 0;
       f.porMes[r.Mes] = round2((f.porMes[r.Mes] || 0) + v);
+      if (r.Vto) f.porDia[r.Vto] = round2((f.porDia[r.Vto] || 0) + v);
       if (r.Vto) { f.fechas[r.Mes] = f.fechas[r.Mes] || []; if (!f.fechas[r.Mes].includes(r.Vto)) f.fechas[r.Mes].push(r.Vto); f.fechas[r.Mes].sort(); }
       f.cuotas += Number(r.Cuotas) || 0;
       f.total = round2(f.total + v);
