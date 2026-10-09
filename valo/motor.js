@@ -641,8 +641,8 @@
       `      && ${c('FideicomisoCreditoCuotaEstadoId')} IN { ${DEUDA_ESTADOS.map(e => `"${e}"`).join(', ')} } )`,
       '  VAR G =',
       '    GROUPBY (',
-      `      ADDCOLUMNS ( Cuotas, "Fid", ${c('EnteFiducianteId')}, "Mes", FORMAT ( ${c('CuotaFechaVencimientoId')}, "yyyy-MM" ) ),`,
-      '      [Fid], [Mes],',
+      `      ADDCOLUMNS ( Cuotas, "Fid", ${c('EnteFiducianteId')}, "Vto", FORMAT ( ${c('CuotaFechaVencimientoId')}, "yyyy-MM-dd" ) ),`,
+      '      [Fid], [Vto],',
       '      "Cuotas", COUNTX ( CURRENTGROUP (), 1 ),',
       `      "Deuda", SUMX ( CURRENTGROUP (), ${c('Capital')} + ${c('Interes')} )`,
       '    )',
@@ -650,20 +650,23 @@
       '  ADDCOLUMNS ( G,',
       "    \"Fiduciante\", LOOKUPVALUE ( 'Fiduciante'[Ente], 'Fiduciante'[EnteId], [Fid] ),",
       '    "Periodo", UltimoPeriodo, "Hasta", Hasta )',
-      'ORDER BY [Fid], [Mes]',
+      'ORDER BY [Fid], [Vto]',
     ].join('\n');
   }
-  // Tabla fiduciante × mes: { meses, filas: [{ cuit, fiduciante, porMes: {mes: deuda}, cuotas, total }], totalesMes, total }.
+  // Tabla fiduciante × mes: { meses, filas: [{ cuit, fiduciante, porMes: {mes: deuda}, fechas: {mes: [vencimientos]},
+  // cuotas, total }], totalesMes, total }. Power BI devuelve un renglón por fiduciante y fecha de vencimiento.
   function armarSaldoDeuda(respuesta) {
     const { datos } = leerFilasPowerBI(respuesta);
+    datos.forEach(r => { if (r.Vto != null) { r.Vto = String(r.Vto).slice(0, 10); r.Mes = r.Vto.slice(0, 7); } });
     const meses = [...new Set(datos.map(r => String(r.Mes)))].sort();
     const porFid = new Map();
     let periodo = '', hasta = '';
     datos.forEach(r => {
       const cuit = String(r.Fid == null ? '' : r.Fid);
-      if (!porFid.has(cuit)) porFid.set(cuit, { cuit, fiduciante: r.Fiduciante || cuit, porMes: {}, cuotas: 0, total: 0 });
+      if (!porFid.has(cuit)) porFid.set(cuit, { cuit, fiduciante: r.Fiduciante || cuit, porMes: {}, fechas: {}, cuotas: 0, total: 0 });
       const f = porFid.get(cuit), v = Number(r.Deuda) || 0;
       f.porMes[r.Mes] = round2((f.porMes[r.Mes] || 0) + v);
+      if (r.Vto) { f.fechas[r.Mes] = f.fechas[r.Mes] || []; if (!f.fechas[r.Mes].includes(r.Vto)) f.fechas[r.Mes].push(r.Vto); f.fechas[r.Mes].sort(); }
       f.cuotas += Number(r.Cuotas) || 0;
       f.total = round2(f.total + v);
       periodo = periodo || String(r.Periodo || '').slice(0, 10);
