@@ -632,24 +632,33 @@
   function daxSaldoDeuda(opciones = {}) {
     const t = opciones.tabla || PBI_TABLA, c = n => `'${t}'[${n}]`;
     const hasta = opciones.hasta ? `DATE ( ${opciones.hasta.slice(0, 4)}, ${Number(opciones.hasta.slice(5, 7))}, ${Number(opciones.hasta.slice(8, 10))} )` : 'TODAY () - 1';
+    // Una misma cuota puede estar repetida en la foto (otro lote u otra fecha de cálculo, a veces con otro estado):
+    // se toma el renglón más reciente de cada cuota (fecha de cálculo y número de lote) antes de mirar el estado.
+    // Además devuelve, por fiduciante (renglones sin vencimiento), las cuotas vencidas que siguen en estado Normal: nadie
+    // las marcó como pagas ni impagas, así que su estado en Power BI no está actualizado.
     return [
       'DEFINE',
       `  VAR Hasta = ${hasta}`,
       // Foto de cartera: la última, o la del mes elegido (ej. 2026-09 = cierre de septiembre, como el reporte del BI).
       opciones.periodo ? `  VAR UltimoPeriodo = CALCULATE ( MAX ( ${c('Periodo')} ), FILTER ( ALL ( ${c('Periodo')} ), FORMAT ( ${c('Periodo')}, "yyyy-MM" ) = "${String(opciones.periodo).slice(0, 7).replace(/"/g, '')}" ) )`
         : `  VAR UltimoPeriodo = MAX ( ${c('Periodo')} )`,
-      '  VAR Cuotas =',
-      `    FILTER ( '${t}', ${c('Periodo')} = UltimoPeriodo && ${c('CuotaFechaVencimientoId')} <= Hasta`,
-      `      && ${c('FideicomisoCreditoCuotaEstadoId')} IN { ${DEUDA_ESTADOS.map(e => `"${e}"`).join(', ')} } )`,
-      '  VAR G =',
-      '    GROUPBY (',
-      `      ADDCOLUMNS ( Cuotas, "Fid", ${c('EnteFiducianteId')}, "Vto", FORMAT ( ${c('CuotaFechaVencimientoId')}, "yyyy-MM-dd" ) ),`,
-      '      [Fid], [Vto],',
-      '      "Cuotas", COUNTX ( CURRENTGROUP (), 1 ),',
-      `      "Deuda", SUMX ( CURRENTGROUP (), ${c('Capital')} + ${c('Interes')} )`,
-      '    )',
+      '  VAR T = SELECTCOLUMNS (',
+      `      FILTER ( '${t}', ${c('Periodo')} = UltimoPeriodo && ${c('CuotaFechaVencimientoId')} <= Hasta ),`,
+      `      "Clave", ${c('NroCredito')} & "|" & ${c('CuotaNumero')},`,
+      `      "Orden", FORMAT ( ${c('Fecha de Calculo')}, "yyyyMMdd" ) & FORMAT ( ${c('Numero de Lote')}, "000" ),`,
+      `      "Fid", ${c('EnteFiducianteId')} & "",`,
+      `      "Est", ${c('FideicomisoCreditoCuotaEstadoId')} & "",`,
+      `      "Vto", FORMAT ( ${c('CuotaFechaVencimientoId')}, "yyyy-MM-dd" ),`,
+      `      "Calc", ${c('Fecha de Calculo')},`,
+      `      "Valor", ${c('Capital')} + ${c('Interes')} )`,
+      '  VAR Ult = SELECTCOLUMNS ( GROUPBY ( T, [Clave], "M", MAXX ( CURRENTGROUP (), [Orden] ) ), "Clave", [Clave] & "", "Orden", [M] & "" )',
+      '  VAR Ultimas = NATURALINNERJOIN ( T, Ult )',
+      '  VAR G = GROUPBY ( FILTER ( Ultimas, [Est] IN { ' + DEUDA_ESTADOS.map(e => `"${e}"`).join(', ') + ' } ), [Fid], [Vto],',
+      '      "Cuotas", COUNTX ( CURRENTGROUP (), 1 ), "Deuda", SUMX ( CURRENTGROUP (), [Valor] ), "UltCalculo", MAXX ( CURRENTGROUP (), [Calc] ) )',
+      '  VAR SinMarcar = SELECTCOLUMNS ( GROUPBY ( Ultimas, [Fid], "N", SUMX ( CURRENTGROUP (), IF ( [Est] = "0", 1, 0 ) ), "V", SUMX ( CURRENTGROUP (), IF ( [Est] = "0", [Valor], 0 ) ),',
+      '      "C", MAXX ( CURRENTGROUP (), [Calc] ) ), "Fid", [Fid], "Vto", "", "Cuotas", [N], "Deuda", [V], "UltCalculo", [C] )',
       'EVALUATE',
-      '  ADDCOLUMNS ( G,',
+      '  ADDCOLUMNS ( UNION ( G, SinMarcar ),',
       "    \"Fiduciante\", LOOKUPVALUE ( 'Fiduciante'[Ente], 'Fiduciante'[EnteId], [Fid] ),",
       '    "Periodo", UltimoPeriodo, "Hasta", Hasta )',
       'ORDER BY [Fid], [Vto]',
@@ -658,11 +667,20 @@
   // Tabla fiduciante × mes: { meses, filas: [{ cuit, fiduciante, porMes: {mes: deuda}, fechas: {mes: [vencimientos]},
   // cuotas, total }], totalesMes, total }. Power BI devuelve un renglón por fiduciante y fecha de vencimiento.
   function armarSaldoDeuda(respuesta) {
-    const { datos } = leerFilasPowerBI(respuesta);
-    datos.forEach(r => { if (r.Vto != null) { r.Vto = String(r.Vto).slice(0, 10); r.Mes = r.Vto.slice(0, 7); } });
+    const todos = leerFilasPowerBI(respuesta).datos;
+    // Renglones sin vencimiento: cuotas vencidas de cada fiduciante que siguen en estado Normal (sin actualizar).
+    const sinMarcar = [];
+    let periodo = '', hasta = '';
+    todos.forEach(r => {
+      const cuit = String(r.Fid == null ? '' : r.Fid);
+      if (!r.Vto && Number(r.Cuotas) > 0) sinMarcar.push({ cuit, fiduciante: r.Fiduciante || cuit, cuotas: Number(r.Cuotas), valor: round2(Number(r.Deuda) || 0) });
+      periodo = periodo || String(r.Periodo || '').slice(0, 10);
+      hasta = hasta || String(r.Hasta || '').slice(0, 10);
+    });
+    const datos = todos.filter(r => r.Vto);
+    datos.forEach(r => { r.Vto = String(r.Vto).slice(0, 10); r.Mes = r.Vto.slice(0, 7); });
     const meses = [...new Set(datos.map(r => String(r.Mes)))].sort();
     const porFid = new Map();
-    let periodo = '', hasta = '';
     datos.forEach(r => {
       const cuit = String(r.Fid == null ? '' : r.Fid);
       if (!porFid.has(cuit)) porFid.set(cuit, { cuit, fiduciante: r.Fiduciante || cuit, porMes: {}, fechas: {}, porDia: {}, cuotas: 0, total: 0 });
@@ -672,12 +690,11 @@
       if (r.Vto) { f.fechas[r.Mes] = f.fechas[r.Mes] || []; if (!f.fechas[r.Mes].includes(r.Vto)) f.fechas[r.Mes].push(r.Vto); f.fechas[r.Mes].sort(); }
       f.cuotas += Number(r.Cuotas) || 0;
       f.total = round2(f.total + v);
-      periodo = periodo || String(r.Periodo || '').slice(0, 10);
-      hasta = hasta || String(r.Hasta || '').slice(0, 10);
     });
+    sinMarcar.sort((a, b) => b.valor - a.valor);
     const filas = [...porFid.values()].sort((a, b) => b.total - a.total);
     const totalesMes = Object.fromEntries(meses.map(m => [m, round2(filas.reduce((s, f) => s + (f.porMes[m] || 0), 0))]));
-    return { meses, filas, totalesMes, total: round2(filas.reduce((s, f) => s + f.total, 0)), cuotas: filas.reduce((s, f) => s + f.cuotas, 0), periodo, hasta };
+    return { meses, filas, totalesMes, total: round2(filas.reduce((s, f) => s + f.total, 0)), cuotas: filas.reduce((s, f) => s + f.cuotas, 0), periodo, hasta, sinMarcar };
   }
 
   // Consultas de diagnóstico: qué fideicomisos y periodos hay en la tabla de cuotas y cómo se ven por la dimensión Fideicomiso.
