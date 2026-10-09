@@ -1246,9 +1246,9 @@
     $('deudaEstado').innerHTML = '<p class="sub">Consultando Power BI…</p>';
     try {
       const hasta = $('deudaHasta').value || hoyIso();
-      deuda = M.armarSaldoDeuda(await consultarPbi(M.daxSaldoDeuda({ hasta })));
+      deuda = M.armarSaldoDeuda(await consultarPbi(M.daxSaldoDeuda({ hasta, periodo: $('deudaPeriodo').value })));
       renderDeuda();
-      $('deudaEstado').innerHTML = deuda.filas.length ? '' : aviso('ok', 'No hay cuotas impagas vencidas hasta esa fecha.');
+      $('deudaEstado').innerHTML = deuda.filas.length ? '' : aviso('ok', $('deudaPeriodo').value && !deuda.periodo ? 'No hay foto de cartera para ese mes.' : 'No hay cuotas impagas vencidas hasta esa fecha.');
     } catch (e) {
       $('deudaEstado').innerHTML = aviso('bad', 'No se pudo traer el saldo de deuda: ' + esc(e.message || e) + ' (la conexión se configura en Cartera → Conexión con Power BI).');
     } finally { b.disabled = false; }

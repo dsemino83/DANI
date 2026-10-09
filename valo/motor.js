@@ -635,7 +635,9 @@
     return [
       'DEFINE',
       `  VAR Hasta = ${hasta}`,
-      `  VAR UltimoPeriodo = MAX ( ${c('Periodo')} )`,
+      // Foto de cartera: la última, o la del mes elegido (ej. 2026-09 = cierre de septiembre, como el reporte del BI).
+      opciones.periodo ? `  VAR UltimoPeriodo = CALCULATE ( MAX ( ${c('Periodo')} ), FILTER ( ALL ( ${c('Periodo')} ), FORMAT ( ${c('Periodo')}, "yyyy-MM" ) = "${String(opciones.periodo).slice(0, 7).replace(/"/g, '')}" ) )`
+        : `  VAR UltimoPeriodo = MAX ( ${c('Periodo')} )`,
       '  VAR Cuotas =',
       `    FILTER ( '${t}', ${c('Periodo')} = UltimoPeriodo && ${c('CuotaFechaVencimientoId')} <= Hasta`,
       `      && ${c('FideicomisoCreditoCuotaEstadoId')} IN { ${DEUDA_ESTADOS.map(e => `"${e}"`).join(', ')} } )`,
