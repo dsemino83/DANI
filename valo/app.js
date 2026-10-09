@@ -1249,7 +1249,10 @@
       const hasta = $('deudaHasta').value || ayerIso();
       deuda = M.armarSaldoDeuda(await consultarPbi(M.daxSaldoDeuda({ hasta, periodo: $('deudaPeriodo').value })));
       renderDeuda();
-      $('deudaEstado').innerHTML = deuda.filas.length ? '' : aviso('ok', $('deudaPeriodo').value && !deuda.periodo ? 'No hay foto de cartera para ese mes.' : 'No hay cuotas impagas vencidas hasta esa fecha.');
+      const sm = deuda.sinMarcar || [];
+      $('deudaEstado').innerHTML = (sm.length ? aviso('warn', `<b>Estado sin actualizar en Power BI:</b> ` + sm.map(a => `${esc(a.fiduciante)}: ${fmtEntero(a.cuotas)} cuotas vencidas siguen en estado Normal ($ ${fmtMonto(a.valor)})`).join(' · ') +
+        `. No figuran como pagas ni como impagas, así que no entran en el saldo y la deuda de ese fiduciante puede diferir de otras fuentes.`) : '') +
+        (deuda.filas.length ? '' : aviso('ok', $('deudaPeriodo').value && !deuda.periodo ? 'No hay foto de cartera para ese mes.' : 'No hay cuotas impagas vencidas hasta esa fecha.'));
     } catch (e) {
       $('deudaEstado').innerHTML = aviso('bad', 'No se pudo traer el saldo de deuda: ' + esc(e.message || e) + ' (la conexión se configura en Cartera → Conexión con Power BI).');
     } finally { b.disabled = false; }
