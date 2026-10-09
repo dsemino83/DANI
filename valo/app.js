@@ -1900,7 +1900,8 @@
       if (!poderes.length && !pres) throw new Error('El PDF no tiene secciones "Acreditación de Poderes" ni un presidente en el acta de designación de autoridades.');
       poderes.forEach((p, k) => { p._k = k; });
       if (pres) pres._k = 'presidente';
-      bast.pdf = f.name; bast.poderesTodos = poderes; bast.poderPresidente = pres; bast.edPorPoder = {};
+      bast.pdf = f.name; bast.poderesTodos = poderes; bast.poderPresidente = pres; bast.edPorPoder = {}; bast.actas = [];
+      $('cmpEstado').innerHTML = '';
       $('bastPdfNombre').textContent = pres ? `${f.name} · sin acreditación de poderes · presidente: ${pres.presidente.nombre_completo}` : `${f.name} · ${poderes.length} poderes`;
       prepararBastanteo();
     } catch (e) { $('bastPdfNombre').textContent = f.name; $('bastEstado').innerHTML = aviso('bad', 'No se pudo leer el PDF: ' + esc(e.message || e)); }
@@ -1917,8 +1918,103 @@
       }
       const sinCuit = bast.cliente.firmantes.filter(x => !x.cuit).length;
       $('bastXlsNombre').textContent = `${f.name} · ${bast.cliente.firmantes.length} firmantes` + (sinCuit ? ` (${sinCuit} sin CUIT)` : '');
+      $('cmpCuit').placeholder = bast.cliente.cuit ? M.formatoCuit(bast.cliente.cuit) : 'sale del Excel';
+      $('cmpNombre').placeholder = bast.cliente.cliente || 'sale del Excel';
       prepararBastanteo();
     } catch (e) { $('bastEstado').innerHTML = aviso('bad', 'No se pudo leer el Excel: ' + esc(e.message || e)); }
+  });
+
+  // ------------------------------------------------------------ Complif
+  // Los poderes se bajan todos (50 por página, ~25 s) y se buscan por CUIT o razón social: el OCR no siempre trae
+  // el CUIT. La lista queda 15 minutos en memoria. Pasa por Supabase (complif_get): el secret no llega al navegador.
+  const cmp = { docs: null, cuando: 0, crudo: null };
+  const hayComplif = () => !!(almacen && typeof almacen.rpc === 'function');
+  const errorComplif = e => {
+    const m = String((e && e.message) || e);
+    return /complif_(get|estado|guardar)/i.test(m) && /(could not find|does not exist|no existe|schema cache)/i.test(m)
+      ? 'Faltan las funciones de Complif en Supabase: correr el bloque "Complif" de supabase/esquema.sql (INSTRUCCIONES.md, punto 9).' : m;
+  };
+  async function complifGet(ruta) {
+    const j = await almacen.rpc('complif_get', { p_ruta: ruta });
+    if (!j || j.status !== 200) throw new Error(`Complif respondió HTTP ${j ? j.status : '?'}${j && j.error ? ': ' + j.error : ''}`);
+    return j.body;
+  }
+  const listaComplif = b => (Array.isArray(b) ? b : (b && (b.data || b.items || b.results || b.documents)) || []);
+  async function complifDocumentos(progreso) {
+    if (cmp.docs && Date.now() - cmp.cuando < 15 * 60e3) return cmp.docs;
+    const filtro = 'type=in.(' + M.COMPLIF_TIPOS.map(encodeURIComponent).join(',') + ')';
+    const docs = [];
+    let pagina = 0, fin = false;
+    while (!fin && pagina < 400) {
+      const lote = await Promise.all([0, 1, 2, 3].map(k => complifGet(`/api/documents/v1/organization?${filtro}&page=${pagina + k}`)));
+      lote.forEach(b => { if (fin) return; const l = listaComplif(b); docs.push(...l); if (l.length < 50) fin = true; });
+      pagina += 4;
+      progreso(docs.length);
+    }
+    cmp.docs = docs; cmp.cuando = Date.now();
+    return docs;
+  }
+  async function estadoComplif() {
+    if (!hayComplif()) { $('cmpConfig').innerHTML = 'Complif se usa desde la versión web (con la base compartida).'; return; }
+    try {
+      const e = await almacen.rpc('complif_estado', {});
+      if (e && e.base_url) $('cmpBase').value = e.base_url;
+      $('cmpConfig').innerHTML = e && e.client_id && e.tiene_secret
+        ? `<span class="chip ok">Configurada</span> ${esc(e.base_url)} · client ${esc(e.client_id)}… · secret cargado · ${esc(String(e.actualizado || '').slice(0, 16).replace('T', ' '))}`
+        : '<span class="chip warn">Sin configurar</span> cargá el client id y el secret.';
+    } catch (err) { $('cmpConfig').innerHTML = aviso('bad', esc(errorComplif(err))); }
+  }
+  $('detCmp').addEventListener('toggle', () => { if ($('detCmp').open) estadoComplif(); });
+  $('btnCmpGuardar').addEventListener('click', async () => {
+    try {
+      await almacen.rpc('complif_guardar', { p_base_url: $('cmpBase').value.trim(), p_client_id: $('cmpId').value.trim(), p_client_secret: $('cmpSecret').value.trim() });
+      $('cmpSecret').value = '';
+      cmp.docs = null;
+      await estadoComplif();
+      toast('Conexión con Complif guardada para todos los usuarios');
+    } catch (e) { $('cmpConfig').innerHTML = aviso('bad', 'No se pudo guardar: ' + esc(errorComplif(e))); }
+  });
+  $('btnCmpProbar').addEventListener('click', async () => {
+    $('cmpConfig').textContent = 'Probando…';
+    try {
+      const b = await complifGet('/api/documents/v1/organization?type=eq.' + encodeURIComponent('Poder Complejo') + '&page=0');
+      $('cmpConfig').innerHTML = aviso('ok', `Conexión OK: la primera página trae ${listaComplif(b).length} poderes complejos.`);
+    } catch (e) { $('cmpConfig').innerHTML = aviso('bad', esc(errorComplif(e))); }
+  });
+  $('btnCmpCrudo').addEventListener('click', () => {
+    const muestra = cmp.crudo && cmp.crudo.length ? cmp.crudo : (cmp.docs || []).slice(0, 2);
+    $('cmpCrudo').textContent = muestra.length ? JSON.stringify(muestra.slice(0, 3), null, 1).slice(0, 30000) : 'Todavía no se trajo nada de Complif.';
+    $('cmpCrudo').classList.remove('oculto');
+  });
+  $('btnCmpTraer').addEventListener('click', async () => {
+    if (!hayComplif()) { $('cmpEstado').innerHTML = aviso('warn', 'Complif se usa desde la versión web (con la base compartida).'); return; }
+    const cuit = $('cmpCuit').value.replace(/\D/g, '') || (bast.cliente && bast.cliente.cuit) || '';
+    const nombre = $('cmpNombre').value.trim() || (bast.cliente && bast.cliente.cliente) || '';
+    if (!cuit && !nombre) { $('cmpEstado').innerHTML = aviso('warn', 'Cargá primero la planilla del cliente (Excel) o escribí el CUIT o la razón social.'); return; }
+    const btn = $('btnCmpTraer');
+    btn.disabled = true;
+    $('cmpEstado').innerHTML = '<p class="sub">Bajando los poderes de Complif…</p>';
+    try {
+      const docs = await complifDocumentos(n => { $('cmpEstado').innerHTML = `<p class="sub">Bajando los poderes de Complif… ${n} documentos</p>`; });
+      const r = M.complifDeEmpresa(docs, cuit, nombre);
+      cmp.crudo = docs.filter(d => (r.poderes.concat(r.actas)).some(p => p.complif.id != null && p.complif.id === (d.id || d.uuid)));
+      const quien = esc(nombre || M.formatoCuit(cuit));
+      const pres = r.poderes.length ? null : M.poderDelPresidente(r.actas);
+      if (!r.poderes.length && !pres) {
+        const leidos = docs.filter(d => M.poderDesdeComplif(d) || M.actaDesdeComplif(d)).length;
+        $('cmpEstado').innerHTML = aviso('warn', `Complif no tiene poderes de <b>${quien}</b>${cuit ? ' (CUIT ' + esc(M.formatoCuit(cuit)) + ')' : ''}${r.actas.length ? ' (hay ' + r.actas.length + ' acta/s, sin presidente reconocible)' : ''}. Se revisaron ${docs.length} documentos` +
+          (leidos < docs.length ? `; ${docs.length - leidos} no se pudieron interpretar (ver <i>Conexión con Complif → Ver la respuesta</i>)` : '') + '. Puede que el OCR no haya extraído el CUIT: probá con la razón social.');
+        return;
+      }
+      r.poderes.forEach((p, k) => { p._k = 'complif' + k; });
+      if (pres) pres._k = 'presidente';
+      Object.assign(bast, { pdf: 'Complif', poderesTodos: r.poderes, poderPresidente: pres, edPorPoder: {}, actas: r.actas });
+      $('bastPdfNombre').textContent = `Complif · ${r.poderes.length} poder${r.poderes.length === 1 ? '' : 'es'}` + (r.actas.length ? ` · ${r.actas.length} acta${r.actas.length === 1 ? '' : 's'}` : '') + (pres ? ` · sin poderes: presidente ${pres.presidente.nombre_completo}` : '');
+      $('cmpEstado').innerHTML = aviso('ok', `Complif: ${r.poderes.length} poder${r.poderes.length === 1 ? '' : 'es'} y ${r.actas.length} acta${r.actas.length === 1 ? '' : 's'} de designación de <b>${quien}</b> (de ${docs.length} documentos). ` +
+        r.poderes.map(p => `${esc(p.complif.type || 'Poder')} ${esc(p.fecha_emision || 's/f')}${p.deed_number ? ' esc. ' + esc(p.deed_number) : ''}`).join(' · '));
+      prepararBastanteo();
+    } catch (e) { $('cmpEstado').innerHTML = aviso('bad', 'No se pudo consultar Complif: ' + esc(errorComplif(e))); }
+    finally { btn.disabled = false; }
   });
 
   // Firmantes de la planilla que traen el DNI en lugar del CUIT: el CUIT sale de la base de entes, por número de
@@ -1966,8 +2062,8 @@
     bast.ediciones = bast.poderes.map(p => {
       const prev = bast.edPorPoder[p._k] || {};
       const candidatas = esc_.filter(e => e.fecha === p.fecha_emision);
-      const ed = Object.assign({ deed_number: '', board_resolution_power_attorney: '',
-        power_attorney_type: 'Poder Especial para Operaciones Bancarias', cuits: {}, facultades: p.usos.map(() => ({})) }, prev, { candidatas });
+      const ed = Object.assign({ deed_number: p.deed_number || '', board_resolution_power_attorney: p.board_resolution_power_attorney || '',
+        power_attorney_type: p.power_attorney_type || 'Poder Especial para Operaciones Bancarias', cuits: {}, facultades: p.usos.map(() => ({})) }, prev, { candidatas });
       // Si con esa fecha hay varias escrituras se propone la última (en la planilla, la del poder va después del acta).
       if (!ed.deed_number && candidatas.length) ed.deed_number = candidatas[candidatas.length - 1].numero;
       bast.edPorPoder[p._k] = ed;
@@ -2021,6 +2117,7 @@
       sp.map(f => `<tr><td>${esc(f.nombre)}</td><td>${f.cuit ? esc(M.formatoCuit(f.cuit)) : 'DNI ' + esc(f.dni) + ' (sin CUIT)'}</td><td><span class="chip warn">en la planilla, sin poder</span></td></tr>`).join('') + '</tbody></table></div>';
     $('bastEstado').innerHTML = estado;
     renderBastUnico();
+    renderControlResumen();
     $('bastPoderes').innerHTML = bast.poderes.map((p, i) => {
       const ed = bast.ediciones[i] || {};
       const j = jsonDe(i);
@@ -2099,6 +2196,21 @@
   // Un solo JSON con todos los poderes, agrupando apoderados por tipo de firma y facultades.
   const sinPoder = () => (bast.cliente ? M.firmantesSinPoder(bast.poderes, bast.cliente.firmantes) : []);
   function jsonUnico() { return M.jsonBastanteoUnico(bast.poderes.map((p, i) => jsonDe(i)), bast.cliente && Object.assign({}, bast.cliente, { sinPoder: sinPoder() })); }
+  // Control del resumen (Excel) contra los poderes, firmante por firmante: uso de firma, grupo, conjuntas y límite.
+  function renderControlResumen() {
+    if (!bast.poderes.length || !bast.cliente || !bast.cliente.firmantes.length) { $('bastControl').innerHTML = ''; return; }
+    const filas = M.controlResumen(jsonUnico(), bast.cliente);
+    const marca = ok => (ok === true ? '<b style="color:var(--ok)">✓</b>' : ok === false ? '<b style="color:var(--bad)">✗</b>' : '<span class="sub">—</span>');
+    const conDif = filas.filter(f => f.puntos.some(p => p.ok === false));
+    const orden = conDif.concat(filas.filter(f => !conDif.includes(f)));
+    $('bastControl').innerHTML = `<h3>Control del resumen contra los poderes</h3>` +
+      aviso(conDif.length ? 'warn' : 'ok', conDif.length ? `<b>${conDif.length} de ${filas.length} firmantes con diferencias.</b> ✓ = el resumen y el poder coinciden · ✗ = difieren.` : `Los ${filas.length} firmantes del resumen coinciden con los poderes.`) +
+      `<div class="tabla-caja"><table><thead><tr><th>Firmante</th><th>Resumen (Excel)</th><th>Punto</th><th></th><th>Dice el resumen</th><th>Dice el poder</th></tr></thead><tbody>` +
+      orden.map(f => f.puntos.map((p, i) => `<tr>${i ? '' : `<td rowspan="${f.puntos.length}"><b>${esc(f.nombre)}</b><div class="sub" style="margin:0">${esc(M.formatoCuit(f.ident) || '')}</div></td><td rowspan="${f.puntos.length}">${esc(f.resumen || '—')}</td>`}` +
+        `<td>${esc(p.punto)}</td><td>${marca(p.ok)}</td><td>${esc(p.resumen)}</td><td style="white-space:normal;max-width:420px">${esc(p.poder)}${p.detalle ? `<div style="color:var(--bad);font-size:12px">${esc(p.detalle)}</div>` : ''}</td></tr>`).join('')).join('') +
+      '</tbody></table></div>';
+  }
+
   function renderBastUnico() {
     if (!bast.poderes.length) { $('bastUnico').innerHTML = ''; return; }
     const u = jsonUnico();
@@ -2123,7 +2235,8 @@
   });
   $('btnBastUnicoVer').addEventListener('click', () => { const pre = $('bastUnicoJson'); pre.textContent = JSON.stringify(jsonUnico(), null, 2); pre.classList.toggle('oculto'); });
   $('btnBastLimpiar').addEventListener('click', () => {
-    Object.assign(bast, { pdf: null, xls: null, poderes: [], poderesTodos: [], poderPresidente: null, avisoPresidente: '', otrosPoderes: [], edPorPoder: {}, cliente: null, ediciones: [], cuitsBase: {} });
+    $('cmpEstado').innerHTML = ''; $('cmpCuit').value = ''; $('cmpNombre').value = ''; cmp.crudo = null;
+    Object.assign(bast, { pdf: null, xls: null, poderes: [], poderesTodos: [], poderPresidente: null, avisoPresidente: '', actas: [], otrosPoderes: [], edPorPoder: {}, cliente: null, ediciones: [], cuitsBase: {} });
     $('bastPdfNombre').textContent = 'Arrastrá el PDF o hacé clic';
     $('bastXlsNombre').textContent = 'Arrastrá el Excel o hacé clic';
     $('bastUnicoJson').classList.add('oculto');

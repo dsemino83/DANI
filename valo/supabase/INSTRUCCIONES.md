@@ -78,3 +78,18 @@ BCRA. Si el BCRA no deja que la página lo consulte directo, lo hace la base con
 
 Volver a ejecutar `esquema.sql` (crea la tabla `entes`). Después, en Más ▾ → Inventario → *Entes, CUIT y fechas* →
 **Subir base de entes (Excel)** con las planillas de personas jurídicas y humanas.
+
+## 9. Complif (poderes para el bastanteo)
+
+La página baja de Complif los poderes ("Poder", "Poder Complejo") y las actas de designación de autoridades de la
+empresa y los compara con el resumen (Excel). Supabase hace de intermediario: la clave de Complif nunca llega al
+navegador ni al repositorio.
+
+1. En Supabase → **SQL Editor**, correr el bloque *Complif* del final de `esquema.sql` (necesita la extensión
+   `http`, la misma del tipo de cambio).
+2. En la página: **Más ▾ → Bastanteo → Conexión con Complif**: URL `https://api.valo.complif.com` (producción;
+   homologación es `https://api-uat.complif.com`), *client id* y *client secret*. **Guardar** y **Probar**.
+   El secret queda en la tabla `complif_config`, que la página no puede leer (solo se ve si hay uno cargado).
+3. Si **Probar** da `invalid_grant`, revisar primero la URL (con `api.complif.com` las credenciales buenas dan ese error).
+4. Si da *canceling statement due to statement timeout*, subir el límite de las consultas de la página:
+   `alter role authenticated set statement_timeout = '60s'; notify pgrst, 'reload config';`

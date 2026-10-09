@@ -1105,6 +1105,125 @@
     return { grupo: g, combinaciones: [...new Set(otros.map(o => [g, o].sort().join('+')))].sort() };
   }
 
+  // ------------------------------------------------------------ COMPLIF
+  // Documentos de GET /api/documents/v1/organization (type = "Poder", "Poder Complejo", "Acta de designación de
+  // autoridades"; document_type = PODER_COMPLEJO_AR, ACTA_DESIGNACION_AUTORIDADES_AR…). Lo que extrajo el OCR viene en
+  // ocr_data_responses; se busca adentro el objeto con apoderados / estructuras de firma (mismo modelo que el JSON del
+  // bastanteo) o la lista de autoridades del acta.
+  const COMPLIF_TIPOS = ['Poder', 'Poder Complejo', 'Acta de designación de autoridades'];
+  function complifJson(v) {
+    if (typeof v === 'string' && /^\s*[\[{]/.test(v)) { try { return JSON.parse(v); } catch (e) { return v; } }
+    return v;
+  }
+  function complifBuscar(v, prueba, prof = 0) {
+    v = complifJson(v);
+    if (!v || typeof v !== 'object' || prof > 7) return null;
+    if (prueba(v)) return v;
+    for (const x of Array.isArray(v) ? v : Object.values(v)) { const r = complifBuscar(x, prueba, prof + 1); if (r) return r; }
+    return null;
+  }
+  const complifEsActa = doc => /acta de designaci/i.test(doc.type || '') || /ACTA_DESIGNACION/i.test(doc.document_type || '');
+  const complifEsPoder = doc => !complifEsActa(doc) && (/^poder/i.test(doc.type || '') || /^PODER/i.test(doc.document_type || ''));
+  const complifNumero = v => String(v == null ? '' : v).replace(/\D/g, '');
+  const complifDni = v => { const d = complifNumero(v); return d.length === 11 ? d.slice(2, 10).replace(/^0+/, '') : d; };
+  const complifSiNo = v => v === true || /^(s[ií]|true|1|yes)$/i.test(String(v == null ? '' : v).trim());
+  // Primer valor de texto con alguna de esas claves (en cualquier nivel).
+  function complifCampo(obj, claves) {
+    const o = complifBuscar(obj, x => !Array.isArray(x) && claves.some(k => x[k] != null && String(x[k]).trim() !== '' && typeof x[k] !== 'object'));
+    if (!o) return '';
+    const k = claves.find(c => o[c] != null && String(o[c]).trim() !== '' && typeof o[c] !== 'object');
+    return String(o[k]).trim();
+  }
+  function poderDesdeComplif(doc) {
+    const ocr = complifBuscar(doc.ocr_data_responses != null ? doc.ocr_data_responses : doc, x => !Array.isArray(x) && (Array.isArray(complifJson(x.apoderados)) || Array.isArray(complifJson(x.estructuras_de_firma))));
+    if (!ocr) return null;
+    const otorg = complifJson(ocr.otorgante) || {};
+    const estructuras = complifJson(ocr.estructuras_de_firma);
+    const usos = (Array.isArray(estructuras) && estructuras.length ? estructuras : [ocr]).map(e => {
+      const fac = complifJson(e.facultades) || {};
+      const facultades = {};
+      Object.keys(fac).forEach(k => { if (typeof fac[k] !== 'object') facultades[k] = complifSiNo(fac[k]); });
+      const tipo = String(e.tipo_de_firma || (e.firma_conjunta ? 'CONJUNTA' : e.firma_individual ? 'INDIVIDUAL' : '')).toUpperCase();
+      const u = { descripcion: e.estructura_de_firma || e.descripcion || '', tipo, limitaciones: e.limitaciones || null, limite_de_operacion: e.limite_de_operacion || null, facultades };
+      return Object.assign(u, gruposDelUso(u));
+    });
+    return {
+      razon_social: ocr.razon_social || complifCampo(doc, ['razon_social', 'company_name']) || '',
+      cuit_empresa: complifNumero(ocr.cuit_empresa || complifCampo(doc, ['cuit_empresa', 'cuit', 'tax_id'])),
+      fecha_emision: ocr.fecha_emision || null,
+      deed_number: ocr.deed_number != null ? String(ocr.deed_number) : '',
+      board_resolution_power_attorney: ocr.board_resolution_power_attorney != null ? String(ocr.board_resolution_power_attorney) : '',
+      power_attorney_type: ocr.power_attorney_type || '',
+      otorgante: { nombre_completo: otorg.nombre_completo || '', dni: complifDni(otorg.numero_de_identificacion), fecha_nacimiento: otorg.fecha_nacimiento || null },
+      apoderados: (complifJson(ocr.apoderados) || []).map(a => ({ nombre_completo: a.nombre_completo || a.nombre || '', dni: complifDni(a.numero_de_identificacion || a.dni), cuit: complifNumero(a.numero_de_identificacion).length === 11 ? complifNumero(a.numero_de_identificacion) : '', grupo: a.grupo ? String(a.grupo).trim().toUpperCase() : null })),
+      usos,
+      complif: { id: doc.id || doc.uuid || null, type: doc.type || '', document_type: doc.document_type || '' },
+    };
+  }
+  // Acta de designación: lista de autoridades (nombre, identificación, rol / cargo).
+  function actaDesdeComplif(doc) {
+    const lista = complifBuscar(doc.ocr_data_responses != null ? doc.ocr_data_responses : doc, x => Array.isArray(x) && x.length && x.every(y => y && typeof y === 'object')
+      && x.some(y => Object.keys(y).some(k => /nombre|name/i.test(k)) && Object.keys(y).some(k => /rol|cargo|role|position/i.test(k))));
+    if (!lista) return null;
+    const valor = (y, re) => { const k = Object.keys(y).find(c => re.test(c)); return k && y[k] != null ? String(y[k]).trim() : ''; };
+    return {
+      razon_social: complifCampo(doc, ['razon_social', 'company_name']), cuit_empresa: complifNumero(complifCampo(doc, ['cuit_empresa', 'cuit', 'tax_id'])),
+      fecha: complifCampo(doc, ['fecha_del_documento', 'fecha_documento', 'fecha', 'document_date']),
+      autoridades: lista.map(y => ({ nombre_completo: valor(y, /nombre|name/i), dni: complifDni(valor(y, /identificaci|dni|documento|numero/i)), rol: valor(y, /rol|cargo|role|position/i) })).filter(a => a.nombre_completo),
+      complif: { id: doc.id || doc.uuid || null, type: doc.type || '', document_type: doc.document_type || '' },
+    };
+  }
+  // Documentos de una empresa: por CUIT (el OCR no siempre lo trae) o por razón social (sin "S.A.", "SA", "SRL"…).
+  const razonClave = t => normalizar(t).replace(/[.,]/g, ' ').replace(/\b(s ?a ?u?|s ?r ?l|s ?a ?s|sociedad anonima|ltda|limitada|sa|srl|sas|sau)\b/g, ' ').replace(/\s+/g, ' ').trim();
+  function complifDeEmpresa(docs, cuit, nombre) {
+    const c = complifNumero(cuit), n = razonClave(nombre);
+    const poderes = [], actas = [];
+    (docs || []).forEach(doc => {
+      const p = complifEsActa(doc) ? actaDesdeComplif(doc) : poderDesdeComplif(doc);
+      if (!p) return;
+      const dc = p.cuit_empresa || complifNumero(complifCampo(doc, ['cuit_empresa', 'cuit', 'tax_id']));
+      const dn = razonClave(p.razon_social || complifCampo(doc, ['razon_social', 'company_name']));
+      if (!((c && dc === c) || (n && dn && (dn === n || (n.length > 5 && (dn.includes(n) || n.includes(dn))))))) return;
+      (p.autoridades ? actas : poderes).push(p);
+    });
+    poderes.sort((a, b) => String(a.fecha_emision || '').localeCompare(String(b.fecha_emision || '')));
+    actas.sort((a, b) => String(a.fecha || '').localeCompare(String(b.fecha || '')));
+    return { poderes, actas };
+  }
+
+  // Control firmante por firmante: el uso de firma del resumen (Excel) contra lo que dan los poderes (JSON único).
+  // Puntos: tipo de firma, grupo, combinaciones conjuntas y límite.
+  const TIENE_LIMITE = /(no exced|no superen?|hasta (la suma|un monto|u\$s|usd|\$)|monto m[aá]ximo|l[ií]mite de|tope)/i;
+  function controlResumen(unico, cliente) {
+    const firmantes = (cliente && cliente.firmantes) || [];
+    return firmantes.map(f => {
+      const ids = [f.cuit, f.dni].filter(Boolean).map(x => String(Number(String(x).replace(/\D/g, ''))));
+      const apo = (unico.apoderados || []).find(a => ids.includes(String(a.numero_de_identificacion)) || (a.numero_de_identificacion && ids.some(i => i.length <= 8 && String(a.numero_de_identificacion).slice(2, 10).replace(/^0+/, '') === i)))
+        || (unico.apoderados || []).find(a => firmanteDe({ nombre_completo: a.nombre_completo }, [f]));
+      const est = apo && !apo.advertencia ? unico.estructuras_de_firma.filter(e => e.apoderados.includes(apo.numero_de_identificacion)) : [];
+      const res = f.uso || { grupo: '', tipo: '', combinaciones: [], texto: f.observacion || '' };
+      const fila = { nombre: f.nombre, ident: f.cuit || f.dni, resumen: res.texto || '', monto_hasta: f.monto_hasta, puntos: [] };
+      if (!est.length) { fila.sinPoder = true; fila.puntos.push({ punto: 'Poder', ok: false, resumen: res.texto || '—', poder: 'No figura como apoderado en los poderes' }); return fila; }
+      const tipos = [...new Set(est.map(e => e.tipo_de_firma).filter(Boolean))];
+      const grupos = [...new Set(est.map(e => e.grupo))];
+      const combos = [...new Set(est.flatMap(e => e.combinaciones || []))].sort();
+      const limites = [...new Set(est.map(e => e.limitaciones).filter(Boolean))];
+      fila.poder = { tipos, grupos, combos, limites };
+      fila.puntos.push({ punto: 'Uso de firma', ok: !res.tipo || tipos.includes(res.tipo) ? (res.tipo ? true : null) : false, resumen: res.tipo || '—', poder: tipos.join(' / ') || '—' });
+      if (res.grupo) fila.puntos.push({ punto: 'Grupo', ok: grupos.includes(res.grupo), resumen: res.grupo, poder: grupos.join(', ') });
+      if (res.tipo === 'CONJUNTA' || combos.length) {
+        const sobran = res.combinaciones.filter(c => !combos.includes(c)), faltan = combos.filter(c => !res.combinaciones.includes(c));
+        fila.puntos.push({ punto: 'Firmas conjuntas', ok: !sobran.length && !faltan.length, resumen: res.combinaciones.join('; ') || '—', poder: combos.join('; ') || '—',
+          detalle: [sobran.length ? 'el resumen incluye ' + sobran.join(', ') + ' que el poder no da' : '', faltan.length ? 'el poder también da ' + faltan.join(', ') : ''].filter(Boolean).join('; ') });
+      }
+      const sinLimite = !f.monto_hasta || f.monto_hasta >= 99999999;
+      const conLimite = limites.some(l => TIENE_LIMITE.test(l));
+      fila.puntos.push({ punto: 'Límite', ok: sinLimite === !conLimite ? true : (sinLimite ? false : null), resumen: sinLimite ? 'sin límite' : String(f.monto_hasta),
+        poder: conLimite ? [...new Set(limites.flatMap(l => l.split(/(?<=\.)\s+(?=[A-ZÁÉÍÓÚ])/).filter(x => TIENE_LIMITE.test(x))))].join(' | ') : 'sin límite en el poder' });
+      return fila;
+    });
+  }
+
   function leerPoderesOcr(lineas) {
     const L = lineas.map(l => String(l || '').replace(/\s+/g, ' ').trim()).filter(Boolean);
     const inicios = [];
@@ -1213,6 +1332,17 @@
     ['apertura caja de seguridad', ['abrir_caja_de_seguridad']], ['cierre de caja de seguridad', ['cerrar_caja_de_seguridad']],
     ['homebanking', ['firmar_contratos_de_banca_electronica']], ['interbanking', ['firmar_contratos_de_banca_electronica']],
   ];
+  // "B CONJUNTA B+B; B+C" → { grupo: 'B', tipo: 'CONJUNTA', combinaciones: ['B+B', 'B+C'] }.
+  function usoDelResumen(texto) {
+    const t = String(texto || '').toUpperCase().trim();
+    if (!t) return null;
+    const tipo = (t.match(/\b(INDIVIDUAL|CONJUNTA|INDISTINTA)\b/) || [])[1] || '';
+    const pre = t.split(/\b(?:INDIVIDUAL|CONJUNTA|INDISTINTA)\b/)[0].trim();
+    const grupo = /^[A-Z]{1,2}$/.test(pre) ? pre : '';
+    const combinaciones = [...new Set((t.match(/\b[A-Z]{1,2}\s*\+\s*[A-Z]{1,2}\b/g) || []).map(c => c.replace(/\s/g, '').split('+').sort().join('+')))].sort();
+    return { grupo, tipo: tipo === 'INDISTINTA' ? 'INDIVIDUAL' : tipo, combinaciones, texto: String(texto).trim() };
+  }
+
   function leerClienteBastanteo(hojas) {
     const r = { cliente: '', cuit: '', firmantes: [], escrituras: [], marcas: {} };
     const iso = v => {
@@ -1237,6 +1367,7 @@
           // La columna CUIT a veces trae el DNI (7 u 8 dígitos): queda como DNI y el CUIT se busca después en la base
           // de entes (por número de ente o por DNI).
           const iEnte = n.indexOf('ente');
+          const iHasta = n.findIndex(c => /monto hasta/.test(c));
           let vacias = 0;
           for (const g of t.slice(i + 1)) {
             const fila = g || [];
@@ -1252,8 +1383,13 @@
             if (vistos.has(num)) continue;
             vistos.add(num);
             const enteVal = [iEnte, iEnte + 1].map(k => (k > -1 ? String(fila[k] == null ? '' : fila[k]).trim() : '')).find(x => /^\d{2,7}$/.test(x)) || '';
-            r.firmantes.push(num.length === 11 ? { cuit: num, dni: num.slice(2, 10).replace(/^0+/, ''), ente: enteVal, nombre }
-              : { cuit: '', dni: num, ente: enteVal, nombre });
+            // Uso de firma del resumen ("B CONJUNTA B+B; B+C") y monto hasta (puede venir corrido una columna).
+            const despues = fila.slice(iNom + 1).map(c => (c == null ? '' : String(c).trim()));
+            const observacion = despues.find(c => /\b(individual|conjunta|indistinta)\b/i.test(c)) || '';
+            const montos = (iHasta > -1 ? [fila[iHasta], fila[iHasta + 1], fila[iHasta - 1]] : []).map(c => Number(String(c == null ? '' : c).replace(/[^\d.]/g, ''))).filter(x => x > 0);
+            const extra = { observacion, monto_hasta: montos.length ? Math.max(...montos) : null, uso: usoDelResumen(observacion) };
+            r.firmantes.push(Object.assign(num.length === 11 ? { cuit: num, dni: num.slice(2, 10).replace(/^0+/, ''), ente: enteVal, nombre }
+              : { cuit: '', dni: num, ente: enteVal, nombre }, extra));
           }
         }
         // Escrituras: encabezado con "escritura" (fecha y número debajo).
@@ -1318,7 +1454,7 @@
     const firmantes = cliente && cliente.firmantes && cliente.firmantes.length ? cliente.firmantes : null;
     const ident = (dni, persona) => {
       const f = firmantes && persona ? firmanteDe(persona, firmantes) : null;
-      const c = cuits[dni] || (f && f.cuit) || cuitPorDni(dni, firmantes);
+      const c = cuits[dni] || (f && f.cuit) || (persona && persona.cuit) || cuitPorDni(dni, firmantes);
       return c ? Number(String(c).replace(/\D/g, '')) : (dni ? Number(dni) : null);
     };
     // Con planilla: solo van los apoderados que están en ella.
@@ -2574,7 +2710,7 @@ try {
     leerTxtMeli, bancoMeliDeTxt, bancosParaMeli,
     sqlExtraccionCartera, bookmarkletCartera, scriptPowerShellCartera, comandoTareaCartera, IMPORTES_CARTERA,
     NO_COBIS, ultimoDiaHabil, fechasNoCobis, lineaNoCobis, txtNoCobis, loteApiNoCobis, scriptPowerShellNoCobis, scriptPowerShellProbarNoCobis, scriptPowerShellAgenteNoCobis, cmdEnvioNoCobis,
-    leerCartera, BASTANTEO_CATALOGO, BASTANTEO_CLAVES, BASTANTEO_EXTRA, leerPoderesOcr, leerAutoridadesOcr, poderDelPresidente, leerClienteBastanteo, cuitPorDni, formatoCuit, firmanteDe, firmantesSinPoder, jsonPoder, jsonBastanteoUnico, leerInventarioGarantias, INVENTARIOS_CONTABLES, INVENTARIO_DENOMINACION, INVENTARIO_FIRMAS, fechaReporteIso, fechaInventarioDesdeReporte, leerPadronDesdeInventarios, leerBaseEntes, unirPadron, armarInventariosContables, leerCom3500, leerTcApiBcra, elegirTipoCambio, numeroEnLetras, daxCarteraPowerBI, daxDiagnosticoPowerBI, leerFilasPowerBI, sugerirColumnaCartera, columnasNumericasCartera, agruparCartera, valoresDistintos, sqlCartera,
+    leerCartera, BASTANTEO_CATALOGO, BASTANTEO_CLAVES, BASTANTEO_EXTRA, leerPoderesOcr, leerAutoridadesOcr, COMPLIF_TIPOS, poderDesdeComplif, actaDesdeComplif, complifDeEmpresa, controlResumen, usoDelResumen, poderDelPresidente, leerClienteBastanteo, cuitPorDni, formatoCuit, firmanteDe, firmantesSinPoder, jsonPoder, jsonBastanteoUnico, leerInventarioGarantias, INVENTARIOS_CONTABLES, INVENTARIO_DENOMINACION, INVENTARIO_FIRMAS, fechaReporteIso, fechaInventarioDesdeReporte, leerPadronDesdeInventarios, leerBaseEntes, unirPadron, armarInventariosContables, leerCom3500, leerTcApiBcra, elegirTipoCambio, numeroEnLetras, daxCarteraPowerBI, daxDiagnosticoPowerBI, leerFilasPowerBI, sugerirColumnaCartera, columnasNumericasCartera, agruparCartera, valoresDistintos, sqlCartera,
     leerCsv, encabezadosEjemplo, leerDefinicionInterfaz, sugerirColumna, detectarHojaInterfaz,
     normalizar, provinciaPorNombre, crearBuscadorBancoPorNombre, round2, aNumero, aFechaSerial, aCodigoBanco,
     fechaDDMMYY, fechaYYYYMMDD, fechaLegible, hoyDDMMYY,
