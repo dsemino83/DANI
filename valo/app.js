@@ -2018,7 +2018,8 @@
       $('bastPdfNombre').textContent = `Complif · ${r.poderes.length} poder${r.poderes.length === 1 ? '' : 'es'}` + (r.actas.length ? ` · ${r.actas.length} acta${r.actas.length === 1 ? '' : 's'}` : '') + (pres ? ` · sin poderes: presidente ${pres.presidente.nombre_completo}` : '');
       $('cmpEstado').innerHTML = aviso('ok', `Complif: ${r.poderes.length} poder${r.poderes.length === 1 ? '' : 'es'} y ${r.actas.length} acta${r.actas.length === 1 ? '' : 's'} de designación de <b>${quien}</b> (de ${docs.length} documentos). ` +
         '<ul style="margin:6px 0 0 18px">' + r.poderes.map(p => `<li>${esc(p.complif.type || 'Poder')} del ${esc(p.fecha_emision || 's/f')}${p.deed_number ? ', esc. ' + esc(p.deed_number) : ''}: ` +
-          `${esc(p.apoderados.map(a => a.nombre_completo).join(', ') || 'sin apoderados')}${p.duplicados ? ` <span class="chip warn">${p.duplicados + 1} veces en Complif, se toma uno</span>` : ''}</li>`).join('') + '</ul>' +
+          `${esc(p.apoderados.map(a => a.nombre_completo).join(', ') || 'sin apoderados')}` +
+          `${p.razon_social && M.formatoCuit(p.cuit_empresa) !== M.formatoCuit(cuit) && cuit && p.cuit_empresa ? ` <span class="chip">${esc(p.razon_social)} · vinculado a la empresa en Complif</span>` : ''}${p.duplicados ? ` <span class="chip warn">${p.duplicados + 1} veces en Complif, se toma uno</span>` : ''}</li>`).join('') + '</ul>' +
         (r.actas.length ? `<div class="sub" style="margin:4px 0 0">Actas: ${r.actas.map(a => esc(a.fecha || 's/f')).join(', ')}.</div>` : ''));
       prepararBastanteo();
     } catch (e) { $('cmpEstado').innerHTML = aviso('bad', 'No se pudo consultar Complif: ' + esc(errorComplif(e))); }
