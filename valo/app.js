@@ -1248,7 +1248,7 @@
       const hasta = $('deudaHasta').value || hoyIso();
       deuda = M.armarSaldoDeuda(await consultarPbi(M.daxSaldoDeuda({ hasta })));
       renderDeuda();
-      $('deudaEstado').innerHTML = deuda.filas.length ? '' : aviso('ok', 'No hay cuotas vencidas sin cancelar hasta esa fecha.');
+      $('deudaEstado').innerHTML = deuda.filas.length ? '' : aviso('ok', 'No hay cuotas impagas vencidas hasta esa fecha.');
     } catch (e) {
       $('deudaEstado').innerHTML = aviso('bad', 'No se pudo traer el saldo de deuda: ' + esc(e.message || e) + ' (la conexión se configura en Cartera → Conexión con Power BI).');
     } finally { b.disabled = false; }
@@ -1272,7 +1272,7 @@
       const wb = new window.ExcelJS.Workbook();
       wb.creator = 'VALO - EPORTFOLIO';
       const ws = wb.addWorksheet('Saldo de deuda');
-      ws.addRow([`Saldo de deuda por fiduciante · cuotas vencidas hasta ${fechaAr(d.hasta)} sin cancelar · foto de cartera ${fechaAr(d.periodo)}`]).font = { bold: true };
+      ws.addRow([`Saldo de deuda por fiduciante · cuotas impagas vencidas hasta ${fechaAr(d.hasta)} · foto de cartera ${fechaAr(d.periodo)}`]).font = { bold: true };
       ws.addRow([]);
       const enc = ws.addRow(['Fiduciante', 'CUIT', ...d.meses.map(nombreMes), 'Total']);
       enc.font = { bold: true, color: { argb: 'FFFFFFFF' } };
