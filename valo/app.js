@@ -1896,7 +1896,8 @@
       const lineas = await lineasPdf(await f.arrayBuffer());
       const poderes = M.leerPoderesOcr(lineas);
       if (!poderes.length) throw new Error('El PDF no tiene secciones "Acreditación de Poderes".');
-      bast.pdf = f.name; bast.poderes = poderes;
+      poderes.forEach((p, k) => { p._k = k; });
+      bast.pdf = f.name; bast.poderesTodos = poderes; bast.edPorPoder = {};
       $('bastPdfNombre').textContent = `${f.name} · ${poderes.length} poderes`;
       prepararBastanteo();
     } catch (e) { $('bastPdfNombre').textContent = f.name; $('bastEstado').innerHTML = aviso('bad', 'No se pudo leer el PDF: ' + esc(e.message || e)); }
@@ -1941,15 +1942,22 @@
 
   // Ediciones por poder: escritura (por la fecha de emisión, entre las de la planilla), acta, tipo y CUIT de cada DNI.
   async function prepararBastanteo() {
-    if (!bast.poderes.length) { renderBastanteo(); return; }
+    // Solo los poderes de la empresa de la planilla (mismo CUIT que el cliente); sin planilla, todos.
+    const todos = bast.poderesTodos || [];
+    const cuitCli = String((bast.cliente && bast.cliente.cuit) || '').replace(/\D/g, '');
+    bast.poderes = cuitCli ? todos.filter(p => String(p.cuit_empresa || '').replace(/\D/g, '') === cuitCli) : todos.slice();
+    bast.otrosPoderes = cuitCli ? todos.filter(p => !bast.poderes.includes(p)) : [];
+    bast.edPorPoder = bast.edPorPoder || {};
+    if (!bast.poderes.length) { bast.ediciones = []; renderBastanteo(); return; }
     const esc_ = (bast.cliente && bast.cliente.escrituras) || [];
-    bast.ediciones = bast.poderes.map((p, i) => {
-      const prev = bast.ediciones[i] || {};
+    bast.ediciones = bast.poderes.map(p => {
+      const prev = bast.edPorPoder[p._k] || {};
       const candidatas = esc_.filter(e => e.fecha === p.fecha_emision);
       const ed = Object.assign({ deed_number: '', board_resolution_power_attorney: '',
         power_attorney_type: 'Poder Especial para Operaciones Bancarias', cuits: {}, facultades: p.usos.map(() => ({})) }, prev, { candidatas });
       // Si con esa fecha hay varias escrituras se propone la última (en la planilla, la del poder va después del acta).
       if (!ed.deed_number && candidatas.length) ed.deed_number = candidatas[candidatas.length - 1].numero;
+      bast.edPorPoder[p._k] = ed;
       return ed;
     });
     // CUIT de los DNI que no están en la planilla: base de entes.
@@ -1989,6 +1997,10 @@
     $('bastAcciones').classList.toggle('oculto', !hay);
     let estado = '';
     if (hay && !bast.cliente) estado = aviso('warn', 'Falta la planilla del cliente: sin ella no se completan los CUIT de los firmantes ni la escritura, y se muestran todas las personas del PDF.');
+    const otros = bast.otrosPoderes || [];
+    if (otros.length) estado += aviso(hay ? 'ok' : 'warn', `${hay ? '' : '<b>Ningún poder del PDF es de la empresa de la planilla</b> (CUIT ' + esc(M.formatoCuit(bast.cliente.cuit)) + '). '}` +
+      `Se ${otros.length === 1 ? 'deja afuera 1 poder' : 'dejan afuera ' + otros.length + ' poderes'} de otra empresa: ` +
+      otros.map(p => `${esc(p.razon_social || '—')} (CUIT ${esc(M.formatoCuit(p.cuit_empresa) || 'sin dato')}, ${esc(p.fecha_emision || '')})`).join(' · '));
     const sp = hay ? sinPoder() : [];
     if (sp.length) estado += aviso('warn', `<b>${sp.length} firmante${sp.length > 1 ? 's' : ''} de la planilla sin poder en el PDF.</b> Quedan cargados en el JSON único, sin grupo y con una advertencia. Revisá si falta el poder.`) +
       `<div class="tabla-caja" style="margin-bottom:10px"><table><thead><tr><th>Nombre</th><th>CUIT</th><th>Situación</th></tr></thead><tbody>` +
@@ -2086,7 +2098,7 @@
   });
   $('btnBastUnicoVer').addEventListener('click', () => { const pre = $('bastUnicoJson'); pre.textContent = JSON.stringify(jsonUnico(), null, 2); pre.classList.toggle('oculto'); });
   $('btnBastLimpiar').addEventListener('click', () => {
-    Object.assign(bast, { pdf: null, xls: null, poderes: [], cliente: null, ediciones: [], cuitsBase: {} });
+    Object.assign(bast, { pdf: null, xls: null, poderes: [], poderesTodos: [], otrosPoderes: [], edPorPoder: {}, cliente: null, ediciones: [], cuitsBase: {} });
     $('bastPdfNombre').textContent = 'Arrastrá el PDF o hacé clic';
     $('bastXlsNombre').textContent = 'Arrastrá el Excel o hacé clic';
     $('bastUnicoJson').classList.add('oculto');
