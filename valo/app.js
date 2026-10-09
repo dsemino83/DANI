@@ -1226,10 +1226,11 @@
   });
   // ------------------------------------------------------------ Saldo de deuda (Power BI, todos los negocios)
   let deuda = null, deudaAutoHecho = false;
-  const hoyIso = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+  // Por defecto, vencidas hasta ayer: la cobranza de hoy todavía no está bajada en la cartera.
+  const ayerIso = () => { const d = new Date(); d.setDate(d.getDate() - 1); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
   const nombreMes = m => { const [a, n] = String(m).split('-'); return ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'][Number(n) - 1] + '-' + a; };
   async function alAbrirDeuda() {
-    if (!$('deudaHasta').value) $('deudaHasta').value = hoyIso();
+    if (!$('deudaHasta').value) $('deudaHasta').value = ayerIso();
     if (deudaAutoHecho || deuda || !almacen) return;
     deudaAutoHecho = true;
     const f = datos().nocobisFlujo || {};
@@ -1245,7 +1246,7 @@
     b.disabled = true;
     $('deudaEstado').innerHTML = '<p class="sub">Consultando Power BI…</p>';
     try {
-      const hasta = $('deudaHasta').value || hoyIso();
+      const hasta = $('deudaHasta').value || ayerIso();
       deuda = M.armarSaldoDeuda(await consultarPbi(M.daxSaldoDeuda({ hasta, periodo: $('deudaPeriodo').value })));
       renderDeuda();
       $('deudaEstado').innerHTML = deuda.filas.length ? '' : aviso('ok', $('deudaPeriodo').value && !deuda.periodo ? 'No hay foto de cartera para ese mes.' : 'No hay cuotas impagas vencidas hasta esa fecha.');
