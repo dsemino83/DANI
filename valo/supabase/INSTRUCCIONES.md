@@ -93,3 +93,9 @@ navegador ni al repositorio.
 3. Si **Probar** da `invalid_grant`, revisar primero la URL (con `api.complif.com` las credenciales buenas dan ese error).
 4. Si da *canceling statement due to statement timeout*, subir el límite de las consultas de la página:
    `alter role authenticated set statement_timeout = '60s'; notify pgrst, 'reload config';`
+
+## 10. Power BI sin Power Automate
+
+Correr `supabase/powerbi.sql` (también está al final de `esquema.sql`). Después, con una aplicación de Microsoft Entra
+habilitada en Power BI (pasos en `powerautomate/POWERBI.md`, *Por Supabase*), cargar sus credenciales en
+**Cartera → Conexión con Power BI → Por Supabase**. Mientras no esté completa, la página usa el flujo de Power Automate.
