@@ -2088,9 +2088,20 @@
   function renderBastUnico() {
     if (!bast.poderes.length) { $('bastUnico').innerHTML = ''; return; }
     const u = jsonUnico();
-    $('bastUnico').innerHTML = `<h3>JSON único: ${u.estructuras_de_firma.length} grupos de firma</h3><div class="tabla-caja"><table><thead><tr><th>Grupo</th><th>Tipo</th><th>Apoderados</th><th class="num">Facultades</th><th>Escrituras</th></tr></thead><tbody>` +
+    // Diferencia de cada grupo con el primero: qué facultades tiene de más (+) y de menos (−).
+    const base = u.estructuras_de_firma[0];
+    const nombreFac = k => (nombreCatalogo[k] ? nombreCatalogo[k][1] : M.BASTANTEO_EXTRA[k] || k);
+    const diferencia = e => {
+      if (e === base) return '<span class="sub">referencia</span>';
+      const mas = M.BASTANTEO_CLAVES.filter(k => e.facultades[k] && !base.facultades[k]).map(nombreFac);
+      const menos = M.BASTANTEO_CLAVES.filter(k => !e.facultades[k] && base.facultades[k]).map(nombreFac);
+      if (!mas.length && !menos.length) return `<span class="sub">mismas facultades (otro tipo de firma o grupo del poder)</span>`;
+      return (mas.length ? `<div style="white-space:normal"><b style="color:var(--ok)">+</b> ${esc(mas.join(', '))}</div>` : '') +
+        (menos.length ? `<div style="white-space:normal"><b style="color:var(--bad)">−</b> ${esc(menos.join(', '))}</div>` : '');
+    };
+    $('bastUnico').innerHTML = `<h3>JSON único: ${u.estructuras_de_firma.length} grupos de firma</h3><div class="tabla-caja"><table><thead><tr><th>Grupo</th><th>Tipo</th><th>Apoderados</th><th class="num">Facultades</th><th>Escrituras</th><th>Diferencia con el grupo ${esc(base.grupo)}</th></tr></thead><tbody>` +
       u.estructuras_de_firma.map(e => `<tr><td><b>${esc(e.grupo)}</b></td><td>${esc(e.tipo_de_firma || '')}</td><td>${esc(u.apoderados.filter(a => e.apoderados.includes(a.numero_de_identificacion)).map(a => a.nombre_completo).join(', '))}</td>` +
-        `<td class="num">${Object.values(e.facultades).filter(Boolean).length}</td><td>${esc(e.escrituras.join(', '))}</td></tr>`).join('') + '</tbody></table></div>';
+        `<td class="num">${Object.values(e.facultades).filter(Boolean).length}</td><td>${esc(e.escrituras.join(', '))}</td><td style="min-width:260px">${diferencia(e)}</td></tr>`).join('') + '</tbody></table></div>';
   }
   $('btnBastUnico').addEventListener('click', () => {
     const u = jsonUnico();
