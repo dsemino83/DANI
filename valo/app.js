@@ -1253,6 +1253,13 @@
       $('deudaEstado').innerHTML = aviso('bad', 'No se pudo traer el saldo de deuda: ' + esc(e.message || e) + ' (la conexión se configura en Cartera → Conexión con Power BI).');
     } finally { b.disabled = false; }
   }
+  // Fechas de vencimiento de la deuda de un mes: una sola, o la primera y la última ("05/09 al 22/09 · 4 fechas").
+  function fechasDeuda(lista) {
+    const l = lista || [];
+    if (!l.length) return '';
+    if (l.length === 1) return fechaAr(l[0]);
+    return `${fechaAr(l[0]).slice(0, 5)} al ${fechaAr(l[l.length - 1])}` + (l.length > 2 ? ` · ${l.length} fechas` : '');
+  }
   function renderDeuda() {
     const d = deuda;
     $('btnDeudaExcel').disabled = !(d && d.filas.length);
@@ -1261,7 +1268,8 @@
       ['Vencidas hasta', fechaAr(d.hasta)], ['Foto de cartera', fechaAr(d.periodo)]]
       .map(([t, v]) => `<div class="kpi"><div class="sub" style="margin:0">${esc(t)}</div><b>${esc(v)}</b></div>`).join('');
     $('deudaTabla').innerHTML = `<table><thead><tr><th>Fiduciante</th><th>CUIT</th>${d.meses.map(m => `<th class="num">${esc(nombreMes(m))}</th>`).join('')}<th class="num">Total</th></tr></thead><tbody>` +
-      d.filas.map(f => `<tr><td>${esc(f.fiduciante)}</td><td>${esc(M.formatoCuit(f.cuit))}</td>${d.meses.map(m => `<td class="num">${f.porMes[m] ? fmtMonto(f.porMes[m]) : ''}</td>`).join('')}<td class="num"><b>${fmtMonto(f.total)}</b></td></tr>`).join('') +
+      d.filas.map(f => `<tr><td>${esc(f.fiduciante)}</td><td>${esc(M.formatoCuit(f.cuit))}</td>${d.meses.map(m => `<td class="num">${f.porMes[m] ? fmtMonto(f.porMes[m]) +
+        `<div class="sub" style="margin:0;font-size:12px" title="${esc((f.fechas[m] || []).map(fechaAr).join(', '))}">vto. ${esc(fechasDeuda(f.fechas[m]))}</div>` : ''}</td>`).join('')}<td class="num"><b>${fmtMonto(f.total)}</b></td></tr>`).join('') +
       `</tbody><tfoot><tr><th colspan="2">Total</th>${d.meses.map(m => `<th class="num">${fmtMonto(d.totalesMes[m])}</th>`).join('')}<th class="num">${fmtMonto(d.total)}</th></tr></tfoot></table>`;
   }
   $('btnDeudaTraer').addEventListener('click', () => traerDeuda());
@@ -1274,14 +1282,14 @@
       const ws = wb.addWorksheet('Saldo de deuda');
       ws.addRow([`Saldo de deuda por fiduciante · cuotas vencidas hasta ${fechaAr(d.hasta)} sin cancelar · foto de cartera ${fechaAr(d.periodo)}`]).font = { bold: true };
       ws.addRow([]);
-      const enc = ws.addRow(['Fiduciante', 'CUIT', ...d.meses.map(nombreMes), 'Total']);
+      const enc = ws.addRow(['Fiduciante', 'CUIT', ...d.meses.flatMap(m => [nombreMes(m) + ' vto.', nombreMes(m)]), 'Total']);
       enc.font = { bold: true, color: { argb: 'FFFFFFFF' } };
       enc.eachCell(c => { c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFC8102E' } }; });
-      d.filas.forEach(f => ws.addRow([f.fiduciante, M.formatoCuit(f.cuit), ...d.meses.map(m => f.porMes[m] || null), f.total]));
-      const tot = ws.addRow(['Total', '', ...d.meses.map(m => d.totalesMes[m]), d.total]);
+      d.filas.forEach(f => ws.addRow([f.fiduciante, M.formatoCuit(f.cuit), ...d.meses.flatMap(m => [(f.fechas[m] || []).map(fechaAr).join(', ') || null, f.porMes[m] || null]), f.total]));
+      const tot = ws.addRow(['Total', '', ...d.meses.flatMap(m => [null, d.totalesMes[m]]), d.total]);
       tot.font = { bold: true };
       ws.getColumn(1).width = 48; ws.getColumn(2).width = 16;
-      for (let k = 3; k <= d.meses.length + 3; k++) { ws.getColumn(k).width = 18; ws.getColumn(k).numFmt = '#,##0.00'; }
+      for (let k = 3; k <= d.meses.length * 2 + 3; k++) { const vto = k < d.meses.length * 2 + 3 && (k - 3) % 2 === 0; ws.getColumn(k).width = vto ? 22 : 18; if (!vto) ws.getColumn(k).numFmt = '#,##0.00'; }
       const buf = await wb.xlsx.writeBuffer();
       await descargar(`Saldo_de_deuda_${d.hasta}.xlsx`, new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), true);
     } catch (e) { informar('No se pudo exportar', esc(e.message || e)); }
