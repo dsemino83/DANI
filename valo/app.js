@@ -1964,6 +1964,8 @@
         : '<span class="chip warn">Sin configurar</span> cargá el client id y el secret.';
     } catch (err) { $('cmpConfig').innerHTML = aviso('bad', esc(errorComplif(err))); }
   }
+  // El CUIT se escribe con guiones: 30708192445 → 30-70819244-5.
+  $('cmpCuit').addEventListener('blur', () => { const d = $('cmpCuit').value.replace(/\D/g, ''); if (d.length === 11) $('cmpCuit').value = M.formatoCuit(d); });
   $('detCmp').addEventListener('toggle', () => { if ($('detCmp').open) estadoComplif(); });
   $('btnCmpGuardar').addEventListener('click', async () => {
     try {
@@ -1996,6 +1998,7 @@
     $('cmpEstado').innerHTML = '<p class="sub">Bajando los poderes de Complif…</p>';
     try {
       const docs = await complifDocumentos(n => { $('cmpEstado').innerHTML = `<p class="sub">Bajando los poderes de Complif… ${n} documentos</p>`; });
+      if (cuit.length === 11) $('cmpCuit').value = M.formatoCuit(cuit);
       const r = M.complifDeEmpresa(docs, cuit, nombre);
       cmp.crudo = docs.filter(d => (r.poderes.concat(r.actas)).some(p => p.complif.id != null && p.complif.id === (d.id || d.uuid)));
       const quien = esc(nombre || M.formatoCuit(cuit));
