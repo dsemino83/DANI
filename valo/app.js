@@ -1158,11 +1158,55 @@
     $('pbiDaxTexto').classList.remove('oculto');
     if (navigator.clipboard) navigator.clipboard.writeText(dax).then(() => toast('Consulta DAX copiada'), () => {});
   });
+  // Power BI por Supabase (pbi_consulta: API executeQueries con un service principal) si está configurado; si no, el flujo.
+  let pbiSb = null;   // estado de la conexión por Supabase (pbi_estado)
+  const hayPbiSb = () => !!(pbiSb && pbiSb.listo);
+  async function estadoPbiSb() {
+    if (!almacen || typeof almacen.rpc !== 'function') { pbiSb = null; $('pbiSbEstado').textContent = 'Disponible en la versión web (con la base compartida).'; return; }
+    try { pbiSb = await almacen.rpc('pbi_estado', {}); } catch (e) { pbiSb = null; $('pbiSbEstado').innerHTML = aviso('warn', esc(e.message || e)); return; }
+    const falta = ['tenant_id', 'client_id', 'group_id', 'dataset_id'].filter(k => !pbiSb[k]).concat(pbiSb.tiene_secret ? [] : ['client_secret']);
+    $('pbiSbEstado').innerHTML = pbiSb.listo ? `<span class="chip ok">Configurada: se usa Supabase</span> client ${esc(pbiSb.client_id)}… · secret cargado`
+      : `<span class="chip warn">Incompleta</span> falta: ${esc(falta.join(', '))}. Mientras tanto se usa el flujo de Power Automate.`;
+    $('pbiModo').textContent = pbiSb.listo ? '· por Supabase' : '· por Power Automate';
+  }
+  async function consultarPbi(consulta) {
+    if (pbiSb === null) await estadoPbiSb();
+    if (hayPbiSb()) {
+      const j = await almacen.rpc('pbi_consulta', { p_dax: consulta });
+      if (!j || j.status !== 200) {
+        const m = String((j && j.error) || '');
+        throw new Error(`Power BI (por Supabase) respondió HTTP ${j ? j.status : '?'}: ` + (/PowerBINotAuthorizedException|Unauthorized|401|403/.test(m)
+          ? 'la aplicación no tiene acceso al modelo (agregarla al área de trabajo y habilitar las API para service principals). ' : '') + m.slice(0, 300));
+      }
+      return j.rows;
+    }
+    const j = await llamarFlujo({ accion: 'consultar', consulta }, { url: $('pbiUrl').value.trim(), clave: $('pbiClave').value });
+    if (j && j.ok === false) throw new Error(j.mensaje || 'El flujo informó un error.');
+    return j;
+  }
+  $('detPbi').addEventListener('toggle', () => { if ($('detPbi').open) estadoPbiSb(); });
+  $('btnPbiSbGuardar').addEventListener('click', async () => {
+    try {
+      pbiSb = await almacen.rpc('pbi_guardar', { p_tenant_id: $('pbiSbTenant').value, p_client_id: $('pbiSbId').value, p_client_secret: $('pbiSbSecret').value,
+        p_group_id: $('pbiSbGroup').value, p_dataset_id: $('pbiSbDataset').value });
+      ['pbiSbSecret', 'pbiSbId', 'pbiSbTenant', 'pbiSbGroup', 'pbiSbDataset'].forEach(id => { $(id).value = ''; });
+      await estadoPbiSb();
+      toast('Conexión con Power BI por Supabase guardada para todos los usuarios');
+    } catch (e) { $('pbiSbEstado').innerHTML = aviso('bad', 'No se pudo guardar: ' + esc(e.message || e)); }
+  });
+  $('btnPbiSbProbar').addEventListener('click', async () => {
+    $('pbiSbEstado').textContent = 'Probando…';
+    try {
+      await estadoPbiSb();
+      if (!hayPbiSb()) return;
+      const filas = M.leerFilasPowerBI(await consultarPbi('EVALUATE ROW("ok", 1)'));
+      $('pbiSbEstado').innerHTML = aviso('ok', `Conexión OK: Power BI respondió por Supabase (${filas.datos.length} fila).`);
+    } catch (e) { $('pbiSbEstado').innerHTML = aviso('bad', esc(e.message || e)); }
+  });
   $('btnPbiDiag').addEventListener('click', async () => {
     const b = $('btnPbiDiag');
     b.disabled = true;
     $('pbiDiag').innerHTML = '<p class="sub">Consultando Power BI…</p>';
-    const conexion = { url: $('pbiUrl').value.trim(), clave: $('pbiClave').value };
     const tabla = (titulo, filas) => {
       const enc = filas.encabezados;
       return `<h3>${esc(titulo)}</h3><div class="tabla-caja"><table><thead><tr>${enc.map(h => `<th>${esc(h)}</th>`).join('')}</tr></thead><tbody>` +
@@ -1172,9 +1216,7 @@
     const q = M.daxDiagnosticoPowerBI();
     for (const [titulo, consulta] of [['Tabla de cuotas: fideicomiso, periodo y fecha de corte', q.porTabla], ['Por la tabla Fideicomiso (relación del modelo)', q.porDimension]]) {
       try {
-        const j = await llamarFlujo({ accion: 'consultar', consulta }, conexion);
-        if (j && j.ok === false) throw new Error(j.mensaje || 'El flujo informó un error.');
-        html += tabla(titulo, M.leerFilasPowerBI(j));
+        html += tabla(titulo, M.leerFilasPowerBI(await consultarPbi(consulta)));
       } catch (e) { html += `<h3>${esc(titulo)}</h3>` + aviso('bad', esc(e.message || e)); }
       $('pbiDiag').innerHTML = html;
     }
@@ -1182,10 +1224,13 @@
   });
   // Al abrir Cartera se trae sola la cartera de Power BI (una vez por sesión), si la conexión está configurada.
   let pbiAutoHecho = false;
-  function alAbrirCartera() {
+  async function alAbrirCartera() {
     if (pbiAutoHecho || cartera || !almacen || !flujoDisponible()) return;
     const f = datos().nocobisFlujo || {};
-    if (!f.pbiUrl || !f.pbiClave || f.pbiAuto === false) return;
+    if (f.pbiAuto === false) return;
+    if (pbiSb === null && typeof almacen.rpc === 'function') await estadoPbiSb();
+    if (!hayPbiSb() && (!f.pbiUrl || !f.pbiClave)) return;
+    if (pbiAutoHecho) return;
     pbiAutoHecho = true;
     cargarPbi();
     $('btnPbiTraer').click();
@@ -1202,10 +1247,7 @@
     $('carteraEstado').innerHTML = aviso('ok', 'Consultando Power BI (ePortfolio_Mensual)…');
     try {
       const periodo = $('pbiPeriodo').value.trim();
-      const j = await llamarFlujo({ accion: 'consultar', consulta: M.daxCarteraPowerBI({ periodo, negocios: negociosClientes() }) },
-        { url: $('pbiUrl').value.trim(), clave: $('pbiClave').value });
-      if (j && j.ok === false) throw new Error(j.mensaje || 'El flujo informó un error.');
-      const leido = M.leerFilasPowerBI(j);
+      const leido = M.leerFilasPowerBI(await consultarPbi(M.daxCarteraPowerBI({ periodo, negocios: negociosClientes() })));
       if (leido.datos.length >= 30000) toast('Power BI devolvió muchas filas: si falta algún negocio, la respuesta puede haber llegado cortada (límite de 15 MB).');
       if (!leido.datos.length) throw new Error('Power BI no devolvió filas' + (periodo ? ` para el periodo ${periodo}` : '') + '.');
       const per = [...new Set(leido.datos.map(r => r.Periodo))].join(', ');
@@ -1846,6 +1888,433 @@
   $('btnInvTodosExcel').addEventListener('click', () => exportarInventarios('excel', M.INVENTARIOS_CONTABLES.map((d, k) => k)));
   $('btnInvTodosPdf').addEventListener('click', () => exportarInventarios('pdf', M.INVENTARIOS_CONTABLES.map((d, k) => k)));
 
+  // ============================================================ BASTANTEO DE FIRMANTES
+  // PDF (resumen OCR) + Excel del cliente → un JSON por poder. Todo en el navegador; nada se guarda.
+  LIBRERIAS.pdfjs = { listo: () => window.pdfjsLib, urls: ['../vendor/pdf.min.js', 'vendor/pdf.min.js',
+    'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js', 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js'] };
+  LIBRERIAS.pdfworker = { listo: () => window.pdfjsWorker, urls: ['../vendor/pdf.worker.min.js', 'vendor/pdf.worker.min.js',
+    'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js', 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js'] };
+  // Texto del PDF por renglón: agrupa los textos a la misma altura y los ordena de izquierda a derecha.
+  async function lineasPdf(buf) {
+    await cargarLibreria('pdfjs');
+    await cargarLibreria('pdfworker'); // con el worker en la página no hace falta otro archivo (funciona también sin servidor)
+    const doc = await window.pdfjsLib.getDocument({ data: new Uint8Array(buf) }).promise;
+    const lineas = [];
+    for (let n = 1; n <= doc.numPages; n++) {
+      const tc = await (await doc.getPage(n)).getTextContent();
+      const filas = [];
+      tc.items.forEach(it => {
+        if (!it.str || !it.str.trim()) return;
+        const y = it.transform[5], x = it.transform[4];
+        let f = filas.find(f => Math.abs(f.y - y) < 2.5);
+        if (!f) { f = { y, items: [] }; filas.push(f); }
+        f.items.push({ x, t: it.str, w: it.width });
+      });
+      filas.sort((a, b) => b.y - a.y).forEach(f => {
+        f.items.sort((a, b) => a.x - b.x);
+        let s = '', fin = null;
+        f.items.forEach(i => { if (fin != null && i.x - fin > 1.5 && !s.endsWith(' ')) s += ' '; s += i.t; fin = i.x + i.w; });
+        lineas.push(s.replace(/\s+/g, ' ').trim());
+      });
+      lineas.push('<<PAGINA>>');
+    }
+    return lineas;
+  }
+
+  const bast = { pdf: null, xls: null, poderes: [], cliente: null, ediciones: [], cuitsBase: {} };
+  const nombreCatalogo = Object.fromEntries(M.BASTANTEO_CATALOGO.map(c => [c[2], c])); // clave → [código, nombre, clave]
+  function zonaArchivo(zona, input, alElegir) {
+    const z = $(zona);
+    z.addEventListener('click', () => $(input).click());
+    z.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); $(input).click(); } });
+    z.addEventListener('dragover', e => { e.preventDefault(); z.classList.add('encima'); });
+    z.addEventListener('dragleave', () => z.classList.remove('encima'));
+    z.addEventListener('drop', e => { e.preventDefault(); z.classList.remove('encima'); if (e.dataTransfer.files[0]) alElegir(e.dataTransfer.files[0]); });
+    $(input).addEventListener('change', e => { const f = e.target.files[0]; e.target.value = ''; if (f) alElegir(f); });
+  }
+  zonaArchivo('zonaBastPdf', 'archivoBastPdf', async f => {
+    $('bastPdfNombre').textContent = 'Leyendo ' + f.name + '…';
+    try {
+      const lineas = await lineasPdf(await f.arrayBuffer());
+      const poderes = M.leerPoderesOcr(lineas);
+      // Sin "Acreditación de Poderes": el presidente del acta de designación, con todas las facultades (si está en la planilla).
+      const pres = poderes.length ? null : M.poderDelPresidente(M.leerAutoridadesOcr(lineas));
+      if (!poderes.length && !pres) throw new Error('El PDF no tiene secciones "Acreditación de Poderes" ni un presidente en el acta de designación de autoridades.');
+      poderes.forEach((p, k) => { p._k = k; });
+      if (pres) pres._k = 'presidente';
+      bast.pdf = f.name; bast.poderesTodos = poderes; bast.poderPresidente = pres; bast.edPorPoder = {}; bast.actas = [];
+      $('cmpEstado').innerHTML = '';
+      $('bastPdfNombre').textContent = pres ? `${f.name} · sin acreditación de poderes · presidente: ${pres.presidente.nombre_completo}` : `${f.name} · ${poderes.length} poderes`;
+      prepararBastanteo();
+    } catch (e) { $('bastPdfNombre').textContent = f.name; $('bastEstado').innerHTML = aviso('bad', 'No se pudo leer el PDF: ' + esc(e.message || e)); }
+  });
+  zonaArchivo('zonaBastXls', 'archivoBastXls', async f => {
+    try {
+      bast.cliente = M.leerClienteBastanteo(await leerHojas(f));
+      bast.xls = f.name;
+      await completarCuitFirmantes(bast.cliente.firmantes);
+      // Los firmantes que traen CUIT y número de ente alimentan la base de entes (para planillas que traen solo el DNI).
+      const conCuit = bast.cliente.firmantes.filter(x => x.cuit && x.ente && !x.fuente);
+      if (conCuit.length && almacen && typeof almacen.guardarEntes === 'function' && almacen.puedeEscribir !== false) {
+        try { await almacen.guardarEntes(conCuit.map(x => ({ ente: x.ente, cuit: x.cuit, nombre: x.nombre }))); } catch (e) { /* la base es opcional */ }
+      }
+      const sinCuit = bast.cliente.firmantes.filter(x => !x.cuit).length;
+      $('bastXlsNombre').textContent = `${f.name} · ${bast.cliente.firmantes.length} firmantes` + (sinCuit ? ` (${sinCuit} sin CUIT)` : '');
+      // CUIT y razón social del Excel, listos para traer de Complif.
+      if (bast.cliente.cuit) $('cmpCuit').value = M.formatoCuit(bast.cliente.cuit);
+      if (bast.cliente.cliente) $('cmpNombre').value = bast.cliente.cliente;
+      // Sin PDF cargado, los poderes se traen solos de Complif (versión web).
+      const conPdf = bast.pdf && bast.pdf !== 'Complif';
+      if (!conPdf && hayComplif() && (bast.cliente.cuit || bast.cliente.cliente)) {
+        Object.assign(bast, { pdf: null, poderesTodos: [], poderPresidente: null, edPorPoder: {}, actas: [] });   // nada del cliente anterior
+        $('bastPdfNombre').textContent = 'Trayendo de Complif…';
+        prepararBastanteo(); traerComplif(); return;
+      }
+      prepararBastanteo();
+    } catch (e) { $('bastEstado').innerHTML = aviso('bad', 'No se pudo leer el Excel: ' + esc(e.message || e)); }
+  });
+
+  // ------------------------------------------------------------ Complif
+  // Los poderes se bajan todos (50 por página, ~25 s) y se buscan por CUIT o razón social: el OCR no siempre trae
+  // el CUIT. La lista queda 15 minutos en memoria. Pasa por Supabase (complif_get): el secret no llega al navegador.
+  const cmp = { docs: null, cuando: 0, crudo: null };
+  const hayComplif = () => !!(almacen && typeof almacen.rpc === 'function');
+  const errorComplif = e => {
+    const m = String((e && e.message) || e);
+    return /complif_(get|estado|guardar)/i.test(m) && /(could not find|does not exist|no existe|schema cache)/i.test(m)
+      ? 'Faltan las funciones de Complif en Supabase: correr el bloque "Complif" de supabase/esquema.sql (INSTRUCCIONES.md, punto 9).' : m;
+  };
+  async function complifGet(ruta) {
+    const j = await almacen.rpc('complif_get', { p_ruta: ruta });
+    if (!j || j.status !== 200) throw new Error(`Complif respondió HTTP ${j ? j.status : '?'}${j && j.error ? ': ' + j.error : ''}`);
+    return j.body;
+  }
+  const listaComplif = b => (Array.isArray(b) ? b : (b && (b.data || b.items || b.results || b.documents)) || []);
+  async function complifDocumentos(progreso) {
+    if (cmp.docs && Date.now() - cmp.cuando < 15 * 60e3) return cmp.docs;
+    const filtro = 'type=in.(' + M.COMPLIF_TIPOS.map(encodeURIComponent).join(',') + ')';
+    const docs = [];
+    let pagina = 0, fin = false;
+    while (!fin && pagina < 400) {
+      const lote = await Promise.all([0, 1, 2, 3].map(k => complifGet(`/api/documents/v1/organization?${filtro}&page=${pagina + k}`)));
+      lote.forEach(b => { if (fin) return; const l = listaComplif(b); docs.push(...l); if (l.length < 50) fin = true; });
+      pagina += 4;
+      progreso(docs.length);
+    }
+    cmp.docs = docs; cmp.cuando = Date.now();
+    return docs;
+  }
+  async function estadoComplif() {
+    if (!hayComplif()) { $('cmpConfig').innerHTML = 'Complif se usa desde la versión web (con la base compartida).'; return; }
+    try {
+      const e = await almacen.rpc('complif_estado', {});
+      if (e && e.base_url) $('cmpBase').value = e.base_url;
+      $('cmpConfig').innerHTML = e && e.client_id && e.tiene_secret
+        ? `<span class="chip ok">Configurada</span> ${esc(e.base_url)} · client ${esc(e.client_id)}… · secret cargado · ${esc(String(e.actualizado || '').slice(0, 16).replace('T', ' '))}`
+        : '<span class="chip warn">Sin configurar</span> cargá el client id y el secret.';
+    } catch (err) { $('cmpConfig').innerHTML = aviso('bad', esc(errorComplif(err))); }
+  }
+  // El CUIT se escribe con guiones: 30708192445 → 30-70819244-5.
+  // Se ponen los guiones mientras se escribe (o al pegarlo).
+  const guionesCuit = v => { const d = String(v || '').replace(/\D/g, '').slice(0, 11); return d.length > 10 ? `${d.slice(0, 2)}-${d.slice(2, 10)}-${d.slice(10)}` : d.length > 2 ? `${d.slice(0, 2)}-${d.slice(2)}` : d; };
+  $('cmpCuit').addEventListener('input', () => { const v = guionesCuit($('cmpCuit').value); if (v !== $('cmpCuit').value) $('cmpCuit').value = v; });
+  $('detCmp').addEventListener('toggle', () => { if ($('detCmp').open) estadoComplif(); });
+  $('btnCmpGuardar').addEventListener('click', async () => {
+    try {
+      await almacen.rpc('complif_guardar', { p_base_url: $('cmpBase').value.trim(), p_client_id: $('cmpId').value.trim(), p_client_secret: $('cmpSecret').value.trim() });
+      $('cmpSecret').value = '';
+      cmp.docs = null;
+      await estadoComplif();
+      toast('Conexión con Complif guardada para todos los usuarios');
+    } catch (e) { $('cmpConfig').innerHTML = aviso('bad', 'No se pudo guardar: ' + esc(errorComplif(e))); }
+  });
+  $('btnCmpProbar').addEventListener('click', async () => {
+    $('cmpConfig').textContent = 'Probando…';
+    try {
+      const b = await complifGet('/api/documents/v1/organization?type=eq.' + encodeURIComponent('Poder Complejo') + '&page=0');
+      $('cmpConfig').innerHTML = aviso('ok', `Conexión OK: la primera página trae ${listaComplif(b).length} poderes complejos.`);
+    } catch (e) { $('cmpConfig').innerHTML = aviso('bad', esc(errorComplif(e))); }
+  });
+  $('btnCmpCrudo').addEventListener('click', () => {
+    const muestra = cmp.crudo && cmp.crudo.length ? cmp.crudo : (cmp.docs || []).slice(0, 2);
+    $('cmpCrudo').textContent = muestra.length ? JSON.stringify(muestra.slice(0, 3), null, 1).slice(0, 30000) : 'Todavía no se trajo nada de Complif.';
+    $('cmpCrudo').classList.remove('oculto');
+  });
+  $('btnCmpTraer').addEventListener('click', () => traerComplif());
+  async function traerComplif() {
+    if (!hayComplif()) { $('cmpEstado').innerHTML = aviso('warn', 'Complif se usa desde la versión web (con la base compartida).'); return; }
+    const cuit = $('cmpCuit').value.replace(/\D/g, '') || (bast.cliente && bast.cliente.cuit) || '';
+    const nombre = $('cmpNombre').value.trim() || (bast.cliente && bast.cliente.cliente) || '';
+    if (!cuit && !nombre) { $('cmpEstado').innerHTML = aviso('warn', 'Cargá primero la planilla del cliente (Excel) o escribí el CUIT o la razón social.'); return; }
+    const btn = $('btnCmpTraer');
+    btn.disabled = true;
+    $('cmpEstado').innerHTML = '<p class="sub">Bajando los poderes de Complif…</p>';
+    try {
+      const docs = await complifDocumentos(n => { $('cmpEstado').innerHTML = `<p class="sub">Bajando los poderes de Complif… ${n} documentos</p>`; });
+      if (cuit.length === 11) $('cmpCuit').value = M.formatoCuit(cuit);
+      const r = M.complifDeEmpresa(docs, cuit, nombre);
+      cmp.crudo = docs.filter(d => (r.poderes.concat(r.actas)).some(p => p.complif.id != null && p.complif.id === (d.id_document || d.id || d.uuid)));
+      const quien = esc(nombre || M.formatoCuit(cuit));
+      const pres = r.poderes.length ? null : M.poderDelPresidente(r.actas);
+      if (!r.poderes.length && !pres) {
+        const leidos = docs.filter(d => M.poderDesdeComplif(d) || M.actaDesdeComplif(d)).length;
+        if (!bast.pdf || bast.pdf === 'Complif') {
+          Object.assign(bast, { pdf: null, poderesTodos: [], poderPresidente: null, edPorPoder: {}, actas: [] });
+          $('bastPdfNombre').textContent = 'Arrastrá el PDF o hacé clic';
+          prepararBastanteo();
+        }
+        $('cmpEstado').innerHTML = aviso('warn', `Complif no tiene poderes de <b>${quien}</b>${cuit ? ' (CUIT ' + esc(M.formatoCuit(cuit)) + ')' : ''}${r.actas.length ? ' (hay ' + r.actas.length + ' acta/s, sin presidente reconocible)' : ''}. Se revisaron ${docs.length} documentos` +
+          (leidos < docs.length ? `; ${docs.length - leidos} no se pudieron interpretar (ver <i>Conexión con Complif → Ver la respuesta</i>)` : '') + '. Puede que el OCR no haya extraído el CUIT: probá con la razón social.');
+        return;
+      }
+      r.poderes.forEach((p, k) => { p._k = 'complif' + k; });
+      if (pres) pres._k = 'presidente';
+      Object.assign(bast, { pdf: 'Complif', poderesTodos: r.poderes, poderPresidente: pres, edPorPoder: {}, actas: r.actas });
+      $('bastPdfNombre').textContent = `Complif · ${r.poderes.length} poder${r.poderes.length === 1 ? '' : 'es'}` + (r.actas.length ? ` · ${r.actas.length} acta${r.actas.length === 1 ? '' : 's'}` : '') + (pres ? ` · sin poderes: presidente ${pres.presidente.nombre_completo}` : '');
+      $('cmpEstado').innerHTML = aviso('ok', `Complif: ${r.poderes.length} poder${r.poderes.length === 1 ? '' : 'es'} y ${r.actas.length} acta${r.actas.length === 1 ? '' : 's'} de designación de <b>${quien}</b> (de ${docs.length} documentos). ` +
+        '<ul style="margin:6px 0 0 18px">' + r.poderes.map(p => `<li>${esc(p.complif.type || 'Poder')} del ${esc(p.fecha_emision || 's/f')}${p.deed_number ? ', esc. ' + esc(p.deed_number) : ''}: ` +
+          `${esc(p.apoderados.map(a => a.nombre_completo).join(', ') || 'sin apoderados')}` +
+          `${p.razon_social && M.formatoCuit(p.cuit_empresa) !== M.formatoCuit(cuit) && cuit && p.cuit_empresa ? ` <span class="chip">${esc(p.razon_social)} · vinculado a la empresa en Complif</span>` : ''}${p.duplicados ? ` <span class="chip warn">${p.duplicados + 1} veces en Complif, se toma uno</span>` : ''}</li>`).join('') + '</ul>' +
+        (r.actas.length ? `<div class="sub" style="margin:4px 0 0">Actas: ${r.actas.map(a => esc(a.fecha || 's/f')).join(', ')}.</div>` : ''));
+      prepararBastanteo();
+    } catch (e) { $('cmpEstado').innerHTML = aviso('bad', 'No se pudo consultar Complif: ' + esc(errorComplif(e))); }
+    finally { btn.disabled = false; }
+  }
+
+  // Firmantes de la planilla que traen el DNI en lugar del CUIT: el CUIT sale de la base de entes, por número de
+  // ente o, si no, por el DNI.
+  async function completarCuitFirmantes(firmantes) {
+    const faltan = firmantes.filter(x => !x.cuit);
+    if (!faltan.length || !almacen) return;
+    try {
+      if (typeof almacen.buscarEntes === 'function') {
+        const porEnte = await almacen.buscarEntes(faltan.map(x => x.ente).filter(Boolean));
+        faltan.forEach(x => {
+          const e = porEnte[x.ente];
+          const c = e && String(e.cuit || '').replace(/\D/g, '');
+          if (c && c.length === 11 && (!x.dni || c.slice(2, 10) === String(x.dni).padStart(8, '0'))) { x.cuit = c; x.fuente = 'base de entes (ente ' + x.ente + ')'; }
+        });
+      }
+      const resto = faltan.filter(x => !x.cuit && x.dni);
+      if (resto.length && typeof almacen.buscarCuitPorDni === 'function') {
+        const porDni = await almacen.buscarCuitPorDni(resto.map(x => x.dni));
+        resto.forEach(x => { const c = porDni[x.dni] || porDni[String(x.dni).replace(/^0+/, '')]; if (c) { x.cuit = String(c).replace(/\D/g, ''); x.fuente = 'base de entes (DNI)'; } });
+      }
+    } catch (e) { /* sin base: queda el DNI */ }
+  }
+
+  // Ediciones por poder: escritura (por la fecha de emisión, entre las de la planilla), acta, tipo y CUIT de cada DNI.
+  async function prepararBastanteo() {
+    // Se toman todos los poderes del PDF (sin filtrar por la empresa de la planilla).
+    let todos = bast.poderesTodos || [];
+    bast.avisoPresidente = '';
+    const pp = !todos.length && bast.poderPresidente;
+    if (pp) {
+      const firmantes = bast.cliente && bast.cliente.firmantes;
+      const quien = `<b>${esc(pp.presidente.nombre_completo)}</b> (DNI ${esc(pp.presidente.dni)}, ${esc(pp.usos[0].descripcion.split(' según')[0])})`;
+      if (!firmantes) bast.avisoPresidente = aviso('warn', `El PDF no tiene "Acreditación de Poderes". El presidente del acta, ${quien}, recibe todas las facultades si figura en la planilla del cliente: cargá el Excel.`);
+      else if (M.firmanteDe(pp.presidente, firmantes)) {
+        todos = [pp];
+        bast.avisoPresidente = aviso('warn', `El PDF no tiene "Acreditación de Poderes": se toma al presidente del acta de designación (${esc(pp.fecha_emision || 's/f')}), ${quien}, que está en la planilla como apoderado, con <b>todas las facultades</b> y firma individual. Revisalo antes de usar el JSON.`);
+      } else bast.avisoPresidente = aviso('bad', `El PDF no tiene "Acreditación de Poderes" y el presidente del acta, ${quien}, no figura en la planilla del cliente: no se arma el bastanteo.`);
+    }
+    bast.poderes = todos.slice();
+    bast.otrosPoderes = [];
+    bast.edPorPoder = bast.edPorPoder || {};
+    if (!bast.poderes.length) { bast.ediciones = []; renderBastanteo(); return; }
+    const esc_ = (bast.cliente && bast.cliente.escrituras) || [];
+    bast.ediciones = bast.poderes.map(p => {
+      const prev = bast.edPorPoder[p._k] || {};
+      const candidatas = esc_.filter(e => e.fecha === p.fecha_emision);
+      const ed = Object.assign({ deed_number: p.deed_number || '', board_resolution_power_attorney: p.board_resolution_power_attorney || '',
+        power_attorney_type: p.power_attorney_type || 'Poder Especial para Operaciones Bancarias', cuits: {}, facultades: p.usos.map(() => ({})) }, prev, { candidatas });
+      // Si con esa fecha hay varias escrituras se propone la última (en la planilla, la del poder va después del acta).
+      if (!ed.deed_number && candidatas.length) ed.deed_number = candidatas[candidatas.length - 1].numero;
+      bast.edPorPoder[p._k] = ed;
+      return ed;
+    });
+    // CUIT de los DNI que no están en la planilla: base de entes.
+    const dnis = bast.poderes.flatMap(p => [p.otorgante.dni].concat(p.apoderados.map(a => a.dni))).filter(Boolean)
+      .filter(d => !M.cuitPorDni(d, bast.cliente && bast.cliente.firmantes) && !(d in bast.cuitsBase));
+    if (dnis.length && almacen && typeof almacen.buscarCuitPorDni === 'function') {
+      try { Object.assign(bast.cuitsBase, await almacen.buscarCuitPorDni(dnis)); } catch (e) { /* sin base: queda el DNI */ }
+      dnis.forEach(d => { if (!(d in bast.cuitsBase)) bast.cuitsBase[d] = ''; });
+    }
+    renderBastanteo();
+  }
+
+  function cuitDe(i, dni) {
+    const ed = bast.ediciones[i] || {};
+    if (ed.cuits && ed.cuits[dni]) return { cuit: ed.cuits[dni], fuente: 'cargado' };
+    const c = M.cuitPorDni(dni, bast.cliente && bast.cliente.firmantes);
+    if (c) return { cuit: c, fuente: 'planilla' };
+    if (bast.cuitsBase[dni]) return { cuit: bast.cuitsBase[dni], fuente: 'base de entes' };
+    return { cuit: '', fuente: '' };
+  }
+  function jsonDe(i) {
+    const ed = bast.ediciones[i];
+    const cuits = {};
+    const p = bast.poderes[i];
+    const firmantes = bast.cliente && bast.cliente.firmantes;
+    // CUIT cargado a mano; si no, el de la planilla (lo resuelve jsonPoder); si no, el de la base de entes.
+    [p.otorgante].concat(p.apoderados).forEach(x => {
+      const d = x.dni;
+      if ((ed.cuits || {})[d]) cuits[d] = ed.cuits[d];
+      else if (!(firmantes && M.firmanteDe(x, firmantes)) && bast.cuitsBase[d]) cuits[d] = bast.cuitsBase[d];
+    });
+    return M.jsonPoder(p, bast.cliente, Object.assign({}, ed, { cuits }));
+  }
+
+  function renderBastanteo() {
+    const hay = bast.poderes.length > 0;
+    $('bastAcciones').classList.toggle('oculto', !hay);
+    let estado = '';
+    estado += bast.avisoPresidente || '';
+    if (hay && !bast.cliente) estado += aviso('warn', 'Falta la planilla del cliente: sin ella no se completan los CUIT de los firmantes ni la escritura, y se muestran todas las personas del PDF.');
+    const otros = bast.otrosPoderes || [];
+    if (otros.length) estado += aviso(hay ? 'ok' : 'warn', `${hay ? '' : '<b>Ningún poder del PDF es de la empresa de la planilla</b> (CUIT ' + esc(M.formatoCuit(bast.cliente.cuit)) + '). '}` +
+      `Se ${otros.length === 1 ? 'deja afuera 1 poder' : 'dejan afuera ' + otros.length + ' poderes'} de otra empresa: ` +
+      otros.map(p => `${esc(p.razon_social || '—')} (CUIT ${esc(M.formatoCuit(p.cuit_empresa) || 'sin dato')}, ${esc(p.fecha_emision || '')})`).join(' · '));
+    const sp = hay ? sinPoder() : [];
+    if (sp.length) estado += aviso('warn', `<b>${sp.length} firmante${sp.length > 1 ? 's' : ''} de la planilla sin poder en el PDF.</b> Quedan cargados en el JSON único, sin grupo y con una advertencia. Revisá si falta el poder.`) +
+      `<div class="tabla-caja" style="margin-bottom:10px"><table><thead><tr><th>Nombre</th><th>CUIT</th><th>Situación</th></tr></thead><tbody>` +
+      sp.map(f => `<tr><td>${esc(f.nombre)}</td><td>${f.cuit ? esc(M.formatoCuit(f.cuit)) : 'DNI ' + esc(f.dni) + ' (sin CUIT)'}</td><td><span class="chip warn">en la planilla, sin poder</span></td></tr>`).join('') + '</tbody></table></div>';
+    $('bastEstado').innerHTML = estado;
+    renderBastUnico();
+    renderControlResumen();
+    $('bastPoderes').innerHTML = bast.poderes.map((p, i) => {
+      const ed = bast.ediciones[i] || {};
+      const j = jsonDe(i);
+      const firmantes = bast.cliente && bast.cliente.firmantes && bast.cliente.firmantes.length ? bast.cliente.firmantes : null;
+      // Con planilla, los apoderados del PDF que no están en ella no se muestran ni van al JSON.
+      const apod = firmantes ? p.apoderados.filter(a => M.firmanteDe(a, firmantes)) : p.apoderados;
+      const fuera = firmantes ? p.apoderados.filter(a => !M.firmanteDe(a, firmantes)) : [];
+      const personas = [['Otorgante', p.otorgante]].concat(apod.map(a => ['Apoderado', a]));
+      const filaPersona = ([rol, x]) => {
+        const f = rol === 'Apoderado' && firmantes ? M.firmanteDe(x, firmantes) : null;
+        const c = f && !(bast.ediciones[i].cuits || {})[x.dni] ? { cuit: String(f.cuit || '').replace(/\D/g, ''), fuente: f.fuente || 'planilla' } : cuitDe(i, x.dni);
+        return `<tr><td>${rol}</td><td>${esc(x.nombre_completo)}</td><td>${esc(x.dni)}</td>` +
+          `<td><input data-bast-cuit="${i}" data-dni="${esc(x.dni)}" value="${esc(c.cuit)}" placeholder="CUIT (11 dígitos)" inputmode="numeric" style="max-width:150px"></td>` +
+          `<td>${c.cuit ? `<span class="chip ok">${esc(c.fuente)}</span>` : '<span class="chip warn">sin CUIT: va el DNI</span>'}</td></tr>`;
+      };
+      const usos = p.usos.map((u, n) => {
+        const fac = j.estructuras_de_firma[n].facultades;
+        const celdas = M.BASTANTEO_CLAVES.map(k => {
+          const cat = nombreCatalogo[k], nombre = cat ? cat[1] : M.BASTANTEO_EXTRA[k] || k;
+          const fuente = (ed.facultades[n] || {})[k] !== undefined ? 'man' : k in u.facultades ? 'pdf' : bast.cliente && bast.cliente.marcas[k] ? 'xls' : 'nd';
+          const tit = { man: 'cambiado a mano', pdf: 'del PDF', xls: 'de las marcas X de la planilla', nd: 'sin dato en el PDF ni en la planilla' }[fuente];
+          return `<label class="check" title="${esc(tit)}" style="justify-content:flex-start;${fuente === 'nd' ? 'opacity:.7;' : ''}${fuente === 'xls' ? 'border-color:var(--warn);' : ''}${fuente === 'man' ? 'border-color:var(--accent);' : ''}">` +
+            `<input type="checkbox" style="flex:none" data-bast-fac="${i}" data-uso="${n}" data-clave="${k}" ${fac[k] ? 'checked' : ''}> <span><b style="font-size:11px">${esc(cat ? cat[0] : '—')}</b> ${esc(nombre)}</span></label>`;
+        }).join('');
+        const si = Object.values(fac).filter(Boolean).length;
+        return `<h3>Uso de firma ${n} · ${esc(u.tipo || '—')} · ${esc(u.descripcion || '')}</h3>` +
+          (u.limitaciones ? `<p class="sub" style="margin:0 0 8px">Limitaciones: ${esc(u.limitaciones)}</p>` : '') +
+          `<p class="sub" style="margin:0 0 6px">${si} de ${M.BASTANTEO_CLAVES.length} facultades habilitadas. Borde normal = del PDF · <span style="color:var(--warn)">ámbar</span> = de la planilla · tenue = sin dato (va "no") · <span style="color:var(--accent)">rojo</span> = cambiado a mano.</p>` +
+          `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(270px,1fr));gap:6px">${celdas}</div>`;
+      }).join('');
+      const opcEsc = (ed.candidatas || []).map(e => e.numero);
+      return `<div class="card">
+        <h2>${esc(p.razon_social || 'Poder ' + (i + 1))}</h2>
+        <p class="sub">CUIT ${esc(M.formatoCuit(p.cuit_empresa) || '—')} · emitido el ${esc(p.fecha_emision || '—')}</p>
+        <div class="grid">
+          <label class="campo">Escritura Nº <input data-bast-campo="deed_number" data-i="${i}" value="${esc(ed.deed_number || '')}" list="bastEsc${i}">
+            <datalist id="bastEsc${i}">${opcEsc.map(n => `<option value="${esc(n)}">`).join('')}</datalist>
+            <span class="ayuda">${opcEsc.length > 1 ? `En la planilla hay ${opcEsc.length} escrituras con esa fecha: ${esc(opcEsc.join(', '))}` : opcEsc.length ? 'Tomada de la planilla (misma fecha)' : 'No está en la planilla: cargala'}</span></label>
+          <label class="campo">Acta de directorio (poder) <input data-bast-campo="board_resolution_power_attorney" data-i="${i}" value="${esc(ed.board_resolution_power_attorney || '')}"></label>
+          <label class="campo">Tipo de poder <input data-bast-campo="power_attorney_type" data-i="${i}" value="${esc(ed.power_attorney_type || '')}"></label>
+        </div>
+        <h3>Personas</h3>
+        <div class="tabla-caja"><table><thead><tr><th>Rol</th><th>Nombre</th><th>DNI</th><th>CUIT (número de identificación)</th><th>Origen</th></tr></thead><tbody>${personas.map(filaPersona).join('')}</tbody></table></div>
+        ${!apod.length && p.apoderados.length ? aviso('warn', 'Ningún apoderado de este poder está en la planilla del cliente.') : ''}
+        ${fuera.length ? `<p class="sub" style="margin:6px 0 0">No se incluyen (están en el PDF pero no en la planilla): ${esc(fuera.map(a => a.nombre_completo).join(', '))}</p>` : ''}
+        ${usos}
+        <div class="acciones">
+          <button class="btn primario" type="button" data-bast-bajar="${i}">Descargar JSON</button>
+          <button class="btn" type="button" data-bast-ver="${i}">Ver JSON</button>
+        </div>
+        <pre class="codigo oculto" id="bastJson${i}"></pre>
+      </div>`;
+    }).join('');
+  }
+  $('bastPoderes').addEventListener('change', e => {
+    const t = e.target;
+    if (t.dataset.bastCuit != null) {
+      const i = Number(t.dataset.bastCuit), d = t.value.replace(/\D/g, '');
+      if (d && d.length !== 11) { toast('El CUIT tiene que tener 11 dígitos'); return; }
+      bast.ediciones[i].cuits[t.dataset.dni] = d;
+      renderBastanteo();
+    } else if (t.dataset.bastCampo) {
+      bast.ediciones[Number(t.dataset.i)][t.dataset.bastCampo] = t.value.trim();
+    } else if (t.dataset.bastFac != null) {
+      const ed = bast.ediciones[Number(t.dataset.bastFac)];
+      ed.facultades[Number(t.dataset.uso)][t.dataset.clave] = t.checked;
+      renderBastanteo();
+    }
+  });
+  const nombreJsonPoder = (i, j) => `PODER_${String(j.razon_social || 'poder').replace(/[^A-Za-z0-9]+/g, '_').replace(/^_|_$/g, '').slice(0, 50)}${j.deed_number ? '_esc' + j.deed_number : ''}.json`;
+  $('bastPoderes').addEventListener('click', e => {
+    const b = e.target.closest('[data-bast-bajar]'), v = e.target.closest('[data-bast-ver]');
+    if (b) { const i = Number(b.dataset.bastBajar), j = jsonDe(i); descargar(nombreJsonPoder(i, j), JSON.stringify(j, null, 2), true); }
+    if (v) { const i = Number(v.dataset.bastVer), pre = $('bastJson' + i); pre.textContent = JSON.stringify(jsonDe(i), null, 2); pre.classList.toggle('oculto'); }
+  });
+  // Un solo JSON con todos los poderes, agrupando apoderados por tipo de firma y facultades.
+  const sinPoder = () => (bast.cliente ? M.firmantesSinPoder(bast.poderes, bast.cliente.firmantes) : []);
+  function jsonUnico() { return M.jsonBastanteoUnico(bast.poderes.map((p, i) => jsonDe(i)), bast.cliente && Object.assign({}, bast.cliente, { sinPoder: sinPoder() })); }
+  // Control del resumen (Excel) contra los poderes, firmante por firmante: uso de firma, grupo, conjuntas y límite.
+  function renderControlResumen() {
+    if (!bast.poderes.length || !bast.cliente || !bast.cliente.firmantes.length) { $('bastControl').innerHTML = ''; return; }
+    const filas = M.controlResumen(jsonUnico(), bast.cliente);
+    const marca = ok => (ok === true ? '<b style="color:var(--ok)">✓</b>' : ok === false ? '<b style="color:var(--bad)">✗</b>' : '<span class="sub">—</span>');
+    const conDif = filas.filter(f => f.puntos.some(p => p.ok === false));
+    const orden = conDif.concat(filas.filter(f => !conDif.includes(f)));
+    $('bastControl').innerHTML = `<h3>Control del resumen contra los poderes</h3>` +
+      aviso(conDif.length ? 'warn' : 'ok', conDif.length ? `<b>${conDif.length} de ${filas.length} firmantes con diferencias.</b> ✓ = el resumen y el poder coinciden · ✗ = difieren.` : `Los ${filas.length} firmantes del resumen coinciden con los poderes.`) +
+      `<div class="tabla-caja"><table><thead><tr><th>Firmante</th><th>Resumen (Excel)</th><th>Punto</th><th></th><th>Dice el resumen</th><th>Dice el poder</th></tr></thead><tbody>` +
+      orden.map(f => f.puntos.map((p, i) => `<tr>${i ? '' : `<td rowspan="${f.puntos.length}"><b>${esc(f.nombre)}</b><div class="sub" style="margin:0">${esc(M.formatoCuit(f.ident) || '')}</div></td><td rowspan="${f.puntos.length}">${esc(f.resumen || '—')}</td>`}` +
+        `<td>${esc(p.punto)}</td><td>${marca(p.ok)}</td><td>${esc(p.resumen)}</td><td style="white-space:normal;max-width:420px">${esc(p.poder)}${p.detalle ? `<div style="color:var(--bad);font-size:12px">${esc(p.detalle)}</div>` : ''}</td></tr>`).join('')).join('') +
+      '</tbody></table></div>';
+  }
+
+  function renderBastUnico() {
+    if (!bast.poderes.length) { $('bastUnico').innerHTML = ''; return; }
+    const u = jsonUnico();
+    // Diferencia de cada grupo con el primero: qué facultades tiene de más (+) y de menos (−).
+    const base = u.estructuras_de_firma[0];
+    const nombreFac = k => (nombreCatalogo[k] ? nombreCatalogo[k][1] : M.BASTANTEO_EXTRA[k] || k);
+    const diferencia = e => {
+      if (e === base) return '<span class="sub">referencia</span>';
+      const mas = M.BASTANTEO_CLAVES.filter(k => e.facultades[k] && !base.facultades[k]).map(nombreFac);
+      const menos = M.BASTANTEO_CLAVES.filter(k => !e.facultades[k] && base.facultades[k]).map(nombreFac);
+      if (!mas.length && !menos.length) return `<span class="sub">mismas facultades (otro tipo de firma o grupo del poder)</span>`;
+      return (mas.length ? `<div style="white-space:normal"><b style="color:var(--ok)">+</b> ${esc(mas.join(', '))}</div>` : '') +
+        (menos.length ? `<div style="white-space:normal"><b style="color:var(--bad)">−</b> ${esc(menos.join(', '))}</div>` : '');
+    };
+    $('bastUnico').innerHTML = `<h3>JSON único: ${u.estructuras_de_firma.length} grupos de firma</h3><div class="tabla-caja"><table><thead><tr><th>Grupo</th><th>Tipo</th><th>Combinaciones</th><th>Apoderados</th><th class="num">Facultades</th><th>Escrituras</th><th>Diferencia con el grupo ${esc(base.grupo)}</th></tr></thead><tbody>` +
+      u.estructuras_de_firma.map(e => `<tr><td><b>${esc(e.grupo)}</b></td><td>${esc(e.tipo_de_firma || '')}</td><td>${esc((e.combinaciones || []).join('; '))}${e.combinaciones_sin_firmantes ? `<div style="color:var(--muted);font-size:12px" title="El poder la permite, pero no hay firmantes suficientes en la planilla">sin firmantes: ${esc(e.combinaciones_sin_firmantes.join('; '))}</div>` : ''}</td><td>${esc(u.apoderados.filter(a => e.apoderados.includes(a.numero_de_identificacion)).map(a => a.nombre_completo).join(', '))}</td>` +
+        `<td class="num">${Object.values(e.facultades).filter(Boolean).length}</td><td>${esc(e.escrituras.join(', '))}</td><td style="min-width:260px">${diferencia(e)}</td></tr>`).join('') + '</tbody></table></div>';
+  }
+  $('btnBastUnico').addEventListener('click', () => {
+    const u = jsonUnico();
+    descargar(`BASTANTEO_${String(u.razon_social || 'cliente').replace(/[^A-Za-z0-9]+/g, '_').replace(/^_|_$/g, '').slice(0, 50)}.json`, JSON.stringify(u, null, 2), true);
+  });
+  $('btnBastUnicoVer').addEventListener('click', () => { const pre = $('bastUnicoJson'); pre.textContent = JSON.stringify(jsonUnico(), null, 2); pre.classList.toggle('oculto'); });
+  $('btnBastLimpiar').addEventListener('click', () => {
+    $('cmpEstado').innerHTML = ''; $('cmpCuit').value = ''; $('cmpNombre').value = ''; cmp.crudo = null;
+    Object.assign(bast, { pdf: null, xls: null, poderes: [], poderesTodos: [], poderPresidente: null, avisoPresidente: '', actas: [], otrosPoderes: [], edPorPoder: {}, cliente: null, ediciones: [], cuitsBase: {} });
+    $('bastPdfNombre').textContent = 'Arrastrá el PDF o hacé clic';
+    $('bastXlsNombre').textContent = 'Arrastrá el Excel o hacé clic';
+    $('bastUnicoJson').classList.add('oculto');
+    renderBastanteo();
+    toast('Bastanteo limpio: cargá los archivos del próximo cliente');
+  });
+  $('btnBastTodos').addEventListener('click', async () => {
+    for (let i = 0; i < bast.poderes.length; i++) {
+      const j = jsonDe(i);
+      await descargar(nombreJsonPoder(i, j), JSON.stringify(j, null, 2), true);
+      await new Promise(r => setTimeout(r, 400));
+    }
+  });
+
   // ============================================================ LOTE
 
   function periodoActual() {
@@ -2457,6 +2926,29 @@
     actualizarFormulario();
     aplicarPermisos();
   }
+
+  // Aviso de versión nueva: en el sitio publicado se relee la página (sin caché) cada 5 minutos y se compara la versión.
+  function vigilarVersion() {
+    if (!/^https?:/.test(location.protocol)) return;
+    const actual = ($('versionPagina').textContent.match(/\d{4}-\d{2}-\d{2}\.\d+/) || [])[0];
+    if (!actual) return;
+    const revisar = async () => {
+      try {
+        const r = await fetch(location.pathname + '?v=' + Date.now(), { cache: 'no-store' });
+        const nueva = ((await r.text()).match(/id="versionPagina">versión (\d{4}-\d{2}-\d{2}\.\d+)/) || [])[1];
+        if (nueva && nueva !== actual) { $('avisoVersionNum').textContent = nueva; $('avisoVersion').classList.remove('oculto'); }
+      } catch (e) { /* sin conexión: se reintenta */ }
+    };
+    setTimeout(revisar, 20000);
+    setInterval(revisar, 300000);
+  }
+  // Limpiar pantalla: recarga la página sin caché (como un inicio nuevo); la sesión y los datos guardados quedan.
+  $('btnLimpiarPantalla').addEventListener('click', async () => {
+    const ok = await confirmar('Limpiar pantalla', 'Se borran de la pantalla los archivos cargados, búsquedas, filtros y resultados (Carga de lote, Cartera, Inventario, Bastanteo). <b>No</b> se cierra la sesión ni se borra nada guardado en la base.', 'Limpiar');
+    if (ok) location.replace(location.pathname + '?v=' + Date.now());
+  });
+  $('btnRecargarVersion').addEventListener('click', () => { location.replace(location.pathname + '?v=' + Date.now()); });
+  vigilarVersion();
 
   async function iniciar() {
     $('fPeriodo').value = periodoActual();
