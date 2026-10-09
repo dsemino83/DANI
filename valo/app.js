@@ -2000,7 +2000,7 @@
       const docs = await complifDocumentos(n => { $('cmpEstado').innerHTML = `<p class="sub">Bajando los poderes de Complif… ${n} documentos</p>`; });
       if (cuit.length === 11) $('cmpCuit').value = M.formatoCuit(cuit);
       const r = M.complifDeEmpresa(docs, cuit, nombre);
-      cmp.crudo = docs.filter(d => (r.poderes.concat(r.actas)).some(p => p.complif.id != null && p.complif.id === (d.id || d.uuid)));
+      cmp.crudo = docs.filter(d => (r.poderes.concat(r.actas)).some(p => p.complif.id != null && p.complif.id === (d.id_document || d.id || d.uuid)));
       const quien = esc(nombre || M.formatoCuit(cuit));
       const pres = r.poderes.length ? null : M.poderDelPresidente(r.actas);
       if (!r.poderes.length && !pres) {
