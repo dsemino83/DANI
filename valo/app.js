@@ -1895,10 +1895,13 @@
     try {
       const lineas = await lineasPdf(await f.arrayBuffer());
       const poderes = M.leerPoderesOcr(lineas);
-      if (!poderes.length) throw new Error('El PDF no tiene secciones "Acreditación de Poderes".');
+      // Sin "Acreditación de Poderes": el presidente del acta de designación, con todas las facultades (si está en la planilla).
+      const pres = poderes.length ? null : M.poderDelPresidente(M.leerAutoridadesOcr(lineas));
+      if (!poderes.length && !pres) throw new Error('El PDF no tiene secciones "Acreditación de Poderes" ni un presidente en el acta de designación de autoridades.');
       poderes.forEach((p, k) => { p._k = k; });
-      bast.pdf = f.name; bast.poderesTodos = poderes; bast.edPorPoder = {};
-      $('bastPdfNombre').textContent = `${f.name} · ${poderes.length} poderes`;
+      if (pres) pres._k = 'presidente';
+      bast.pdf = f.name; bast.poderesTodos = poderes; bast.poderPresidente = pres; bast.edPorPoder = {};
+      $('bastPdfNombre').textContent = pres ? `${f.name} · sin acreditación de poderes · presidente: ${pres.presidente.nombre_completo}` : `${f.name} · ${poderes.length} poderes`;
       prepararBastanteo();
     } catch (e) { $('bastPdfNombre').textContent = f.name; $('bastEstado').innerHTML = aviso('bad', 'No se pudo leer el PDF: ' + esc(e.message || e)); }
   });
@@ -1943,7 +1946,18 @@
   // Ediciones por poder: escritura (por la fecha de emisión, entre las de la planilla), acta, tipo y CUIT de cada DNI.
   async function prepararBastanteo() {
     // Se toman todos los poderes del PDF (sin filtrar por la empresa de la planilla).
-    const todos = bast.poderesTodos || [];
+    let todos = bast.poderesTodos || [];
+    bast.avisoPresidente = '';
+    const pp = !todos.length && bast.poderPresidente;
+    if (pp) {
+      const firmantes = bast.cliente && bast.cliente.firmantes;
+      const quien = `<b>${esc(pp.presidente.nombre_completo)}</b> (DNI ${esc(pp.presidente.dni)}, ${esc(pp.usos[0].descripcion.split(' según')[0])})`;
+      if (!firmantes) bast.avisoPresidente = aviso('warn', `El PDF no tiene "Acreditación de Poderes". El presidente del acta, ${quien}, recibe todas las facultades si figura en la planilla del cliente: cargá el Excel.`);
+      else if (M.firmanteDe(pp.presidente, firmantes)) {
+        todos = [pp];
+        bast.avisoPresidente = aviso('warn', `El PDF no tiene "Acreditación de Poderes": se toma al presidente del acta de designación (${esc(pp.fecha_emision || 's/f')}), ${quien}, que está en la planilla como apoderado, con <b>todas las facultades</b> y firma individual. Revisalo antes de usar el JSON.`);
+      } else bast.avisoPresidente = aviso('bad', `El PDF no tiene "Acreditación de Poderes" y el presidente del acta, ${quien}, no figura en la planilla del cliente: no se arma el bastanteo.`);
+    }
     bast.poderes = todos.slice();
     bast.otrosPoderes = [];
     bast.edPorPoder = bast.edPorPoder || {};
@@ -1995,7 +2009,8 @@
     const hay = bast.poderes.length > 0;
     $('bastAcciones').classList.toggle('oculto', !hay);
     let estado = '';
-    if (hay && !bast.cliente) estado = aviso('warn', 'Falta la planilla del cliente: sin ella no se completan los CUIT de los firmantes ni la escritura, y se muestran todas las personas del PDF.');
+    estado += bast.avisoPresidente || '';
+    if (hay && !bast.cliente) estado += aviso('warn', 'Falta la planilla del cliente: sin ella no se completan los CUIT de los firmantes ni la escritura, y se muestran todas las personas del PDF.');
     const otros = bast.otrosPoderes || [];
     if (otros.length) estado += aviso(hay ? 'ok' : 'warn', `${hay ? '' : '<b>Ningún poder del PDF es de la empresa de la planilla</b> (CUIT ' + esc(M.formatoCuit(bast.cliente.cuit)) + '). '}` +
       `Se ${otros.length === 1 ? 'deja afuera 1 poder' : 'dejan afuera ' + otros.length + ' poderes'} de otra empresa: ` +
@@ -2108,7 +2123,7 @@
   });
   $('btnBastUnicoVer').addEventListener('click', () => { const pre = $('bastUnicoJson'); pre.textContent = JSON.stringify(jsonUnico(), null, 2); pre.classList.toggle('oculto'); });
   $('btnBastLimpiar').addEventListener('click', () => {
-    Object.assign(bast, { pdf: null, xls: null, poderes: [], poderesTodos: [], otrosPoderes: [], edPorPoder: {}, cliente: null, ediciones: [], cuitsBase: {} });
+    Object.assign(bast, { pdf: null, xls: null, poderes: [], poderesTodos: [], poderPresidente: null, avisoPresidente: '', otrosPoderes: [], edPorPoder: {}, cliente: null, ediciones: [], cuitsBase: {} });
     $('bastPdfNombre').textContent = 'Arrastrá el PDF o hacé clic';
     $('bastXlsNombre').textContent = 'Arrastrá el Excel o hacé clic';
     $('bastUnicoJson').classList.add('oculto');
