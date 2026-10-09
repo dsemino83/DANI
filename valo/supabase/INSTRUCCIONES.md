@@ -85,7 +85,7 @@ La página baja de Complif los poderes ("Poder", "Poder Complejo") y las actas d
 empresa y los compara con el resumen (Excel). Supabase hace de intermediario: la clave de Complif nunca llega al
 navegador ni al repositorio.
 
-1. En Supabase → **SQL Editor**, correr el bloque *Complif* del final de `esquema.sql` (necesita la extensión
+1. En Supabase → **SQL Editor**, correr **todo** `supabase/complif.sql` (es el bloque *Complif* del final de `esquema.sql`) (necesita la extensión
    `http`, la misma del tipo de cambio).
 2. En la página: **Más ▾ → Bastanteo → Conexión con Complif**: URL `https://api.valo.complif.com` (producción;
    homologación es `https://api-uat.complif.com`), *client id* y *client secret*. **Guardar** y **Probar**.

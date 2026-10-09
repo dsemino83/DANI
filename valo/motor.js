@@ -1134,7 +1134,31 @@
     const k = claves.find(c => o[c] != null && String(o[c]).trim() !== '' && typeof o[c] !== 'object');
     return String(o[k]).trim();
   }
+  // Valor de la primera clave de un objeto que cumpla la expresión (plantillas con nombres en inglés).
+  const complifValor = (o, re) => { const k = Object.keys(o || {}).find(c => re.test(c) && o[c] != null && typeof o[c] !== 'object'); return k ? String(o[k]).trim() : ''; };
+  const RE_NOMBRE = /^(nombre_completo|full_name|name|nombre)$/i, RE_ID = /identificaci|dni|document|id_number|cuit|cuil|tax/i;
+  // Plantilla "Poder" (simple): principal (otorgante), authorized_agents (apoderados), company_name, issue_date.
+  function poderSimpleComplif(doc) {
+    const ocr = complifBuscar(doc.ocr_data_responses != null ? doc.ocr_data_responses : doc, x => !Array.isArray(x) && Array.isArray(complifJson(x.authorized_agents)));
+    if (!ocr) return null;
+    const pr = complifJson(ocr.principal) || {};
+    const persona = a => { a = typeof a === 'object' && a ? a : { name: String(a || '') }; const id = complifValor(a, RE_ID);
+      return { nombre_completo: complifValor(a, RE_NOMBRE) || complifValor(a, /name|nombre/i), dni: complifDni(id), cuit: complifNumero(id).length === 11 ? complifNumero(id) : '', grupo: complifValor(a, /^(grupo|group)$/i).toUpperCase() || null }; };
+    const otorg = persona(pr);
+    const u = { descripcion: complifValor(ocr, /signature|firma/i), tipo: /conjunt|joint/i.test(JSON.stringify(ocr)) && !/individual|indistint/i.test(JSON.stringify(ocr)) ? 'CONJUNTA' : 'INDIVIDUAL', limitaciones: complifValor(ocr, /limit/i) || null, facultades: {} };
+    return {
+      razon_social: complifValor(ocr, /^(company_name|razon_social)$/i), cuit_empresa: complifNumero(complifValor(ocr, /cuit|tax/i)), fecha_emision: complifValor(ocr, /^(issue_date|fecha_emision)$/i) || null,
+      deed_number: complifValor(ocr, /deed|escritura/i), board_resolution_power_attorney: '', power_attorney_type: '',
+      otorgante: { nombre_completo: otorg.nombre_completo, dni: otorg.dni, fecha_nacimiento: null },
+      apoderados: complifJson(ocr.authorized_agents).map(persona).filter(a => a.nombre_completo),
+      usos: [Object.assign(u, gruposDelUso(u))],
+      simple: true,
+      complif: { id: doc.id_document || doc.id || doc.uuid || null, type: doc.type || '', document_type: doc.document_type || '' },
+    };
+  }
   function poderDesdeComplif(doc) {
+    const simple = poderSimpleComplif(doc);
+    if (simple) return simple;
     const ocr = complifBuscar(doc.ocr_data_responses != null ? doc.ocr_data_responses : doc, x => !Array.isArray(x) && (Array.isArray(complifJson(x.apoderados)) || Array.isArray(complifJson(x.estructuras_de_firma))));
     if (!ocr) return null;
     const otorg = complifJson(ocr.otorgante) || {};
@@ -1157,7 +1181,7 @@
       otorgante: { nombre_completo: otorg.nombre_completo || '', dni: complifDni(otorg.numero_de_identificacion), fecha_nacimiento: otorg.fecha_nacimiento || null },
       apoderados: (complifJson(ocr.apoderados) || []).map(a => ({ nombre_completo: a.nombre_completo || a.nombre || '', dni: complifDni(a.numero_de_identificacion || a.dni), cuit: complifNumero(a.numero_de_identificacion).length === 11 ? complifNumero(a.numero_de_identificacion) : '', grupo: a.grupo ? String(a.grupo).trim().toUpperCase() : null })),
       usos,
-      complif: { id: doc.id || doc.uuid || null, type: doc.type || '', document_type: doc.document_type || '' },
+      complif: { id: doc.id_document || doc.id || doc.uuid || null, type: doc.type || '', document_type: doc.document_type || '' },
     };
   }
   // Acta de designación: lista de autoridades (nombre, identificación, rol / cargo).
@@ -1167,16 +1191,22 @@
     if (!lista) return null;
     const valor = (y, re) => { const k = Object.keys(y).find(c => re.test(c)); return k && y[k] != null ? String(y[k]).trim() : ''; };
     return {
-      razon_social: complifCampo(doc, ['razon_social', 'company_name']), cuit_empresa: complifNumero(complifCampo(doc, ['cuit_empresa', 'cuit', 'tax_id'])),
-      fecha: complifCampo(doc, ['fecha_del_documento', 'fecha_documento', 'fecha', 'document_date']),
-      autoridades: lista.map(y => ({ nombre_completo: valor(y, /nombre|name/i), dni: complifDni(valor(y, /identificaci|dni|documento|numero/i)), rol: valor(y, /rol|cargo|role|position/i) })).filter(a => a.nombre_completo),
-      complif: { id: doc.id || doc.uuid || null, type: doc.type || '', document_type: doc.document_type || '' },
+      razon_social: complifCampo(doc.ocr_data_responses || doc, ['razon_social', 'company_name']), cuit_empresa: complifNumero(complifCampo(doc.ocr_data_responses || doc, ['cuit_empresa', 'cuit', 'tax_id'])),
+      fecha: complifCampo(doc.ocr_data_responses || doc, ['fecha_del_documento', 'fecha_documento', 'fecha', 'document_date', 'issue_date']),
+      autoridades: lista.map(y => ({ nombre_completo: valor(y, /nombre|name/i), dni: complifDni(valor(y, /identificaci|dni|document|numero|id_number|cuit|cuil|tax/i)), rol: valor(y, /rol|cargo|role|position|title/i) })).filter(a => a.nombre_completo),
+      complif: { id: doc.id_document || doc.id || doc.uuid || null, type: doc.type || '', document_type: doc.document_type || '' },
     };
   }
   // Documentos de una empresa: por CUIT (el OCR no siempre lo trae) o por razón social (sin "S.A.", "SA", "SRL"…).
   const razonClave = t => normalizar(t).replace(/[.,]/g, ' ').replace(/\b(s ?a ?u?|s ?r ?l|s ?a ?s|sociedad anonima|ltda|limitada|sa|srl|sas|sau)\b/g, ' ').replace(/\s+/g, ' ').trim();
   function complifDeEmpresa(docs, cuit, nombre) {
-    const c = complifNumero(cuit), n = razonClave(nombre);
+    const c = complifNumero(cuit);
+    // Sin razón social: la del primer documento que coincide por CUIT (así entran las actas, que no traen CUIT).
+    if (!nombre && c.length === 11) {
+      const d = (docs || []).find(x => JSON.stringify(x).includes(formatoCuit(c)) || JSON.stringify(x).includes(c));
+      if (d) { const p = complifEsActa(d) ? actaDesdeComplif(d) : poderDesdeComplif(d); if (p) nombre = p.razon_social; }
+    }
+    const n = razonClave(nombre);
     const poderes = [], actas = [];
     (docs || []).forEach(doc => {
       const p = complifEsActa(doc) ? actaDesdeComplif(doc) : poderDesdeComplif(doc);
