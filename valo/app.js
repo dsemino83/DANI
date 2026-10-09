@@ -1918,8 +1918,9 @@
       }
       const sinCuit = bast.cliente.firmantes.filter(x => !x.cuit).length;
       $('bastXlsNombre').textContent = `${f.name} · ${bast.cliente.firmantes.length} firmantes` + (sinCuit ? ` (${sinCuit} sin CUIT)` : '');
-      $('cmpCuit').placeholder = bast.cliente.cuit ? M.formatoCuit(bast.cliente.cuit) : 'sale del Excel';
-      $('cmpNombre').placeholder = bast.cliente.cliente || 'sale del Excel';
+      // CUIT y razón social del Excel, listos para traer de Complif.
+      if (bast.cliente.cuit) $('cmpCuit').value = M.formatoCuit(bast.cliente.cuit);
+      if (bast.cliente.cliente) $('cmpNombre').value = bast.cliente.cliente;
       prepararBastanteo();
     } catch (e) { $('bastEstado').innerHTML = aviso('bad', 'No se pudo leer el Excel: ' + esc(e.message || e)); }
   });
@@ -1965,7 +1966,9 @@
     } catch (err) { $('cmpConfig').innerHTML = aviso('bad', esc(errorComplif(err))); }
   }
   // El CUIT se escribe con guiones: 30708192445 → 30-70819244-5.
-  $('cmpCuit').addEventListener('blur', () => { const d = $('cmpCuit').value.replace(/\D/g, ''); if (d.length === 11) $('cmpCuit').value = M.formatoCuit(d); });
+  // Se ponen los guiones mientras se escribe (o al pegarlo).
+  const guionesCuit = v => { const d = String(v || '').replace(/\D/g, '').slice(0, 11); return d.length > 10 ? `${d.slice(0, 2)}-${d.slice(2, 10)}-${d.slice(10)}` : d.length > 2 ? `${d.slice(0, 2)}-${d.slice(2)}` : d; };
+  $('cmpCuit').addEventListener('input', () => { const v = guionesCuit($('cmpCuit').value); if (v !== $('cmpCuit').value) $('cmpCuit').value = v; });
   $('detCmp').addEventListener('toggle', () => { if ($('detCmp').open) estadoComplif(); });
   $('btnCmpGuardar').addEventListener('click', async () => {
     try {
