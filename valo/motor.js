@@ -626,12 +626,12 @@
   }
 
   // Saldo de deuda por fiduciante y mes de vencimiento, sin filtrar negocios. Cuotas de la última foto mensual
-  // (Periodo más reciente) vencidas hasta hoy en estado Impaga (4); quedan afuera Normal (0), Paga Parcial (1), Paga (2)
+  // (Periodo más reciente) vencidas hasta ayer (la cobranza del día no está bajada) en estado Impaga (4); quedan afuera Normal (0), Paga Parcial (1), Paga (2)
   // y Paga a Regularizar (3). Valor = valor de la cuota (capital + interés, "ficuo valor cuota").
   const DEUDA_ESTADOS = ['4'];
   function daxSaldoDeuda(opciones = {}) {
     const t = opciones.tabla || PBI_TABLA, c = n => `'${t}'[${n}]`;
-    const hasta = opciones.hasta ? `DATE ( ${opciones.hasta.slice(0, 4)}, ${Number(opciones.hasta.slice(5, 7))}, ${Number(opciones.hasta.slice(8, 10))} )` : 'TODAY ()';
+    const hasta = opciones.hasta ? `DATE ( ${opciones.hasta.slice(0, 4)}, ${Number(opciones.hasta.slice(5, 7))}, ${Number(opciones.hasta.slice(8, 10))} )` : 'TODAY () - 1';
     return [
       'DEFINE',
       `  VAR Hasta = ${hasta}`,
