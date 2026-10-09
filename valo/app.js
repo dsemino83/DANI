@@ -1942,11 +1942,10 @@
 
   // Ediciones por poder: escritura (por la fecha de emisión, entre las de la planilla), acta, tipo y CUIT de cada DNI.
   async function prepararBastanteo() {
-    // Solo los poderes de la empresa de la planilla (mismo CUIT que el cliente); sin planilla, todos.
+    // Se toman todos los poderes del PDF (sin filtrar por la empresa de la planilla).
     const todos = bast.poderesTodos || [];
-    const cuitCli = String((bast.cliente && bast.cliente.cuit) || '').replace(/\D/g, '');
-    bast.poderes = cuitCli ? todos.filter(p => String(p.cuit_empresa || '').replace(/\D/g, '') === cuitCli) : todos.slice();
-    bast.otrosPoderes = cuitCli ? todos.filter(p => !bast.poderes.includes(p)) : [];
+    bast.poderes = todos.slice();
+    bast.otrosPoderes = [];
     bast.edPorPoder = bast.edPorPoder || {};
     if (!bast.poderes.length) { bast.ediciones = []; renderBastanteo(); return; }
     const esc_ = (bast.cliente && bast.cliente.escrituras) || [];
