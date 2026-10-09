@@ -1199,6 +1199,21 @@
   }
   // Documentos de una empresa: por CUIT (el OCR no siempre lo trae) o por razón social (sin "S.A.", "SA", "SRL"…).
   const razonClave = t => normalizar(t).replace(/[.,]/g, ' ').replace(/\b(s ?a ?u?|s ?r ?l|s ?a ?s|sociedad anonima|ltda|limitada|sa|srl|sas|sau)\b/g, ' ').replace(/\s+/g, ' ').trim();
+  // Razones sociales parecidas, con errores de tipeo ("INTERPRISE" / "ENTERPRISES"): cada palabra de la más corta está
+  // en la otra, igual o a 2 letras de distancia (palabras de más de 4 letras).
+  function distancia(a, b) {
+    const d = Array.from({ length: a.length + 1 }, (_, i) => [i]);
+    for (let j = 1; j <= b.length; j++) d[0][j] = j;
+    for (let i = 1; i <= a.length; i++) for (let j = 1; j <= b.length; j++)
+      d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    return d[a.length][b.length];
+  }
+  function razonParecida(a, b) {
+    let x = a.split(' ').filter(Boolean), y = b.split(' ').filter(Boolean);
+    if (x.length > y.length) [x, y] = [y, x];
+    if (!x.length || x.join('').length < 6) return false;
+    return x.every(w => y.some(v => v === w || (w.length > 4 && v.length > 4 && distancia(w, v) <= 2)));
+  }
   function complifDeEmpresa(docs, cuit, nombre) {
     const c = complifNumero(cuit);
     // Sin razón social: la del primer documento que coincide por CUIT (así entran las actas, que no traen CUIT).
@@ -1215,9 +1230,21 @@
       const dn = razonClave(p.razon_social || complifCampo(doc, ['razon_social', 'company_name']));
       // El CUIT se busca con guiones (30-70819244-5, como lo guarda Complif) y sin guiones, en cualquier campo del documento.
       const enDoc = c.length === 11 && (texto => texto.includes(formatoCuit(c)) || texto.includes(c))(JSON.stringify(doc));
-      if (!((c && (dc === c || enDoc)) || (n && dn && (dn === n || (n.length > 5 && (dn.includes(n) || n.includes(dn))))))) return;
+      if (!((c && (dc === c || enDoc)) || (n && dn && (dn === n || (n.length > 5 && (dn.includes(n) || n.includes(dn))) || razonParecida(n, dn))))) return;
+      p.complif.creado = doc.ocr_created_at || doc.created_at || '';
       (p.autoridades ? actas : poderes).push(p);
     });
+    // Complif puede tener el mismo poder más de una vez (subido de nuevo, o con la plantilla "Poder" y la "Poder
+    // Complejo"): mismos apoderados y misma fecha = el mismo poder. Queda el Poder Complejo y, entre iguales, el último.
+    const firma = p => (p.fecha_emision || '') + '|' + p.apoderados.map(a => a.dni || normalizar(a.nombre_completo)).sort().join(',');
+    const unicos = new Map();
+    poderes.forEach(p => {
+      const k = firma(p), prev = unicos.get(k);
+      const mejor = !prev || (prev.simple && !p.simple) || (!!prev.simple === !!p.simple && String(p.complif.creado) > String(prev.complif.creado));
+      if (mejor) { if (prev) p.duplicados = (prev.duplicados || 0) + 1; unicos.set(k, p); } else prev.duplicados = (prev.duplicados || 0) + 1;
+    });
+    poderes.length = 0;
+    unicos.forEach(p => poderes.push(p));
     poderes.sort((a, b) => String(a.fecha_emision || '').localeCompare(String(b.fecha_emision || '')));
     actas.sort((a, b) => String(a.fecha || '').localeCompare(String(b.fecha || '')));
     return { poderes, actas };
