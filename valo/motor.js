@@ -1223,9 +1223,22 @@
     }
     const n = razonClave(nombre);
     const poderes = [], actas = [];
+    // Vínculos de Complif (relations: id, name, type): un documento es de la empresa si está vinculado a ella, aunque el
+    // OCR diga otra razón social (un poder otorgado por varias empresas). Se toman los vínculos de los documentos que
+    // coinciden por CUIT y los que tienen el nombre de la empresa.
+    const rels = doc => (Array.isArray(doc.relations) ? doc.relations : []).filter(x => x && typeof x === 'object');
+    const relDeEmpresa = x => { const r = razonClave(x.name); return !!(n && r && (r === n || razonParecida(n, r))); };
+    const idsEmpresa = new Set();
+    (docs || []).forEach(doc => {
+      const p0 = complifEsActa(doc) ? null : poderDesdeComplif(doc);
+      const porCuit = c && p0 && p0.cuit_empresa === c;
+      rels(doc).forEach(x => { if (x.id != null && (porCuit || relDeEmpresa(x))) idsEmpresa.add(String(x.id)); });
+    });
+    const vinculado = doc => rels(doc).some(x => (x.id != null && idsEmpresa.has(String(x.id))) || relDeEmpresa(x));
     (docs || []).forEach(doc => {
       const p = complifEsActa(doc) ? actaDesdeComplif(doc) : poderDesdeComplif(doc);
       if (!p) return;
+      if (vinculado(doc)) { p.vinculado = true; p.complif.creado = doc.ocr_created_at || doc.created_at || ''; (p.autoridades ? actas : poderes).push(p); return; }
       const dc = p.cuit_empresa || complifNumero(complifCampo(doc, ['cuit_empresa', 'cuit', 'tax_id']));
       const dn = razonClave(p.razon_social || complifCampo(doc, ['razon_social', 'company_name']));
       // El CUIT se busca con guiones (30-70819244-5, como lo guarda Complif) y sin guiones, en cualquier campo del documento.
