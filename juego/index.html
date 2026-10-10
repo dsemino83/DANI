@@ -4,6 +4,10 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Misión: Dientes Limpios</title>
+<script>
+  // Micrófono y cámara solo funcionan en la dirección segura (https): si se abrió con http, se pasa sola.
+  if (location.protocol === 'http:' && /github\.io$/.test(location.hostname)) location.replace('https:' + location.href.slice(5));
+</script>
 <!-- app -->
 <link rel="manifest" href="manifest.webmanifest">
 <meta name="theme-color" content="#0E2F86">
