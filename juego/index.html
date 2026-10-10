@@ -173,7 +173,9 @@
   .tarjeta.ayuda h2 { text-align: center; }
   .tarjeta.ayuda ol { margin: 0 0 14px; padding-left: 40px; font-size: 30px; line-height: 1.3; color: var(--texto); }
   .tarjeta.ayuda li { margin-bottom: 10px; }
-  #ayuda-mic-ok { position: static; width: 360px; height: 90px; margin: 0 auto; display: flex; }
+  .ayuda-botones { display: flex; justify-content: center; gap: 20px; flex-wrap: wrap; }
+  .ayuda-botones .boton-amarillo { position: static; width: 340px; height: 90px; font-size: 38px; }
+  .tarjeta.ayuda p { font-size: 27px; line-height: 1.3; }
   /* En el celular vertical la ventana se agranda. */
   #escenario.vertical .tarjeta { width: 940px; max-height: none; transform: scale(1.05); }
   .opciones button.elegida { background: var(--verde); color: #fff; box-shadow: 0 0 0 6px #BFE8C9, inset 0 -6px 0 rgba(0,0,0,.15); }
@@ -397,17 +399,21 @@
       Tocá para escuchar
     </button>
 
-    <div id="ayuda-mic" class="modal" role="dialog" aria-label="Cómo activar el micrófono">
+    <div id="ayuda-mic" class="modal" role="dialog" aria-label="Cómo activar el permiso">
       <div class="tarjeta ayuda">
-        <h2>Activá el micrófono</h2>
-        <p>El micrófono está bloqueado para el juego. Para decir «sí» con la voz:</p>
+        <h2>Activá <span class="ayuda-que">el micrófono</span></h2>
+        <p>Por seguridad, el celular no deja que un juego se dé el permiso solo: hay que darlo una vez.
+          La app instalada funciona con <b>Chrome</b> por dentro, por eso el permiso está en Chrome y no en la app.</p>
         <ol>
-          <li><b>App instalada:</b> mantené apretado el ícono de Superdiente → <b>Información de la app</b> → <b>Permisos</b> → <b>Micrófono</b> → <b>Permitir</b>.</li>
-          <li><b>En Chrome:</b> tocá el candado junto a la dirección → <b>Permisos</b> → <b>Micrófono</b> → <b>Permitir</b>.</li>
-          <li>Cerrá el juego y volvé a abrirlo.</li>
+          <li><b>Chrome en el celular:</b> Ajustes del celular → <b>Aplicaciones</b> → <b>Chrome</b> → <b>Permisos</b> → <b class="ayuda-Que">Micrófono</b> → <b>Permitir</b>.</li>
+          <li><b>El juego en Chrome:</b> abrí Chrome → <b>⋮</b> → <b>Configuración</b> → <b>Configuración de sitios</b> → <b class="ayuda-Que">Micrófono</b> → si <b>dsemino83.github.io</b> está en «Bloqueados», tocalo → <b>Permitir</b>.</li>
+          <li><b>Si no aparece en ningún lado:</b> en <b>Configuración de sitios</b> → <b>Todos los sitios</b> → <b>dsemino83.github.io</b> → <b>Restablecer permisos</b>. Al volver, el juego vuelve a preguntar.</li>
         </ol>
-        <p>Mientras tanto, podés tocar los botones para avanzar.</p>
-        <button id="ayuda-mic-ok" class="boton-amarillo">Entendido</button>
+        <p>Cuando vuelvas al juego, se activa solo. Mientras tanto, podés tocar los botones.</p>
+        <div class="ayuda-botones">
+          <button id="ayuda-mic-probar" class="boton-amarillo">Probar de nuevo</button>
+          <button id="ayuda-mic-ok" class="boton-amarillo">Entendido</button>
+        </div>
       </div>
     </div>
 
@@ -1669,7 +1675,9 @@
     if (!c) return;
     c.width = 1; c.height = 1; c.style.display = 'none';
   }
+  var camaraEsperaPermiso = false;
   function abrirCamara() {
+    camaraEsperaPermiso = false;
     mostrar('foto');
     elegirFormatoFoto();
     borrarFoto();
@@ -1743,8 +1751,10 @@
     var dentroDeOtraPagina = window.self !== window.top;
     $('foto-aviso').innerHTML = dentroDeOtraPagina
       ? 'La cámara no se puede usar acá.<a class="abrir-propia" href="https://' + PAGINA_PROPIA + '/" target="_blank" rel="noopener">Abrir el juego con cámara</a>'
-      : bloqueada ? 'Falta el permiso de la cámara.<small>Permitila en el navegador y tocá «Otra foto».</small>'
+      : bloqueada ? 'Falta el permiso de la cámara.<button class="abrir-propia" id="btn-ayuda-camara">¿Cómo lo activo?</button>'
       : 'No se encontró la cámara.';
+    camaraEsperaPermiso = bloqueada && !dentroDeOtraPagina;
+    if ($('btn-ayuda-camara')) $('btn-ayuda-camara').onclick = function (ev) { ev.stopPropagation(); abrirAyuda('camara'); };
     var c = $('foto');
     c.width = FOTO.W; c.height = FOTO.H;
     var g = c.getContext('2d');
@@ -1919,7 +1929,7 @@
   // Mientras se comparte (se abre WhatsApp u otra app) no se borra: es la familia la que la envía.
   document.addEventListener('visibilitychange', function () {
     if (compartiendo) { if (!document.hidden && compartiendo === 'whatsapp') compartiendo = false; return; }
-    if (document.hidden && estado.pantalla === 'foto') mostrar('inicio');
+    if (document.hidden && estado.pantalla === 'foto' && !camaraEsperaPermiso) mostrar('inicio');
   });
   window.addEventListener('pagehide', function () { detenerCamara(); borrarFoto(); });
 
@@ -2149,13 +2159,64 @@
     if (!$('aviso-mic').classList.contains('toca')) return;
     ev.stopPropagation();
     pedirMicrofono(function () {
-      if (mic.permiso === 'denegado') { $('ayuda-mic').classList.add('ver'); return; }
+      if (mic.permiso === 'denegado') { abrirAyuda('mic'); return; }
       mic.bloqueado = false;
       mic.quiere = vozActiva;
       encender();
     });
   });
   $('ayuda-mic-ok').onclick = function () { $('ayuda-mic').classList.remove('ver'); };
+  var ayudaPara = 'mic';
+  function abrirAyuda(que) {
+    ayudaPara = que;
+    var cam = que === 'camara';
+    Array.prototype.forEach.call(document.querySelectorAll('.ayuda-que'), function (e) { e.textContent = cam ? 'la cámara' : 'el micrófono'; });
+    Array.prototype.forEach.call(document.querySelectorAll('.ayuda-Que'), function (e) { e.textContent = cam ? 'Cámara' : 'Micrófono'; });
+    $('ayuda-mic').classList.add('ver');
+  }
+  $('ayuda-mic-probar').onclick = function () {
+    $('ayuda-mic').classList.remove('ver');
+    if (ayudaPara === 'camara') { if (estado.pantalla === 'foto') abrirCamara(); return; }
+    pedirMicrofono(function () {
+      if (mic.permiso === 'denegado') { abrirAyuda('mic'); return; }
+      desbloquearMic();
+    });
+  };
+  // Apenas el permiso queda habilitado (en Chrome o en los ajustes), el juego se desbloquea solo.
+  function desbloquearMic() {
+    mic.bloqueado = false; mic.permiso = 'ok';
+    if (ayudaPara === 'mic') $('ayuda-mic').classList.remove('ver');
+    cartelMic('oculto');
+    if (vozActiva && estado.pantalla !== 'paso') { mic.quiere = true; encender(); }
+  }
+  function revisarPermisos() {
+    if (!navigator.permissions || !navigator.permissions.query) {
+      // Sin forma de consultar: al volver se prueba de nuevo directamente.
+      if (mic.bloqueado && mic.motivo === 'permiso') pedirMicrofono(function () { if (mic.permiso === 'ok') desbloquearMic(); });
+      if (camaraEsperaPermiso && estado.pantalla === 'foto') abrirCamara();
+      return;
+    }
+    navigator.permissions.query({ name: 'microphone' }).then(function (r) {
+      if (mic.bloqueado && mic.motivo === 'permiso' && r.state !== 'denied')
+        pedirMicrofono(function () { if (mic.permiso === 'ok') desbloquearMic(); });
+    }).catch(function () {});
+    navigator.permissions.query({ name: 'camera' }).then(function (r) {
+      if (camaraEsperaPermiso && estado.pantalla === 'foto' && r.state !== 'denied') { $('ayuda-mic').classList.remove('ver'); abrirCamara(); }
+    }).catch(function () {});
+  }
+  try {
+    if (navigator.permissions && navigator.permissions.query) {
+      navigator.permissions.query({ name: 'microphone' }).then(function (r) {
+        r.onchange = function () { if (r.state === 'granted' && mic.bloqueado) desbloquearMic(); };
+      }).catch(function () {});
+      navigator.permissions.query({ name: 'camera' }).then(function (r) {
+        r.onchange = function () { if (r.state === 'granted' && camaraEsperaPermiso && estado.pantalla === 'foto') { $('ayuda-mic').classList.remove('ver'); abrirCamara(); } };
+      }).catch(function () {});
+    }
+  } catch (e) {}
+  // Al volver de los ajustes del celular o de Chrome.
+  document.addEventListener('visibilitychange', function () { if (!document.hidden) revisarPermisos(); });
+  window.addEventListener('focus', revisarPermisos);
   // Espera el «sí» en una pantalla, si sigue siendo la misma cuando termina de hablar.
   function esperarSi(pantalla) {
     if (estado.pantalla !== pantalla) return;
