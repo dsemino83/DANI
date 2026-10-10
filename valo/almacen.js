@@ -59,6 +59,7 @@
       async guardarNocobisFlujo(cfg) { datos.nocobisFlujo = clonar(cfg); cambiar(); },
       async guardarPadronInventario(p) { datos.padronInventario = clonar(p); cambiar(); },
       async contarEntes() { return Object.keys(datos.entesBase || {}).length; },
+      async buscarCuitPorDni(dnis) { const r = {}; const v = Object.values(datos.entesBase || {}).map(x => x[0]); dnis.forEach(d => { const d8 = String(d).padStart(8, '0'); const c = v.find(x => String(x).slice(2, 10) === d8); if (c) r[d] = c; }); return r; },
       async buscarEntes(lista) { const b = datos.entesBase || {}, r = {}; lista.forEach(e => { if (b[e]) r[e] = { cuit: b[e][0], nombre: b[e][1] }; }); return r; },
       async guardarEntes(filas) { datos.entesBase = datos.entesBase || {}; filas.forEach(f => { datos.entesBase[String(f.ente)] = [f.cuit, f.nombre || '']; }); if (!guardar()) throw new Error('No entra en el almacenamiento de este navegador.'); ev.emitir(); },
       async registrarEnvio(e) { datos.envios.push(Object.assign({ id: nuevoId() }, clonar(e))); datos.envios = datos.envios.slice(-50); cambiar(); },
@@ -475,6 +476,15 @@
           const { data, error } = await sb.from('entes').select('ente,cuit,nombre').in('ente', unicos.slice(i, i + 200));
           if (error) throw new Error(error.message);
           (data || []).forEach(x => { r[x.ente] = { cuit: x.cuit, nombre: x.nombre }; });
+        }
+        return r;
+      },
+      // CUIT que contiene cada DNI (posiciones 3 a 10), buscado en la base de entes.
+      async buscarCuitPorDni(dnis) {
+        const r = {};
+        for (const dni of [...new Set(dnis.map(d => String(d).replace(/\D/g, '')).filter(Boolean))]) {
+          const { data, error } = await sb.from('entes').select('cuit,nombre').like('cuit', '__' + dni.padStart(8, '0') + '_').limit(1);
+          if (!error && data && data[0]) r[dni] = data[0].cuit;
         }
         return r;
       },
