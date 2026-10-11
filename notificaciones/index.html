@@ -169,6 +169,22 @@
     font-size: 18px; display: flex; align-items: center; justify-content: center; }
   .audio .nom { flex: 1; min-width: 0; font-size: 18px; font-weight: 700; line-height: 1.15; overflow-wrap: anywhere; }
   .audio .nom small { display: block; color: var(--texto2); font-weight: 600; font-size: 15px; }
+  .audio { flex-wrap: wrap; }
+  .fila-cuando { flex-basis: 100%; padding-left: 42px; margin-top: -2px; }
+  .cuando { white-space: nowrap; max-width: 100%; overflow: hidden; text-overflow: ellipsis; display: inline-flex; align-items: center; gap: 4px; margin-top: 4px; border-radius: 999px; padding: 0 10px; line-height: 28px;
+    font-size: 15px; font-weight: 800; background: #fff; color: var(--primario); border: 2px solid currentColor; }
+  .cuando svg { width: 16px; height: 16px; }
+  .cuando.prog { background: var(--primario); color: #fff; border-color: var(--primario); }
+  .cuando.mal { background: #FFE1E1; color: #C62828; border-color: #C62828; }
+  .cuando:disabled { opacity: .55; }
+  .opcion-cuando { display: flex; align-items: center; gap: 12px; width: 100%; text-align: left; border-radius: 22px; padding: 12px 16px;
+    background: var(--suave); font-size: 21px; font-weight: 800; color: var(--texto); margin-top: 10px; box-shadow: inset 0 -4px 0 rgba(0,0,0,.06); }
+  .opcion-cuando small { display: block; font-size: 16px; font-weight: 600; color: var(--texto2); }
+  .opcion-cuando .marca { width: 30px; height: 30px; border-radius: 50%; flex: none; border: 4px solid #C9D8EC; background: #fff; }
+  .opcion-cuando.elegida { background: #D9F3DF; }
+  .opcion-cuando.elegida .marca { border-color: var(--verde); background: radial-gradient(circle, var(--verde) 45%, #fff 50%); }
+  #cu-falta[hidden] { display: none; }
+  #cu-falta { margin-top: 12px; }
   .audio .mini { width: 40px; height: 40px; background: #fff; }
   .audio .mini svg { width: 20px; height: 20px; }
   .audio .mini:disabled { opacity: .35; }
@@ -317,7 +333,7 @@
       <button data-rapido="300">5 min</button><button data-rapido="600">10 min</button><button data-rapido="0">Sin tiempo</button>
     </div>
 
-    <div class="campo">Audios <small>(suenan uno atrás del otro, sin pausas)</small></div>
+    <div class="campo">Audios <small>(los de «Al empezar» suenan uno atrás del otro y el tiempo arranca con el 2.º; tocá el reloj de un audio para que suene cuando falten X segundos)</small></div>
     <div id="audios"></div>
     <div class="agregar">
       <button class="boton claro chico" id="btn-subir">
@@ -338,6 +354,38 @@
     <div class="pie">
       <button class="boton claro" id="ed-cancelar">Cancelar</button>
       <button class="boton" id="ed-guardar">Guardar</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ ¿Cuándo suena este audio? ============ -->
+<div class="modal" id="cuando" hidden role="dialog" aria-labelledby="cu-titulo">
+  <div class="tarjeta">
+    <h2 id="cu-titulo">¿Cuándo suena?</h2>
+    <p class="sub" id="cu-sub"></p>
+    <button class="opcion-cuando" id="cu-inicio"><span class="marca"></span><span>Al empezar<small>Uno atrás del otro, sin pausas</small></span></button>
+    <button class="opcion-cuando" id="cu-prog"><span class="marca"></span><span>Cuando falten…<small id="cu-total"></small></span></button>
+    <div id="cu-falta">
+      <div class="tiempo">
+        <div class="rueda">
+          <button class="mas" data-cu="60" aria-label="Más minutos">+</button>
+          <input id="cu-min" type="number" inputmode="numeric" min="0" max="99" value="0" aria-label="Minutos">
+          <button class="menos" data-cu="-60" aria-label="Menos minutos">−</button>
+          <small>minutos</small>
+        </div>
+        <div class="dos">:</div>
+        <div class="rueda">
+          <button class="mas" data-cu="1" aria-label="Más segundos">+</button>
+          <input id="cu-seg" type="number" inputmode="numeric" min="0" max="59" value="10" aria-label="Segundos">
+          <button class="menos" data-cu="-1" aria-label="Menos segundos">−</button>
+          <small>segundos</small>
+        </div>
+      </div>
+      <div class="rapidos" id="cu-rapidos"></div>
+    </div>
+    <div class="pie">
+      <button class="boton claro" id="cu-cancelar">Cancelar</button>
+      <button class="boton" id="cu-listo">Listo</button>
     </div>
   </div>
 </div>
@@ -573,38 +621,65 @@
     }).then(function (buf) { buffers.set(a.id, buf); return buf; });
   }
 
-  // Reproduce una lista de audios en cadena. Devuelve un control con parar() y la info de cuál suena.
-  function cadena(audios, alCambiar, alTerminar) {
-    var c = audioCtx(), fuentes = [], cancelado = false, marcas = [], raf = 0, actual = -1;
-    var control = { parar: parar, listo: null };
+  /* Programa los audios en el reloj de audio.
+     modo 'lista':  todos uno atrás del otro (para escuchar en el editor).
+     modo 'tarea':  los de «Al empezar» en cadena sin pausas; el conteo arranca con el 2.º de ellos;
+                    los programados suenan exactamente cuando faltan X segundos (entre ellos no se pisan).
+     modo 'inicio': solo los de «Al empezar» (para «Repetir audios» con el conteo ya corriendo). */
+  function esProgramado(a, total) { return total > 0 && a.momento != null && a.momento > 0; }
+  function programa(audios, op) {
+    op = op || {};
+    var c = audioCtx(), cancelado = false, marcas = [], raf = 0, firma = '', modo = op.modo || 'lista', total = op.total || 0;
+    var control = { parar: parar, pararCadena: pararCadena, listo: null, marcas: marcas, arranque: null,
+      sonando: new Set(), hechos: new Set(), terminado: false };
     control.listo = Promise.all(audios.map(function (a) {
       return decodificar(a).catch(function () { return null; });
     })).then(function (bufs) {
       if (cancelado) return;
-      var t = c.currentTime + 0.06;
-      bufs.forEach(function (buf, i) {
-        if (!buf) return; // archivo que el navegador no puede leer: se saltea
-        var s = c.createBufferSource(); s.buffer = buf; s.connect(c.destination); s.start(t);
-        fuentes.push(s); marcas.push({ i: i, desde: t, hasta: t + buf.duration });
-        t += buf.duration;
+      var t0 = c.currentTime + 0.06, t = t0, cad = [];
+      function poner(i, buf, desde, tipo) {
+        var s = c.createBufferSource(); s.buffer = buf; s.connect(c.destination); s.start(desde);
+        var m = { i: i, desde: desde, hasta: desde + buf.duration, tipo: tipo, s: s }; marcas.push(m); return m;
+      }
+      audios.forEach(function (a, i) {
+        var buf = bufs[i]; if (!buf) return; // archivo que el navegador no puede leer: se saltea
+        if (modo !== 'lista' && esProgramado(a, total)) return;
+        cad.push(poner(i, buf, t, 'cadena')); t += buf.duration;
       });
-      if (!marcas.length) { if (alTerminar) alTerminar(); return; }
-      var fin = t;
+      // momento en que arranca el conteo: cuando empieza el 2.º audio de «Al empezar»
+      control.arranque = cad.length >= 2 ? cad[1].desde : (cad.length === 1 ? cad[0].hasta : t0);
+      if (modo === 'tarea' && total > 0) {
+        var prog = audios.map(function (a, i) { return { a: a, i: i, buf: bufs[i] }; })
+          .filter(function (x) { return x.buf && esProgramado(x.a, total); })
+          .sort(function (x, y) { return (y.a.momento - x.a.momento) || (x.i - y.i); });
+        var ultimo = 0;
+        prog.forEach(function (x) {
+          var objetivo = control.arranque + total - Math.min(x.a.momento, total);
+          var m = poner(x.i, x.buf, Math.max(objetivo, ultimo), 'programado'); ultimo = m.hasta;
+        });
+      }
+      if (!marcas.length) { control.terminado = true; if (op.alTerminar) op.alTerminar(); return; }
       (function mirar() {
         if (cancelado) return;
-        var ahora = c.currentTime, m = null;
-        for (var k = 0; k < marcas.length; k++) if (ahora < marcas[k].hasta) { m = marcas[k]; break; }
-        if (!m) { if (alCambiar) alCambiar(-1); if (alTerminar) alTerminar(); return; }
-        if (m.i !== actual) { actual = m.i; if (alCambiar) alCambiar(m.i); }
+        var ahora = c.currentTime, son = new Set(), hec = new Set(), quedan = false;
+        marcas.forEach(function (m) {
+          if (m.hasta <= ahora) hec.add(m.i);
+          else { quedan = true; if (m.desde <= ahora) son.add(m.i); }
+        });
+        son.forEach(function (i) { hec.delete(i); });
+        var f = Array.from(son).join(',') + '|' + Array.from(hec).join(',');
+        if (f !== firma) { firma = f; control.sonando = son; control.hechos = hec; if (op.alCambiar) op.alCambiar(); }
+        if (!quedan) { control.terminado = true; if (op.alTerminar) op.alTerminar(); return; }
         raf = requestAnimationFrame(mirar);
       })();
-      control.fin = fin; control.marcas = marcas;
     });
-    function parar() {
-      cancelado = true; cancelAnimationFrame(raf);
-      fuentes.forEach(function (s) { try { s.stop(); } catch (e) {} s.disconnect(); });
-      fuentes = [];
+    function cortar(m) {
+      try { m.s.stop(); } catch (e) {} m.s.disconnect();
+      var ahora = c.currentTime; if (m.hasta > ahora) m.hasta = Math.max(m.desde, Math.min(m.hasta, ahora));
+      if (m.desde > ahora) { m.desde = m.hasta = -1; }
     }
+    function parar() { cancelado = true; cancelAnimationFrame(raf); marcas.forEach(cortar); }
+    function pararCadena() { marcas.forEach(function (m) { if (m.tipo === 'cadena') cortar(m); }); }
     return control;
   }
 
@@ -612,7 +687,8 @@
   var ed = null; // copia de trabajo de la tarea
   var prueba = null;
   function abrirEditor(t) {
-    ed = t ? { id: t.id, creada: t.creada, nombre: t.nombre, min: t.min || 0, seg: t.seg || 0, audios: t.audios.slice(), nueva: false }
+    ed = t ? { id: t.id, creada: t.creada, nombre: t.nombre, min: t.min || 0, seg: t.seg || 0,
+               audios: t.audios.map(function (a) { return Object.assign({}, a); }), nueva: false }
            : { id: nuevoId(), creada: Date.now(), nombre: '', min: 1, seg: 0, audios: [], nueva: true };
     $('editor-titulo').textContent = ed.nueva ? 'Nueva tarea' : 'Editar tarea';
     $('ed-nombre').value = ed.nombre; $('ed-nombre').classList.remove('falta');
@@ -636,16 +712,25 @@
     b.onclick = function () {
       var t = leerTiempo(), total = t.min * 60 + t.seg, p = +b.getAttribute('data-paso');
       ponerTiempo(total + (b.getAttribute('data-campo') === 'min' ? p * 60 : p));
+      if (ed) pintarAudios();
     };
   });
   ['ed-min', 'ed-seg'].forEach(function (id) {
-    $(id).addEventListener('change', function () { var t = leerTiempo(); $('ed-min').value = t.min; $('ed-seg').value = t.seg; });
+    $(id).addEventListener('change', function () { var t = leerTiempo(); $('ed-min').value = t.min; $('ed-seg').value = t.seg; if (ed) pintarAudios(); });
     $(id).addEventListener('focus', function () { this.select(); });
   });
-  document.querySelectorAll('[data-rapido]').forEach(function (b) { b.onclick = function () { ponerTiempo(+b.getAttribute('data-rapido')); }; });
+  document.querySelectorAll('[data-rapido]').forEach(function (b) { b.onclick = function () { ponerTiempo(+b.getAttribute('data-rapido')); if (ed) pintarAudios(); }; });
 
+  function chipCuando(a, total) {
+    var prog = a.momento != null && a.momento > 0;
+    if (!total) return '<button class="cuando" data-a="cuando" disabled>' + ICON.reloj + 'Al empezar' + (prog ? ' (poné un tiempo)' : '') + '</button>';
+    if (!prog) return '<button class="cuando" data-a="cuando">' + ICON.reloj + 'Al empezar</button>';
+    var mal = a.momento > total;
+    return '<button class="cuando prog' + (mal ? ' mal' : '') + '" data-a="cuando">' + ICON.reloj + 'Faltan ' + mmss(a.momento) + (mal ? ' (más que el tiempo)' : '') + '</button>';
+  }
+  function totalEditor() { var t = leerTiempo(); return t.min * 60 + t.seg; }
   function pintarAudios(sonando) {
-    var c = $('audios'), as = ed.audios;
+    var c = $('audios'), as = ed.audios, total = totalEditor();
     $('btn-probar').disabled = !as.length && !prueba;
     if (!as.length) { c.innerHTML = '<div class="sin-audios">Sin audios todavía. Podés subir archivos o grabar con el micrófono.</div>'; return; }
     c.innerHTML = as.map(function (a, i) {
@@ -656,12 +741,14 @@
         '<button class="mini" data-a="subir" aria-label="Subir"' + (i === 0 ? ' disabled' : '') + '>' + ICON.arriba + '</button>' +
         '<button class="mini" data-a="bajar" aria-label="Bajar"' + (i === as.length - 1 ? ' disabled' : '') + '>' + ICON.abajo + '</button>' +
         '<button class="mini" data-a="quitar" aria-label="Quitar">' + ICON.tacho + '</button>' +
+        '<div class="fila-cuando">' + chipCuando(a, total) + '</div>' +
       '</div>';
     }).join('');
   }
   $('audios').addEventListener('click', function (e) {
     var b = e.target.closest('[data-a]'); if (!b || !ed) return;
     var i = +b.closest('.audio').getAttribute('data-i'), as = ed.audios, a = b.getAttribute('data-a');
+    if (a === 'cuando') { pararPrueba(); abrirCuando(i); return; }
     if (a === 'oir') {
       var eraEste = prueba && prueba.solo && prueba.i === i;
       pararPrueba();
@@ -677,7 +764,9 @@
 
   function probar(lista, solo) {
     var base = typeof solo === 'number' ? solo : 0;
-    prueba = cadena(lista, function (k) { if (ed) pintarAudios(k < 0 ? null : base + k); }, function () { pararPrueba(); });
+    var esta = prueba = programa(lista, { modo: 'lista',
+      alCambiar: function () { if (ed && prueba === esta) { var k = Array.from(esta.sonando)[0]; pintarAudios(k == null ? null : base + k); } },
+      alTerminar: function () { if (prueba === esta) pararPrueba(); } });
     prueba.solo = typeof solo === 'number'; prueba.i = solo;
     $('probar-texto').textContent = prueba.solo ? 'Escuchar todos' : 'Parar';
   }
@@ -732,6 +821,52 @@
     try { grab.rec.stop(); } catch (e) {}
   }
 
+  /* ¿Cuándo suena? — «Al empezar» o «Cuando falten X» (contado desde el final del temporizador) */
+  var cu = null; // { i, prog, seg }
+  function abrirCuando(i) {
+    var a = ed.audios[i], total = totalEditor();
+    if (!total) { aviso('Primero poné el tiempo del temporizador.'); return; }
+    var prog = a.momento != null && a.momento > 0;
+    cu = { i: i, prog: prog, seg: prog ? Math.min(a.momento, total) : Math.min(10, total) };
+    $('cu-sub').textContent = '«' + a.nombre + '»';
+    $('cu-total').textContent = 'Contado hacia atrás desde ' + mmss(total) + ' (el tiempo de la tarea).';
+    var r = [5, 10, 30, 60].filter(function (x) { return x < total; });
+    $('cu-rapidos').innerHTML = r.map(function (x) { return '<button data-cr="' + x + '">' + (x < 60 ? x + ' s' : mmss(x)) + '</button>'; }).join('') +
+      (total >= 4 ? '<button data-cr="' + Math.round(total / 2) + '">La mitad</button>' : '');
+    pintarCuando();
+    $('cuando').hidden = false;
+  }
+  function pintarCuando() {
+    $('cu-inicio').classList.toggle('elegida', !cu.prog);
+    $('cu-prog').classList.toggle('elegida', cu.prog);
+    $('cu-falta').hidden = !cu.prog;
+    $('cu-min').value = Math.floor(cu.seg / 60); $('cu-seg').value = cu.seg % 60;
+  }
+  function leerCuando() {
+    var m = parseInt($('cu-min').value, 10), s = parseInt($('cu-seg').value, 10);
+    m = isNaN(m) ? 0 : Math.max(0, m); s = isNaN(s) ? 0 : Math.max(0, Math.min(59, s));
+    return Math.max(1, Math.min(totalEditor(), m * 60 + s));
+  }
+  $('cu-inicio').onclick = function () { cu.prog = false; pintarCuando(); };
+  $('cu-prog').onclick = function () { cu.prog = true; pintarCuando(); };
+  document.querySelectorAll('[data-cu]').forEach(function (b) {
+    b.onclick = function () { cu.seg = Math.max(1, Math.min(totalEditor(), leerCuando() + +b.getAttribute('data-cu'))); pintarCuando(); };
+  });
+  ['cu-min', 'cu-seg'].forEach(function (id) {
+    $(id).addEventListener('change', function () { cu.seg = leerCuando(); pintarCuando(); });
+    $(id).addEventListener('focus', function () { this.select(); });
+  });
+  $('cu-rapidos').addEventListener('click', function (e) {
+    var b = e.target.closest('[data-cr]'); if (!b) return; cu.prog = true; cu.seg = +b.getAttribute('data-cr'); pintarCuando();
+  });
+  function cerrarCuando() { $('cuando').hidden = true; cu = null; }
+  $('cu-cancelar').onclick = cerrarCuando;
+  $('cu-listo').onclick = function () {
+    if (!cu || !ed) return cerrarCuando();
+    ed.audios[cu.i].momento = cu.prog ? leerCuando() : null;
+    cerrarCuando(); pintarAudios();
+  };
+
   $('ed-cancelar').onclick = cerrarEditor;
   $('ed-guardar').onclick = function () {
     var n = $('ed-nombre').value.trim();
@@ -739,7 +874,7 @@
     if (grab) { aviso('Primero pará la grabación.'); return; }
     var tm = leerTiempo();
     var t = { id: ed.id, creada: ed.creada, nombre: n, min: tm.min, seg: tm.seg,
-      audios: ed.audios.map(function (a) { return { id: a.id, nombre: a.nombre, blob: a.blob, dur: a.dur }; }) };
+      audios: ed.audios.map(function (a) { return { id: a.id, nombre: a.nombre, blob: a.blob, dur: a.dur, momento: a.momento != null && a.momento > 0 ? a.momento : null }; }) };
     var nueva = ed.nueva;
     guardarTarea(t).then(function () {
       var i = tareas.findIndex(function (x) { return x.id === t.id; });
@@ -765,7 +900,7 @@
     if (arrancar) audioCtx(); // dentro del toque: así el navegador deja sonar
     pararTodo();
     var total = (t.min || 0) * 60 + (t.seg || 0);
-    curso = { tarea: t, total: total, estado: 'listo', finEn: 0, restante: total, arranque: null, cadena: null, actual: -1 };
+    curso = { tarea: t, total: total, estado: 'listo', finEn: 0, restante: total, arranque: null, prog: null, rep: null };
     $('t-nombre').textContent = t.nombre;
     $('t-reloj').hidden = !total;
     pintarPistas();
@@ -776,6 +911,7 @@
   function empezarTarea() {
     if (!curso) return;
     var c = audioCtx(); if (c.state === 'suspended') c.resume();
+    controles().forEach(function (k) { k.parar(); }); curso.prog = curso.rep = null;
     curso.estado = curso.total ? 'espera' : 'corre';
     curso.finEn = 0; curso.restante = curso.total; curso.arranque = null;
     if (curso.total) pedirAvisos();
@@ -783,27 +919,31 @@
     sonarAudios(true);
     pintarCurso(); tic();
   }
-  function sonarAudios(conConteo) {
+  function deInicio(t) { return t.audios.filter(function (a) { return !esProgramado(a, (t.min || 0) * 60 + (t.seg || 0)); }); }
+  function controles() { return [curso.prog, curso.rep].filter(Boolean); }
+  function alCambiarAudios() {
     if (!curso) return;
-    if (curso.cadena) curso.cadena.parar();
+    curso.audiosTerminados = controles().every(function (k) { return k.terminado; });
+    pintarPistas(); pintarCurso();
+  }
+  // completo = todos (los de «Al empezar» y los programados); si no, solo repite los de «Al empezar»
+  function sonarAudios(completo) {
+    if (!curso) return;
     var as = curso.tarea.audios;
-    curso.actual = -1; curso.audiosTerminados = false;
-    if (!as.length) { curso.audiosTerminados = true; if (conConteo) arrancarConteo(0); return; }
-    var esta = curso.cadena = cadena(as, function (i) {
-      if (!curso || curso.cadena !== esta) return;
-      curso.actual = i; pintarPistas();
-    }, function () {
-      if (!curso || curso.cadena !== esta) return;
-      curso.actual = -1; curso.audiosTerminados = true; pintarPistas(); pintarCurso();
-    });
-    if (conConteo && curso.total) {
+    if (completo) {
+      controles().forEach(function (k) { k.parar(); }); curso.prog = curso.rep = null;
+      curso.audiosTerminados = !as.length;
+      if (!as.length) { if (curso.total) arrancarConteo(0); return; }
+      var esta = curso.prog = programa(as, { modo: 'tarea', total: curso.total, alCambiar: alCambiarAudios, alTerminar: alCambiarAudios });
       esta.listo.then(function () {
-        if (!curso || curso.cadena !== esta || curso.estado !== 'espera') return;
-        var m = esta.marcas || [];
-        // momento (en el reloj de audio) en que arranca el segundo audio
-        curso.arranque = m.length >= 2 ? m[1].desde : (m.length === 1 ? m[0].hasta : audioCtx().currentTime);
-        tic();
+        if (!curso || curso.prog !== esta || !curso.total) return;
+        curso.arranque = esta.arranque; tic();
       });
+    } else {
+      if (curso.prog) curso.prog.pararCadena();
+      if (curso.rep) curso.rep.parar();
+      curso.rep = programa(as, { modo: 'inicio', total: curso.total, alCambiar: alCambiarAudios, alTerminar: alCambiarAudios });
+      curso.audiosTerminados = false;
     }
   }
   function arrancarConteo(atraso) {
@@ -828,26 +968,34 @@
   }
   function pintarPistas() {
     if (!curso) return;
-    var as = curso.tarea.audios, a = curso.actual;
+    var t = curso.tarea, total = curso.total, as = t.audios;
     if (!as.length) { $('t-pistas').innerHTML = ''; return; }
-    $('t-pistas').innerHTML = as.map(function (x, i) {
-      var cl = i === a ? ' ahora' : (a > i || (curso.audiosTerminados && curso.estado !== 'listo') ? ' ya' : '');
-      return '<div class="pista' + cl + '"><span class="n">' + (i === a ? '<i></i><i></i><i></i>' : (i + 1)) + '</span><span>' + esc(x.nombre) + '</span>' +
-        (i === 1 && curso.total ? '<em>arranca el tiempo</em>' : '') + '</div>';
+    var son = new Set(), hec = new Set();
+    controles().forEach(function (k) { k.sonando.forEach(function (i) { son.add(i); }); k.hechos.forEach(function (i) { hec.add(i); }); });
+    var orden = as.map(function (a, i) { return { a: a, i: i, p: esProgramado(a, total) }; });
+    var cad = orden.filter(function (x) { return !x.p; });
+    var prog = orden.filter(function (x) { return x.p; }).sort(function (x, y) { return (y.a.momento - x.a.momento) || (x.i - y.i); });
+    var n = 0;
+    $('t-pistas').innerHTML = cad.concat(prog).map(function (x, k) {
+      n++;
+      var ahora = son.has(x.i), ya = !ahora && (hec.has(x.i) || curso.estado === 'fin');
+      var et = x.p ? 'faltan ' + mmss(Math.min(x.a.momento, total)) : (k === 1 && total ? 'arranca el tiempo' : '');
+      return '<div class="pista' + (ahora ? ' ahora' : (ya ? ' ya' : '')) + '"><span class="n">' + (ahora ? '<i></i><i></i><i></i>' : n) + '</span><span>' +
+        esc(x.a.nombre) + '</span>' + (et ? '<em>' + et + '</em>' : '') + '</div>';
     }).join('');
   }
   function pintarCurso() {
     if (!curso) return;
-    var e = curso.estado, tiene = curso.tarea.audios.length;
+    var e = curso.estado, tiene = deInicio(curso.tarea).length;
     $('t-reloj').classList.toggle('espera', e === 'espera');
     $('t-empezar').hidden = !(e === 'listo' || e === 'fin' || (!curso.total && curso.audiosTerminados));
     $('t-empezar-texto').textContent = e === 'listo' ? 'Empezar' : 'Otra vez';
     $('t-pausa').hidden = !(e === 'espera' || e === 'corre' || e === 'pausa') || (!curso.total && curso.audiosTerminados);
     $('t-pausa').textContent = e === 'pausa' ? 'Seguir' : 'Pausar';
-    $('t-repetir').hidden = !tiene || e === 'listo' || e === 'fin';
+    $('t-repetir').hidden = !curso.tarea.audios.length || e === 'listo' || e === 'fin';
     var est = '';
     if (curso.total) {
-      if (e === 'listo') est = tiene >= 2 ? 'arranca con el audio 2' : (tiene === 1 ? 'arranca al terminar el audio' : '');
+      if (e === 'listo') est = tiene >= 2 ? 'arranca con el audio 2' : (tiene === 1 ? 'arranca al terminar el 1.er audio' : '');
       else if (e === 'espera') est = tiene >= 2 ? 'esperando el audio 2…' : 'esperando…';
       else if (e === 'pausa') est = 'en pausa';
       else if (e === 'fin') est = '¡terminado!';
@@ -875,12 +1023,13 @@
     if (!curso) return;
     if (curso.estado === 'pausa') $('t-pausa').click();
     // si el conteo todavía no arrancó, se vuelve a esperar al audio 2; si ya corre, sigue corriendo
+    // (y los audios programados siguen sonando en su momento)
     sonarAudios(curso.estado === 'espera');
     pintarCurso();
   };
   function pararTodo() {
     clearTimeout(ticT);
-    if (curso && curso.cadena) curso.cadena.parar();
+    if (curso) controles().forEach(function (k) { k.parar(); });
     if (ctx && ctx.state === 'suspended') ctx.resume();
     pararAlarma(); $('alerta').hidden = true;
     curso = null; soltarPantalla();
@@ -903,8 +1052,8 @@
   function llegoACero() {
     var t = curso.tarea;
     clearTimeout(ticT);
-    if (curso.cadena) curso.cadena.parar();
-    curso.estado = 'fin'; curso.actual = -1; curso.audiosTerminados = true;
+    controles().forEach(function (k) { k.parar(); });
+    curso.estado = 'fin'; curso.audiosTerminados = true;
     pintarCurso(); pintarPistas();
     $('alerta-que').textContent = (perfil.nombre ? perfil.nombre + ', ' : '') + 'se terminó el tiempo de «' + t.nombre + '»';
     $('alerta').hidden = false;
@@ -953,6 +1102,7 @@
   /* =================== Atrás y salir (siempre visibles) =================== */
   function atras() {
     if (!$('alerta').hidden) { cerrarAlerta(); return; }
+    if (!$('cuando').hidden) { cerrarCuando(); return; }
     if (!$('confirmar').hidden) { $('conf-no').click(); return; }
     if (!$('editor').hidden) { cerrarEditor(); return; }
     if (!$('config').hidden) { if (perfil.nombre) $('config').hidden = true; return; }
@@ -962,7 +1112,7 @@
   function salir() {
     cerrarAlerta(); cerrarTarea();
     if (ed) cerrarEditor();
-    ['confirmar', 'config'].forEach(function (id) { $(id).hidden = true; });
+    ['cuando', 'confirmar', 'config'].forEach(function (id) { $(id).hidden = true; });
     if (location.hash) history.replaceState(null, '', location.pathname + location.search);
     empujado = false;
     $('chau').hidden = false; $('barra').hidden = true;
