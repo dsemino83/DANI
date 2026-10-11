@@ -12,12 +12,12 @@
     "bolsillos-otro-lado": "¡Los bolsillos del otro lado! Ahora pegado al otro cachete, con circulitos.",
     "dientes-abajo": "¡Ahora los dientes de abajo! Mové el cepillo de un lado al otro.",
     "enjuague": "¡Genial! Por último, enjuagá tu boca con agua.",
-    "mision-hola": "¡Hola! Soy Superdiente. ¡Agarrá tu cepillo de dientes para empezar! ¡Decí sí!",
+    "mision-hola": "¡Hola! Soy Superdiente. ¡Agarrá tu cepillo de dientes para empezar!",
     "mision-agarrado": "¡Muy bien, ya lo tenés! ¡Vamos a cepillarnos!",
     "final": "¡Lo hiciste! ¡Dientes limpios y una gran sonrisa!",
-    "seguir": "¡Muy bien! ¿Seguimos? ¡Decí sí!",
-    "terminar": "¡Excelente! ¿Terminamos? ¡Decí sí!",
-    "foto-pregunta": "¿Querés ver cómo quedó tu sonrisa? ¡Decí sí!",
+    "seguir": "¡Muy bien!",
+    "terminar": "¡Excelente!",
+    "foto-pregunta": "¿Querés ver cómo quedó tu sonrisa?",
     "foto-mira": "¡Mirá la cámara y sonreí!",
     "foto-final": "¡Felicidades, Rami! ¡Lo lograste!",
     "cuenta-5": "¡Cinco!",
@@ -34,5 +34,5 @@
       "carpeta": "recursos/audio/"
     }
   },
-  "nota": "inicio-guardian y foto-final-guardian son recortes de inicio y foto-final sin la palabra «Rami». mision-hola termina con «¡Decí sí!» recortado de seguir."
+  "nota": "inicio-guardian y foto-final-guardian son recortes de inicio y foto-final sin la palabra «Rami». mision-hola termina con «¡Decí sí!» recortado de seguir. Oct 2026: se recortó «¡Decí sí!» (y «¿Seguimos?»/«¿Terminamos?») de mision-hola, seguir, terminar y foto-pregunta: ahora se avanza tocando."
 }
