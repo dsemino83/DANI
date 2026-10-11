@@ -2055,7 +2055,8 @@
   function micUsable() { return vozActiva && !mic.sinApi && !mic.bloqueado; }
   function esSi(t) {
     t = t.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
-    return /(^|[^a-z])(si+|sip|ci|c|listo|lista|dale|vamos|seguimos|sigamos|terminamos|ok|okey|claro|bueno)([^a-z]|$)/.test(t);
+    // Incluye cómo suele entender el celular un «sí» corto de un chico: «chi», «shi», «zi», «see»…
+    return /(^|[^a-z])(s+[iy]+|sip|sep|ci+|c|chi+|shi+|zi+|see|she|yes|ya|asi|listo|lista|dale|vamos|seguimos|sigamos|terminamos|ok|okey|okay|claro|bueno|obvio)([^a-z]|$)/.test(t);
   }
   function accionSi() {
     if (estado.pantalla === 'inicio') { if (!$('config').classList.contains('ver')) empezarMision(); }
@@ -2088,40 +2089,60 @@
   function crearReconocedor() {
     var r = new Reconocedor();
     r.lang = mic.idioma; r.continuous = true; r.interimResults = true; r.maxAlternatives = 3;
-    r.onstart = function () { mic.activo = true; clearTimeout(mic.espera); cartelMic('escuchando'); };
+    r.onstart = function () { mic.activo = true; mic.reintentos = 0; clearTimeout(mic.espera); cartelMic('escuchando'); };
     r.onresult = function (ev) {
       if (tReloj() < hablandoHasta + 0.4) return; // no reaccionar a la voz del propio juego
       for (var i = ev.resultIndex; i < ev.results.length; i++) {
         for (var j = 0; j < ev.results[i].length; j++) {
           var oido = ev.results[i][j].transcript;
-          if (esSi(oido)) { cartelMic('oido', oido.trim()); escuchar(false); accionSi(); return; }
+          if (esSi(oido)) { mic.fallos = 0; cartelMic('oido', oido.trim()); escuchar(false); accionSi(); return; }
         }
         if (ev.results[i][0]) cartelMic('oido', ev.results[i][0].transcript.trim());
       }
     };
     r.onerror = function (ev) {
       if (ev.error === 'language-not-supported' && mic.idioma !== 'es-ES') { mic.idioma = 'es-ES'; mic.rec = null; return; }
-      if (ev.error === 'not-allowed' || ev.error === 'service-not-allowed') marcarBloqueado(mic.permiso === 'ok' ? 'servicio' : 'permiso');
+      if (ev.error === 'not-allowed' || ev.error === 'service-not-allowed') {
+        // Con el permiso ya dado, Android a veces rechaza un reinicio muy seguido: se reintenta antes de bloquear.
+        if (mic.permiso === 'ok' && (mic.fallos = (mic.fallos || 0) + 1) <= 3) return;
+        mic.fallos = 0;
+        marcarBloqueado(mic.permiso === 'ok' ? 'servicio' : 'permiso');
+      }
       else if (ev.error === 'audio-capture') marcarBloqueado('permiso');
       else if (ev.error === 'network') marcarBloqueado('internet');
     };
     r.onend = function () {
       mic.activo = false;
-      if (!mic.bloqueado) cartelMic('oculto');
-      if (mic.quiere && !mic.bloqueado) setTimeout(function () { if (mic.quiere) escuchar(true); }, 250);
+      if (!mic.bloqueado && !$('aviso-mic').classList.contains('toca')) cartelMic('oculto');
+      // En Android la escucha se corta después de cada frase: se retoma enseguida para no perder el «sí».
+      if (mic.quiere && !mic.bloqueado) setTimeout(function () { if (mic.quiere) escuchar(true); }, 80);
     };
     return r;
   }
   function encender() {
     try { mic.rec = mic.rec || crearReconocedor(); mic.rec.start(); } catch (e) {}
-    // Si en 2 s no arrancó, se considera bloqueado (se ofrece tocar para activarlo).
+    // Si no arranca, se reintenta (Android a veces tarda en reiniciar la escucha); recién
+    // después de varios intentos se considera bloqueado y se ofrece tocar para activarlo.
     clearTimeout(mic.espera);
-    mic.espera = setTimeout(function () { if (mic.quiere && !mic.activo) marcarBloqueado('arranque'); }, 2000);
+    mic.espera = setTimeout(function () {
+      if (!mic.quiere || mic.activo) return;
+      if ((mic.reintentos = (mic.reintentos || 0) + 1) <= 3) {
+        // Mientras reintenta, igual se ofrece tocar (algunos celulares lo necesitan).
+        mic.motivo = 'arranque';
+        if (estado.pantalla === 'inicio' || estado.pantalla === 'mision' || estado.pantalla === 'final') cartelMic('bloqueado');
+        try { mic.rec.abort(); } catch (e) {}
+        mic.rec = null;
+        setTimeout(function () { if (mic.quiere && !mic.activo) encender(); }, 150);
+        return;
+      }
+      mic.reintentos = 0;
+      marcarBloqueado('arranque');
+    }, 2500);
   }
   function escuchar(si) {
     mic.quiere = si && micUsable();
     if (mic.sinApi) return;
-    if (!si && mic.bloqueado) cartelMic('oculto');
+    if (!si && (mic.bloqueado || $('aviso-mic').classList.contains('toca'))) cartelMic('oculto');
     if (mic.bloqueado) return;
     if (mic.quiere && !mic.activo) encender();
     else if (!mic.quiere && mic.activo) { try { mic.rec.abort(); } catch (e) {} }
