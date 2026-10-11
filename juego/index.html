@@ -1508,8 +1508,11 @@
       hablar(ultimo ? '¡Excelente! ¿Terminamos? ¡Decí sí!' : '¡Muy bien! ¿Seguimos? ¡Decí sí!', ultimo ? 'terminar' : 'seguir')
         .then(function () {
           if (estado.pantalla !== 'paso' || estado.paso !== pasoTerminado) return;
-          if (micUsable()) escuchar(true);
-          else if (estado.auto) setTimeout(function () {
+          if (micUsable()) {
+            mic.avisar = true;
+            escuchar(true);
+            recordarSi(function () { return estado.pantalla === 'paso' && estado.paso === pasoTerminado && estado.completado; }, 0);
+          } else if (estado.auto) setTimeout(function () {
             if (estado.pantalla === 'paso' && estado.paso === pasoTerminado) siguiente();
           }, 800);
         });
@@ -2058,6 +2061,12 @@
     // Incluye cómo suele entender el celular un «sí» corto de un chico: «chi», «shi», «zi», «see»…
     return /(^|[^a-z])(s+[iy]+|sip|sep|ci+|c|chi+|shi+|zi+|see|she|yes|ya|asi|listo|lista|dale|vamos|seguimos|sigamos|terminamos|ok|okey|okay|claro|bueno|obvio)([^a-z]|$)/.test(t);
   }
+  function esRespuestaCorta(t) {
+    t = sinAcentos(t).replace(/[^a-z0-9\s]/g, ' ').trim();
+    if (!t) return false;
+    var palabras = t.split(/\s+/);
+    return palabras.length <= 3 && !/(^|\s)(no|nop|nunca|todavia|espera|para|basta|chau)(\s|$)/.test(t);
+  }
   function accionSi() {
     if (estado.pantalla === 'inicio') { if (!$('config').classList.contains('ver')) empezarMision(); }
     else if (estado.pantalla === 'final') abrirCamara();
@@ -2088,16 +2097,27 @@
   }
   function crearReconocedor() {
     var r = new Reconocedor();
-    r.lang = mic.idioma; r.continuous = true; r.interimResults = true; r.maxAlternatives = 3;
-    r.onstart = function () { mic.activo = true; mic.reintentos = 0; clearTimeout(mic.espera); cartelMic('escuchando'); };
+    r.lang = mic.idioma; r.continuous = true; r.interimResults = true; r.maxAlternatives = 5;
+    r.onstart = function () {
+      mic.activo = true; mic.reintentos = 0; clearTimeout(mic.espera); cartelMic('escuchando');
+      // Una vibración cortita avisa que ya se puede hablar (no la capta el micrófono).
+      if (mic.avisar) { mic.avisar = false; try { navigator.vibrate && navigator.vibrate(40); } catch (e) {} }
+    };
     r.onresult = function (ev) {
-      if (tReloj() < hablandoHasta + 0.4) return; // no reaccionar a la voz del propio juego
+      // El micrófono se abre recién cuando termina de hablar el juego: este margen solo descarta restos.
+      if (tReloj() < hablandoHasta + 0.15) return;
       for (var i = ev.resultIndex; i < ev.results.length; i++) {
         for (var j = 0; j < ev.results[i].length; j++) {
           var oido = ev.results[i][j].transcript;
           if (esSi(oido)) { mic.fallos = 0; cartelMic('oido', oido.trim()); escuchar(false); accionSi(); return; }
         }
-        if (ev.results[i][0]) cartelMic('oido', ev.results[i][0].transcript.trim());
+        // De lejos, un «sí» bajito suele llegar mal escrito («mí», «y», «hi»…): una respuesta corta
+        // (hasta 3 palabras) que no sea un «no» también cuenta como «sí».
+        var frase = ev.results[i][0] && ev.results[i][0].transcript;
+        if (frase && ev.results[i].isFinal && esRespuestaCorta(frase)) {
+          mic.fallos = 0; cartelMic('oido', frase.trim()); escuchar(false); accionSi(); return;
+        }
+        if (frase) cartelMic('oido', frase.trim());
       }
     };
     r.onerror = function (ev) {
@@ -2246,7 +2266,25 @@
   function esperarSi(pantalla) {
     if (estado.pantalla !== pantalla) return;
     if (mic.bloqueado && vozActiva && pantalla !== 'paso') { mic.quiere = true; cartelMic('bloqueado'); return; }
+    mic.avisar = true;
     escuchar(true);
+    recordarSi(function () { return estado.pantalla === pantalla; }, 0);
+  }
+  // Si pasa un rato sin oír el «sí», Superdiente repite la pregunta y vuelve a abrir el micrófono,
+  // así el chico sabe cuándo contestar (hasta dos veces).
+  var turnoRecordatorio = 0;
+  function recordarSi(sigue, veces) {
+    var turno = ++turnoRecordatorio;
+    setTimeout(function () {
+      if (turno !== turnoRecordatorio || veces >= 2 || !sigue() || !mic.quiere || mic.bloqueado || !ultimaFrase) return;
+      if (tReloj() < hablandoHasta || $('config').classList.contains('ver') || $('ayuda-mic').classList.contains('ver')) return;
+      hablar(ultimaFrase[0], ultimaFrase[1]).then(function () {
+        if (turno !== turnoRecordatorio || !sigue() || !micUsable()) return;
+        mic.avisar = true;
+        escuchar(true);
+        recordarSi(sigue, veces + 1);
+      });
+    }, 14000);
   }
 
   // Saludo de la pantalla principal. Los navegadores no dejan hablar antes del primer toque,
