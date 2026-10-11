@@ -1,0 +1,885 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0E2F86">
+<title>Tareas de Rami</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="fondos/icono-192.png">
+<link rel="apple-touch-icon" href="fondos/icono-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@600;700;800&display=swap" rel="stylesheet">
+<style>
+  /* Mismos colores que Misión: Dientes Limpios. «Baño» = azul y amarillo; «Hotel de monstruos» = violeta y naranja. */
+  :root {
+    --fondo: #061233;
+    --primario: #1753C9;
+    --primario-osc: #0E2F86;
+    --acento: #FFD23F;
+    --acento2: #9BE3FF;
+    --boton-a: #FFE36A; --boton-b: #FFC21A; --boton-sombra: #D99A00; --boton-texto: #1753C9;
+    --redondo-a: #3E8BFF; --redondo-b: #1646B8;
+    --texto: #152B57; --texto2: #2F4C80;
+    --vidrio: rgba(255, 255, 255, .88);
+    --suave: #E4EEFB;
+    --peligro-a: #FF7A7A; --peligro-b: #D93030; --peligro-sombra: #9E1C1C;
+    --verde: #2E9E4A;
+    color-scheme: light;
+  }
+  body.tema-hotel {
+    --fondo: #140726;
+    --primario: #5A1FA8;
+    --primario-osc: #2E1452;
+    --acento: #FF9A1F;
+    --acento2: #B6F36A;
+    --boton-a: #FFC56B; --boton-b: #FF8A1F; --boton-sombra: #B8500A; --boton-texto: #3D1066;
+    --redondo-a: #B072FF; --redondo-b: #5A1FA8;
+    --texto: #3D1066; --texto2: #5B2C8F;
+    --suave: #EFE4FB;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; min-height: 100%; }
+  body { background: var(--fondo); color: var(--texto); font-family: 'Baloo 2', 'Trebuchet MS', sans-serif;
+    -webkit-tap-highlight-color: transparent; overflow-x: hidden; }
+  button, input { font: inherit; }
+  button { border: 0; cursor: pointer; color: inherit; background: none; }
+  [hidden] { display: none !important; }
+
+  /* ---------- Fondo animado (el mismo video de inicio de Superdiente) ---------- */
+  #fondo { position: fixed; inset: 0; z-index: 0; overflow: hidden; background: var(--fondo) center / cover no-repeat; }
+  #fondo video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: 20% 50%; }
+  #fondo::after { content: ''; position: absolute; inset: 0;
+    background: linear-gradient(rgba(6,18,51,.15) 0%, rgba(6,18,51,.25) 35%, rgba(6,18,51,.8) 100%); }
+  body.tema-hotel #fondo::after { background: linear-gradient(rgba(20,7,38,.15) 0%, rgba(20,7,38,.3) 35%, rgba(20,7,38,.85) 100%); }
+
+  main { position: relative; z-index: 1; max-width: 720px; margin: 0 auto; min-height: 100vh;
+    padding: calc(16px + env(safe-area-inset-top)) 16px calc(120px + env(safe-area-inset-bottom)); }
+
+  /* ---------- Encabezado ---------- */
+  .barra { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  .redondo { width: 60px; height: 60px; border-radius: 50%; flex: none; display: flex; align-items: center; justify-content: center;
+    background: radial-gradient(circle at 35% 30%, var(--redondo-a), var(--redondo-b) 70%); border: 4px solid rgba(255,255,255,.9);
+    box-shadow: 0 6px 16px rgba(0,0,0,.35); }
+  .redondo:active { transform: scale(.94); }
+  .redondo svg { width: 32px; height: 32px; }
+  .atajo { display: flex; align-items: center; gap: 8px; height: 60px; padding: 0 18px 0 8px; border-radius: 999px;
+    background: var(--vidrio); color: var(--texto); text-decoration: none; font-weight: 800; font-size: 20px;
+    box-shadow: 0 6px 16px rgba(0,0,0,.3); backdrop-filter: blur(6px); }
+  .atajo:active { transform: scale(.97); }
+  .atajo img { width: 46px; height: 46px; border-radius: 50%; object-fit: cover; }
+
+  .titulo { margin: 18px 0 4px; text-align: center; line-height: .85; }
+  .titulo span { display: block; font-weight: 800; paint-order: stroke fill; }
+  .titulo .t1 { font-size: clamp(40px, 11vw, 64px); color: #fff; -webkit-text-stroke: 8px var(--primario); }
+  .titulo .t2 { font-size: clamp(62px, 18vw, 104px); color: var(--acento); -webkit-text-stroke: 10px var(--primario);
+    text-shadow: 0 7px 0 var(--primario-osc); }
+  .saludo { text-align: center; color: #fff; font-size: clamp(24px, 6.5vw, 34px); font-weight: 700; margin: 10px 0 18px;
+    text-shadow: 0 3px 8px rgba(0,0,0,.6); }
+  .saludo b { color: var(--acento); }
+
+  /* ---------- Lista de tareas ---------- */
+  #lista { display: flex; flex-direction: column; gap: 14px; }
+  .tarea { background: var(--vidrio); border-radius: 28px; padding: 14px 14px 14px 18px; display: flex; align-items: center; gap: 12px;
+    box-shadow: 0 8px 24px rgba(0,0,0,.3); backdrop-filter: blur(6px); }
+  .tarea .info { flex: 1; min-width: 0; }
+  .tarea .nombre { font-size: 26px; font-weight: 800; line-height: 1.1; overflow-wrap: anywhere; }
+  .tarea .datos { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+  .chip { display: inline-flex; align-items: center; gap: 4px; background: var(--suave); color: var(--texto2); border-radius: 999px;
+    padding: 0 12px; font-size: 17px; font-weight: 700; line-height: 30px; }
+  .chip svg { width: 18px; height: 18px; }
+  .tarea .acciones { display: flex; gap: 8px; flex: none; }
+  .mini { width: 48px; height: 48px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: var(--suave); }
+  .mini svg { width: 24px; height: 24px; }
+  .mini:active { transform: scale(.92); }
+  .mini.borrar { background: #FFE1E1; }
+  .play { width: 68px; height: 68px; border-radius: 50%; flex: none; display: flex; align-items: center; justify-content: center;
+    background: linear-gradient(var(--boton-a), var(--boton-b)); box-shadow: 0 5px 0 var(--boton-sombra); }
+  .play:active { transform: translateY(4px); box-shadow: 0 1px 0 var(--boton-sombra); }
+  .play svg { width: 34px; height: 34px; margin-left: 4px; }
+  @media (max-width: 460px) {
+    .tarea { flex-wrap: wrap; }
+    .tarea .info { flex-basis: calc(100% - 80px); }
+    .tarea .acciones { width: 100%; justify-content: flex-end; }
+  }
+  .vacio { text-align: center; color: #fff; font-size: 24px; font-weight: 700; padding: 28px 16px; border-radius: 28px;
+    background: rgba(255,255,255,.14); border: 3px dashed rgba(255,255,255,.5); text-shadow: 0 2px 6px rgba(0,0,0,.5); }
+
+  /* ---------- Botones grandes (amarillos como en Superdiente) ---------- */
+  .boton { display: inline-flex; align-items: center; justify-content: center; gap: 10px; height: 68px; padding: 0 28px;
+    border-radius: 999px; background: linear-gradient(var(--boton-a), var(--boton-b)); color: var(--boton-texto);
+    font-size: 26px; font-weight: 800; box-shadow: 0 6px 0 var(--boton-sombra), 0 10px 22px rgba(0,0,0,.3); white-space: nowrap; }
+  .boton:active { transform: translateY(5px); box-shadow: 0 1px 0 var(--boton-sombra); }
+  .boton svg { width: 30px; height: 30px; flex: none; }
+  .boton.azul { background: linear-gradient(var(--redondo-a), var(--redondo-b)); color: #fff; box-shadow: 0 6px 0 var(--primario-osc), 0 10px 22px rgba(0,0,0,.3); }
+  .boton.rojo { background: linear-gradient(var(--peligro-a), var(--peligro-b)); color: #fff; box-shadow: 0 6px 0 var(--peligro-sombra), 0 10px 22px rgba(0,0,0,.3); }
+  .boton.claro { background: var(--suave); color: var(--texto); box-shadow: 0 5px 0 rgba(0,0,0,.12); }
+  .boton.chico { height: 54px; font-size: 21px; padding: 0 20px; }
+  .boton:disabled { opacity: .5; }
+  #btn-nueva { position: fixed; z-index: 5; left: 50%; transform: translateX(-50%); bottom: calc(22px + env(safe-area-inset-bottom));
+    height: 78px; font-size: 30px; padding: 0 36px; }
+  #btn-nueva:active { transform: translate(-50%, 5px); }
+
+  /* ---------- Ventanas ---------- */
+  .modal { position: fixed; inset: 0; z-index: 20; background: rgba(4,14,44,.66); display: flex; align-items: flex-end;
+    justify-content: center; padding: 12px; padding-bottom: calc(12px + env(safe-area-inset-bottom)); }
+  body.tema-hotel .modal { background: rgba(20,7,38,.7); }
+  @media (min-width: 640px) { .modal { align-items: center; } }
+  .tarjeta { width: 100%; max-width: 620px; max-height: calc(100vh - 24px); overflow-y: auto; background: #fff; border-radius: 34px;
+    padding: 22px 20px 24px; box-shadow: 0 20px 60px rgba(0,0,0,.45); animation: subir .25s ease-out; }
+  @keyframes subir { from { transform: translateY(30px); opacity: 0; } }
+  .tarjeta h2 { margin: 0 0 4px; text-align: center; font-size: 34px; font-weight: 800; line-height: 1.05; }
+  .tarjeta p.sub { margin: 0 0 10px; text-align: center; font-size: 19px; font-weight: 600; color: var(--texto2); }
+  .campo { display: block; margin: 16px 0 8px; font-size: 22px; font-weight: 800; }
+  .campo small { font-weight: 600; color: var(--texto2); font-size: 17px; }
+  .entrada { width: 100%; height: 64px; border-radius: 20px; border: 4px solid #C9D8EC; padding: 0 18px; outline: none;
+    font-size: 28px; font-weight: 700; text-align: center; background: var(--primario); color: #fff; -webkit-text-fill-color: #fff; caret-color: var(--acento); }
+  .entrada::placeholder { color: rgba(255,255,255,.6); -webkit-text-fill-color: rgba(255,255,255,.6); }
+  .entrada:focus { border-color: var(--acento); }
+  .entrada.falta { border-color: #E5484D; animation: sacudir .4s; }
+  @keyframes sacudir { 25% { transform: translateX(-8px); } 75% { transform: translateX(8px); } }
+  .pie { display: flex; gap: 12px; justify-content: center; margin-top: 22px; flex-wrap: wrap; }
+
+  /* Escenarios (igual que la configuración de Superdiente) */
+  .escenarios { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .escenarios button { border-radius: 24px; background: var(--suave); padding: 8px 8px 6px; font-size: 20px; font-weight: 800;
+    color: var(--texto); line-height: 1.1; box-shadow: inset 0 -5px 0 rgba(0,0,0,.08); }
+  .escenarios img { display: block; width: 100%; aspect-ratio: 4 / 3; object-fit: cover; object-position: 20% 50%; border-radius: 16px; margin-bottom: 6px; }
+  .escenarios button.elegida { background: var(--verde); color: #fff; box-shadow: 0 0 0 5px #BFE8C9, inset 0 -5px 0 rgba(0,0,0,.15); }
+
+  /* Temporizador */
+  .tiempo { display: flex; justify-content: center; align-items: center; gap: 10px; }
+  .rueda { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+  .rueda .mas, .rueda .menos { width: 64px; height: 46px; border-radius: 16px; background: var(--suave); font-size: 30px; font-weight: 800; line-height: 1; }
+  .rueda .mas:active, .rueda .menos:active { transform: scale(.94); }
+  .rueda input { width: 100px; height: 76px; border-radius: 20px; border: 4px solid #C9D8EC; text-align: center; font-size: 44px; font-weight: 800;
+    background: var(--primario); color: #fff; -webkit-text-fill-color: #fff; outline: none; -moz-appearance: textfield; }
+  .rueda input::-webkit-outer-spin-button, .rueda input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+  .rueda input:focus { border-color: var(--acento); }
+  .rueda small { font-size: 17px; font-weight: 700; color: var(--texto2); }
+  .tiempo .dos { font-size: 52px; font-weight: 800; padding-bottom: 28px; }
+  .rapidos { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; margin-top: 10px; }
+  .rapidos button { background: var(--suave); border-radius: 999px; padding: 0 14px; line-height: 38px; font-size: 18px; font-weight: 800; color: var(--texto2); }
+
+  /* Audios */
+  #audios { display: flex; flex-direction: column; gap: 8px; }
+  .audio { display: flex; align-items: center; gap: 8px; background: var(--suave); border-radius: 20px; padding: 8px 8px 8px 8px; }
+  .audio .n { width: 34px; height: 34px; border-radius: 50%; flex: none; background: var(--primario); color: #fff; font-weight: 800;
+    font-size: 18px; display: flex; align-items: center; justify-content: center; }
+  .audio .nom { flex: 1; min-width: 0; font-size: 18px; font-weight: 700; line-height: 1.15; overflow-wrap: anywhere; }
+  .audio .nom small { display: block; color: var(--texto2); font-weight: 600; font-size: 15px; }
+  .audio .mini { width: 40px; height: 40px; background: #fff; }
+  .audio .mini svg { width: 20px; height: 20px; }
+  .audio .mini:disabled { opacity: .35; }
+  .audio.sonando { background: #D9F3DF; }
+  .sin-audios { text-align: center; color: var(--texto2); font-size: 18px; font-weight: 600; padding: 10px; border: 3px dashed #C9D8EC; border-radius: 20px; }
+  .agregar { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; margin-top: 12px; }
+  #btn-grabar.grabando { background: linear-gradient(var(--peligro-a), var(--peligro-b)); color: #fff; box-shadow: 0 5px 0 var(--peligro-sombra); animation: latido 1s ease-in-out infinite; }
+  @keyframes latido { 50% { transform: scale(1.05); } }
+
+  /* ---------- Pantalla de tarea en curso ---------- */
+  #curso { position: fixed; inset: 0; z-index: 15; display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 18px; padding: calc(20px + env(safe-area-inset-top)) 16px calc(24px + env(safe-area-inset-bottom)); text-align: center;
+    background: rgba(6,18,51,.85); backdrop-filter: blur(6px); }
+  body.tema-hotel #curso { background: rgba(20,7,38,.88); }
+  #curso .que { color: #fff; font-size: clamp(34px, 9vw, 54px); font-weight: 800; line-height: 1; -webkit-text-stroke: 6px var(--primario); paint-order: stroke fill;
+    max-width: 100%; overflow-wrap: anywhere; }
+  .reloj { position: relative; width: min(72vw, 340px); aspect-ratio: 1; }
+  .reloj svg { width: 100%; height: 100%; transform: rotate(-90deg); }
+  .reloj .cifra { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: #fff;
+    font-size: min(19vw, 92px); font-weight: 800; letter-spacing: 1px; text-shadow: 0 4px 0 rgba(0,0,0,.25); }
+  #anillo { transition: stroke-dashoffset .25s linear; }
+  .sonando-ahora { display: inline-flex; align-items: center; gap: 10px; background: var(--vidrio); color: var(--texto); border-radius: 999px;
+    padding: 6px 22px 6px 10px; font-size: 22px; font-weight: 800; max-width: 100%; }
+  .sonando-ahora .ondas { width: 44px; height: 44px; border-radius: 50%; background: var(--primario); display: flex; align-items: center; justify-content: center; gap: 3px; flex: none; }
+  .sonando-ahora .ondas i { width: 5px; height: 10px; border-radius: 3px; background: #fff; animation: onda .8s ease-in-out infinite; }
+  .sonando-ahora .ondas i:nth-child(2) { animation-delay: -.25s; } .sonando-ahora .ondas i:nth-child(3) { animation-delay: -.5s; }
+  @keyframes onda { 50% { height: 24px; } }
+  .sonando-ahora.quieto .ondas i { animation: none; }
+  .sonando-ahora span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .botones-curso { display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; }
+
+  /* ---------- Alerta al llegar a 0 ---------- */
+  #alerta { position: fixed; inset: 0; z-index: 40; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 22px;
+    padding: 24px 16px; text-align: center; background: var(--primario); animation: destello .8s ease-in-out infinite alternate; }
+  @keyframes destello { from { background: var(--primario); } to { background: var(--primario-osc); } }
+  #alerta .grande { font-size: clamp(64px, 20vw, 130px); font-weight: 800; line-height: .9; color: var(--acento);
+    -webkit-text-stroke: 10px var(--primario-osc); paint-order: stroke fill; animation: latido .8s ease-in-out infinite; }
+  #alerta .que { color: #fff; font-size: clamp(28px, 8vw, 44px); font-weight: 800; line-height: 1.1; overflow-wrap: anywhere; }
+  #alerta .campana { width: 130px; height: 130px; animation: campana .5s ease-in-out infinite alternate; transform-origin: 50% 10%; }
+  @keyframes campana { from { transform: rotate(-16deg); } to { transform: rotate(16deg); } }
+  #alerta .boton { height: 88px; font-size: 36px; padding: 0 44px; }
+
+  .aviso { position: fixed; z-index: 50; left: 50%; bottom: calc(110px + env(safe-area-inset-bottom)); transform: translateX(-50%);
+    background: var(--acento); color: var(--boton-texto); border-radius: 999px; padding: 8px 22px; font-size: 20px; font-weight: 800;
+    box-shadow: 0 6px 18px rgba(0,0,0,.35); max-width: calc(100% - 32px); text-align: center; }
+</style>
+</head>
+<body>
+<div id="fondo"><video id="video-fondo" muted loop playsinline autoplay preload="auto"></video></div>
+
+<main>
+  <div class="barra">
+    <a class="atajo" href="../juego/" aria-label="Abrir Misión: Dientes Limpios">
+      <img src="fondos/icono-192.png" alt="">Superdiente
+    </a>
+    <button class="redondo" id="btn-config" aria-label="Cambiar nombre y fondo">
+      <svg viewBox="0 0 60 60"><g fill="#fff" transform="translate(30 30)">
+        <rect x="-6" y="-28" width="12" height="14" rx="3"/><rect x="-6" y="-28" width="12" height="14" rx="3" transform="rotate(45)"/>
+        <rect x="-6" y="-28" width="12" height="14" rx="3" transform="rotate(90)"/><rect x="-6" y="-28" width="12" height="14" rx="3" transform="rotate(135)"/>
+        <rect x="-6" y="-28" width="12" height="14" rx="3" transform="rotate(180)"/><rect x="-6" y="-28" width="12" height="14" rx="3" transform="rotate(225)"/>
+        <rect x="-6" y="-28" width="12" height="14" rx="3" transform="rotate(270)"/><rect x="-6" y="-28" width="12" height="14" rx="3" transform="rotate(315)"/>
+        <circle r="19"/></g><circle cx="30" cy="30" r="8" fill="var(--redondo-b)"/></svg>
+    </button>
+  </div>
+
+  <h1 class="titulo"><span class="t1">Tareas de</span><span class="t2">Rami</span></h1>
+  <div class="saludo" id="saludo"></div>
+
+  <div id="lista"></div>
+</main>
+
+<button class="boton" id="btn-nueva">
+  <svg viewBox="0 0 40 40"><circle cx="20" cy="20" r="18" fill="var(--boton-texto)"/><path d="M20 11v18M11 20h18" stroke="#fff" stroke-width="5" stroke-linecap="round"/></svg>
+  Nueva tarea
+</button>
+
+<!-- ============ Nombre y fondo ============ -->
+<div class="modal" id="config" hidden role="dialog" aria-labelledby="config-titulo">
+  <div class="tarjeta">
+    <h2 id="config-titulo">¡Hola!</h2>
+    <p class="sub" id="config-sub">Antes de empezar, contanos tu nombre.</p>
+    <label class="campo" for="config-nombre">¿Cómo te llamás?</label>
+    <input class="entrada" id="config-nombre" type="text" maxlength="24" autocomplete="off" autocapitalize="words" spellcheck="false" placeholder="Tu nombre">
+    <div class="campo">Fondo</div>
+    <div class="escenarios">
+      <button data-fondo="bano"><img src="fondos/bano.jpg" alt="">Baño</button>
+      <button data-fondo="hotel"><img src="fondos/hotel.jpg" alt="">Hotel de monstruos</button>
+    </div>
+    <div class="pie"><button class="boton" id="config-listo">Listo</button></div>
+  </div>
+</div>
+
+<!-- ============ Agregar / editar tarea ============ -->
+<div class="modal" id="editor" hidden role="dialog" aria-labelledby="editor-titulo">
+  <div class="tarjeta">
+    <h2 id="editor-titulo">Nueva tarea</h2>
+    <label class="campo" for="ed-nombre">Nombre de la tarea</label>
+    <input class="entrada" id="ed-nombre" type="text" maxlength="40" autocomplete="off" autocapitalize="sentences" placeholder="Ej.: Ponerse el pijama">
+
+    <div class="campo">Temporizador <small>(cuenta regresiva · 0:00 = sin temporizador)</small></div>
+    <div class="tiempo">
+      <div class="rueda">
+        <button class="mas" data-campo="min" data-paso="1" aria-label="Más minutos">+</button>
+        <input id="ed-min" type="number" inputmode="numeric" min="0" max="99" value="0" aria-label="Minutos">
+        <button class="menos" data-campo="min" data-paso="-1" aria-label="Menos minutos">−</button>
+        <small>minutos</small>
+      </div>
+      <div class="dos">:</div>
+      <div class="rueda">
+        <button class="mas" data-campo="seg" data-paso="5" aria-label="Más segundos">+</button>
+        <input id="ed-seg" type="number" inputmode="numeric" min="0" max="59" value="0" aria-label="Segundos">
+        <button class="menos" data-campo="seg" data-paso="-5" aria-label="Menos segundos">−</button>
+        <small>segundos</small>
+      </div>
+    </div>
+    <div class="rapidos">
+      <button data-rapido="30">30 s</button><button data-rapido="60">1 min</button><button data-rapido="120">2 min</button>
+      <button data-rapido="300">5 min</button><button data-rapido="600">10 min</button><button data-rapido="0">Sin tiempo</button>
+    </div>
+
+    <div class="campo">Audios <small>(suenan uno atrás del otro, sin pausas)</small></div>
+    <div id="audios"></div>
+    <div class="agregar">
+      <button class="boton claro chico" id="btn-subir">
+        <svg viewBox="0 0 40 40"><path d="M20 28V8M12 15l8-8 8 8M8 30v4h24v-4" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>
+        Subir audios
+      </button>
+      <button class="boton claro chico" id="btn-grabar">
+        <svg viewBox="0 0 40 40"><rect x="14" y="4" width="12" height="20" rx="6" fill="currentColor"/><path d="M8 18a12 12 0 0 0 24 0M20 30v6" stroke="currentColor" stroke-width="4" stroke-linecap="round" fill="none"/></svg>
+        <span id="grabar-texto">Grabar</span>
+      </button>
+      <button class="boton claro chico" id="btn-probar" disabled>
+        <svg viewBox="0 0 40 40"><path d="M13 8l20 12-20 12z" fill="currentColor"/></svg>
+        <span id="probar-texto">Escuchar todos</span>
+      </button>
+    </div>
+    <input type="file" id="archivo" accept="audio/*" multiple hidden>
+
+    <div class="pie">
+      <button class="boton claro" id="ed-cancelar">Cancelar</button>
+      <button class="boton" id="ed-guardar">Guardar</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ Confirmar borrado ============ -->
+<div class="modal" id="confirmar" hidden role="dialog" aria-labelledby="conf-texto">
+  <div class="tarjeta">
+    <h2 id="conf-texto">¿Borrar la tarea?</h2>
+    <p class="sub">Se borran también sus audios. No se puede deshacer.</p>
+    <div class="pie">
+      <button class="boton claro" id="conf-no">No</button>
+      <button class="boton rojo" id="conf-si">Sí, borrar</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ Tarea en curso ============ -->
+<div id="curso" hidden>
+  <div class="que" id="curso-nombre"></div>
+  <div class="reloj" id="curso-reloj">
+    <svg viewBox="0 0 200 200">
+      <circle cx="100" cy="100" r="96" fill="rgba(255,255,255,.3)"/>
+      <circle cx="100" cy="100" r="82" fill="var(--primario)"/>
+      <circle id="anillo" cx="100" cy="100" r="89" fill="none" stroke="var(--acento)" stroke-width="12" stroke-linecap="round"
+              stroke-dasharray="559.2 559.2" stroke-dashoffset="0"/>
+    </svg>
+    <div class="cifra" id="curso-cifra">0:00</div>
+  </div>
+  <div class="sonando-ahora" id="curso-audio" hidden><div class="ondas"><i></i><i></i><i></i></div><span id="curso-audio-texto"></span></div>
+  <div class="botones-curso">
+    <button class="boton azul" id="curso-pausa">Pausar</button>
+    <button class="boton azul" id="curso-repetir">Repetir audios</button>
+    <button class="boton rojo" id="curso-terminar">Terminar</button>
+  </div>
+</div>
+
+<!-- ============ Alerta: ¡se terminó el tiempo! ============ -->
+<div id="alerta" hidden role="alertdialog" aria-labelledby="alerta-que">
+  <svg class="campana" viewBox="0 0 100 100"><path d="M50 10c-16 0-26 12-26 28v18L14 70v6h72v-6L76 56V38C76 22 66 10 50 10z" fill="var(--acento)" stroke="var(--primario-osc)" stroke-width="5" stroke-linejoin="round"/><circle cx="50" cy="84" r="9" fill="var(--acento)" stroke="var(--primario-osc)" stroke-width="5"/></svg>
+  <div class="grande">¡Tiempo!</div>
+  <div class="que" id="alerta-que"></div>
+  <button class="boton" id="alerta-ok">¡Listo!</button>
+</div>
+
+<div class="aviso" id="aviso" hidden></div>
+
+<script>
+(function () {
+  'use strict';
+  var $ = function (id) { return document.getElementById(id); };
+
+  /* =================== Perfil (nombre y fondo) =================== */
+  var perfil = null;
+  try { perfil = JSON.parse(localStorage.getItem('tr-perfil') || 'null'); } catch (e) {}
+  if (!perfil) {
+    // Si ya se configuró Superdiente en este celular, se aprovecha el mismo fondo y nombre como sugerencia.
+    var dl = null;
+    try { dl = JSON.parse(localStorage.getItem('dl-perfil') || 'null'); } catch (e) {}
+    perfil = { nombre: '', fondo: dl && dl.fondo === 'hotel' ? 'hotel' : 'bano', sugerido: dl && dl.nombre ? dl.nombre : '' };
+  }
+  function guardarPerfil() { try { localStorage.setItem('tr-perfil', JSON.stringify({ nombre: perfil.nombre, fondo: perfil.fondo })); } catch (e) {} }
+
+  function aplicarFondo() {
+    var f = perfil.fondo === 'hotel' ? 'hotel' : 'bano';
+    document.body.classList.toggle('tema-hotel', f === 'hotel');
+    document.querySelector('meta[name=theme-color]').content = f === 'hotel' ? '#2E1452' : '#0E2F86';
+    var v = $('video-fondo');
+    if (v.getAttribute('data-f') !== f) {
+      v.setAttribute('data-f', f);
+      $('fondo').style.backgroundImage = 'url(fondos/' + f + '.jpg)';
+      v.poster = 'fondos/' + f + '.jpg';
+      v.src = 'fondos/' + f + '.mp4';
+      var p = v.play(); if (p && p.catch) p.catch(function () {});
+    }
+  }
+  function aplicarNombre() {
+    $('saludo').innerHTML = perfil.nombre ? '¡Hola, <b></b>! ¿Qué toca hacer hoy?' : '';
+    var b = $('saludo').querySelector('b'); if (b) b.textContent = perfil.nombre;
+  }
+
+  var borradorFondo = null;
+  function abrirConfig(primeraVez) {
+    $('config-titulo').textContent = primeraVez ? '¡Hola!' : 'Configuración';
+    $('config-sub').textContent = primeraVez ? 'Antes de empezar, contanos tu nombre.' : 'Cambiá tu nombre o el fondo.';
+    $('config-nombre').value = perfil.nombre || perfil.sugerido || '';
+    $('config-nombre').classList.remove('falta');
+    borradorFondo = perfil.fondo;
+    marcarFondo();
+    $('config').hidden = false;
+    if (primeraVez) setTimeout(function () { $('config-nombre').focus(); }, 300);
+  }
+  function marcarFondo() {
+    document.querySelectorAll('[data-fondo]').forEach(function (b) { b.classList.toggle('elegida', b.getAttribute('data-fondo') === borradorFondo); });
+  }
+  document.querySelectorAll('[data-fondo]').forEach(function (b) {
+    b.onclick = function () {
+      borradorFondo = b.getAttribute('data-fondo'); marcarFondo();
+      perfil.fondo = borradorFondo; aplicarFondo(); // se ve el cambio al instante, detrás de la ventana
+    };
+  });
+  $('config-listo').onclick = function () {
+    var n = $('config-nombre').value.trim();
+    if (!n) { var c = $('config-nombre'); c.classList.remove('falta'); void c.offsetWidth; c.classList.add('falta'); c.focus(); return; }
+    perfil.nombre = n; perfil.fondo = borradorFondo; delete perfil.sugerido;
+    guardarPerfil(); aplicarFondo(); aplicarNombre();
+    $('config').hidden = true;
+  };
+  $('config-nombre').addEventListener('keydown', function (e) { if (e.key === 'Enter') $('config-listo').click(); });
+  $('btn-config').onclick = function () { abrirConfig(false); };
+
+  /* =================== Base de datos (IndexedDB: guarda tareas y audios en el celular) =================== */
+  var db = null;
+  function abrirDB() {
+    return new Promise(function (ok, mal) {
+      var r = indexedDB.open('tareas-de-rami', 1);
+      r.onupgradeneeded = function () { r.result.createObjectStore('tareas', { keyPath: 'id' }); };
+      r.onsuccess = function () { db = r.result; ok(db); };
+      r.onerror = function () { mal(r.error); };
+    });
+  }
+  function op(modo, fn) {
+    return new Promise(function (ok, mal) {
+      var tx = db.transaction('tareas', modo), st = tx.objectStore('tareas'), res;
+      var r = fn(st); if (r) r.onsuccess = function () { res = r.result; };
+      tx.oncomplete = function () { ok(res); };
+      tx.onerror = tx.onabort = function () { mal(tx.error); };
+    });
+  }
+  var leerTodas = function () { return op('readonly', function (s) { return s.getAll(); }); };
+  var guardarTarea = function (t) { return op('readwrite', function (s) { return s.put(t); }); };
+  var borrarTarea = function (id) { return op('readwrite', function (s) { return s.delete(id); }); };
+  function nuevoId() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
+
+  /* =================== Utilidades =================== */
+  function mmss(s) { s = Math.max(0, Math.ceil(s)); return Math.floor(s / 60) + ':' + ('0' + (s % 60)).slice(-2); }
+  function durTexto(s) { if (!s) return ''; s = Math.round(s); return s < 60 ? s + ' s' : Math.floor(s / 60) + ' min ' + (s % 60 ? (s % 60) + ' s' : ''); }
+  var avisoT = null;
+  function aviso(txt, ms) {
+    var a = $('aviso'); a.textContent = txt; a.hidden = false;
+    clearTimeout(avisoT); avisoT = setTimeout(function () { a.hidden = true; }, ms || 2600);
+  }
+  var ICON = {
+    reloj: '<svg viewBox="0 0 34 34"><circle cx="17" cy="19" r="12" fill="none" stroke="currentColor" stroke-width="4"/><path d="M17 12v7l5 3M12 3h10" stroke="currentColor" stroke-width="4" stroke-linecap="round" fill="none"/></svg>',
+    nota: '<svg viewBox="0 0 34 34"><path d="M13 25V7l15-3v18" stroke="currentColor" stroke-width="3.5" fill="none" stroke-linejoin="round"/><circle cx="9.5" cy="25" r="4.5" fill="currentColor"/><circle cx="24.5" cy="22" r="4.5" fill="currentColor"/></svg>',
+    lapiz: '<svg viewBox="0 0 40 40"><path d="M8 32l2-8L26 8l6 6-16 16z" fill="none" stroke="var(--texto)" stroke-width="4" stroke-linejoin="round"/><path d="M22 12l6 6" stroke="var(--texto)" stroke-width="4"/></svg>',
+    tacho: '<svg viewBox="0 0 40 40"><path d="M9 12h22M16 12V8h8v4M12 12l2 20h12l2-20" fill="none" stroke="#D93030" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+    play: '<svg viewBox="0 0 40 40"><path d="M11 6l24 14-24 14z" fill="var(--boton-texto)"/></svg>',
+    playChico: '<svg viewBox="0 0 40 40"><path d="M12 7l22 13-22 13z" fill="var(--texto)"/></svg>',
+    stop: '<svg viewBox="0 0 40 40"><rect x="10" y="10" width="20" height="20" rx="3" fill="var(--texto)"/></svg>',
+    arriba: '<svg viewBox="0 0 40 40"><path d="M10 25l10-10 10 10" stroke="var(--texto)" stroke-width="5" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+    abajo: '<svg viewBox="0 0 40 40"><path d="M10 15l10 10 10-10" stroke="var(--texto)" stroke-width="5" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>'
+  };
+  function esc(t) { var d = document.createElement('div'); d.textContent = t; return d.innerHTML; }
+
+  /* =================== Lista de tareas (pantalla principal) =================== */
+  var tareas = [];
+  function ordenar() { tareas.sort(function (a, b) { return (a.creada || 0) - (b.creada || 0); }); }
+  function pintarLista() {
+    var l = $('lista');
+    if (!tareas.length) {
+      l.innerHTML = '<div class="vacio">Todavía no hay tareas.<br>Tocá <b>Nueva tarea</b> para agregar la primera.</div>';
+      return;
+    }
+    l.innerHTML = tareas.map(function (t) {
+      var seg = (t.min || 0) * 60 + (t.seg || 0);
+      return '<div class="tarea" data-id="' + t.id + '">' +
+        '<button class="play" data-acc="empezar" aria-label="Empezar ' + esc(t.nombre) + '">' + ICON.play + '</button>' +
+        '<div class="info"><div class="nombre">' + esc(t.nombre) + '</div><div class="datos">' +
+          '<span class="chip">' + ICON.reloj + (seg ? mmss(seg) : 'Sin tiempo') + '</span>' +
+          '<span class="chip">' + ICON.nota + t.audios.length + (t.audios.length === 1 ? ' audio' : ' audios') + '</span>' +
+        '</div></div>' +
+        '<div class="acciones">' +
+          '<button class="mini" data-acc="editar" aria-label="Editar">' + ICON.lapiz + '</button>' +
+          '<button class="mini borrar" data-acc="borrar" aria-label="Borrar">' + ICON.tacho + '</button>' +
+        '</div></div>';
+    }).join('');
+  }
+  $('lista').addEventListener('click', function (e) {
+    var b = e.target.closest('[data-acc]'); if (!b) return;
+    var id = b.closest('.tarea').getAttribute('data-id');
+    var t = tareas.find(function (x) { return x.id === id; }); if (!t) return;
+    var acc = b.getAttribute('data-acc');
+    if (acc === 'empezar') empezar(t);
+    else if (acc === 'editar') abrirEditor(t);
+    else if (acc === 'borrar') pedirBorrar(t);
+  });
+
+  /* Borrar */
+  var aBorrar = null;
+  function pedirBorrar(t) { aBorrar = t; $('conf-texto').textContent = '¿Borrar «' + t.nombre + '»?'; $('confirmar').hidden = false; }
+  $('conf-no').onclick = function () { $('confirmar').hidden = true; aBorrar = null; };
+  $('conf-si').onclick = function () {
+    var t = aBorrar; $('confirmar').hidden = true; aBorrar = null; if (!t) return;
+    borrarTarea(t.id).then(function () {
+      tareas = tareas.filter(function (x) { return x.id !== t.id; });
+      pintarLista(); aviso('Tarea borrada');
+    });
+  };
+
+  /* =================== Audio sin cortes (Web Audio) ===================
+     Todos los audios se decodifican antes de empezar y se programan en el reloj de audio,
+     cada uno exactamente cuando termina el anterior: no hay ni un milisegundo de pausa. */
+  var ctx = null;
+  function audioCtx() {
+    if (!ctx) { var C = window.AudioContext || window.webkitAudioContext; ctx = new C(); }
+    if (ctx.state === 'suspended') ctx.resume();
+    return ctx;
+  }
+  var buffers = new Map(); // id de audio → AudioBuffer ya decodificado
+  function decodificar(a) {
+    if (buffers.has(a.id)) return Promise.resolve(buffers.get(a.id));
+    return a.blob.arrayBuffer().then(function (ab) {
+      return new Promise(function (ok, mal) { audioCtx().decodeAudioData(ab, ok, mal); });
+    }).then(function (buf) { buffers.set(a.id, buf); return buf; });
+  }
+
+  // Reproduce una lista de audios en cadena. Devuelve un control con parar() y la info de cuál suena.
+  function cadena(audios, alCambiar, alTerminar) {
+    var c = audioCtx(), fuentes = [], cancelado = false, marcas = [], raf = 0, actual = -1;
+    var control = { parar: parar, listo: null };
+    control.listo = Promise.all(audios.map(function (a) {
+      return decodificar(a).catch(function () { return null; });
+    })).then(function (bufs) {
+      if (cancelado) return;
+      var t = c.currentTime + 0.06;
+      bufs.forEach(function (buf, i) {
+        if (!buf) return; // archivo que el navegador no puede leer: se saltea
+        var s = c.createBufferSource(); s.buffer = buf; s.connect(c.destination); s.start(t);
+        fuentes.push(s); marcas.push({ i: i, desde: t, hasta: t + buf.duration });
+        t += buf.duration;
+      });
+      if (!marcas.length) { if (alTerminar) alTerminar(); return; }
+      var fin = t;
+      (function mirar() {
+        if (cancelado) return;
+        var ahora = c.currentTime, m = null;
+        for (var k = 0; k < marcas.length; k++) if (ahora < marcas[k].hasta) { m = marcas[k]; break; }
+        if (!m) { if (alCambiar) alCambiar(-1); if (alTerminar) alTerminar(); return; }
+        if (m.i !== actual) { actual = m.i; if (alCambiar) alCambiar(m.i); }
+        raf = requestAnimationFrame(mirar);
+      })();
+      control.fin = fin;
+    });
+    function parar() {
+      cancelado = true; cancelAnimationFrame(raf);
+      fuentes.forEach(function (s) { try { s.stop(); } catch (e) {} s.disconnect(); });
+      fuentes = [];
+    }
+    return control;
+  }
+
+  /* =================== Editor (agregar / editar) =================== */
+  var ed = null; // copia de trabajo de la tarea
+  var prueba = null;
+  function abrirEditor(t) {
+    ed = t ? { id: t.id, creada: t.creada, nombre: t.nombre, min: t.min || 0, seg: t.seg || 0, audios: t.audios.slice(), nueva: false }
+           : { id: nuevoId(), creada: Date.now(), nombre: '', min: 1, seg: 0, audios: [], nueva: true };
+    $('editor-titulo').textContent = ed.nueva ? 'Nueva tarea' : 'Editar tarea';
+    $('ed-nombre').value = ed.nombre; $('ed-nombre').classList.remove('falta');
+    $('ed-min').value = ed.min; $('ed-seg').value = ed.seg;
+    pintarAudios();
+    $('editor').hidden = false;
+    if (ed.nueva) setTimeout(function () { $('ed-nombre').focus(); }, 300);
+  }
+  function cerrarEditor() { pararPrueba(); pararGrabacion(true); $('editor').hidden = true; ed = null; }
+
+  function leerTiempo() {
+    var m = parseInt($('ed-min').value, 10), s = parseInt($('ed-seg').value, 10);
+    m = isNaN(m) ? 0 : Math.min(99, Math.max(0, m)); s = isNaN(s) ? 0 : Math.min(59, Math.max(0, s));
+    return { min: m, seg: s };
+  }
+  function ponerTiempo(total) {
+    total = Math.max(0, Math.min(99 * 60 + 59, total));
+    $('ed-min').value = Math.floor(total / 60); $('ed-seg').value = total % 60;
+  }
+  document.querySelectorAll('.rueda [data-paso]').forEach(function (b) {
+    b.onclick = function () {
+      var t = leerTiempo(), total = t.min * 60 + t.seg, p = +b.getAttribute('data-paso');
+      ponerTiempo(total + (b.getAttribute('data-campo') === 'min' ? p * 60 : p));
+    };
+  });
+  ['ed-min', 'ed-seg'].forEach(function (id) {
+    $(id).addEventListener('change', function () { var t = leerTiempo(); $('ed-min').value = t.min; $('ed-seg').value = t.seg; });
+    $(id).addEventListener('focus', function () { this.select(); });
+  });
+  document.querySelectorAll('[data-rapido]').forEach(function (b) { b.onclick = function () { ponerTiempo(+b.getAttribute('data-rapido')); }; });
+
+  function pintarAudios(sonando) {
+    var c = $('audios'), as = ed.audios;
+    $('btn-probar').disabled = !as.length && !prueba;
+    if (!as.length) { c.innerHTML = '<div class="sin-audios">Sin audios todavía. Podés subir archivos o grabar con el micrófono.</div>'; return; }
+    c.innerHTML = as.map(function (a, i) {
+      return '<div class="audio' + (sonando === i ? ' sonando' : '') + '" data-i="' + i + '">' +
+        '<span class="n">' + (i + 1) + '</span>' +
+        '<span class="nom">' + esc(a.nombre) + (a.dur ? '<small>' + durTexto(a.dur) + '</small>' : '') + '</span>' +
+        '<button class="mini" data-a="oir" aria-label="Escuchar">' + (sonando === i && prueba && prueba.solo ? ICON.stop : ICON.playChico) + '</button>' +
+        '<button class="mini" data-a="subir" aria-label="Subir"' + (i === 0 ? ' disabled' : '') + '>' + ICON.arriba + '</button>' +
+        '<button class="mini" data-a="bajar" aria-label="Bajar"' + (i === as.length - 1 ? ' disabled' : '') + '>' + ICON.abajo + '</button>' +
+        '<button class="mini" data-a="quitar" aria-label="Quitar">' + ICON.tacho + '</button>' +
+      '</div>';
+    }).join('');
+  }
+  $('audios').addEventListener('click', function (e) {
+    var b = e.target.closest('[data-a]'); if (!b || !ed) return;
+    var i = +b.closest('.audio').getAttribute('data-i'), as = ed.audios, a = b.getAttribute('data-a');
+    if (a === 'oir') {
+      var eraEste = prueba && prueba.solo && prueba.i === i;
+      pararPrueba();
+      if (!eraEste) probar([as[i]], i);
+      return;
+    }
+    pararPrueba();
+    if (a === 'subir' && i > 0) { var x = as[i - 1]; as[i - 1] = as[i]; as[i] = x; }
+    else if (a === 'bajar' && i < as.length - 1) { var y = as[i + 1]; as[i + 1] = as[i]; as[i] = y; }
+    else if (a === 'quitar') as.splice(i, 1);
+    pintarAudios();
+  });
+
+  function probar(lista, solo) {
+    var base = typeof solo === 'number' ? solo : 0;
+    prueba = cadena(lista, function (k) { if (ed) pintarAudios(k < 0 ? null : base + k); }, function () { pararPrueba(); });
+    prueba.solo = typeof solo === 'number'; prueba.i = solo;
+    $('probar-texto').textContent = prueba.solo ? 'Escuchar todos' : 'Parar';
+  }
+  function pararPrueba() {
+    if (prueba) { prueba.parar(); prueba = null; }
+    $('probar-texto').textContent = 'Escuchar todos';
+    if (ed) pintarAudios();
+  }
+  $('btn-probar').onclick = function () {
+    if (prueba && !prueba.solo) { pararPrueba(); return; }
+    pararPrueba(); if (ed && ed.audios.length) probar(ed.audios);
+  };
+
+  function agregarAudio(blob, nombre) {
+    var a = { id: nuevoId(), nombre: nombre, blob: blob, dur: 0 };
+    ed.audios.push(a); pintarAudios();
+    decodificar(a).then(function (buf) { a.dur = buf.duration; if (ed) pintarAudios(); })
+      .catch(function () { aviso('No se pudo leer «' + nombre + '». Probá con un MP3.', 3500); });
+  }
+  $('btn-subir').onclick = function () { audioCtx(); $('archivo').value = ''; $('archivo').click(); };
+  $('archivo').onchange = function () {
+    Array.prototype.forEach.call(this.files, function (f) { agregarAudio(f, f.name.replace(/\.[^.]+$/, '')); });
+  };
+
+  /* Grabar con el micrófono */
+  var grab = null;
+  $('btn-grabar').onclick = function () {
+    if (grab) { pararGrabacion(false); return; }
+    if (!navigator.mediaDevices || !window.MediaRecorder) { aviso('Este navegador no puede grabar. Subí un archivo de audio.', 3500); return; }
+    pararPrueba(); audioCtx();
+    navigator.mediaDevices.getUserMedia({ audio: true }).then(function (stream) {
+      var rec = new MediaRecorder(stream), trozos = [], inicio = Date.now();
+      grab = { rec: rec, stream: stream, descartar: false, t: 0 };
+      rec.ondataavailable = function (e) { if (e.data && e.data.size) trozos.push(e.data); };
+      rec.onstop = function () {
+        stream.getTracks().forEach(function (tr) { tr.stop(); });
+        var g = grab; grab = null; clearInterval(g.t);
+        $('btn-grabar').classList.remove('grabando'); $('grabar-texto').textContent = 'Grabar';
+        if (g.descartar || !ed || !trozos.length) return;
+        var n = ed.audios.filter(function (a) { return /^Grabación/.test(a.nombre); }).length + 1;
+        agregarAudio(new Blob(trozos, { type: rec.mimeType || 'audio/webm' }), 'Grabación ' + n);
+      };
+      rec.start();
+      $('btn-grabar').classList.add('grabando');
+      grab.t = setInterval(function () { $('grabar-texto').textContent = 'Parar ' + mmss((Date.now() - inicio) / 1000); }, 250);
+      $('grabar-texto').textContent = 'Parar 0:00';
+    }).catch(function () { aviso('No hay permiso para el micrófono.', 3000); });
+  };
+  function pararGrabacion(descartar) {
+    if (!grab) return;
+    grab.descartar = descartar;
+    try { grab.rec.stop(); } catch (e) {}
+  }
+
+  $('ed-cancelar').onclick = cerrarEditor;
+  $('ed-guardar').onclick = function () {
+    var n = $('ed-nombre').value.trim();
+    if (!n) { var c = $('ed-nombre'); c.classList.remove('falta'); void c.offsetWidth; c.classList.add('falta'); c.focus(); return; }
+    if (grab) { aviso('Primero pará la grabación.'); return; }
+    var tm = leerTiempo();
+    var t = { id: ed.id, creada: ed.creada, nombre: n, min: tm.min, seg: tm.seg,
+      audios: ed.audios.map(function (a) { return { id: a.id, nombre: a.nombre, blob: a.blob, dur: a.dur }; }) };
+    var nueva = ed.nueva;
+    guardarTarea(t).then(function () {
+      var i = tareas.findIndex(function (x) { return x.id === t.id; });
+      if (i >= 0) tareas[i] = t; else tareas.push(t);
+      ordenar(); pintarLista(); cerrarEditor();
+      aviso(nueva ? '¡Tarea agregada!' : 'Cambios guardados');
+    }).catch(function () { aviso('No se pudo guardar. ¿Queda espacio en el celular?', 3500); });
+  };
+
+  /* =================== Tarea en curso: audios + cuenta regresiva =================== */
+  var curso = null; // { tarea, total, finEn, restante, pausado, cadena }
+  var CIRC = 2 * Math.PI * 89;
+  var wake = null;
+  function pedirPantallaPrendida() {
+    try { if (navigator.wakeLock) navigator.wakeLock.request('screen').then(function (w) { wake = w; }).catch(function () {}); } catch (e) {}
+  }
+  function soltarPantalla() { if (wake) { try { wake.release(); } catch (e) {} wake = null; } }
+
+  function empezar(t) {
+    audioCtx(); // dentro del toque: así el navegador deja sonar
+    terminar(true);
+    var total = (t.min || 0) * 60 + (t.seg || 0);
+    curso = { tarea: t, total: total, finEn: total ? Date.now() + total * 1000 : 0, restante: total, pausado: false, cadena: null };
+    $('curso-nombre').textContent = t.nombre;
+    $('curso-reloj').hidden = !total;
+    $('curso-pausa').hidden = false; $('curso-pausa').textContent = 'Pausar';
+    $('curso-repetir').hidden = !t.audios.length;
+    $('curso').hidden = false;
+    sonarAudios();
+    if (total) { guardarEnCurso(); pedirAvisos(); }
+    else { $('curso-pausa').hidden = !t.audios.length; if (!t.audios.length) $('curso-terminar').textContent = 'Listo'; }
+    pedirPantallaPrendida();
+    tic();
+  }
+  function sonarAudios() {
+    if (!curso) return;
+    if (curso.cadena) curso.cadena.parar();
+    var as = curso.tarea.audios, caja = $('curso-audio');
+    if (!as.length) { caja.hidden = true; return; }
+    caja.hidden = false; caja.classList.remove('quieto'); $('curso-audio-texto').textContent = 'Preparando audios…';
+    curso.cadena = cadena(as, function (i) {
+      if (i < 0) return;
+      $('curso-audio-texto').textContent = 'Audio ' + (i + 1) + ' de ' + as.length + ' · ' + as[i].nombre;
+    }, function () {
+      caja.classList.add('quieto'); $('curso-audio-texto').textContent = 'Terminaron los audios';
+      if (curso && !curso.total) { $('curso-pausa').hidden = true; $('curso-terminar').textContent = 'Listo'; }
+    });
+  }
+  var ticT = 0;
+  function tic() {
+    clearTimeout(ticT);
+    if (!curso) return;
+    if (curso.total) {
+      var rest = curso.pausado ? curso.restante : (curso.finEn - Date.now()) / 1000;
+      if (rest <= 0) { llegoACero(); return; }
+      $('curso-cifra').textContent = mmss(rest);
+      $('anillo').style.strokeDashoffset = (CIRC * (1 - rest / curso.total)).toFixed(1);
+    }
+    ticT = setTimeout(tic, 200);
+  }
+  $('curso-pausa').onclick = function () {
+    if (!curso) return;
+    curso.pausado = !curso.pausado;
+    if (curso.pausado) {
+      curso.restante = Math.max(0, (curso.finEn - Date.now()) / 1000);
+      if (ctx) ctx.suspend(); // pausa los audios justo donde estaban
+      $('curso-pausa').textContent = 'Seguir';
+    } else {
+      curso.finEn = Date.now() + curso.restante * 1000;
+      if (ctx) ctx.resume();
+      $('curso-pausa').textContent = 'Pausar';
+    }
+    guardarEnCurso(); tic();
+  };
+  $('curso-repetir').onclick = function () {
+    if (!curso) return;
+    if (curso.pausado) $('curso-pausa').click();
+    $('curso-pausa').hidden = false;
+    $('curso-terminar').textContent = 'Terminar';
+    sonarAudios();
+  };
+  $('curso-terminar').onclick = function () { terminar(false); };
+  function terminar(silencioso) {
+    clearTimeout(ticT);
+    if (curso && curso.cadena) curso.cadena.parar();
+    if (ctx && ctx.state === 'suspended') ctx.resume();
+    curso = null; borrarEnCurso();
+    $('curso').hidden = true; $('curso-terminar').textContent = 'Terminar';
+    soltarPantalla();
+  }
+
+  /* Al llegar a 0: alerta en pantalla, alarma, vibración y aviso del sistema si la app está en segundo plano */
+  var alarma = null;
+  function llegoACero() {
+    var t = curso.tarea;
+    terminar(true);
+    $('alerta-que').textContent = (perfil.nombre ? perfil.nombre + ', ' : '') + 'se terminó el tiempo de «' + t.nombre + '»';
+    $('alerta').hidden = false;
+    pedirPantallaPrendida();
+    sonarAlarma();
+    try { if (navigator.vibrate) navigator.vibrate([400, 200, 400, 200, 800]); } catch (e) {}
+    if (document.hidden) notificar('¡Tiempo!', 'Se terminó: ' + t.nombre);
+  }
+  function sonarAlarma() {
+    pararAlarma();
+    var c = audioCtx();
+    var t0 = c.currentTime + 0.05, notas = [880, 1175, 1568], vueltas = 0, osc = [];
+    function ronda() {
+      // tres notas alegres que se repiten hasta tocar «¡Listo!» (como máximo 1 minuto)
+      var t = Math.max(c.currentTime + 0.05, t0);
+      notas.forEach(function (f, i) {
+        var o = c.createOscillator(), e = c.createGain();
+        o.type = 'triangle'; o.frequency.value = f; o.connect(e); e.connect(c.destination);
+        var a = t + i * 0.18;
+        e.gain.setValueAtTime(0.0001, a); e.gain.exponentialRampToValueAtTime(0.5, a + 0.02); e.gain.exponentialRampToValueAtTime(0.0001, a + 0.17);
+        o.start(a); o.stop(a + 0.2); osc.push(o);
+      });
+      t0 = t + 1.2; vueltas++;
+      if (vueltas < 50 && alarma) alarma.t = setTimeout(ronda, 1200);
+    }
+    alarma = { t: 0, osc: osc }; ronda();
+  }
+  function pararAlarma() {
+    if (!alarma) return;
+    clearTimeout(alarma.t);
+    alarma.osc.forEach(function (o) { try { o.stop(); } catch (e) {} });
+    alarma = null;
+  }
+  $('alerta-ok').onclick = function () {
+    pararAlarma(); soltarPantalla();
+    try { if (navigator.vibrate) navigator.vibrate(0); } catch (e) {}
+    $('alerta').hidden = true;
+  };
+
+  // Si el celular estuvo bloqueado o la pestaña dormida, se revisa el tiempo apenas se vuelve.
+  document.addEventListener('visibilitychange', function () {
+    if (!document.hidden) { if (curso) { tic(); pedirPantallaPrendida(); } if (!$('alerta').hidden) pedirPantallaPrendida(); }
+  });
+
+  /* Recordar el temporizador si se recarga la página */
+  function guardarEnCurso() {
+    if (!curso || !curso.total) return;
+    try { localStorage.setItem('tr-en-curso', JSON.stringify({ id: curso.tarea.id, total: curso.total, finEn: curso.finEn, restante: curso.restante, pausado: curso.pausado })); } catch (e) {}
+  }
+  function borrarEnCurso() { try { localStorage.removeItem('tr-en-curso'); } catch (e) {} }
+  function retomar() {
+    var g = null; try { g = JSON.parse(localStorage.getItem('tr-en-curso') || 'null'); } catch (e) {}
+    if (!g) return;
+    var t = tareas.find(function (x) { return x.id === g.id; });
+    if (!t) { borrarEnCurso(); return; }
+    curso = { tarea: t, total: g.total, finEn: g.finEn, restante: g.restante, pausado: g.pausado, cadena: null };
+    $('curso-nombre').textContent = t.nombre;
+    $('curso-reloj').hidden = false; $('curso-audio').hidden = true;
+    $('curso-pausa').hidden = false; $('curso-pausa').textContent = g.pausado ? 'Seguir' : 'Pausar';
+    $('curso-repetir').hidden = !t.audios.length;
+    $('curso').hidden = false;
+    tic();
+  }
+
+  /* Avisos del sistema (cuando la app quedó en segundo plano) */
+  var reg = null;
+  if ('serviceWorker' in navigator && location.protocol !== 'file:') {
+    navigator.serviceWorker.register('sw.js').then(function (r) { reg = r; }).catch(function () {});
+  }
+  function pedirAvisos() {
+    try { if (window.Notification && Notification.permission === 'default') Notification.requestPermission(); } catch (e) {}
+  }
+  function notificar(titulo, cuerpo) {
+    try {
+      if (!window.Notification || Notification.permission !== 'granted') return;
+      var op = { body: cuerpo, icon: 'fondos/icono-192.png', vibrate: [400, 200, 400], tag: 'tareas-de-rami', renotify: true, requireInteraction: true };
+      if (reg && reg.showNotification) reg.showNotification(titulo, op);
+      else new Notification(titulo, op);
+    } catch (e) {}
+  }
+
+  /* =================== Arranque =================== */
+  aplicarFondo(); aplicarNombre();
+  $('btn-nueva').onclick = function () { audioCtx(); abrirEditor(null); };
+  abrirDB().then(leerTodas).then(function (ts) {
+    tareas = (ts || []).map(function (t) { t.audios = t.audios || []; return t; });
+    ordenar(); pintarLista(); retomar();
+  }).catch(function () {
+    $('lista').innerHTML = '<div class="vacio">Este navegador no deja guardar tareas (¿modo incógnito?).</div>';
+  });
+  if (!perfil.nombre) abrirConfig(true);
+})();
+</script>
+</body>
+</html>
