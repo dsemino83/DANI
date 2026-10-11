@@ -8,5 +8,7 @@ Página de tareas con audios y temporizador, con los mismos fondos que Misión: 
 - **Tareas:** agregar, editar y borrar. Se guardan en el celular (IndexedDB), con sus audios.
 - **Audios:** se pueden subir tantos como se quiera o grabarlos con el micrófono, ordenarlos y escucharlos.
   Al empezar la tarea se decodifican todos y se programan en el reloj de Web Audio uno pegado al otro: suenan sin cortes.
-- **Temporizador:** minutos y segundos editables por tarea (0:00 = sin temporizador). Cuenta regresiva con pausa;
+- **Pantalla de la tarea:** al tocar ▶ se abre una pantalla aparte con el nombre de la tarea, los audios y la cuenta regresiva.
+- **Atrás y salir:** siempre visibles arriba. Atrás cierra la ventana abierta o vuelve a la lista (también con el botón atrás del celular); salir muestra «¡Hasta la próxima!».
+- **Temporizador:** el conteo arranca justo cuando empieza el segundo audio (con un solo audio, cuando termina; sin audios, al tocar Empezar). minutos y segundos editables por tarea (0:00 = sin temporizador). Cuenta regresiva con pausa;
   al llegar a 0 aparece la alerta «¡Tiempo!» con alarma y vibración. Si la app quedó en segundo plano, manda un aviso del sistema.

@@ -178,30 +178,58 @@
   #btn-grabar.grabando { background: linear-gradient(var(--peligro-a), var(--peligro-b)); color: #fff; box-shadow: 0 5px 0 var(--peligro-sombra); animation: latido 1s ease-in-out infinite; }
   @keyframes latido { 50% { transform: scale(1.05); } }
 
-  /* ---------- Pantalla de tarea en curso ---------- */
-  #curso { position: fixed; inset: 0; z-index: 15; display: flex; flex-direction: column; align-items: center; justify-content: center;
-    gap: 18px; padding: calc(20px + env(safe-area-inset-top)) 16px calc(24px + env(safe-area-inset-bottom)); text-align: center;
-    background: rgba(6,18,51,.85); backdrop-filter: blur(6px); }
-  body.tema-hotel #curso { background: rgba(20,7,38,.88); }
-  #curso .que { color: #fff; font-size: clamp(34px, 9vw, 54px); font-weight: 800; line-height: 1; -webkit-text-stroke: 6px var(--primario); paint-order: stroke fill;
-    max-width: 100%; overflow-wrap: anywhere; }
-  .reloj { position: relative; width: min(72vw, 340px); aspect-ratio: 1; }
+  /* ---------- Botones de atrás y salir: siempre visibles ---------- */
+  #barra { position: fixed; z-index: 60; left: 0; right: 0; top: 0; pointer-events: none;
+    padding: calc(14px + env(safe-area-inset-top)) 14px 0; display: flex; justify-content: space-between; }
+  #barra .redondo { pointer-events: auto; width: 56px; height: 56px; }
+  #btn-salir { background: radial-gradient(circle at 35% 30%, #FF7A7A, #C62828 70%); }
+  main .barra { padding: 0 64px; }
+  main .barra .redondo { width: 56px; height: 56px; }
+  main .atajo { height: 56px; font-size: 18px; padding-right: 14px; }
+  main .atajo img { width: 42px; height: 42px; }
+  @media (max-width: 380px) { main .atajo span { display: none; } main .atajo { padding-right: 8px; } }
+
+  /* ---------- Pantalla de la tarea (se abre al tocar ▶) ---------- */
+  body.en-tarea main, body.en-tarea #btn-nueva, body.en-tarea #aviso { display: none !important; }
+  #p-tarea { position: fixed; inset: 0; z-index: 15; overflow-y: auto; display: flex; flex-direction: column; align-items: center;
+    gap: 16px; padding: calc(84px + env(safe-area-inset-top)) 16px calc(24px + env(safe-area-inset-bottom)); text-align: center;
+    background: linear-gradient(rgba(6,18,51,.55), rgba(6,18,51,.9)); }
+  body.tema-hotel #p-tarea { background: linear-gradient(rgba(20,7,38,.55), rgba(20,7,38,.92)); }
+  #p-tarea .que { color: #fff; font-size: clamp(36px, 10vw, 60px); font-weight: 800; line-height: 1; -webkit-text-stroke: 7px var(--primario);
+    paint-order: stroke fill; max-width: 100%; overflow-wrap: anywhere; text-shadow: 0 6px 0 var(--primario-osc); }
+  .reloj { position: relative; width: min(66vw, 320px); aspect-ratio: 1; flex: none; }
   .reloj svg { width: 100%; height: 100%; transform: rotate(-90deg); }
-  .reloj .cifra { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: #fff;
-    font-size: min(19vw, 92px); font-weight: 800; letter-spacing: 1px; text-shadow: 0 4px 0 rgba(0,0,0,.25); }
+  .reloj .cifra { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; color: #fff;
+    font-size: min(18vw, 88px); font-weight: 800; line-height: 1; text-shadow: 0 4px 0 rgba(0,0,0,.25); }
+  .reloj .cifra small { font-size: min(4.6vw, 21px); font-weight: 800; color: var(--acento); margin-top: 6px; text-shadow: none; padding: 0 22%; line-height: 1.1; }
   #anillo { transition: stroke-dashoffset .25s linear; }
-  .sonando-ahora { display: inline-flex; align-items: center; gap: 10px; background: var(--vidrio); color: var(--texto); border-radius: 999px;
-    padding: 6px 22px 6px 10px; font-size: 22px; font-weight: 800; max-width: 100%; }
-  .sonando-ahora .ondas { width: 44px; height: 44px; border-radius: 50%; background: var(--primario); display: flex; align-items: center; justify-content: center; gap: 3px; flex: none; }
-  .sonando-ahora .ondas i { width: 5px; height: 10px; border-radius: 3px; background: #fff; animation: onda .8s ease-in-out infinite; }
-  .sonando-ahora .ondas i:nth-child(2) { animation-delay: -.25s; } .sonando-ahora .ondas i:nth-child(3) { animation-delay: -.5s; }
+  .reloj.espera #anillo { stroke-dasharray: 10 18.4; animation: esperar 2s linear infinite; }
+  @keyframes esperar { to { stroke-dashoffset: -57; } }
+  .pistas { width: 100%; max-width: 520px; display: flex; flex-direction: column; gap: 8px; }
+  .pista { display: flex; align-items: center; gap: 10px; background: rgba(255,255,255,.22); color: #fff; border-radius: 999px; padding: 6px 18px 6px 6px;
+    font-size: 20px; font-weight: 800; text-align: left; transition: background .2s; }
+  .pista .n { width: 40px; height: 40px; border-radius: 50%; flex: none; display: flex; align-items: center; justify-content: center; gap: 3px;
+    background: rgba(255,255,255,.3); }
+  .pista span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pista em { font-style: normal; font-size: 15px; background: var(--acento); color: var(--boton-texto); border-radius: 999px; padding: 0 10px; line-height: 26px; flex: none; }
+  .pista.ya { opacity: .6; }
+  .pista.ahora { background: var(--vidrio); color: var(--texto); }
+  .pista.ahora .n { background: var(--primario); }
+  .pista .n i { width: 5px; height: 10px; border-radius: 3px; background: #fff; animation: onda .8s ease-in-out infinite; }
+  .pista .n i:nth-child(2) { animation-delay: -.25s; } .pista .n i:nth-child(3) { animation-delay: -.5s; }
   @keyframes onda { 50% { height: 24px; } }
-  .sonando-ahora.quieto .ondas i { animation: none; }
-  .sonando-ahora span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .botones-curso { display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; }
+  #t-empezar { height: 84px; font-size: 34px; padding: 0 40px; }
+
+  /* ---------- Despedida (botón salir) ---------- */
+  #chau { position: fixed; inset: 0; z-index: 70; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 26px;
+    padding: 24px 16px; text-align: center; background: radial-gradient(ellipse at 70% 25%, #1F4FB5 0%, #10307A 45%, #081B4F 100%); }
+  body.tema-hotel #chau { background: radial-gradient(ellipse at 70% 25%, #5B2C8F 0%, #2E1452 45%, #140726 100%); }
+  #chau .grande { font-size: clamp(54px, 15vw, 96px); font-weight: 800; line-height: .95; color: var(--acento); -webkit-text-stroke: 10px var(--primario); paint-order: stroke fill; }
+  #chau p { margin: 0; color: #fff; font-size: 26px; font-weight: 700; line-height: 1.2; }
 
   /* ---------- Alerta al llegar a 0 ---------- */
-  #alerta { position: fixed; inset: 0; z-index: 40; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 22px;
+  #alerta { position: fixed; inset: 0; z-index: 40; padding-top: 80px !important; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 22px;
     padding: 24px 16px; text-align: center; background: var(--primario); animation: destello .8s ease-in-out infinite alternate; }
   @keyframes destello { from { background: var(--primario); } to { background: var(--primario-osc); } }
   #alerta .grande { font-size: clamp(64px, 20vw, 130px); font-weight: 800; line-height: .9; color: var(--acento);
@@ -222,7 +250,7 @@
 <main>
   <div class="barra">
     <a class="atajo" href="../juego/" aria-label="Abrir Misión: Dientes Limpios">
-      <img src="fondos/icono-192.png" alt="">Superdiente
+      <img src="fondos/icono-192.png" alt=""><span>Superdiente</span>
     </a>
     <button class="redondo" id="btn-config" aria-label="Cambiar nombre y fondo">
       <svg viewBox="0 0 60 60"><g fill="#fff" transform="translate(30 30)">
@@ -326,24 +354,43 @@
   </div>
 </div>
 
-<!-- ============ Tarea en curso ============ -->
-<div id="curso" hidden>
-  <div class="que" id="curso-nombre"></div>
-  <div class="reloj" id="curso-reloj">
+<!-- ============ Pantalla de la tarea: nombre, audios y cuenta regresiva ============ -->
+<section id="p-tarea" hidden aria-labelledby="t-nombre">
+  <h2 class="que" id="t-nombre"></h2>
+  <div class="reloj" id="t-reloj">
     <svg viewBox="0 0 200 200">
       <circle cx="100" cy="100" r="96" fill="rgba(255,255,255,.3)"/>
       <circle cx="100" cy="100" r="82" fill="var(--primario)"/>
       <circle id="anillo" cx="100" cy="100" r="89" fill="none" stroke="var(--acento)" stroke-width="12" stroke-linecap="round"
               stroke-dasharray="559.2 559.2" stroke-dashoffset="0"/>
     </svg>
-    <div class="cifra" id="curso-cifra">0:00</div>
+    <div class="cifra"><span id="t-cifra">0:00</span><small id="t-estado"></small></div>
   </div>
-  <div class="sonando-ahora" id="curso-audio" hidden><div class="ondas"><i></i><i></i><i></i></div><span id="curso-audio-texto"></span></div>
+  <div class="pistas" id="t-pistas"></div>
   <div class="botones-curso">
-    <button class="boton azul" id="curso-pausa">Pausar</button>
-    <button class="boton azul" id="curso-repetir">Repetir audios</button>
-    <button class="boton rojo" id="curso-terminar">Terminar</button>
+    <button class="boton" id="t-empezar">
+      <svg viewBox="0 0 40 40"><path d="M11 6l24 14-24 14z" fill="currentColor"/></svg><span id="t-empezar-texto">Empezar</span>
+    </button>
+    <button class="boton azul" id="t-pausa" hidden>Pausar</button>
+    <button class="boton azul" id="t-repetir" hidden>Repetir audios</button>
   </div>
+</section>
+
+<!-- ============ Atrás y salir (en todas las pantallas) ============ -->
+<div id="barra">
+  <button class="redondo" id="btn-atras" aria-label="Atrás">
+    <svg viewBox="0 0 54 54"><path d="M33 10L16 27L33 44" stroke="#fff" stroke-width="8" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>
+  </button>
+  <button class="redondo" id="btn-salir" aria-label="Salir">
+    <svg viewBox="0 0 54 54"><path d="M15 15L39 39M39 15L15 39" stroke="#fff" stroke-width="8" stroke-linecap="round" fill="none"/></svg>
+  </button>
+</div>
+
+<!-- ============ Despedida ============ -->
+<div id="chau" hidden>
+  <div class="grande">¡Hasta la próxima!</div>
+  <p>Ya podés cerrar la aplicación<br>con el botón ◁ del celular.</p>
+  <button class="boton" id="chau-volver">Volver a las tareas</button>
 </div>
 
 <!-- ============ Alerta: ¡se terminó el tiempo! ============ -->
@@ -492,7 +539,7 @@
     var id = b.closest('.tarea').getAttribute('data-id');
     var t = tareas.find(function (x) { return x.id === id; }); if (!t) return;
     var acc = b.getAttribute('data-acc');
-    if (acc === 'empezar') empezar(t);
+    if (acc === 'empezar') abrirTarea(t, true);
     else if (acc === 'editar') abrirEditor(t);
     else if (acc === 'borrar') pedirBorrar(t);
   });
@@ -551,7 +598,7 @@
         if (m.i !== actual) { actual = m.i; if (alCambiar) alCambiar(m.i); }
         raf = requestAnimationFrame(mirar);
       })();
-      control.fin = fin;
+      control.fin = fin; control.marcas = marcas;
     });
     function parar() {
       cancelado = true; cancelAnimationFrame(raf);
@@ -702,93 +749,163 @@
     }).catch(function () { aviso('No se pudo guardar. ¿Queda espacio en el celular?', 3500); });
   };
 
-  /* =================== Tarea en curso: audios + cuenta regresiva =================== */
-  var curso = null; // { tarea, total, finEn, restante, pausado, cadena }
+  /* =================== Pantalla de la tarea: audios + cuenta regresiva ===================
+     El conteo arranca exactamente cuando empieza a sonar el SEGUNDO audio (se mide con el reloj de audio).
+     Con un solo audio arranca cuando ese audio termina; sin audios, apenas se toca Empezar. */
+  var curso = null; // { tarea, total, estado: 'listo'|'espera'|'corre'|'pausa'|'fin', finEn, restante, arranque, cadena }
   var CIRC = 2 * Math.PI * 89;
+  var empujado = false; // si la pantalla se abrió con historial (así el «atrás» del celular también vuelve)
   var wake = null;
   function pedirPantallaPrendida() {
     try { if (navigator.wakeLock) navigator.wakeLock.request('screen').then(function (w) { wake = w; }).catch(function () {}); } catch (e) {}
   }
   function soltarPantalla() { if (wake) { try { wake.release(); } catch (e) {} wake = null; } }
 
-  function empezar(t) {
-    audioCtx(); // dentro del toque: así el navegador deja sonar
-    terminar(true);
+  function abrirTarea(t, arrancar) {
+    if (arrancar) audioCtx(); // dentro del toque: así el navegador deja sonar
+    pararTodo();
     var total = (t.min || 0) * 60 + (t.seg || 0);
-    curso = { tarea: t, total: total, finEn: total ? Date.now() + total * 1000 : 0, restante: total, pausado: false, cadena: null };
-    $('curso-nombre').textContent = t.nombre;
-    $('curso-reloj').hidden = !total;
-    $('curso-pausa').hidden = false; $('curso-pausa').textContent = 'Pausar';
-    $('curso-repetir').hidden = !t.audios.length;
-    $('curso').hidden = false;
-    sonarAudios();
-    if (total) { guardarEnCurso(); pedirAvisos(); }
-    else { $('curso-pausa').hidden = !t.audios.length; if (!t.audios.length) $('curso-terminar').textContent = 'Listo'; }
-    pedirPantallaPrendida();
-    tic();
+    curso = { tarea: t, total: total, estado: 'listo', finEn: 0, restante: total, arranque: null, cadena: null, actual: -1 };
+    $('t-nombre').textContent = t.nombre;
+    $('t-reloj').hidden = !total;
+    pintarPistas();
+    $('p-tarea').hidden = false; $('p-tarea').scrollTop = 0; document.body.classList.add('en-tarea'); window.scrollTo(0, 0);
+    if (location.hash !== '#tarea=' + t.id) { history.pushState({ tarea: t.id }, '', '#tarea=' + t.id); empujado = true; }
+    if (arrancar) empezarTarea(); else pintarCurso();
   }
-  function sonarAudios() {
+  function empezarTarea() {
+    if (!curso) return;
+    var c = audioCtx(); if (c.state === 'suspended') c.resume();
+    curso.estado = curso.total ? 'espera' : 'corre';
+    curso.finEn = 0; curso.restante = curso.total; curso.arranque = null;
+    if (curso.total) pedirAvisos();
+    pedirPantallaPrendida();
+    sonarAudios(true);
+    pintarCurso(); tic();
+  }
+  function sonarAudios(conConteo) {
     if (!curso) return;
     if (curso.cadena) curso.cadena.parar();
-    var as = curso.tarea.audios, caja = $('curso-audio');
-    if (!as.length) { caja.hidden = true; return; }
-    caja.hidden = false; caja.classList.remove('quieto'); $('curso-audio-texto').textContent = 'Preparando audios…';
-    curso.cadena = cadena(as, function (i) {
-      if (i < 0) return;
-      $('curso-audio-texto').textContent = 'Audio ' + (i + 1) + ' de ' + as.length + ' · ' + as[i].nombre;
+    var as = curso.tarea.audios;
+    curso.actual = -1; curso.audiosTerminados = false;
+    if (!as.length) { curso.audiosTerminados = true; if (conConteo) arrancarConteo(0); return; }
+    var esta = curso.cadena = cadena(as, function (i) {
+      if (!curso || curso.cadena !== esta) return;
+      curso.actual = i; pintarPistas();
     }, function () {
-      caja.classList.add('quieto'); $('curso-audio-texto').textContent = 'Terminaron los audios';
-      if (curso && !curso.total) { $('curso-pausa').hidden = true; $('curso-terminar').textContent = 'Listo'; }
+      if (!curso || curso.cadena !== esta) return;
+      curso.actual = -1; curso.audiosTerminados = true; pintarPistas(); pintarCurso();
     });
+    if (conConteo && curso.total) {
+      esta.listo.then(function () {
+        if (!curso || curso.cadena !== esta || curso.estado !== 'espera') return;
+        var m = esta.marcas || [];
+        // momento (en el reloj de audio) en que arranca el segundo audio
+        curso.arranque = m.length >= 2 ? m[1].desde : (m.length === 1 ? m[0].hasta : audioCtx().currentTime);
+        tic();
+      });
+    }
+  }
+  function arrancarConteo(atraso) {
+    curso.estado = 'corre';
+    curso.finEn = Date.now() + (curso.total - atraso) * 1000;
+    pintarCurso();
   }
   var ticT = 0;
   function tic() {
     clearTimeout(ticT);
     if (!curso) return;
+    if (curso.estado === 'espera' && curso.arranque !== null && ctx && ctx.currentTime >= curso.arranque) {
+      arrancarConteo(ctx.currentTime - curso.arranque);
+    }
     if (curso.total) {
-      var rest = curso.pausado ? curso.restante : (curso.finEn - Date.now()) / 1000;
-      if (rest <= 0) { llegoACero(); return; }
-      $('curso-cifra').textContent = mmss(rest);
+      var rest = curso.estado === 'corre' ? (curso.finEn - Date.now()) / 1000 : curso.restante;
+      if (curso.estado === 'corre' && rest <= 0) { llegoACero(); return; }
+      $('t-cifra').textContent = mmss(rest);
       $('anillo').style.strokeDashoffset = (CIRC * (1 - rest / curso.total)).toFixed(1);
     }
-    ticT = setTimeout(tic, 200);
+    if (curso.estado === 'espera' || curso.estado === 'corre') ticT = setTimeout(tic, curso.estado === 'espera' ? 50 : 200);
   }
-  $('curso-pausa').onclick = function () {
+  function pintarPistas() {
     if (!curso) return;
-    curso.pausado = !curso.pausado;
-    if (curso.pausado) {
-      curso.restante = Math.max(0, (curso.finEn - Date.now()) / 1000);
-      if (ctx) ctx.suspend(); // pausa los audios justo donde estaban
-      $('curso-pausa').textContent = 'Seguir';
-    } else {
-      curso.finEn = Date.now() + curso.restante * 1000;
-      if (ctx) ctx.resume();
-      $('curso-pausa').textContent = 'Pausar';
+    var as = curso.tarea.audios, a = curso.actual;
+    if (!as.length) { $('t-pistas').innerHTML = ''; return; }
+    $('t-pistas').innerHTML = as.map(function (x, i) {
+      var cl = i === a ? ' ahora' : (a > i || (curso.audiosTerminados && curso.estado !== 'listo') ? ' ya' : '');
+      return '<div class="pista' + cl + '"><span class="n">' + (i === a ? '<i></i><i></i><i></i>' : (i + 1)) + '</span><span>' + esc(x.nombre) + '</span>' +
+        (i === 1 && curso.total ? '<em>arranca el tiempo</em>' : '') + '</div>';
+    }).join('');
+  }
+  function pintarCurso() {
+    if (!curso) return;
+    var e = curso.estado, tiene = curso.tarea.audios.length;
+    $('t-reloj').classList.toggle('espera', e === 'espera');
+    $('t-empezar').hidden = !(e === 'listo' || e === 'fin' || (!curso.total && curso.audiosTerminados));
+    $('t-empezar-texto').textContent = e === 'listo' ? 'Empezar' : 'Otra vez';
+    $('t-pausa').hidden = !(e === 'espera' || e === 'corre' || e === 'pausa') || (!curso.total && curso.audiosTerminados);
+    $('t-pausa').textContent = e === 'pausa' ? 'Seguir' : 'Pausar';
+    $('t-repetir').hidden = !tiene || e === 'listo' || e === 'fin';
+    var est = '';
+    if (curso.total) {
+      if (e === 'listo') est = tiene >= 2 ? 'arranca con el audio 2' : (tiene === 1 ? 'arranca al terminar el audio' : '');
+      else if (e === 'espera') est = tiene >= 2 ? 'esperando el audio 2…' : 'esperando…';
+      else if (e === 'pausa') est = 'en pausa';
+      else if (e === 'fin') est = '¡terminado!';
+      if (e === 'listo' || e === 'espera') { $('t-cifra').textContent = mmss(curso.total); $('anillo').style.strokeDashoffset = 0; }
+      if (e === 'fin') { $('t-cifra').textContent = '0:00'; $('anillo').style.strokeDashoffset = CIRC.toFixed(1); }
     }
-    guardarEnCurso(); tic();
-  };
-  $('curso-repetir').onclick = function () {
+    $('t-estado').textContent = est;
+  }
+  $('t-empezar').onclick = function () { audioCtx(); empezarTarea(); };
+  $('t-pausa').onclick = function () {
     if (!curso) return;
-    if (curso.pausado) $('curso-pausa').click();
-    $('curso-pausa').hidden = false;
-    $('curso-terminar').textContent = 'Terminar';
-    sonarAudios();
+    if (curso.estado === 'pausa') {
+      curso.estado = curso.antesDePausa;
+      if (curso.estado === 'corre') curso.finEn = Date.now() + curso.restante * 1000;
+      if (ctx) ctx.resume(); // los audios siguen justo donde estaban
+    } else {
+      curso.antesDePausa = curso.estado;
+      if (curso.estado === 'corre') curso.restante = Math.max(0, (curso.finEn - Date.now()) / 1000);
+      curso.estado = 'pausa';
+      if (ctx) ctx.suspend(); // pausa los audios (y la espera del audio 2)
+    }
+    pintarCurso(); tic();
   };
-  $('curso-terminar').onclick = function () { terminar(false); };
-  function terminar(silencioso) {
+  $('t-repetir').onclick = function () {
+    if (!curso) return;
+    if (curso.estado === 'pausa') $('t-pausa').click();
+    // si el conteo todavía no arrancó, se vuelve a esperar al audio 2; si ya corre, sigue corriendo
+    sonarAudios(curso.estado === 'espera');
+    pintarCurso();
+  };
+  function pararTodo() {
     clearTimeout(ticT);
     if (curso && curso.cadena) curso.cadena.parar();
     if (ctx && ctx.state === 'suspended') ctx.resume();
-    curso = null; borrarEnCurso();
-    $('curso').hidden = true; $('curso-terminar').textContent = 'Terminar';
-    soltarPantalla();
+    pararAlarma(); $('alerta').hidden = true;
+    curso = null; soltarPantalla();
+  }
+  function cerrarTarea() {
+    pararTodo();
+    $('p-tarea').hidden = true; document.body.classList.remove('en-tarea');
+  }
+  // Atrás del celular (o del navegador) estando en la tarea: se vuelve a la lista.
+  window.addEventListener('popstate', function () {
+    if (!$('p-tarea').hidden && !/^#tarea=/.test(location.hash)) { empujado = false; cerrarTarea(); }
+  });
+  function volverALista() {
+    if (empujado && /^#tarea=/.test(location.hash)) history.back(); // dispara popstate
+    else { cerrarTarea(); if (location.hash) history.replaceState(null, '', location.pathname + location.search); }
   }
 
   /* Al llegar a 0: alerta en pantalla, alarma, vibración y aviso del sistema si la app está en segundo plano */
   var alarma = null;
   function llegoACero() {
     var t = curso.tarea;
-    terminar(true);
+    clearTimeout(ticT);
+    if (curso.cadena) curso.cadena.parar();
+    curso.estado = 'fin'; curso.actual = -1; curso.audiosTerminados = true;
+    pintarCurso(); pintarPistas();
     $('alerta-que').textContent = (perfil.nombre ? perfil.nombre + ', ' : '') + 'se terminó el tiempo de «' + t.nombre + '»';
     $('alerta').hidden = false;
     pedirPantallaPrendida();
@@ -821,36 +938,42 @@
     alarma.osc.forEach(function (o) { try { o.stop(); } catch (e) {} });
     alarma = null;
   }
-  $('alerta-ok').onclick = function () {
+  function cerrarAlerta() {
     pararAlarma(); soltarPantalla();
     try { if (navigator.vibrate) navigator.vibrate(0); } catch (e) {}
     $('alerta').hidden = true;
-  };
+  }
+  $('alerta-ok').onclick = cerrarAlerta;
 
   // Si el celular estuvo bloqueado o la pestaña dormida, se revisa el tiempo apenas se vuelve.
   document.addEventListener('visibilitychange', function () {
-    if (!document.hidden) { if (curso) { tic(); pedirPantallaPrendida(); } if (!$('alerta').hidden) pedirPantallaPrendida(); }
+    if (!document.hidden) { if (curso && (curso.estado === 'corre' || curso.estado === 'espera')) { tic(); pedirPantallaPrendida(); } if (!$('alerta').hidden) pedirPantallaPrendida(); }
   });
 
-  /* Recordar el temporizador si se recarga la página */
-  function guardarEnCurso() {
-    if (!curso || !curso.total) return;
-    try { localStorage.setItem('tr-en-curso', JSON.stringify({ id: curso.tarea.id, total: curso.total, finEn: curso.finEn, restante: curso.restante, pausado: curso.pausado })); } catch (e) {}
+  /* =================== Atrás y salir (siempre visibles) =================== */
+  function atras() {
+    if (!$('alerta').hidden) { cerrarAlerta(); return; }
+    if (!$('confirmar').hidden) { $('conf-no').click(); return; }
+    if (!$('editor').hidden) { cerrarEditor(); return; }
+    if (!$('config').hidden) { if (perfil.nombre) $('config').hidden = true; return; }
+    if (!$('p-tarea').hidden) { volverALista(); return; }
+    location.href = '../'; // desde el inicio: vuelve a «Juegos de Rami»
   }
-  function borrarEnCurso() { try { localStorage.removeItem('tr-en-curso'); } catch (e) {} }
-  function retomar() {
-    var g = null; try { g = JSON.parse(localStorage.getItem('tr-en-curso') || 'null'); } catch (e) {}
-    if (!g) return;
-    var t = tareas.find(function (x) { return x.id === g.id; });
-    if (!t) { borrarEnCurso(); return; }
-    curso = { tarea: t, total: g.total, finEn: g.finEn, restante: g.restante, pausado: g.pausado, cadena: null };
-    $('curso-nombre').textContent = t.nombre;
-    $('curso-reloj').hidden = false; $('curso-audio').hidden = true;
-    $('curso-pausa').hidden = false; $('curso-pausa').textContent = g.pausado ? 'Seguir' : 'Pausar';
-    $('curso-repetir').hidden = !t.audios.length;
-    $('curso').hidden = false;
-    tic();
+  function salir() {
+    cerrarAlerta(); cerrarTarea();
+    if (ed) cerrarEditor();
+    ['confirmar', 'config'].forEach(function (id) { $(id).hidden = true; });
+    if (location.hash) history.replaceState(null, '', location.pathname + location.search);
+    empujado = false;
+    $('chau').hidden = false; $('barra').hidden = true;
+    try { window.close(); } catch (e) {}
   }
+  $('btn-atras').onclick = atras;
+  $('btn-salir').onclick = salir;
+  $('chau-volver').onclick = function () {
+    $('chau').hidden = true; $('barra').hidden = false;
+    if (!perfil.nombre) abrirConfig(true);
+  };
 
   /* Avisos del sistema (cuando la app quedó en segundo plano) */
   var reg = null;
@@ -874,7 +997,10 @@
   $('btn-nueva').onclick = function () { audioCtx(); abrirEditor(null); };
   abrirDB().then(leerTodas).then(function (ts) {
     tareas = (ts || []).map(function (t) { t.audios = t.audios || []; return t; });
-    ordenar(); pintarLista(); retomar();
+    ordenar(); pintarLista();
+    // Si se recargó estando en una tarea, se vuelve a mostrar (lista para tocar Empezar).
+    var m = /^#tarea=(.+)$/.exec(location.hash), t = m && tareas.find(function (x) { return x.id === m[1]; });
+    if (t) abrirTarea(t, false); else if (location.hash) history.replaceState(null, '', location.pathname + location.search);
   }).catch(function () {
     $('lista').innerHTML = '<div class="vacio">Este navegador no deja guardar tareas (¿modo incógnito?).</div>';
   });
