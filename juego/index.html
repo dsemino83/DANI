@@ -1462,7 +1462,7 @@
     hablar('¡Muy bien, ya lo tenés! ¡Vamos a cepillarnos!', 'mision-agarrado');
     if (estado.auto) setTimeout(function () {
       if (estado.pantalla === 'mision') { mostrar('paso'); irAPaso(0); }
-    }, 1800);
+    }, 1200);
   }
   function posarMision(t) {
     var svg = $('svg-mision');
@@ -2005,7 +2005,6 @@
     if (!vozActiva) return Promise.resolve();
     ultimaFrase = [texto, clave];
     escuchar(false); // mientras habla el juego no se espera el «sí» (lo que se oye se descarta)
-    mic.oyoVoz = false;
     var turno = ++turnoAudio;
     try { reproductor.pause(); } catch (e) {}
     try { if (hayVoz && (speechSynthesis.speaking || speechSynthesis.pending)) speechSynthesis.cancel(); } catch (e) {}
@@ -2015,9 +2014,8 @@
         if (terminado) return;
         terminado = true;
         if (turno === turnoAudio) hablandoHasta = tReloj();
-        // Al terminar de hablar se reinicia la escucha: así el final de la frase del juego
-        // («¡Decí sí!») que el micrófono todavía estaba procesando no se confunde con el chico.
-        reiniciarMic();
+        // El micrófono sigue abierto (sin reiniciar, para no perder un «sí» rápido): lo que
+        // quedó de la voz del juego se filtra en onresult.
         listo();
       }
       setTimeout(fin, 12000);
@@ -2070,6 +2068,16 @@
     t = t.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
     // Incluye cómo suele entender el celular un «sí» corto de un chico: «chi», «shi», «zi», «see»…
     return /(^|[^a-z])(s+[iy]+|sip|sep|ci+|c|chi+|shi+|zi+|see|she|yes|ya|asi|listo|lista|dale|vamos|seguimos|sigamos|terminamos|ok|okey|okay|claro|bueno|obvio)([^a-z]|$)/.test(t);
+  }
+  // ¿Es la voz de Superdiente que el micrófono terminó de procesar tarde? Sí, si todas las
+  // palabras que no son un «sí» suelto están en la última frase que dijo («decí sí», «seguimos»,
+  // «estás listo rami»…). Un «sí» solo nunca es eco: es la respuesta.
+  function palabras(t) { return sinAcentos(t).replace(/[^a-z0-9\s]/g, ' ').trim().split(/\s+/).filter(Boolean); }
+  function esEco(t) {
+    if (!ultimaFrase) return false;
+    var dicho = palabras(ultimaFrase[0]);
+    var resto = palabras(t).filter(function (w) { return !/^(s+[iy]+|ci+|c|chi+|shi+|zi+|see|she|yes|sip|sep)$/.test(w); });
+    return resto.length > 0 && resto.every(function (w) { return dicho.indexOf(w) >= 0; });
   }
   function esRespuestaCorta(t) {
     t = sinAcentos(t).replace(/[^a-z0-9\s]/g, ' ').trim();
@@ -2154,18 +2162,22 @@
     };
     r.onresult = function (ev) {
       mic.demora = 0;
-      // Mientras habla Superdiente (y un instante después) no se escucha: es su propia voz.
-      if (tReloj() < hablandoHasta + 0.15) { if (tReloj() < hablandoHasta) mic.oyoVoz = true; return; }
+      var ahora = tReloj(), i;
+      // Mientras habla Superdiente (y un instante después) es su propia voz: se descarta.
+      if (ahora < hablandoHasta + 0.15) return;
       if (!mic.esperando) return;
-      for (var i = ev.resultIndex; i < ev.results.length; i++) {
+      // Hasta 3 s después de su frase, se descarta lo que se parece a lo que dijo (eco con retraso).
+      var reciente = ahora < hablandoHasta + 3;
+      for (i = ev.resultIndex; i < ev.results.length; i++) {
         for (var j = 0; j < ev.results[i].length; j++) {
           var oido = ev.results[i][j].transcript;
+          if (reciente && esEco(oido)) continue;
           if (esSi(oido)) { aceptarSi(oido); return; }
         }
         // De lejos, un «sí» bajito suele llegar mal escrito («mí», «y», «hi»…): una respuesta corta
         // (hasta 3 palabras) que no sea un «no» también cuenta como «sí».
         var frase = ev.results[i][0] && ev.results[i][0].transcript;
-        if (frase && ev.results[i].isFinal && esRespuestaCorta(frase)) { aceptarSi(frase); return; }
+        if (frase && ev.results[i].isFinal && !(reciente && esEco(frase)) && esRespuestaCorta(frase)) { aceptarSi(frase); return; }
         if (frase) cartelMic('oido', frase.trim());
       }
     };
