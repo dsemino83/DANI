@@ -1506,7 +1506,7 @@
     var pasoTerminado = estado.paso;
     setTimeout(function () {
       if (estado.pantalla !== 'paso' || estado.paso !== pasoTerminado) return;
-      hablar(ultimo ? '¡Excelente!' : '¡Muy bien!', ultimo ? 'terminar' : 'seguir')
+      hablar(ultimo ? '¡Excelente! ¿Terminamos? ¡Decí sí!' : '¡Muy bien! ¿Seguimos? ¡Decí sí!', ultimo ? 'terminar' : 'seguir')
         .then(function () {
           if (estado.pantalla !== 'paso' || estado.paso !== pasoTerminado) return;
           if (micUsable()) {
@@ -2060,9 +2060,9 @@
      Usa el reconocimiento de voz del navegador (Chrome, Edge, Safari). Si no hay micrófono o no
      dan permiso, el juego sigue como antes: pasa solo de paso y se puede tocar la flecha. */
   var Reconocedor = window.SpeechRecognition || window.webkitSpeechRecognition;
-  // Respuesta por voz («sí») apagada: se avanza tocando Comenzar, el cepillo y «Ver mi sonrisa»,
-  // y los pasos siguen solos al terminar el tiempo. Con true vuelve a escuchar el «sí».
-  var USAR_MICROFONO = false;
+  // El «sí» por voz se usa solo en los pasos («¿Seguimos? ¡Decí sí!»). Comenzar, el cepillo de
+  // Superdiente y «Ver mi sonrisa» se tocan.
+  var USAR_MICROFONO = true;
   // sinApi: el navegador no tiene reconocimiento de voz (no hay nada que hacer).
   // bloqueado: no se pudo encender (permiso, o Chrome pide que se toque la pantalla antes):
   //            se muestra «Tocá para activar el micrófono» y el toque lo vuelve a intentar.
@@ -2117,13 +2117,12 @@
       if (estado.pantalla === 'paso' && estado.completado) siguiente();
     }, 800);
   }
-  /* Micrófono abierto todo el tiempo: desde el primer toque queda escuchando en el inicio, la misión,
-     los pasos y el final, y se vuelve a encender solo cada vez que Android corta la escucha o falla.
-     Solo actúa cuando el juego espera un «sí» (mic.esperando); lo que se oye mientras habla
-     Superdiente se descarta. */
-  var PANTALLAS_CON_MIC = { inicio: 1, mision: 1, paso: 1, final: 1 };
+  /* Micrófono solo en los pasos: se abre cuando Superdiente pregunta «¿Seguimos? ¡Decí sí!» y
+     se cierra al oír el «sí». Mientras espera, se vuelve a encender solo cada vez que Android corta
+     la escucha o falla (nunca queda bloqueado por un error pasajero). */
+  var PANTALLAS_CON_MIC = { paso: 1 };
   function debeEscuchar() {
-    return vozActiva && !mic.sinApi && !mic.bloqueado && mic.listo && !document.hidden &&
+    return vozActiva && !mic.sinApi && !mic.bloqueado && mic.listo && mic.esperando && !document.hidden &&
       !!PANTALLAS_CON_MIC[estado.pantalla] && !$('config').classList.contains('ver');
   }
   function mantenerMic() {
@@ -2263,7 +2262,7 @@
   // Si el navegador ya sabe que el micrófono está bloqueado, se avisa desde el principio.
   try {
     if (navigator.permissions && navigator.permissions.query) navigator.permissions.query({ name: 'microphone' }).then(function (r) {
-      if (r.state === 'denied') { mic.bloqueado = true; mic.motivo = 'permiso'; mic.permiso = 'denegado'; }
+      if (r.state === 'denied' && window.isSecureContext) { mic.bloqueado = true; mic.motivo = 'permiso'; mic.permiso = 'denegado'; }
       if (r.state === 'granted') mic.permiso = 'ok';
     }).catch(function () {});
   } catch (e) {}
@@ -2346,6 +2345,7 @@
   function esperarSi(pantalla) {
     if (estado.pantalla !== pantalla) return;
     llamarBoton(pantalla);
+    if (!PANTALLAS_CON_MIC[pantalla]) return; // en esta pantalla se avanza tocando el botón
     if (mic.bloqueado && vozActiva && pantalla !== 'paso') { mic.esperando = true; cartelMic('bloqueado'); return; }
     mic.avisar = true;
     escuchar(true);
