@@ -1,0 +1,16 @@
+{
+  "name": "Tareas de Rami",
+  "short_name": "Tareas de Rami",
+  "description": "Tareas con audios y temporizador para Rami.",
+  "lang": "es",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#061233",
+  "theme_color": "#0E2F86",
+  "icons": [
+    { "src": "fondos/icono-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "fondos/icono-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}
