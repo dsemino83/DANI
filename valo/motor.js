@@ -1160,11 +1160,20 @@
   const esPresidente = rol => /\bpresident[ea]\b/i.test(normalizar(rol));
   // Firmante con grupo "D" en el resumen = el presidente, con todas las facultades (firma individual). Si no figura en
   // ningún poder, se arma un poder con él para el bastanteo y el control.
-  function poderesFirmantesD(cliente, poderes) {
-    return ((cliente && cliente.firmantes) || []).filter(f => f.uso && f.uso.grupo === 'D' && !f.revocado
+  // Presidente: el de la última acta de directorio (actas de Complif o del PDF), o el firmante "D" o "(Presidente)" del resumen.
+  function presidentesDeActas(actas) {
+    const l = [].concat(actas || []).filter(a => a && a.autoridades).sort((a, b) => String(b.fecha || '').localeCompare(String(a.fecha || '')));
+    for (const a of l) { const p = a.autoridades.filter(x => esPresidente(x.rol)); if (p.length) return p; }
+    return [];
+  }
+  function poderesFirmantesD(cliente, poderes, actas) {
+    const pres = presidentesDeActas(actas);
+    return ((cliente && cliente.firmantes) || []).filter(f => !f.revocado
+      && ((f.uso && f.uso.grupo === 'D') || /\bpresident[ea]\b/i.test(f.observacion || '') || pres.some(p => firmanteDe(p, [f])))
       && !(poderes || []).some(p => p.apoderados.some(a => firmanteDe(a, [f])))).map(f => {
-      const persona = { nombre_completo: f.nombre, dni: f.dni || '', cuit: f.cuit || '', grupo: 'D' };
-      const u = { tipo: 'INDIVIDUAL', descripcion: 'Presidente (firmante D del resumen): todas las facultades', limitaciones: null, grupo: 'D', grupos: ['D'], combinaciones: ['D'],
+      const letra = (f.uso && f.uso.grupo) || 'D';
+      const persona = { nombre_completo: f.nombre, dni: f.dni || '', cuit: f.cuit || '', grupo: letra };
+      const u = { tipo: 'INDIVIDUAL', descripcion: 'Presidente: todas las facultades', limitaciones: null, grupo: letra, grupos: [letra], combinaciones: [letra],
         facultades: Object.fromEntries(BASTANTEO_CLAVES.map(k => [k, true])) };
       return { razon_social: cliente.cliente || '', cuit_empresa: cliente.cuit || '', fecha_emision: null, otorgante: { nombre_completo: f.nombre, dni: f.dni || '', fecha_nacimiento: null },
         apoderados: [persona], usos: [u], presidente: persona, porFirmanteD: true };
@@ -1196,6 +1205,11 @@
     const d = String(u.descripcion || '');
     let gs = [...d.matchAll(/\b(?:grupos?|categor[ií]as?|clases?)\s+([A-Z0-9]{1,2})\b/gi)].map(m => m[1].toUpperCase());
     if (!gs.length) gs = [...d.matchAll(/\b(?:[Uu]n|[Uu]no|[Uu]na|[Dd]os|[Oo]tro|[Oo]tra)\s+([A-Z])\b/g)].map(m => m[1]);
+    // Firma conjunta "con el Presidente": el presidente es el grupo D (A + Presidente → A+D).
+    if (/CONJUNTA/.test(u.tipo || '') && /\bpresident[ea]\b/i.test(d)) {
+      const gp = [...new Set(gs.filter(x => x !== 'D'))].sort();
+      return { grupo: gp[0] || null, grupos: gp, combinaciones: gp.map(x => x + '+D'), conPresidente: true };
+    }
     if (!gs.length) return { grupo: null, grupos: [], combinaciones: [] };
     const g = gs[0], grupos = [...new Set(gs)].sort();
     // Individual: vale para todos los grupos que nombra ("cualquier apoderado de Grupo A o Grupo B").
@@ -1386,7 +1400,9 @@
       const tipos = [...new Set(est.map(e => e.tipo_de_firma).filter(Boolean))];
       const grupos = [...new Set(est.map(e => e.grupo))];
       const combos = [...new Set(est.filter(e => e.firma_conjunta).flatMap(e => (e.combinaciones || []).filter(c => c.includes('+'))))].sort();
-      const limites = [...new Set(est.map(e => e.limitaciones).filter(Boolean))];
+      // El límite se controla sobre la firma individual (en la conjunta no aplica).
+      const estLim = est.some(e => !e.firma_conjunta) ? est.filter(e => !e.firma_conjunta) : est;
+      const limites = [...new Set(estLim.map(e => e.limitaciones).filter(Boolean))];
       fila.poder = { tipos, grupos, combos, limites };
       fila.puntos.push({ punto: 'Uso de firma', ok: !res.tipo || tipos.includes(res.tipo) ? (res.tipo ? true : null) : false, resumen: res.tipo || '—', poder: tipos.join(' / ') || '—' });
       // Si el poder no asigna grupos, la letra la pone la página (por las facultades): no se compara.
@@ -1704,6 +1720,7 @@
         return {
           grupo: u.grupo || null,
           combinaciones: u.combinaciones && u.combinaciones.length ? u.combinaciones : null,
+          con_presidente: u.conPresidente || undefined,
           apoderados: delUso.map(a => ident(a.dni, a)),
           tipo_de_firma: u.tipo || null,
           estructura_de_firma: u.descripcion || null,
@@ -1753,6 +1770,7 @@
       const p = personas.get(k);
       // Solo las combinaciones donde aparece el grupo del apoderado (B en "A+A; A+B" → A+B).
       (e.combinaciones || []).filter(c => !grupoPoder || c.split('+').includes(grupoPoder)).forEach(c => p.combinaciones.add(c));
+      if (e.con_presidente) p.conPresidente = true;
       BASTANTEO_CLAVES.forEach(c => { if (e.facultades[c]) p.facultades[c] = true; });
       if (e.limitaciones) p.limitaciones.add(e.limitaciones);
       if (j.deed_number) p.escrituras.add(String(j.deed_number));
@@ -1775,6 +1793,7 @@
       p.limitaciones.forEach(x => g.limitaciones.add(x));
       p.escrituras.forEach(x => g.escrituras.add(x));
       p.combinaciones.forEach(x => g.combinaciones.add(x));
+      if (p.conPresidente) g.conPresidente = true;
     });
     const lista = [...grupos.values()].sort((a, b) => b.personas.length - a.personas.length);
     if (restringidas.length) lista.filter(g => g.conjunta).forEach(g => restringidas.forEach(x => g.limitaciones.add('Firma individual restringida (no es un grupo aparte): ' + x)));
@@ -1801,6 +1820,8 @@
     const posible = c => { const n = {}; c.split('+').forEach(x => { n[x] = (n[x] || 0) + 1; }); return Object.keys(n).every(x => (integrantes[x] || 0) >= n[x]); };
     // Poder sin grupos y firma conjunta ("dos cualesquiera de los apoderados"): dos del mismo grupo (armado por facultades).
     const totalApoderados = new Set(lista.flatMap(g => g.personas.map(p => p.apoderado.numero_de_identificacion))).size;
+    // Con el presidente sin letra de grupo en el poder: la letra del grupo + D.
+    lista.forEach(g => { if (g.conPresidente && ![...g.combinaciones].some(c => c.endsWith('+D'))) g.combinaciones.add([g.grupo, 'D'].sort().join('+')); });
     lista.forEach(g => { if (g.auto && g.conjunta && !g.combinaciones.size) g.combinaciones.add(g.grupo + '+' + g.grupo); });
     lista.forEach(g => {
       const t = [...g.combinaciones].sort();

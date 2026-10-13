@@ -2036,7 +2036,7 @@
       if (!poderes.length && !pres) throw new Error('El PDF no tiene secciones "Acreditación de Poderes" ni un presidente en el acta de designación de autoridades.');
       poderes.forEach((p, k) => { p._k = k; });
       if (pres) pres._k = 'presidente';
-      bast.pdf = f.name; bast.poderesTodos = poderes; bast.poderPresidente = pres; bast.edPorPoder = {}; bast.actas = [];
+      bast.pdf = f.name; bast.poderesTodos = poderes; bast.poderPresidente = pres; bast.edPorPoder = {}; bast.actas = M.leerAutoridadesOcr(lineas);
       $('cmpEstado').innerHTML = '';
       $('bastPdfNombre').textContent = pres ? `${f.name} · sin acreditación de poderes · presidente: ${pres.presidente.nombre_completo}` : `${f.name} · ${poderes.length} poderes`;
       prepararBastanteo();
@@ -2187,7 +2187,7 @@
     if (!cliente.firmantes.length) { fila.estado = 'err'; fila.error = 'El Excel no tiene firmantes (no se encontró la tabla de firmantes)'; return fila; }
     const r = M.complifDeEmpresa(docs, cliente.cuit, cliente.cliente);
     const rv = M.aplicarRevocatorias(r.poderes);
-    let poderes = rv.vigentes.length ? rv.vigentes.concat(M.poderesFirmantesD(cliente, rv.vigentes)) : rv.vigentes;
+    let poderes = rv.vigentes.length ? rv.vigentes.concat(M.poderesFirmantesD(cliente, rv.vigentes, r.actas)) : rv.vigentes;
     fila.anulados = rv.anulados.length;
     if (!poderes.length && !rv.anulados.length) {
       const pres = M.poderDelPresidente(r.actas);
@@ -2388,7 +2388,7 @@
     const rv = M.aplicarRevocatorias(todos);
     bast.anulados = rv.anulados;
     // Firmante "D" en el resumen = presidente con todas las facultades (si no está en ningún poder).
-    const dd = M.poderesFirmantesD(bast.cliente, rv.vigentes);
+    const dd = M.poderesFirmantesD(bast.cliente, rv.vigentes, bast.actas);
     dd.forEach((p, i) => { p._k = 'firmanteD' + i; });
     bast.firmantesD = dd;
     bast.poderes = rv.vigentes.concat(dd);
@@ -2443,7 +2443,7 @@
     $('bastAcciones').classList.toggle('oculto', !hay);
     let estado = '';
     estado += bast.avisoPresidente || '';
-    if ((bast.firmantesD || []).length) estado += aviso('warn', `<b>Firmante D = presidente:</b> ${bast.firmantesD.map(p => esc(p.presidente.nombre_completo)).join(', ')} figura como "D" en el resumen y no está en los poderes: se lo toma como presidente con <b>todas las facultades</b> y firma individual.`);
+    if ((bast.firmantesD || []).length) estado += aviso('warn', `<b>Presidente:</b> ${bast.firmantesD.map(p => esc(p.presidente.nombre_completo) + ' (grupo ' + esc(p.presidente.grupo) + ')').join(', ')} no está en los poderes; por el acta de directorio o el resumen ("D" / "Presidente") se lo toma como presidente con <b>todas las facultades</b> y firma individual.`);
     if ((bast.anulados || []).length) estado += aviso('warn', `<b>${bast.anulados.length} poder${bast.anulados.length > 1 ? 'es anulados' : ' anulado'} por revocatoria:</b> ` +
       bast.anulados.map(a => `${esc(a.poder.fecha_emision || 's/f')}${a.poder.deed_number ? ' (esc. ' + esc(a.poder.deed_number) + ')' : ''} — ${esc(a.motivo)}`).join(' · ') + '. No se usan en el bastanteo.');
     if (hay && !bast.cliente) estado += aviso('warn', 'Falta la planilla del cliente: sin ella no se completan los CUIT de los firmantes ni la escritura, y se muestran todas las personas del PDF.');
