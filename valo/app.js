@@ -2175,6 +2175,161 @@
     finally { btn.disabled = false; }
   }
 
+  // ------------------------------------------------------------ Chequeo masivo de resúmenes (SharePoint / carpeta)
+  // Cada Excel de la carpeta (sin subcarpetas) se controla contra los poderes de Complif como el bastanteo de un cliente.
+  const mas = { filas: [], cancelar: false, corriendo: false };
+  const esResumen = n => /\.xlsx?$/i.test(n) && !/^~\$/.test(n);
+  function controlarResumen(nombre, hojas, docs) {
+    const fila = { archivo: nombre, empresa: '', cuit: '', firmantes: 0, poderes: 0, estado: '', diferencias: [], control: [], sinPoder: [], noIncluidos: [], error: '' };
+    let cliente;
+    try { cliente = M.leerClienteBastanteo(hojas); } catch (e) { fila.estado = 'err'; fila.error = 'No se pudo leer: ' + (e.message || e); return fila; }
+    fila.empresa = cliente.cliente || nombre.replace(/\.xlsx?$/i, '');
+    fila.cuit = cliente.cuit || '';
+    fila.firmantes = cliente.firmantes.length;
+    if (!cliente.firmantes.length) { fila.estado = 'err'; fila.error = 'El Excel no tiene firmantes (no se encontró la tabla de firmantes)'; return fila; }
+    const r = M.complifDeEmpresa(docs, cliente.cuit, cliente.cliente);
+    let poderes = r.poderes;
+    if (!poderes.length) {
+      const pres = M.poderDelPresidente(r.actas);
+      if (pres && M.firmanteDe(pres.presidente, cliente.firmantes)) poderes = [pres];
+    }
+    fila.poderes = poderes.length;
+    if (!poderes.length) { fila.estado = 'sinpod'; fila.error = r.actas.length ? 'Solo hay actas de designación en Complif' : 'Sin poderes en Complif'; return fila; }
+    const jsons = poderes.map(p => M.jsonPoder(p, cliente, { deed_number: p.deed_number || '', board_resolution_power_attorney: p.board_resolution_power_attorney || '',
+      power_attorney_type: p.power_attorney_type || 'Poder Especial para Operaciones Bancarias' }));
+    const sinPoder = M.firmantesSinPoder(poderes, cliente.firmantes);
+    const unico = M.jsonBastanteoUnico(jsons, Object.assign({}, cliente, { sinPoder }));
+    fila.control = M.controlResumen(unico, cliente);
+    fila.diferencias = fila.control.flatMap(f => f.puntos.filter(p => p.ok === false).map(p => Object.assign({ firmante: f.nombre, ident: f.ident, resumenTexto: f.resumen }, p)));
+    fila.sinPoder = sinPoder.map(f => f.nombre);
+    fila.noIncluidos = [...new Set(poderes.flatMap(p => p.apoderados).filter(a => !M.firmanteDe(a, cliente.firmantes)).map(a => a.nombre_completo))];
+    fila.estado = fila.diferencias.length ? 'dif' : 'ok';
+    return fila;
+  }
+  async function correrMasivo(fuentes) {
+    if (mas.corriendo) return;
+    if (!hayComplif()) { $('masEstado').innerHTML = aviso('warn', 'El chequeo masivo usa Complif: entrá a la versión web (con la base compartida).'); return; }
+    const lista = fuentes.filter(f => esResumen(f.nombre));
+    if (!lista.length) { $('masEstado').innerHTML = aviso('warn', 'No hay archivos Excel para controlar.'); return; }
+    Object.assign(mas, { filas: [], cancelar: false, corriendo: true });
+    $('btnMasCancelar').disabled = false; $('btnMasExcel').disabled = true;
+    const estado = t => { $('masEstado').innerHTML = `<p class="sub">${t}</p>`; };
+    try {
+      estado('Bajando los poderes de Complif…');
+      const docs = await complifDocumentos(n => estado(`Bajando los poderes de Complif… ${n} documentos`));
+      let hechos = 0;
+      const uno = async f => {
+        if (mas.cancelar) return;
+        let fila;
+        try { fila = controlarResumen(f.nombre, await leerHojas(await f.archivo()), docs); }
+        catch (e) { fila = { archivo: f.nombre, empresa: f.nombre.replace(/\.xlsx?$/i, ''), cuit: '', firmantes: 0, poderes: 0, estado: 'err', diferencias: [], control: [], sinPoder: [], noIncluidos: [], error: String(e.message || e) }; }
+        mas.filas.push(fila);
+        hechos++;
+        if (hechos % 5 === 0 || hechos === lista.length) { estado(`Controlando ${hechos} de ${lista.length} resúmenes…`); renderMasivo(); }
+      };
+      // De a 4 en paralelo (cada archivo de SharePoint es un pedido al flujo).
+      for (let i = 0; i < lista.length && !mas.cancelar; i += 4) await Promise.all(lista.slice(i, i + 4).map(uno));
+      $('masEstado').innerHTML = aviso(mas.cancelar ? 'warn' : 'ok', `${mas.cancelar ? 'Cancelado: ' : ''}${mas.filas.length} resúmenes controlados contra ${docs.length} documentos de Complif.`);
+    } catch (e) { $('masEstado').innerHTML = aviso('bad', 'No se pudo hacer el chequeo: ' + esc(errorComplif(e))); }
+    finally { mas.corriendo = false; $('btnMasCancelar').disabled = true; renderMasivo(); }
+  }
+  const ESTADO_MAS = { dif: ['warn', 'Con diferencias'], ok: ['ok', 'Coincide'], sinpod: ['warn', 'Sin poderes en Complif'], err: ['bad', 'Error de lectura'] };
+  function renderMasivo() {
+    const fl = mas.filas;
+    $('btnMasExcel').disabled = !fl.length;
+    $('masFiltros').classList.toggle('oculto', !fl.length);
+    const cuenta = k => fl.filter(f => f.estado === k).length;
+    $('masKpis').innerHTML = fl.length ? [['Empresas', fl.length], ['Con diferencias', cuenta('dif')], ['Coinciden', cuenta('ok')], ['Sin poderes en Complif', cuenta('sinpod')], ['Error de lectura', cuenta('err')],
+      ['Diferencias', fl.reduce((s, f) => s + f.diferencias.length, 0)]].map(([t, v]) => `<div class="kpi"><div class="sub" style="margin:0">${esc(t)}</div><b>${fmtEntero(v)}</b></div>`).join('') : '';
+    const filtro = $('masFiltro').value, q = M.normalizar($('masBuscar').value || '');
+    const vis = fl.filter(f => (filtro === 'todas' || f.estado === filtro) &&
+      (!q || M.normalizar([f.empresa, f.cuit, f.archivo].concat(f.control.map(c => c.nombre)).join(' ')).includes(q)))
+      .sort((a, b) => b.diferencias.length - a.diferencias.length || a.empresa.localeCompare(b.empresa));
+    $('masTabla').innerHTML = !fl.length ? '' : `<table><thead><tr><th>Empresa</th><th>CUIT</th><th class="num">Firmantes</th><th class="num">Poderes</th><th>Estado</th><th>Detalle</th></tr></thead><tbody>` +
+      vis.map(f => `<tr><td><b>${esc(f.empresa)}</b><div class="sub" style="margin:0;font-size:12px">${esc(f.archivo)}</div></td><td>${esc(M.formatoCuit(f.cuit) || '')}</td>` +
+        `<td class="num">${fmtEntero(f.firmantes)}</td><td class="num">${fmtEntero(f.poderes)}</td><td><span class="chip ${ESTADO_MAS[f.estado][0]}">${ESTADO_MAS[f.estado][1]}</span></td>` +
+        `<td style="white-space:normal;max-width:560px;font-size:13px">${f.error ? esc(f.error) : ''}` +
+        f.diferencias.map(d => `<div>✗ <b>${esc(d.firmante)}</b> · ${esc(d.punto)}: resumen "${esc(d.resumen)}" / poder "${esc(String(d.poder).slice(0, 160))}"${d.detalle ? ` <i>(${esc(d.detalle)})</i>` : ''}</div>`).join('') +
+        (f.noIncluidos.length ? `<div class="sub" style="margin:0">En Complif y no en el resumen: ${esc(f.noIncluidos.join(', '))}</div>` : '') + '</td></tr>').join('') +
+      (vis.length ? '' : '<tr><td colspan="6" class="sub">No hay empresas con ese filtro.</td></tr>') + '</tbody></table>';
+  }
+  $('masFiltro').addEventListener('change', renderMasivo);
+  $('masBuscar').addEventListener('input', renderMasivo);
+  $('btnMasCancelar').addEventListener('click', () => { mas.cancelar = true; });
+  // Carpeta elegida: solo los Excel del primer nivel (sin subcarpetas).
+  $('btnMasCarpeta').addEventListener('click', () => $('archivoMasCarpeta').click());
+  $('btnMasArchivos').addEventListener('click', () => $('archivoMasArchivos').click());
+  $('archivoMasCarpeta').addEventListener('change', e => {
+    const fs = [...e.target.files].filter(f => (f.webkitRelativePath || f.name).split('/').length <= 2);
+    e.target.value = '';
+    correrMasivo(fs.map(f => ({ nombre: f.name, archivo: async () => f })));
+  });
+  $('archivoMasArchivos').addEventListener('change', e => { const fs = [...e.target.files]; e.target.value = ''; correrMasivo(fs.map(f => ({ nombre: f.name, archivo: async () => f }))); });
+  // SharePoint por un flujo de Power Automate: accion "listar" (Excel de la carpeta, sin subcarpetas) y "archivo" (contenido en base64).
+  function cargarSp() {
+    const f = datos().nocobisFlujo || {};
+    if (document.activeElement !== $('spUrl')) $('spUrl').value = f.spUrl || '';
+    if (document.activeElement !== $('spClave')) $('spClave').value = f.spClave || '';
+  }
+  $('detMasSp').addEventListener('toggle', () => { if ($('detMasSp').open) cargarSp(); });
+  $('btnSpGuardar').addEventListener('click', async () => {
+    try {
+      await almacen.guardarNocobisFlujo(Object.assign({}, datos().nocobisFlujo, { spUrl: $('spUrl').value.trim(), spClave: $('spClave').value }));
+      toast('Conexión con SharePoint guardada para todos los usuarios');
+    } catch (e) { informar('No se pudo guardar', esc(e.message || e)); }
+  });
+  const base64ABlob = (b64, nombre) => { const bin = atob(String(b64).replace(/^data:[^,]*,/, '')); const u = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i); return new File([u], nombre); };
+  $('btnMasSp').addEventListener('click', async () => {
+    const f = datos().nocobisFlujo || {};
+    const con = { url: $('spUrl').value.trim() || f.spUrl || '', clave: $('spClave').value || f.spClave || '' };
+    if (!con.url || !con.clave) { $('detMasSp').open = true; cargarSp(); $('masEstado').innerHTML = aviso('warn', 'Falta configurar la conexión con SharePoint (flujo de Power Automate): ver <code>powerautomate/SHAREPOINT.md</code>. Mientras tanto podés usar <b>Elegir carpeta</b> con la carpeta sincronizada con OneDrive.'); return; }
+    $('masEstado').innerHTML = '<p class="sub">Listando la carpeta de SharePoint…</p>';
+    try {
+      const j = await llamarFlujo({ accion: 'listar' }, con);
+      const items = (Array.isArray(j) ? j : j.archivos || j.value || []).filter(x => !(x.carpeta === true || x.IsFolder === true));
+      const lista = items.map(x => ({ nombre: x.nombre || x.Name || x.FileLeafRef || '', ruta: x.ruta || x.Path || x.FullPath || x.id || x.Id }))
+        .filter(x => esResumen(x.nombre));
+      if (!lista.length) { $('masEstado').innerHTML = aviso('warn', 'El flujo no devolvió archivos Excel en la carpeta.'); return; }
+      correrMasivo(lista.map(x => ({ nombre: x.nombre, archivo: async () => {
+        const r = await llamarFlujo({ accion: 'archivo', ruta: x.ruta }, con);
+        const b64 = r.contenido || r.$content || (r.body && r.body.$content) || r;
+        return base64ABlob(b64, x.nombre);
+      } })));
+    } catch (e) { $('masEstado').innerHTML = aviso('bad', 'No se pudo listar SharePoint: ' + esc(e.message || e)); }
+  });
+  // Reporte: hoja Empresas (listado global), Diferencias (una fila por punto que difiere) y Firmantes.
+  $('btnMasExcel').addEventListener('click', async () => {
+    try {
+      await cargarLibreria('exceljs');
+      const wb = new window.ExcelJS.Workbook();
+      wb.creator = 'VALO - EPORTFOLIO';
+      const hoja = (nombre, enc, filas, anchos) => {
+        const ws = wb.addWorksheet(nombre);
+        const e = ws.addRow(enc);
+        e.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+        e.eachCell(c => { c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFC8102E' } }; });
+        filas.forEach(f => ws.addRow(f));
+        anchos.forEach((a, i) => { ws.getColumn(i + 1).width = a; });
+        ws.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: enc.length } };
+        ws.views = [{ state: 'frozen', ySplit: 1 }];
+      };
+      const fl = mas.filas.slice().sort((a, b) => a.empresa.localeCompare(b.empresa));
+      hoja('Empresas', ['Empresa', 'CUIT', 'Archivo', 'Firmantes', 'Poderes en Complif', 'Estado', 'Diferencias', 'Firmantes sin poder', 'En Complif y no en el resumen', 'Observación'],
+        fl.map(f => [f.empresa, M.formatoCuit(f.cuit) || '', f.archivo, f.firmantes, f.poderes, ESTADO_MAS[f.estado][1], f.diferencias.length, f.sinPoder.join(', '), f.noIncluidos.join(', '), f.error]),
+        [44, 16, 44, 10, 12, 22, 12, 36, 36, 40]);
+      hoja('Diferencias', ['Empresa', 'CUIT', 'Firmante', 'CUIT/DNI firmante', 'Resumen (Excel)', 'Punto', 'Dice el resumen', 'Dice el poder', 'Detalle'],
+        fl.flatMap(f => f.diferencias.map(d => [f.empresa, M.formatoCuit(f.cuit) || '', d.firmante, M.formatoCuit(d.ident) || d.ident || '', d.resumenTexto, d.punto, d.resumen, d.poder, d.detalle || ''])),
+        [40, 16, 32, 16, 26, 16, 22, 60, 40]);
+      hoja('Firmantes', ['Empresa', 'CUIT', 'Firmante', 'CUIT/DNI', 'Resumen (Excel)', 'Resultado', 'Puntos con diferencia'],
+        fl.flatMap(f => f.control.map(c => [f.empresa, M.formatoCuit(f.cuit) || '', c.nombre, M.formatoCuit(c.ident) || c.ident || '', c.resumen,
+          c.sinPoder ? 'Sin poder en Complif' : c.puntos.some(p => p.ok === false) ? 'Con diferencias' : 'Coincide', c.puntos.filter(p => p.ok === false).map(p => p.punto).join(', ')])),
+        [40, 16, 32, 16, 26, 20, 30]);
+      const buf = await wb.xlsx.writeBuffer();
+      const hoy = new Date().toISOString().slice(0, 10);
+      await descargar(`Chequeo_resumenes_poder_${hoy}.xlsx`, new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), true);
+    } catch (e) { informar('No se pudo exportar', esc(e.message || e)); }
+  });
+
   // Firmantes de la planilla que traen el DNI en lugar del CUIT: el CUIT sale de la base de entes, por número de
   // ente o, si no, por el DNI.
   async function completarCuitFirmantes(firmantes) {
