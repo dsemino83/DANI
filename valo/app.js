@@ -2189,7 +2189,7 @@
     if (!cliente.firmantes.length) { fila.estado = 'err'; fila.error = 'El Excel no tiene firmantes (no se encontró la tabla de firmantes)'; return fila; }
     const r = M.complifDeEmpresa(docs, cliente.cuit, cliente.cliente);
     const rv = M.aplicarRevocatorias(r.poderes);
-    let poderes = rv.vigentes;
+    let poderes = rv.vigentes.length ? rv.vigentes.concat(M.poderesFirmantesD(cliente, rv.vigentes)) : rv.vigentes;
     fila.anulados = rv.anulados.length;
     if (!poderes.length && !rv.anulados.length) {
       const pres = M.poderDelPresidente(r.actas);
@@ -2372,7 +2372,11 @@
     // Revocatorias: los poderes anteriores a uno que revoca quedan anulados.
     const rv = M.aplicarRevocatorias(todos);
     bast.anulados = rv.anulados;
-    bast.poderes = rv.vigentes;
+    // Firmante "D" en el resumen = presidente con todas las facultades (si no está en ningún poder).
+    const dd = M.poderesFirmantesD(bast.cliente, rv.vigentes);
+    dd.forEach((p, i) => { p._k = 'firmanteD' + i; });
+    bast.firmantesD = dd;
+    bast.poderes = rv.vigentes.concat(dd);
     bast.otrosPoderes = [];
     bast.edPorPoder = bast.edPorPoder || {};
     if (!bast.poderes.length) { bast.ediciones = []; renderBastanteo(); return; }
@@ -2424,6 +2428,7 @@
     $('bastAcciones').classList.toggle('oculto', !hay);
     let estado = '';
     estado += bast.avisoPresidente || '';
+    if ((bast.firmantesD || []).length) estado += aviso('warn', `<b>Firmante D = presidente:</b> ${bast.firmantesD.map(p => esc(p.presidente.nombre_completo)).join(', ')} figura como "D" en el resumen y no está en los poderes: se lo toma como presidente con <b>todas las facultades</b> y firma individual.`);
     if ((bast.anulados || []).length) estado += aviso('warn', `<b>${bast.anulados.length} poder${bast.anulados.length > 1 ? 'es anulados' : ' anulado'} por revocatoria:</b> ` +
       bast.anulados.map(a => `${esc(a.poder.fecha_emision || 's/f')}${a.poder.deed_number ? ' (esc. ' + esc(a.poder.deed_number) + ')' : ''} — ${esc(a.motivo)}`).join(' · ') + '. No se usan en el bastanteo.');
     if (hay && !bast.cliente) estado += aviso('warn', 'Falta la planilla del cliente: sin ella no se completan los CUIT de los firmantes ni la escritura, y se muestran todas las personas del PDF.');

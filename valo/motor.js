@@ -1158,6 +1158,19 @@
     return actas;
   }
   const esPresidente = rol => /\bpresident[ea]\b/i.test(normalizar(rol));
+  // Firmante con grupo "D" en el resumen = el presidente, con todas las facultades (firma individual). Si no figura en
+  // ningún poder, se arma un poder con él para el bastanteo y el control.
+  function poderesFirmantesD(cliente, poderes) {
+    return ((cliente && cliente.firmantes) || []).filter(f => f.uso && f.uso.grupo === 'D' && !f.revocado
+      && !(poderes || []).some(p => p.apoderados.some(a => firmanteDe(a, [f])))).map(f => {
+      const persona = { nombre_completo: f.nombre, dni: f.dni || '', cuit: f.cuit || '', grupo: 'D' };
+      const u = { tipo: 'INDIVIDUAL', descripcion: 'Presidente (firmante D del resumen): todas las facultades', limitaciones: null, grupo: 'D', grupos: ['D'], combinaciones: ['D'],
+        facultades: Object.fromEntries(BASTANTEO_CLAVES.map(k => [k, true])) };
+      return { razon_social: cliente.cliente || '', cuit_empresa: cliente.cuit || '', fecha_emision: null, otorgante: { nombre_completo: f.nombre, dni: f.dni || '', fecha_nacimiento: null },
+        apoderados: [persona], usos: [u], presidente: persona, porFirmanteD: true };
+    });
+  }
+
   // Sin "Acreditación de Poderes": poder armado con el presidente del acta, con todas las facultades.
   function poderDelPresidente(actas) {
     for (const acta of [].concat(actas || []).reverse()) {
@@ -1179,7 +1192,10 @@
   // Grupo al que corresponde un uso de firma y combinaciones de firma, según la descripción del poder. "Grupo B con
   // integrante de Grupo C o Grupo B conjuntamente" → grupo B, combinaciones B+B y B+C. Sin grupo en la descripción: null.
   function gruposDelUso(u) {
-    const gs = [...String(u.descripcion || '').matchAll(/\bgrupos?\s+([A-Z0-9]{1,2})\b/gi)].map(m => m[1].toUpperCase());
+    // "Grupo A", "Categoría A", "Clase A" o letras sueltas en "un A con un B" / "dos A".
+    const d = String(u.descripcion || '');
+    let gs = [...d.matchAll(/\b(?:grupos?|categor[ií]as?|clases?)\s+([A-Z0-9]{1,2})\b/gi)].map(m => m[1].toUpperCase());
+    if (!gs.length) gs = [...d.matchAll(/\b(?:[Uu]n|[Uu]no|[Uu]na|[Dd]os|[Oo]tro|[Oo]tra)\s+([A-Z])\b/g)].map(m => m[1]);
     if (!gs.length) return { grupo: null, grupos: [], combinaciones: [] };
     const g = gs[0], grupos = [...new Set(gs)].sort();
     // Individual: vale para todos los grupos que nombra ("cualquier apoderado de Grupo A o Grupo B").
@@ -1380,7 +1396,8 @@
           : { punto: 'Grupo', ok: grupos.includes(res.grupo), resumen: res.grupo, poder: grupos.join(', ') });
       }
       const grupoAuto = est.every(e => e.grupoAutomatico);
-      if (res.tipo === 'CONJUNTA' || combos.length) {
+      // Las combinaciones se controlan cuando el resumen da firma conjunta (o lista combinaciones).
+      if (res.tipo === 'CONJUNTA' || res.combinaciones.length || (!res.tipo && combos.length)) {
         // Grupos automáticos: no importa la letra sino la forma de la combinación (dos del mismo grupo o de grupos distintos).
         const forma = c => { const [a, b] = c.split('+'); return a === b ? 'dos del mismo grupo' : 'de grupos distintos'; };
         const resC = grupoAuto ? [...new Set(res.combinaciones.map(forma))] : res.combinaciones;
@@ -2952,7 +2969,7 @@ try {
     leerTxtMeli, bancoMeliDeTxt, bancosParaMeli,
     sqlExtraccionCartera, bookmarkletCartera, scriptPowerShellCartera, comandoTareaCartera, IMPORTES_CARTERA,
     NO_COBIS, ultimoDiaHabil, fechasNoCobis, lineaNoCobis, txtNoCobis, loteApiNoCobis, scriptPowerShellNoCobis, scriptPowerShellProbarNoCobis, scriptPowerShellAgenteNoCobis, cmdEnvioNoCobis,
-    leerCartera, BASTANTEO_CATALOGO, BASTANTEO_CLAVES, BASTANTEO_EXTRA, leerPoderesOcr, leerAutoridadesOcr, COMPLIF_TIPOS, poderDesdeComplif, actaDesdeComplif, complifDeEmpresa, controlResumen, usoDelResumen, aplicarRevocatorias, poderDelPresidente, leerClienteBastanteo, cuitPorDni, formatoCuit, firmanteDe, firmantesSinPoder, jsonPoder, jsonBastanteoUnico, leerInventarioGarantias, INVENTARIOS_CONTABLES, INVENTARIO_DENOMINACION, INVENTARIO_FIRMAS, fechaReporteIso, fechaInventarioDesdeReporte, leerPadronDesdeInventarios, leerBaseEntes, unirPadron, armarInventariosContables, leerCom3500, leerTcApiBcra, elegirTipoCambio, numeroEnLetras, daxCarteraPowerBI, daxDiagnosticoPowerBI, daxSaldoDeuda, armarSaldoDeuda, leerFilasPowerBI, sugerirColumnaCartera, columnasNumericasCartera, agruparCartera, valoresDistintos, sqlCartera,
+    leerCartera, BASTANTEO_CATALOGO, BASTANTEO_CLAVES, BASTANTEO_EXTRA, leerPoderesOcr, leerAutoridadesOcr, COMPLIF_TIPOS, poderDesdeComplif, actaDesdeComplif, complifDeEmpresa, controlResumen, usoDelResumen, aplicarRevocatorias, poderesFirmantesD, poderDelPresidente, leerClienteBastanteo, cuitPorDni, formatoCuit, firmanteDe, firmantesSinPoder, jsonPoder, jsonBastanteoUnico, leerInventarioGarantias, INVENTARIOS_CONTABLES, INVENTARIO_DENOMINACION, INVENTARIO_FIRMAS, fechaReporteIso, fechaInventarioDesdeReporte, leerPadronDesdeInventarios, leerBaseEntes, unirPadron, armarInventariosContables, leerCom3500, leerTcApiBcra, elegirTipoCambio, numeroEnLetras, daxCarteraPowerBI, daxDiagnosticoPowerBI, daxSaldoDeuda, armarSaldoDeuda, leerFilasPowerBI, sugerirColumnaCartera, columnasNumericasCartera, agruparCartera, valoresDistintos, sqlCartera,
     leerCsv, encabezadosEjemplo, leerDefinicionInterfaz, sugerirColumna, detectarHojaInterfaz,
     normalizar, provinciaPorNombre, crearBuscadorBancoPorNombre, round2, aNumero, aFechaSerial, aCodigoBanco,
     fechaDDMMYY, fechaYYYYMMDD, fechaLegible, hoyDDMMYY,
