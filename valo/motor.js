@@ -1364,7 +1364,12 @@
       const limites = [...new Set(est.map(e => e.limitaciones).filter(Boolean))];
       fila.poder = { tipos, grupos, combos, limites };
       fila.puntos.push({ punto: 'Uso de firma', ok: !res.tipo || tipos.includes(res.tipo) ? (res.tipo ? true : null) : false, resumen: res.tipo || '—', poder: tipos.join(' / ') || '—' });
-      if (res.grupo) fila.puntos.push({ punto: 'Grupo', ok: grupos.includes(res.grupo), resumen: res.grupo, poder: grupos.join(', ') });
+      // Si el poder no asigna grupos, la letra la pone la página (por las facultades): no se compara.
+      if (res.grupo) {
+        const auto = est.every(e => e.grupoAutomatico);
+        fila.puntos.push(auto ? { punto: 'Grupo', ok: null, resumen: res.grupo, poder: `No aplica: el poder no asigna grupos (letra ${grupos.join(', ')} puesta según las facultades)` }
+          : { punto: 'Grupo', ok: grupos.includes(res.grupo), resumen: res.grupo, poder: grupos.join(', ') });
+      }
       if (res.tipo === 'CONJUNTA' || combos.length) {
         const sobran = res.combinaciones.filter(c => !combos.includes(c)), faltan = combos.filter(c => !res.combinaciones.includes(c));
         fila.puntos.push({ punto: 'Firmas conjuntas', ok: !sobran.length && !faltan.length, resumen: res.combinaciones.join('; ') || '—', poder: combos.join('; ') || '—',
@@ -1690,7 +1695,7 @@
     const usados = new Set(lista.filter(g => g.nombre).map(g => g.nombre));
     let n = 0;
     lista.forEach(g => {
-      if (!g.nombre) { while (usados.has(letra(n))) n++; g.nombre = letra(n); usados.add(g.nombre); }
+      if (!g.nombre) { while (usados.has(letra(n))) n++; g.nombre = letra(n); usados.add(g.nombre); g.auto = true; }
       g.grupo = g.nombre;
       g.personas.forEach(p => { p.grupo = g.grupo; });
     });
@@ -1725,7 +1730,7 @@
       apoderados: [...apoderados.values()].map(a => Object.assign(a, { grupo: a.grupo.join(', ') }))
         .concat(((cliente && cliente.sinPoder) || []).filter(f => !apoderados.has(Number(f.cuit || f.dni))).map(f => ({ numero_de_identificacion: Number(f.cuit || f.dni),
           nombre_completo: f.nombre, grupo: null, advertencia: 'Está en la planilla del cliente pero no figura en ningún poder' }))),
-      estructuras_de_firma: lista.map(g => ({
+      estructuras_de_firma: lista.map(g => Object.defineProperty({
         grupo: g.grupo,
         tipo_de_firma: g.tipo || null,
         estructura_de_firma: descGrupo(g),
@@ -1738,7 +1743,8 @@
         facultades: g.facultades,
         limitaciones: [...g.limitaciones].join(' | ') || null,
         limite_de_operacion: null,
-      })),
+      // Letra puesta por la página (el poder no asigna grupos): no se exporta en el JSON.
+      }, 'grupoAutomatico', { value: !!g.auto, enumerable: false })),
       poderes: jsons.map(j => ({ deed_number: j.deed_number, fecha_emision: j.fecha_emision, razon_social: j.razon_social, cuit_empresa: j.cuit_empresa,
         power_attorney_type: j.power_attorney_type, board_resolution_power_attorney: j.board_resolution_power_attorney,
         apoderados: j.apoderados.map(a => a.numero_de_identificacion), estructuras: j.estructuras_de_firma.map(e => e.estructura_de_firma) })),
