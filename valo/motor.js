@@ -1708,6 +1708,10 @@
       if (j.deed_number) p.escrituras.add(String(j.deed_number));
       if (e.estructura_de_firma) p.estructuras.add(e.estructura_de_firma);
     })));
+    // Una persona en varios grupos de los poderes (A, B, C…): vale la primera letra y se descarta la de menos poder.
+    const primera = new Map();
+    personas.forEach(p => { if (!p.grupoPoder) return; const id = p.apoderado.numero_de_identificacion, g = primera.get(id); if (!g || p.grupoPoder < g) primera.set(id, p.grupoPoder); });
+    personas.forEach((p, k) => { if (p.grupoPoder && p.grupoPoder !== primera.get(p.apoderado.numero_de_identificacion)) personas.delete(k); });
     const grupos = new Map();
     personas.forEach(p => {
       const k = p.grupoPoder ? 'G|' + p.grupoPoder + '|' + (p.tipo || '') : p.grupoDesc ? 'D|' + p.grupoDesc + '|' + (p.tipo || '')
