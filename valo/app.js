@@ -2199,11 +2199,18 @@
       power_attorney_type: p.power_attorney_type || 'Poder Especial para Operaciones Bancarias' }));
     const sinPoder = M.firmantesSinPoder(poderes, cliente.firmantes).filter(f => !f.revocado);
     const unico = M.jsonBastanteoUnico(jsons, Object.assign({}, cliente, { sinPoder }));
-    fila.control = M.controlResumen(unico, cliente);
+    fila.control = M.controlResumen(unico, cliente, r.actas);
     fila.diferencias = fila.control.flatMap(f => f.puntos.filter(p => p.ok === false).map(p => Object.assign({ firmante: f.nombre, ident: f.ident, resumenTexto: f.resumen }, p)));
     fila.sinPoder = sinPoder.map(f => f.nombre);
     fila.noIncluidos = [...new Set(poderes.flatMap(p => p.apoderados).filter(a => !M.firmanteDe(a, cliente.firmantes)).map(a => a.nombre_completo))];
     fila.estado = fila.diferencias.length ? 'dif' : 'ok';
+    // Ningún firmante del resumen está en los poderes: lo más probable es que falten poderes en Complif (o que los
+    // vinculados sean de otra empresa), no que el resumen esté mal.
+    const vigentes = cliente.firmantes.filter(f => !f.revocado);
+    if (vigentes.length > 1 && fila.control.filter(c => !c.sinPoder).length === 0)
+      fila.error = 'Ningún firmante del resumen figura en los poderes de Complif: revisar si faltan poderes de la empresa en Complif o si los vinculados son de otra.';
+    else if (vigentes.length > 2 && fila.control.filter(c => c.sinPoder).length >= vigentes.length * 0.7)
+      fila.error = `${fila.control.filter(c => c.sinPoder).length} de ${vigentes.length} firmantes no figuran en los poderes de Complif: puede faltar un poder.`;
     return fila;
   }
   async function correrMasivo(fuentes) {
@@ -2539,7 +2546,7 @@
   // Control del resumen (Excel) contra los poderes, firmante por firmante: uso de firma, grupo, conjuntas y límite.
   function renderControlResumen() {
     if (!bast.poderes.length || !bast.cliente || !bast.cliente.firmantes.length) { $('bastControl').innerHTML = ''; return; }
-    const filas = M.controlResumen(jsonUnico(), bast.cliente);
+    const filas = M.controlResumen(jsonUnico(), bast.cliente, bast.actas);
     const marca = ok => (ok === true ? '<b style="color:var(--ok)">✓</b>' : ok === false ? '<b style="color:var(--bad)">✗</b>' : '<span class="sub">—</span>');
     const conDif = filas.filter(f => f.puntos.some(p => p.ok === false));
     const orden = conDif.concat(filas.filter(f => !conDif.includes(f)));
