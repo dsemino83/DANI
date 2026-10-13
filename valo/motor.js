@@ -1370,6 +1370,11 @@
         fila.puntos.push({ punto: 'Firmas conjuntas', ok: !sobran.length && !faltan.length, resumen: res.combinaciones.join('; ') || '—', poder: combos.join('; ') || '—',
           detalle: [sobran.length ? 'el resumen incluye ' + sobran.join(', ') + ' que el poder no da' : '', faltan.length ? 'el poder también da ' + faltan.join(', ') : ''].filter(Boolean).join('; ') });
       }
+      // Firma conjunta: el límite del poder es para la firma individual, así que no se controla.
+      if (res.tipo === 'CONJUNTA' || (!res.tipo && tipos.length && tipos.every(t => t === 'CONJUNTA'))) {
+        fila.puntos.push({ punto: 'Límite', ok: null, resumen: f.monto_hasta && f.monto_hasta < 99999999 ? String(f.monto_hasta) : 'sin límite', poder: 'No aplica: firma conjunta (el límite es para la firma individual)' });
+        return fila;
+      }
       const sinLimite = !f.monto_hasta || f.monto_hasta >= 99999999;
       const conLimite = limites.some(l => TIENE_LIMITE.test(l));
       fila.puntos.push({ punto: 'Límite', ok: sinLimite === !conLimite ? true : (sinLimite ? false : null), resumen: sinLimite ? 'sin límite' : String(f.monto_hasta),
