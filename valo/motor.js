@@ -625,6 +625,88 @@
     ].join('\n');
   }
 
+  // Saldo de deuda por fiduciante y mes de vencimiento, sin filtrar negocios. Cuotas de la última foto mensual
+  // (Periodo más reciente) vencidas hasta ayer (la cobranza del día no está bajada). Deuda impaga = cuotas en estado
+  // Impaga (4) por su valor (capital + interés, "ficuo valor cuota"); además, lo que falta cobrar de las Paga Parcial (1)
+  // = saldo de capital + saldo de interés. Saldo de deuda = impago + saldo de Paga Parcial. Quedan afuera Normal (0),
+  // Paga (2) y Paga a Regularizar (3) (cobradas, saldo 0).
+  function daxSaldoDeuda(opciones = {}) {
+    const t = opciones.tabla || PBI_TABLA, c = n => `'${t}'[${n}]`;
+    const hasta = opciones.hasta ? `DATE ( ${opciones.hasta.slice(0, 4)}, ${Number(opciones.hasta.slice(5, 7))}, ${Number(opciones.hasta.slice(8, 10))} )` : 'TODAY () - 1';
+    // Una misma cuota puede estar repetida en la foto (otro lote u otra fecha de cálculo, a veces con otro estado):
+    // se toma el renglón más reciente de cada cuota (fecha de cálculo y número de lote) antes de mirar el estado.
+    // Además devuelve, por fiduciante (renglones sin vencimiento), las cuotas vencidas que siguen en estado Normal: nadie
+    // las marcó como pagas ni impagas, así que su estado en Power BI no está actualizado.
+    return [
+      'DEFINE',
+      `  VAR Hasta = ${hasta}`,
+      // Foto de cartera: la última, o la del mes elegido (ej. 2026-09 = cierre de septiembre, como el reporte del BI).
+      opciones.periodo ? `  VAR UltimoPeriodo = CALCULATE ( MAX ( ${c('Periodo')} ), FILTER ( ALL ( ${c('Periodo')} ), FORMAT ( ${c('Periodo')}, "yyyy-MM" ) = "${String(opciones.periodo).slice(0, 7).replace(/"/g, '')}" ) )`
+        : `  VAR UltimoPeriodo = MAX ( ${c('Periodo')} )`,
+      '  VAR T = SELECTCOLUMNS (',
+      `      FILTER ( '${t}', ${c('Periodo')} = UltimoPeriodo && ${c('CuotaFechaVencimientoId')} <= Hasta ),`,
+      `      "Clave", ${c('NroCredito')} & "|" & ${c('CuotaNumero')},`,
+      `      "Orden", FORMAT ( ${c('Fecha de Calculo')}, "yyyyMMdd" ) & FORMAT ( ${c('Numero de Lote')}, "000" ),`,
+      `      "Fid", ${c('EnteFiducianteId')} & "",`,
+      `      "Est", ${c('FideicomisoCreditoCuotaEstadoId')} & "",`,
+      `      "Vto", FORMAT ( ${c('CuotaFechaVencimientoId')}, "yyyy-MM-dd" ),`,
+      `      "Calc", ${c('Fecha de Calculo')},`,
+      `      "Valor", ${c('Capital')} + ${c('Interes')},`,
+      `      "Saldo", ${c('Saldo_Capital')} + ${c('Saldo_Interes')} )`,
+      '  VAR Ult = SELECTCOLUMNS ( GROUPBY ( T, [Clave], "M", MAXX ( CURRENTGROUP (), [Orden] ) ), "Clave", [Clave] & "", "Orden", [M] & "" )',
+      '  VAR Ultimas = NATURALINNERJOIN ( T, Ult )',
+      '  VAR G = GROUPBY ( FILTER ( Ultimas, [Est] IN { "1", "4" } ), [Fid], [Vto],',
+      '      "Cuotas", SUMX ( CURRENTGROUP (), IF ( [Est] = "4", 1, 0 ) ), "Deuda", SUMX ( CURRENTGROUP (), IF ( [Est] = "4", [Valor], 0 ) ),',
+      '      "CuotasPP", SUMX ( CURRENTGROUP (), IF ( [Est] = "1", 1, 0 ) ), "SaldoPP", SUMX ( CURRENTGROUP (), IF ( [Est] = "1", [Saldo], 0 ) ) )',
+      '  VAR SinMarcar = SELECTCOLUMNS ( GROUPBY ( Ultimas, [Fid], "N", SUMX ( CURRENTGROUP (), IF ( [Est] = "0", 1, 0 ) ), "V", SUMX ( CURRENTGROUP (), IF ( [Est] = "0", [Valor], 0 ) ),',
+      '      "C", MAXX ( CURRENTGROUP (), [Calc] ) ), "Fid", [Fid], "Vto", "", "Cuotas", [N], "Deuda", [V], "CuotasPP", 0, "SaldoPP", 0 )',
+      'EVALUATE',
+      '  ADDCOLUMNS ( UNION ( G, SinMarcar ),',
+      "    \"Fiduciante\", LOOKUPVALUE ( 'Fiduciante'[Ente], 'Fiduciante'[EnteId], [Fid] ),",
+      '    "Periodo", UltimoPeriodo, "Hasta", Hasta )',
+      'ORDER BY [Fid], [Vto]',
+    ].join('\n');
+  }
+  // Tabla fiduciante × mes: { meses, filas: [{ cuit, fiduciante, porMes: {mes: deuda}, fechas: {mes: [vencimientos]},
+  // cuotas, total }], totalesMes, total }. Power BI devuelve un renglón por fiduciante y fecha de vencimiento.
+  function armarSaldoDeuda(respuesta) {
+    const todos = leerFilasPowerBI(respuesta).datos;
+    // Renglones sin vencimiento: cuotas vencidas de cada fiduciante que siguen en estado Normal (sin actualizar).
+    const sinMarcar = [];
+    let periodo = '', hasta = '';
+    todos.forEach(r => {
+      const cuit = String(r.Fid == null ? '' : r.Fid);
+      if (!r.Vto && Number(r.Cuotas) > 0) sinMarcar.push({ cuit, fiduciante: r.Fiduciante || cuit, cuotas: Number(r.Cuotas), valor: round2(Number(r.Deuda) || 0) });
+      periodo = periodo || String(r.Periodo || '').slice(0, 10);
+      hasta = hasta || String(r.Hasta || '').slice(0, 10);
+    });
+    const datos = todos.filter(r => r.Vto);
+    datos.forEach(r => { r.Vto = String(r.Vto).slice(0, 10); r.Mes = r.Vto.slice(0, 7); });
+    const meses = [...new Set(datos.filter(r => Number(r.Deuda)).map(r => String(r.Mes)))].sort();
+    const porFid = new Map();
+    datos.forEach(r => {
+      const cuit = String(r.Fid == null ? '' : r.Fid);
+      if (!porFid.has(cuit)) porFid.set(cuit, { cuit, fiduciante: r.Fiduciante || cuit, porMes: {}, fechas: {}, porDia: {}, ppPorDia: {}, cuotas: 0, total: 0, ppCuotas: 0, pp: 0 });
+      const f = porFid.get(cuit), v = Number(r.Deuda) || 0, pp = Number(r.SaldoPP) || 0;
+      f.ppCuotas += Number(r.CuotasPP) || 0;
+      f.pp = round2(f.pp + pp);
+      if (r.Vto && pp) f.ppPorDia[r.Vto] = round2((f.ppPorDia[r.Vto] || 0) + pp);
+      if (!v) return;
+      f.porMes[r.Mes] = round2((f.porMes[r.Mes] || 0) + v);
+      if (r.Vto) f.porDia[r.Vto] = round2((f.porDia[r.Vto] || 0) + v);
+      if (r.Vto) { f.fechas[r.Mes] = f.fechas[r.Mes] || []; if (!f.fechas[r.Mes].includes(r.Vto)) f.fechas[r.Mes].push(r.Vto); f.fechas[r.Mes].sort(); }
+      f.cuotas += Number(r.Cuotas) || 0;
+      f.total = round2(f.total + v);
+    });
+    sinMarcar.sort((a, b) => b.valor - a.valor);
+    porFid.forEach(f => { f.saldoDeuda = round2(f.total + f.pp); });
+    const filas = [...porFid.values()].filter(f => f.total || f.pp).sort((a, b) => (b.total + b.pp) - (a.total + a.pp));
+    const totalesMes = Object.fromEntries(meses.map(m => [m, round2(filas.reduce((s, f) => s + (f.porMes[m] || 0), 0))]));
+    const total = round2(filas.reduce((s, f) => s + f.total, 0)), pp = round2(filas.reduce((s, f) => s + f.pp, 0));
+    return { meses, filas, totalesMes, total, cuotas: filas.reduce((s, f) => s + f.cuotas, 0), pp, ppCuotas: filas.reduce((s, f) => s + f.ppCuotas, 0),
+      saldoDeuda: round2(total + pp), periodo, hasta, sinMarcar };
+  }
+
   // Consultas de diagnóstico: qué fideicomisos y periodos hay en la tabla de cuotas y cómo se ven por la dimensión Fideicomiso.
   function daxDiagnosticoPowerBI(tabla = PBI_TABLA) {
     const c = n => `'${tabla}'[${n}]`;
@@ -2782,7 +2864,7 @@ try {
     leerTxtMeli, bancoMeliDeTxt, bancosParaMeli,
     sqlExtraccionCartera, bookmarkletCartera, scriptPowerShellCartera, comandoTareaCartera, IMPORTES_CARTERA,
     NO_COBIS, ultimoDiaHabil, fechasNoCobis, lineaNoCobis, txtNoCobis, loteApiNoCobis, scriptPowerShellNoCobis, scriptPowerShellProbarNoCobis, scriptPowerShellAgenteNoCobis, cmdEnvioNoCobis,
-    leerCartera, BASTANTEO_CATALOGO, BASTANTEO_CLAVES, BASTANTEO_EXTRA, leerPoderesOcr, leerAutoridadesOcr, COMPLIF_TIPOS, poderDesdeComplif, actaDesdeComplif, complifDeEmpresa, controlResumen, usoDelResumen, poderDelPresidente, leerClienteBastanteo, cuitPorDni, formatoCuit, firmanteDe, firmantesSinPoder, jsonPoder, jsonBastanteoUnico, leerInventarioGarantias, INVENTARIOS_CONTABLES, INVENTARIO_DENOMINACION, INVENTARIO_FIRMAS, fechaReporteIso, fechaInventarioDesdeReporte, leerPadronDesdeInventarios, leerBaseEntes, unirPadron, armarInventariosContables, leerCom3500, leerTcApiBcra, elegirTipoCambio, numeroEnLetras, daxCarteraPowerBI, daxDiagnosticoPowerBI, leerFilasPowerBI, sugerirColumnaCartera, columnasNumericasCartera, agruparCartera, valoresDistintos, sqlCartera,
+    leerCartera, BASTANTEO_CATALOGO, BASTANTEO_CLAVES, BASTANTEO_EXTRA, leerPoderesOcr, leerAutoridadesOcr, COMPLIF_TIPOS, poderDesdeComplif, actaDesdeComplif, complifDeEmpresa, controlResumen, usoDelResumen, poderDelPresidente, leerClienteBastanteo, cuitPorDni, formatoCuit, firmanteDe, firmantesSinPoder, jsonPoder, jsonBastanteoUnico, leerInventarioGarantias, INVENTARIOS_CONTABLES, INVENTARIO_DENOMINACION, INVENTARIO_FIRMAS, fechaReporteIso, fechaInventarioDesdeReporte, leerPadronDesdeInventarios, leerBaseEntes, unirPadron, armarInventariosContables, leerCom3500, leerTcApiBcra, elegirTipoCambio, numeroEnLetras, daxCarteraPowerBI, daxDiagnosticoPowerBI, daxSaldoDeuda, armarSaldoDeuda, leerFilasPowerBI, sugerirColumnaCartera, columnasNumericasCartera, agruparCartera, valoresDistintos, sqlCartera,
     leerCsv, encabezadosEjemplo, leerDefinicionInterfaz, sugerirColumna, detectarHojaInterfaz,
     normalizar, provinciaPorNombre, crearBuscadorBancoPorNombre, round2, aNumero, aFechaSerial, aCodigoBanco,
     fechaDDMMYY, fechaYYYYMMDD, fechaLegible, hoyDDMMYY,
