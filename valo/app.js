@@ -1164,7 +1164,7 @@
   const hayPbiSb = () => !!(pbiSb && pbiSb.listo);
   async function estadoPbiSb() {
     if (!almacen || typeof almacen.rpc !== 'function') { pbiSb = null; $('pbiSbEstado').textContent = 'Disponible en la versión web (con la base compartida).'; return; }
-    try { pbiSb = await almacen.rpc('pbi_estado', {}); } catch (e) { pbiSb = null; $('pbiSbEstado').innerHTML = aviso('warn', esc(e.message || e)); return; }
+    try { pbiSb = (await almacen.rpc('pbi_estado', {})) || {}; } catch (e) { pbiSb = null; $('pbiSbEstado').innerHTML = aviso('warn', esc(e.message || e)); return; }
     const falta = ['tenant_id', 'client_id', 'group_id', 'dataset_id'].filter(k => !pbiSb[k]).concat(pbiSb.tiene_secret ? [] : ['client_secret']);
     $('pbiSbEstado').innerHTML = pbiSb.listo ? `<span class="chip ok">Configurada: se usa Supabase</span> client ${esc(pbiSb.client_id)}… · secret cargado`
       : `<span class="chip warn">Incompleta</span> falta: ${esc(falta.join(', '))}. Mientras tanto se usa el flujo de Power Automate.`;

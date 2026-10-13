@@ -1515,9 +1515,11 @@
         if (ic > -1 && !r.cliente) { const v = f.slice(ic + 1).find(c => String(c).trim() && !/^\d+$/.test(String(c))); if (v) r.cliente = String(v).trim(); }
         const icu = n.indexOf('cuit');
         if (icu > -1 && !r.cuit) { const v = f.slice(icu + 1).map(c => String(c).replace(/\D/g, '')).find(c => c.length === 11); if (v) r.cuit = v; }
-        // Encabezado de firmantes: tiene "cuit" y una columna de nombre.
+        // Encabezado de firmantes: una columna de identificación ("Cuit", "CUIL", "DNI / CUIL"…) y una de nombre.
         const iNom = n.findIndex(c => /nombre/.test(c) && /firmante|apellido|nombre/.test(c));
-        if (icu > -1 && iNom > -1) {
+        const iId = n.findIndex(c => /\b(cuit|cuil|dni)\b/.test(c) && c.length <= 20);
+        if (iId > -1 && iNom > -1) {
+          const icu = iId;
           // La columna CUIT a veces trae el DNI (7 u 8 dígitos): queda como DNI y el CUIT se busca después en la base
           // de entes (por número de ente o por DNI).
           const iEnte = n.indexOf('ente');
