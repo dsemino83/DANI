@@ -1199,24 +1199,46 @@
   }
 
   // Grupos y combinaciones de firma de un uso, según su descripción (y sus limitaciones). Contempla:
-  //  - combinaciones explícitas "A+A, A+B, B+C" (en la descripción o las limitaciones): mandan;
-  //  - cláusulas separadas por "o" / ";": "Dos Categoría A, o un A con uno Categoría B o C, o un B con uno A o C…" →
-  //    A+A, A+B, A+C, B+C; en cada cláusula el primer grupo va con cada uno de los que siguen (listas "B o C", "A, B y C");
-  //  - "dos" / "ambos" de un solo grupo → X+X; "con el Presidente" → grupo + D; letras sueltas "un A con un B".
+  //  - combinaciones explícitas "A+A, A+B, B+B+C" (en la descripción o las limitaciones): mandan;
+  //  - cláusulas separadas por "o" / "y/o" / ";": "Dos del Grupo A, o uno del A con uno del B, o dos del B con uno
+  //    del C" → A+A, A+B, B+B+C;
+  //  - en cada cláusula, integrantes unidos por "con", "junto con", "+", "y uno/otro…": cada uno con su cantidad
+  //    (un/uno/una/otro = 1, dos/ambos/2 = 2, tres/3 = 3…) y sus grupos alternativos ("uno del Grupo B o C");
+  //  - un solo grupo sin cantidad en una firma conjunta ("Grupo B conjuntamente") → B+B; "tres del Grupo A" → A+A+A;
+  //  - "dos cualesquiera de los Grupos A, B y C" → todos los pares entre esos grupos;
+  //  - "con el Presidente" → grupo + D; letras sin rótulo "A y B", "A + B", "un A con un B"; texto en mayúsculas.
   // Sin grupo en la descripción: grupo null (los grupos se arman por facultades).
   const RE_ETIQUETA = '(?:[Gg]rupos?|GRUPOS?|[Cc]ategor[ií]as?|CATEGOR[IÍ]AS?|[Cc]lases?|CLASES?)';
+  const RE_SEP = '(?:,|\\b[oOyYuU]\\b|\\b[yY]\\s*\\/\\s*[oO]\\b|\\/|-)';
+  const RE_CUANTO = '(?:[Uu]n[oa]?|U[Nn][OoAa]?|[Oo]tr[oa]|O[Tt][Rr][OoAa]|[Dd]os|DOS|[Tt]res|TRES|[Cc]uatro|CUATRO|[Aa]mbos|AMBOS)';
   function letrasDe(texto) {
-    // "Categoría B o C", "Grupos A, B y C", "Grupo A / Grupo B", "un A con un B".
-    const re = new RegExp(`\\b${RE_ETIQUETA}\\s+([A-Z0-9]{1,2})\\b((?:\\s*(?:,|\\bo\\b|\\by\\b|\\bu\\b|\\/|-)\\s*(?:${RE_ETIQUETA}\\s+)?[A-Z]\\b(?!\\.))*)`, 'g');
+    // "Categoría B o C", "Grupos A, B y C", "Grupo A / Grupo B", "GRUPO A Y GRUPO B".
+    const re = new RegExp(`\\b${RE_ETIQUETA}\\s+([A-Z0-9]{1,2})\\b((?:\\s*${RE_SEP}\\s*(?:${RE_ETIQUETA}\\s+)?[A-Z0-9]\\b(?!\\.))*)`, 'g');
+    const sig = new RegExp(`${RE_SEP}\\s*(?:${RE_ETIQUETA}\\s+)?([A-Z0-9])\\b`, 'g');
     let out = [];
-    for (const m of texto.matchAll(re)) out.push(m[1], ...(m[2].match(/\b[A-Z]\b/g) || []));
-    if (!out.length) out = [...texto.matchAll(/\b(?:[Uu]n|[Uu]no|[Uu]na|[Dd]os|[Oo]tro|[Oo]tra|[Aa]mbos)\s+([A-Z])\b/g)].map(m => m[1]);
+    for (const m of texto.matchAll(re)) out.push(m[1], ...[...m[2].matchAll(sig)].map(x => x[1]));
+    // "un A con un B", "dos B".
+    if (!out.length) out = [...texto.matchAll(new RegExp(`\\b${RE_CUANTO}\\s+([A-Z])\\b`, 'g'))].map(m => m[1]);
+    // Letras sin rótulo: "A y B", "A + B", "A con B", "A, B o C".
+    if (!out.length) {
+      const m = texto.match(/(?:^|[\s(])([A-Z])((?:\s*(?:,|\+|\b[yYoOeE]\b|\bcon\b|\bCON\b)\s*[A-Z])+)\b(?![a-záéíóúñ])/);
+      if (m) out = [m[1], ...[...m[2].matchAll(/(?:,|\+|\b[yYoOeE]\b|\bcon\b|\bCON\b)\s*([A-Z])/g)].map(x => x[1])];
+    }
     return out.map(x => x.toUpperCase());
+  }
+  // Cantidad de firmantes de un integrante ("dos del Grupo B" → 2; sin cantidad → null).
+  function cuantosDe(t) {
+    // La cantidad más cercana antes del grupo ("Dos firmas: una del Grupo A" → 1).
+    const ms = [...String(t).matchAll(/\b(un|uno|una|otro|otra|dos|ambos|tres|cuatro|1|2|3|4)\b(?!\s*[.,]\d)/gi)];
+    const g = String(t).search(new RegExp(`\\b${RE_ETIQUETA}\\s+[A-Z0-9]|\\b[A-Z]\\b`));
+    const m = ms.filter(x => g < 0 || x.index < g).pop() || ms[0];
+    if (!m) return null;
+    return { un: 1, uno: 1, una: 1, otro: 1, otra: 1, 1: 1, dos: 2, ambos: 2, 2: 2, tres: 3, 3: 3, cuatro: 4, 4: 4 }[m[1].toLowerCase()];
   }
   function gruposDelUso(u) {
     const d = String(u.descripcion || ''), lim = String(u.limitaciones || '');
     const conjunta = /CONJUNTA/.test(u.tipo || '');
-    const par = (a, b) => [a, b].sort().join('+');
+    const combo = l => l.slice().sort().join('+');
     const unicos = l => [...new Set(l)].sort();
     // Firma conjunta "con el Presidente": el presidente es el grupo D (A + Presidente → A+D).
     if (conjunta && /\bpresident[ea]\b/i.test(d)) {
@@ -1230,24 +1252,37 @@
       const grupos = unicos(todas);
       return { grupo: todas[0], grupos, combinaciones: grupos };
     }
-    // 1) Combinaciones explícitas.
-    let combos = unicos([...`${d} ${lim}`.matchAll(/\b([A-Z])\s*\+\s*([A-Z])\b/g)].map(m => par(m[1], m[2])));
+    // 1) Combinaciones explícitas ("A+B", "B + B + C").
+    let combos = unicos([...`${d} ${lim}`.matchAll(/\b[A-Z](?:\s*\+\s*[A-Z])+\b/g)].map(m => combo(m[0].replace(/\s/g, '').split('+'))));
     // 2) Cláusulas.
     if (!combos.length) {
-      const clausulas = d.split(/;|,?\s+(?:o|u|ó)\s+(?=(?:dos|un|uno|una|ambos|cualquier|al menos|1|2)\b)/i);
+      const RE_INICIO = '(?=(?:dos|tres|cuatro|un|uno|una|ambos|cualquier|al menos|de a|1|2|3|4)\\b)';
+      const clausulas = d.split(new RegExp(`;|,?\\s+(?:y\\s*\\/\\s*o|o|u|ó)\\s+${RE_INICIO}`, 'i'));
+      // Todos los multiconjuntos de tamaño n con esas letras.
+      const multis = (ls, n, desde = 0) => n === 0 ? [[]] : ls.slice(desde).flatMap((x, i) => multis(ls, n - 1, desde + i).map(r => [x, ...r]));
       clausulas.forEach(c => {
         const l = letrasDe(c);
         if (!l.length) return;
-        const g = l[0], otros = [...new Set(l.slice(1))];
-        // "Dos cualesquiera de los Grupos A, B y C": todos los pares posibles entre esos grupos.
-        if (otros.length && /\b(cualesquiera|cualquiera|indistintamente)\b/i.test(c) && !/\bcon\b|\+/.test(c)) {
-          const ls = [...new Set(l)];
-          ls.forEach((x, i) => ls.slice(i).forEach(y => combos.push(par(x, y))));
+        const ls = [...new Set(l)];
+        // Integrantes: "uno del Grupo B con uno del Grupo C", "una del A y otra del B", "Grupo A + Grupo B".
+        const partes = c.split(new RegExp(`\\bjunto\\s+con\\b|\\bconjuntamente\\s+con\\b|\\bcon\\b|\\+|,?\\s*\\b[yYeE]\\s+(?=${RE_CUANTO}\\b)`, 'i'))
+          .map(p => ({ letras: [...new Set(letrasDe(p))], n: cuantosDe(p) })).filter(p => p.letras.length);
+        if (partes.length > 1) {
+          // Producto de las alternativas de cada integrante, repetidas según su cantidad.
+          let res = [[]];
+          partes.forEach(p => { res = res.flatMap(r => p.letras.map(x => [...r, ...Array(p.n || 1).fill(x)])); });
+          res.forEach(r => combos.push(combo(r)));
           return;
         }
-        if (!otros.length || /\b(dos|ambos|2)\b/i.test(c) && !otros.length) { combos.push(par(g, g)); return; }
-        if (/\b(dos|ambos|2)\b/i.test(c.split(/\bcon\b|\+|\by\b/i)[0]) && !/\bcon\b|\+/.test(c)) combos.push(par(g, g));
-        otros.forEach(o => combos.push(par(g, o)));
+        const n = cuantosDe(c);
+        // Un solo grupo: "Grupo B conjuntamente" / "dos del Grupo B" → B+B; "tres del Grupo A" → A+A+A.
+        if (ls.length === 1) { combos.push(combo(Array(Math.max(n || 2, 2)).fill(ls[0]))); return; }
+        // "Dos cualesquiera de los Grupos A, B y C": todas las combinaciones posibles entre esos grupos.
+        if (/\b(cualesquiera|cualquiera|indistintamente)\b/i.test(c)) { multis(ls, Math.max(n || 2, 2)).forEach(r => combos.push(combo(r))); return; }
+        // "Grupos A y B conjuntamente" / "A y B": uno de cada grupo; "dos del Grupo A o B": el primero con cada uno.
+        if (!/\b[oOuU]\b/.test(c.replace(/\by\s*\/\s*o\b/gi, ''))) { combos.push(combo(ls)); return; }
+        if (n && n >= 2) combos.push(combo([ls[0], ls[0]]));
+        ls.slice(1).forEach(o => combos.push(combo([ls[0], o])));
       });
       combos = unicos(combos);
     }
@@ -1452,7 +1487,7 @@
       // Las combinaciones se controlan cuando el resumen da firma conjunta (o lista combinaciones).
       if (res.tipo === 'CONJUNTA' || res.combinaciones.length || (!res.tipo && combos.length)) {
         // Grupos automáticos: no importa la letra sino la forma de la combinación (dos del mismo grupo o de grupos distintos).
-        const forma = c => { const [a, b] = c.split('+'); return a === b ? 'dos del mismo grupo' : 'de grupos distintos'; };
+        const forma = c => new Set(c.split('+')).size === 1 ? 'dos del mismo grupo' : 'de grupos distintos';
         const resC = grupoAuto ? [...new Set(res.combinaciones.map(forma))] : res.combinaciones;
         const podC = grupoAuto ? [...new Set(combos.map(forma))] : combos;
         const sobran = resC.filter(c => !podC.includes(c)), faltan = podC.filter(c => !resC.includes(c));
@@ -1588,7 +1623,7 @@
     const tipo = (t.match(/\b(INDIVIDUAL|CONJUNTA|INDISTINTA)\b/) || [])[1] || '';
     const pre = t.split(/\b(?:INDIVIDUAL|CONJUNTA|INDISTINTA)\b/)[0].trim();
     const grupo = /^[A-Z]{1,2}$/.test(pre) ? pre : '';
-    const combinaciones = [...new Set((t.match(/\b[A-Z]{1,2}\s*\+\s*[A-Z]{1,2}\b/g) || []).map(c => c.replace(/\s/g, '').split('+').sort().join('+')))].sort();
+    const combinaciones = [...new Set((t.match(/\b[A-Z]{1,2}(?:\s*\+\s*[A-Z]{1,2})+\b/g) || []).map(c => c.replace(/\s/g, '').split('+').sort().join('+')))].sort();
     return { grupo, tipo: tipo === 'INDISTINTA' ? 'INDIVIDUAL' : tipo, combinaciones, texto: String(texto).trim() };
   }
 
