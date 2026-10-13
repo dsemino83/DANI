@@ -1261,6 +1261,7 @@
       fecha_emision: ocr.fecha_emision || null,
       deed_number: ocr.deed_number != null ? String(ocr.deed_number) : '',
       board_resolution_power_attorney: ocr.board_resolution_power_attorney != null ? String(ocr.board_resolution_power_attorney) : '',
+      alcance: complifJson(ocr.power_attorney_scope) || null,
       power_attorney_type: ocr.power_attorney_type || '',
       otorgante: { nombre_completo: otorg.nombre_completo || '', dni: complifDni(otorg.numero_de_identificacion), fecha_nacimiento: otorg.fecha_nacimiento || null },
       apoderados: (complifJson(ocr.apoderados) || []).map(a => ({ nombre_completo: a.nombre_completo || a.nombre || '', dni: complifDni(a.numero_de_identificacion || a.dni), cuit: complifNumero(a.numero_de_identificacion).length === 11 ? complifNumero(a.numero_de_identificacion) : '', grupo: a.grupo ? String(a.grupo).trim().toUpperCase() : null })),
@@ -1359,7 +1360,13 @@
       const est = apo && !apo.advertencia ? unico.estructuras_de_firma.filter(e => e.apoderados.includes(apo.numero_de_identificacion)) : [];
       const res = f.uso || { grupo: '', tipo: '', combinaciones: [], texto: f.observacion || '' };
       const fila = { nombre: f.nombre, ident: f.cuit || f.dni, resumen: res.texto || '', monto_hasta: f.monto_hasta, puntos: [] };
-      if (!est.length) { fila.sinPoder = true; fila.puntos.push({ punto: 'Poder', ok: false, resumen: res.texto || '—', poder: 'No figura como apoderado en los poderes' }); return fila; }
+      if (!est.length) {
+        fila.sinPoder = true;
+        fila.puntos.push(f.revocado ? { punto: 'Poder', ok: true, resumen: 'REVOCADO', poder: 'Sin poder vigente (revocado)' }
+          : { punto: 'Poder', ok: false, resumen: res.texto || '—', poder: 'No figura como apoderado en los poderes' });
+        return fila;
+      }
+      if (f.revocado) fila.puntos.push({ punto: 'Poder', ok: false, resumen: 'REVOCADO', poder: 'Tiene un poder vigente', detalle: 'el resumen lo da por revocado pero el poder sigue vigente' });
       const tipos = [...new Set(est.map(e => e.tipo_de_firma).filter(Boolean))];
       const grupos = [...new Set(est.map(e => e.grupo))];
       const combos = [...new Set(est.filter(e => e.firma_conjunta).flatMap(e => (e.combinaciones || []).filter(c => c.includes('+'))))].sort();
@@ -1561,7 +1568,9 @@
             const despues = fila.slice(iNom + 1).map(c => (c == null ? '' : String(c).trim()));
             const observacion = despues.find(c => /\b(individual|conjunta|indistinta)\b/i.test(c)) || '';
             const montos = (iHasta > -1 ? [fila[iHasta], fila[iHasta + 1], fila[iHasta - 1]] : []).map(c => Number(String(c == null ? '' : c).replace(/[^\d.]/g, ''))).filter(x => x > 0);
-            const extra = { observacion, monto_hasta: montos.length ? Math.max(...montos) : null, uso: usoDelResumen(observacion) };
+            // "REVOCADO" en cualquier celda de la fila: el firmante figura como revocado en el resumen.
+            const revocado = despues.some(c => /\brevoc/i.test(c));
+            const extra = { observacion, monto_hasta: montos.length ? Math.max(...montos) : null, uso: usoDelResumen(observacion), revocado };
             r.firmantes.push(Object.assign(num.length === 11 ? { cuit: num, dni: num.slice(2, 10).replace(/^0+/, ''), ente: enteVal, nombre }
               : { cuit: '', dni: num, ente: enteVal, nombre }, extra));
           }
@@ -1615,6 +1624,28 @@
     const n = palabras(persona.nombre_completo);
     return n ? lista.find(f => palabras(f.nombre) === n) || null : null;
   }
+  // Revocatorias: un poder que revoca (alcance "revoke" de Complif, o el texto del poder: "revoca los poderes…") anula los
+  // poderes anteriores de la empresa. Si solo revoca (no es nuevo ni complementario), tampoco otorga facultades.
+  const TEXTO_REVOCA = /\brevoc(a|an|ando|ase)\s+(expresamente\s+|en todos sus t[eé]rminos\s+)?(el|los|todo|todos|la|las)\s+(poder|poderes|mandato)/i;
+  function revocaPoder(p) {
+    const a = p.alcance || {};
+    if (a.revoke === true) return true;
+    return (p.usos || []).some(u => TEXTO_REVOCA.test(`${u.descripcion || ''} ${u.limitaciones || ''}`));
+  }
+  function aplicarRevocatorias(poderes) {
+    const revocan = poderes.filter(revocaPoder);
+    if (!revocan.length) return { vigentes: poderes.slice(), anulados: [] };
+    const anulados = [];
+    const vigentes = poderes.filter(p => {
+      const por = revocan.find(r => r !== p && r.fecha_emision && p.fecha_emision && p.fecha_emision < r.fecha_emision);
+      if (por) { anulados.push({ poder: p, motivo: `revocado por el poder del ${por.fecha_emision}` }); return false; }
+      const a = p.alcance || {};
+      if (revocaPoder(p) && a.new === false && a.complementary === false) { anulados.push({ poder: p, motivo: 'revocatoria: no otorga facultades' }); return false; }
+      return true;
+    });
+    return { vigentes, anulados };
+  }
+
   // Firmantes de la planilla que no aparecen como apoderados en ningún poder.
   function firmantesSinPoder(poderes, firmantes) {
     // Un firmante repetido en la planilla (con CUIT y con DNI) cuenta como usado si cualquiera de sus renglones coincide.
@@ -2921,7 +2952,7 @@ try {
     leerTxtMeli, bancoMeliDeTxt, bancosParaMeli,
     sqlExtraccionCartera, bookmarkletCartera, scriptPowerShellCartera, comandoTareaCartera, IMPORTES_CARTERA,
     NO_COBIS, ultimoDiaHabil, fechasNoCobis, lineaNoCobis, txtNoCobis, loteApiNoCobis, scriptPowerShellNoCobis, scriptPowerShellProbarNoCobis, scriptPowerShellAgenteNoCobis, cmdEnvioNoCobis,
-    leerCartera, BASTANTEO_CATALOGO, BASTANTEO_CLAVES, BASTANTEO_EXTRA, leerPoderesOcr, leerAutoridadesOcr, COMPLIF_TIPOS, poderDesdeComplif, actaDesdeComplif, complifDeEmpresa, controlResumen, usoDelResumen, poderDelPresidente, leerClienteBastanteo, cuitPorDni, formatoCuit, firmanteDe, firmantesSinPoder, jsonPoder, jsonBastanteoUnico, leerInventarioGarantias, INVENTARIOS_CONTABLES, INVENTARIO_DENOMINACION, INVENTARIO_FIRMAS, fechaReporteIso, fechaInventarioDesdeReporte, leerPadronDesdeInventarios, leerBaseEntes, unirPadron, armarInventariosContables, leerCom3500, leerTcApiBcra, elegirTipoCambio, numeroEnLetras, daxCarteraPowerBI, daxDiagnosticoPowerBI, daxSaldoDeuda, armarSaldoDeuda, leerFilasPowerBI, sugerirColumnaCartera, columnasNumericasCartera, agruparCartera, valoresDistintos, sqlCartera,
+    leerCartera, BASTANTEO_CATALOGO, BASTANTEO_CLAVES, BASTANTEO_EXTRA, leerPoderesOcr, leerAutoridadesOcr, COMPLIF_TIPOS, poderDesdeComplif, actaDesdeComplif, complifDeEmpresa, controlResumen, usoDelResumen, aplicarRevocatorias, poderDelPresidente, leerClienteBastanteo, cuitPorDni, formatoCuit, firmanteDe, firmantesSinPoder, jsonPoder, jsonBastanteoUnico, leerInventarioGarantias, INVENTARIOS_CONTABLES, INVENTARIO_DENOMINACION, INVENTARIO_FIRMAS, fechaReporteIso, fechaInventarioDesdeReporte, leerPadronDesdeInventarios, leerBaseEntes, unirPadron, armarInventariosContables, leerCom3500, leerTcApiBcra, elegirTipoCambio, numeroEnLetras, daxCarteraPowerBI, daxDiagnosticoPowerBI, daxSaldoDeuda, armarSaldoDeuda, leerFilasPowerBI, sugerirColumnaCartera, columnasNumericasCartera, agruparCartera, valoresDistintos, sqlCartera,
     leerCsv, encabezadosEjemplo, leerDefinicionInterfaz, sugerirColumna, detectarHojaInterfaz,
     normalizar, provinciaPorNombre, crearBuscadorBancoPorNombre, round2, aNumero, aFechaSerial, aCodigoBanco,
     fechaDDMMYY, fechaYYYYMMDD, fechaLegible, hoyDDMMYY,
