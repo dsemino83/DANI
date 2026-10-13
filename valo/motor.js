@@ -1198,25 +1198,62 @@
     return null;
   }
 
-  // Grupo al que corresponde un uso de firma y combinaciones de firma, según la descripción del poder. "Grupo B con
-  // integrante de Grupo C o Grupo B conjuntamente" → grupo B, combinaciones B+B y B+C. Sin grupo en la descripción: null.
+  // Grupos y combinaciones de firma de un uso, según su descripción (y sus limitaciones). Contempla:
+  //  - combinaciones explícitas "A+A, A+B, B+C" (en la descripción o las limitaciones): mandan;
+  //  - cláusulas separadas por "o" / ";": "Dos Categoría A, o un A con uno Categoría B o C, o un B con uno A o C…" →
+  //    A+A, A+B, A+C, B+C; en cada cláusula el primer grupo va con cada uno de los que siguen (listas "B o C", "A, B y C");
+  //  - "dos" / "ambos" de un solo grupo → X+X; "con el Presidente" → grupo + D; letras sueltas "un A con un B".
+  // Sin grupo en la descripción: grupo null (los grupos se arman por facultades).
+  const RE_ETIQUETA = '(?:[Gg]rupos?|GRUPOS?|[Cc]ategor[ií]as?|CATEGOR[IÍ]AS?|[Cc]lases?|CLASES?)';
+  function letrasDe(texto) {
+    // "Categoría B o C", "Grupos A, B y C", "Grupo A / Grupo B", "un A con un B".
+    const re = new RegExp(`\\b${RE_ETIQUETA}\\s+([A-Z0-9]{1,2})\\b((?:\\s*(?:,|\\bo\\b|\\by\\b|\\bu\\b|\\/|-)\\s*(?:${RE_ETIQUETA}\\s+)?[A-Z]\\b(?!\\.))*)`, 'g');
+    let out = [];
+    for (const m of texto.matchAll(re)) out.push(m[1], ...(m[2].match(/\b[A-Z]\b/g) || []));
+    if (!out.length) out = [...texto.matchAll(/\b(?:[Uu]n|[Uu]no|[Uu]na|[Dd]os|[Oo]tro|[Oo]tra|[Aa]mbos)\s+([A-Z])\b/g)].map(m => m[1]);
+    return out.map(x => x.toUpperCase());
+  }
   function gruposDelUso(u) {
-    // "Grupo A", "Categoría A", "Clase A" o letras sueltas en "un A con un B" / "dos A".
-    const d = String(u.descripcion || '');
-    let gs = [...d.matchAll(/\b(?:grupos?|categor[ií]as?|clases?)\s+([A-Z0-9]{1,2})\b/gi)].map(m => m[1].toUpperCase());
-    if (!gs.length) gs = [...d.matchAll(/\b(?:[Uu]n|[Uu]no|[Uu]na|[Dd]os|[Oo]tro|[Oo]tra)\s+([A-Z])\b/g)].map(m => m[1]);
+    const d = String(u.descripcion || ''), lim = String(u.limitaciones || '');
+    const conjunta = /CONJUNTA/.test(u.tipo || '');
+    const par = (a, b) => [a, b].sort().join('+');
+    const unicos = l => [...new Set(l)].sort();
     // Firma conjunta "con el Presidente": el presidente es el grupo D (A + Presidente → A+D).
-    if (/CONJUNTA/.test(u.tipo || '') && /\bpresident[ea]\b/i.test(d)) {
-      const gp = [...new Set(gs.filter(x => x !== 'D'))].sort();
+    if (conjunta && /\bpresident[ea]\b/i.test(d)) {
+      const gp = unicos(letrasDe(d).filter(x => x !== 'D'));
       return { grupo: gp[0] || null, grupos: gp, combinaciones: gp.map(x => x + '+D'), conPresidente: true };
     }
-    if (!gs.length) return { grupo: null, grupos: [], combinaciones: [] };
-    const g = gs[0], grupos = [...new Set(gs)].sort();
-    // Individual: vale para todos los grupos que nombra ("cualquier apoderado de Grupo A o Grupo B").
-    if (!/CONJUNTA/.test(u.tipo || '')) return { grupo: g, grupos, combinaciones: grupos };
-    // Conjunta: el primer grupo con cada uno de los que siguen ("2 del Grupo A, o 1 del Grupo A + 1 del Grupo B" → A+A, A+B).
-    const otros = gs.length > 1 ? gs.slice(1) : [g];
-    return { grupo: g, grupos, combinaciones: [...new Set(otros.map(o => [g, o].sort().join('+')))].sort() };
+    const todas = letrasDe(d);
+    if (!conjunta) {
+      if (!todas.length) return { grupo: null, grupos: [], combinaciones: [] };
+      // Individual: vale para todos los grupos que nombra ("cualquier apoderado de Grupo A o Grupo B").
+      const grupos = unicos(todas);
+      return { grupo: todas[0], grupos, combinaciones: grupos };
+    }
+    // 1) Combinaciones explícitas.
+    let combos = unicos([...`${d} ${lim}`.matchAll(/\b([A-Z])\s*\+\s*([A-Z])\b/g)].map(m => par(m[1], m[2])));
+    // 2) Cláusulas.
+    if (!combos.length) {
+      const clausulas = d.split(/;|,?\s+(?:o|u|ó)\s+(?=(?:dos|un|uno|una|ambos|cualquier|al menos|1|2)\b)/i);
+      clausulas.forEach(c => {
+        const l = letrasDe(c);
+        if (!l.length) return;
+        const g = l[0], otros = [...new Set(l.slice(1))];
+        // "Dos cualesquiera de los Grupos A, B y C": todos los pares posibles entre esos grupos.
+        if (otros.length && /\b(cualesquiera|cualquiera|indistintamente)\b/i.test(c) && !/\bcon\b|\+/.test(c)) {
+          const ls = [...new Set(l)];
+          ls.forEach((x, i) => ls.slice(i).forEach(y => combos.push(par(x, y))));
+          return;
+        }
+        if (!otros.length || /\b(dos|ambos|2)\b/i.test(c) && !otros.length) { combos.push(par(g, g)); return; }
+        if (/\b(dos|ambos|2)\b/i.test(c.split(/\bcon\b|\+|\by\b/i)[0]) && !/\bcon\b|\+/.test(c)) combos.push(par(g, g));
+        otros.forEach(o => combos.push(par(g, o)));
+      });
+      combos = unicos(combos);
+    }
+    if (!combos.length) return { grupo: todas[0] || null, grupos: unicos(todas), combinaciones: [] };
+    const grupos = unicos(combos.flatMap(c => c.split('+')));
+    return { grupo: todas[0] || grupos[0], grupos, combinaciones: combos };
   }
 
   // ------------------------------------------------------------ COMPLIF
@@ -2992,7 +3029,7 @@ try {
     leerTxtMeli, bancoMeliDeTxt, bancosParaMeli,
     sqlExtraccionCartera, bookmarkletCartera, scriptPowerShellCartera, comandoTareaCartera, IMPORTES_CARTERA,
     NO_COBIS, ultimoDiaHabil, fechasNoCobis, lineaNoCobis, txtNoCobis, loteApiNoCobis, scriptPowerShellNoCobis, scriptPowerShellProbarNoCobis, scriptPowerShellAgenteNoCobis, cmdEnvioNoCobis,
-    leerCartera, BASTANTEO_CATALOGO, BASTANTEO_CLAVES, BASTANTEO_EXTRA, leerPoderesOcr, leerAutoridadesOcr, COMPLIF_TIPOS, poderDesdeComplif, actaDesdeComplif, complifDeEmpresa, controlResumen, usoDelResumen, aplicarRevocatorias, poderesFirmantesD, poderDelPresidente, leerClienteBastanteo, cuitPorDni, formatoCuit, firmanteDe, firmantesSinPoder, jsonPoder, jsonBastanteoUnico, leerInventarioGarantias, INVENTARIOS_CONTABLES, INVENTARIO_DENOMINACION, INVENTARIO_FIRMAS, fechaReporteIso, fechaInventarioDesdeReporte, leerPadronDesdeInventarios, leerBaseEntes, unirPadron, armarInventariosContables, leerCom3500, leerTcApiBcra, elegirTipoCambio, numeroEnLetras, daxCarteraPowerBI, daxDiagnosticoPowerBI, daxSaldoDeuda, armarSaldoDeuda, leerFilasPowerBI, sugerirColumnaCartera, columnasNumericasCartera, agruparCartera, valoresDistintos, sqlCartera,
+    leerCartera, BASTANTEO_CATALOGO, BASTANTEO_CLAVES, BASTANTEO_EXTRA, leerPoderesOcr, leerAutoridadesOcr, COMPLIF_TIPOS, poderDesdeComplif, actaDesdeComplif, complifDeEmpresa, controlResumen, usoDelResumen, aplicarRevocatorias, poderesFirmantesD, gruposDelUso, poderDelPresidente, leerClienteBastanteo, cuitPorDni, formatoCuit, firmanteDe, firmantesSinPoder, jsonPoder, jsonBastanteoUnico, leerInventarioGarantias, INVENTARIOS_CONTABLES, INVENTARIO_DENOMINACION, INVENTARIO_FIRMAS, fechaReporteIso, fechaInventarioDesdeReporte, leerPadronDesdeInventarios, leerBaseEntes, unirPadron, armarInventariosContables, leerCom3500, leerTcApiBcra, elegirTipoCambio, numeroEnLetras, daxCarteraPowerBI, daxDiagnosticoPowerBI, daxSaldoDeuda, armarSaldoDeuda, leerFilasPowerBI, sugerirColumnaCartera, columnasNumericasCartera, agruparCartera, valoresDistintos, sqlCartera,
     leerCsv, encabezadosEjemplo, leerDefinicionInterfaz, sugerirColumna, detectarHojaInterfaz,
     normalizar, provinciaPorNombre, crearBuscadorBancoPorNombre, round2, aNumero, aFechaSerial, aCodigoBanco,
     fechaDDMMYY, fechaYYYYMMDD, fechaLegible, hoyDDMMYY,
