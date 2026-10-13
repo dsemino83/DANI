@@ -2179,10 +2179,8 @@
   // Cada Excel de la carpeta (sin subcarpetas) se controla contra los poderes de Complif como el bastanteo de un cliente.
   const mas = { filas: [], cancelar: false, corriendo: false };
   const esResumen = n => /\.xlsx?$/i.test(n) && !/^~\$/.test(n);
-  function controlarResumen(nombre, hojas, docs) {
+  function controlarResumen(nombre, cliente, docs) {
     const fila = { archivo: nombre, empresa: '', cuit: '', firmantes: 0, poderes: 0, estado: '', diferencias: [], control: [], sinPoder: [], noIncluidos: [], error: '' };
-    let cliente;
-    try { cliente = M.leerClienteBastanteo(hojas); } catch (e) { fila.estado = 'err'; fila.error = 'No se pudo leer: ' + (e.message || e); return fila; }
     fila.empresa = cliente.cliente || nombre.replace(/\.xlsx?$/i, '');
     fila.cuit = cliente.cuit || '';
     fila.firmantes = cliente.firmantes.length;
@@ -2223,26 +2221,40 @@
       const uno = async f => {
         if (mas.cancelar) return;
         let fila;
-        try { fila = controlarResumen(f.nombre, await leerHojas(await f.archivo()), docs); }
-        catch (e) { fila = { archivo: f.nombre, empresa: f.nombre.replace(/\.xlsx?$/i, ''), cuit: '', firmantes: 0, poderes: 0, estado: 'err', diferencias: [], control: [], sinPoder: [], noIncluidos: [], error: String(e.message || e) }; }
+        try {
+          const cliente = M.leerClienteBastanteo(await leerHojas(await f.archivo()));
+          await completarCuitFirmantes(cliente.firmantes);   // firmantes sin CUIT: base de entes por ente o DNI
+          fila = controlarResumen(f.nombre, cliente, docs);
+        } catch (e) { fila = { archivo: f.nombre, empresa: f.nombre.replace(/\.xlsx?$/i, ''), cuit: '', firmantes: 0, poderes: 0, estado: 'err', diferencias: [], control: [], sinPoder: [], noIncluidos: [], error: 'No se pudo abrir el Excel: ' + String(e.message || e) }; }
+        fila.creado = f.creado || 0; fila.modificado = f.modificado || 0;
         mas.filas.push(fila);
         hechos++;
         if (hechos % 5 === 0 || hechos === lista.length) { estado(`Controlando ${hechos} de ${lista.length} resúmenes…`); renderMasivo(); }
       };
       // De a 4 en paralelo (cada archivo de SharePoint es un pedido al flujo).
       for (let i = 0; i < lista.length && !mas.cancelar; i += 4) await Promise.all(lista.slice(i, i + 4).map(uno));
-      $('masEstado').innerHTML = aviso(mas.cancelar ? 'warn' : 'ok', `${mas.cancelar ? 'Cancelado: ' : ''}${mas.filas.length} resúmenes controlados contra ${docs.length} documentos de Complif.`);
+      // Empresas repetidas (mismo CUIT o razón social): vale el archivo con fecha de creación y modificación más nuevas.
+      const grupos = new Map();
+      mas.filas.forEach(f => { const k = f.cuit ? 'c' + f.cuit : 'n' + M.normalizar(f.empresa).replace(/\b(s ?a|s ?r ?l|sau)\b/g, '').trim(); if (!grupos.has(k)) grupos.set(k, []); grupos.get(k).push(f); });
+      let dups = 0;
+      grupos.forEach(l => {
+        if (l.length < 2) return;
+        l.sort((a, b) => (b.creado - a.creado) || (b.modificado - a.modificado) || ((a.estado === 'err') - (b.estado === 'err')));
+        l.slice(1).forEach(f => { dups++; f.estadoOriginal = f.estado; f.estado = 'dup'; f.error = `Duplicado: se tomó "${l[0].archivo}" (más nuevo)`; });
+      });
+      $('masEstado').innerHTML = aviso(mas.cancelar ? 'warn' : 'ok', `${mas.cancelar ? 'Cancelado: ' : ''}${mas.filas.length - dups} empresas controladas contra ${docs.length} documentos de Complif` +
+        (dups ? ` · ${dups} archivo${dups > 1 ? 's' : ''} duplicado${dups > 1 ? 's' : ''} descartado${dups > 1 ? 's' : ''} (se tomó el más nuevo de cada empresa)` : '') + '.');
     } catch (e) { $('masEstado').innerHTML = aviso('bad', 'No se pudo hacer el chequeo: ' + esc(errorComplif(e))); }
     finally { mas.corriendo = false; $('btnMasCancelar').disabled = true; renderMasivo(); }
   }
-  const ESTADO_MAS = { dif: ['warn', 'Con diferencias'], ok: ['ok', 'Coincide'], sinpod: ['warn', 'Sin poderes en Complif'], err: ['bad', 'Error de lectura'] };
+  const ESTADO_MAS = { dif: ['warn', 'Con diferencias'], ok: ['ok', 'Coincide'], sinpod: ['warn', 'Sin poderes en Complif'], err: ['bad', 'Error de lectura'], dup: ['', 'Duplicado descartado'] };
   function renderMasivo() {
     const fl = mas.filas;
     $('btnMasExcel').disabled = !fl.length;
     $('masFiltros').classList.toggle('oculto', !fl.length);
     const cuenta = k => fl.filter(f => f.estado === k).length;
-    $('masKpis').innerHTML = fl.length ? [['Empresas', fl.length], ['Con diferencias', cuenta('dif')], ['Coinciden', cuenta('ok')], ['Sin poderes en Complif', cuenta('sinpod')], ['Error de lectura', cuenta('err')],
-      ['Diferencias', fl.reduce((s, f) => s + f.diferencias.length, 0)]].map(([t, v]) => `<div class="kpi"><div class="sub" style="margin:0">${esc(t)}</div><b>${fmtEntero(v)}</b></div>`).join('') : '';
+    $('masKpis').innerHTML = fl.length ? [['Empresas', fl.length - cuenta('dup')], ['Duplicados descartados', cuenta('dup')], ['Con diferencias', cuenta('dif')], ['Coinciden', cuenta('ok')], ['Sin poderes en Complif', cuenta('sinpod')], ['Error de lectura', cuenta('err')],
+      ['Diferencias', fl.filter(f => f.estado !== 'dup').reduce((s, f) => s + f.diferencias.length, 0)]].map(([t, v]) => `<div class="kpi"><div class="sub" style="margin:0">${esc(t)}</div><b>${fmtEntero(v)}</b></div>`).join('') : '';
     const filtro = $('masFiltro').value, q = M.normalizar($('masBuscar').value || '');
     const vis = fl.filter(f => (filtro === 'todas' || f.estado === filtro) &&
       (!q || M.normalizar([f.empresa, f.cuit, f.archivo].concat(f.control.map(c => c.nombre)).join(' ')).includes(q)))
@@ -2264,9 +2276,9 @@
   $('archivoMasCarpeta').addEventListener('change', e => {
     const fs = [...e.target.files].filter(f => (f.webkitRelativePath || f.name).split('/').length <= 2);
     e.target.value = '';
-    correrMasivo(fs.map(f => ({ nombre: f.name, archivo: async () => f })));
+    correrMasivo(fs.map(f => ({ nombre: f.name, modificado: f.lastModified || 0, creado: 0, archivo: async () => f })));
   });
-  $('archivoMasArchivos').addEventListener('change', e => { const fs = [...e.target.files]; e.target.value = ''; correrMasivo(fs.map(f => ({ nombre: f.name, archivo: async () => f }))); });
+  $('archivoMasArchivos').addEventListener('change', e => { const fs = [...e.target.files]; e.target.value = ''; correrMasivo(fs.map(f => ({ nombre: f.name, modificado: f.lastModified || 0, creado: 0, archivo: async () => f }))); });
   // SharePoint por un flujo de Power Automate: accion "listar" (Excel de la carpeta, sin subcarpetas) y "archivo" (contenido en base64).
   function cargarSp() {
     const f = datos().nocobisFlujo || {};
@@ -2289,10 +2301,12 @@
     try {
       const j = await llamarFlujo({ accion: 'listar' }, con);
       const items = (Array.isArray(j) ? j : j.archivos || j.value || []).filter(x => !(x.carpeta === true || x.IsFolder === true));
-      const lista = items.map(x => ({ nombre: x.nombre || x.Name || x.FileLeafRef || '', ruta: x.ruta || x.Path || x.FullPath || x.id || x.Id }))
+      const fecha = v => (v ? Date.parse(v) || 0 : 0);
+      const lista = items.map(x => ({ nombre: x.nombre || x.Name || x.FileLeafRef || '', ruta: x.ruta || x.Path || x.FullPath || x.id || x.Id,
+        creado: fecha(x.creado || x.Created), modificado: fecha(x.modificado || x.Modified) }))
         .filter(x => esResumen(x.nombre));
       if (!lista.length) { $('masEstado').innerHTML = aviso('warn', 'El flujo no devolvió archivos Excel en la carpeta.'); return; }
-      correrMasivo(lista.map(x => ({ nombre: x.nombre, archivo: async () => {
+      correrMasivo(lista.map(x => ({ nombre: x.nombre, creado: x.creado, modificado: x.modificado, archivo: async () => {
         const r = await llamarFlujo({ accion: 'archivo', ruta: x.ruta }, con);
         const b64 = r.contenido || r.$content || (r.body && r.body.$content) || r;
         return base64ABlob(b64, x.nombre);
@@ -2316,14 +2330,15 @@
         ws.views = [{ state: 'frozen', ySplit: 1 }];
       };
       const fl = mas.filas.slice().sort((a, b) => a.empresa.localeCompare(b.empresa));
-      hoja('Empresas', ['Empresa', 'CUIT', 'Archivo', 'Firmantes', 'Poderes en Complif', 'Estado', 'Diferencias', 'Firmantes sin poder', 'En Complif y no en el resumen', 'Observación'],
-        fl.map(f => [f.empresa, M.formatoCuit(f.cuit) || '', f.archivo, f.firmantes, f.poderes, ESTADO_MAS[f.estado][1], f.diferencias.length, f.sinPoder.join(', '), f.noIncluidos.join(', '), f.error]),
-        [44, 16, 44, 10, 12, 22, 12, 36, 36, 40]);
+      const fch = t => (t ? new Date(t) : null);
+      hoja('Empresas', ['Empresa', 'CUIT', 'Archivo', 'Creado', 'Modificado', 'Firmantes', 'Poderes en Complif', 'Estado', 'Diferencias', 'Firmantes sin poder', 'En Complif y no en el resumen', 'Observación'],
+        fl.map(f => [f.empresa, M.formatoCuit(f.cuit) || '', f.archivo, fch(f.creado), fch(f.modificado), f.firmantes, f.poderes, ESTADO_MAS[f.estado][1], f.diferencias.length, f.sinPoder.join(', '), f.noIncluidos.join(', '), f.error]),
+        [44, 16, 44, 12, 12, 10, 12, 22, 12, 36, 36, 50]);
       hoja('Diferencias', ['Empresa', 'CUIT', 'Firmante', 'CUIT/DNI firmante', 'Resumen (Excel)', 'Punto', 'Dice el resumen', 'Dice el poder', 'Detalle'],
-        fl.flatMap(f => f.diferencias.map(d => [f.empresa, M.formatoCuit(f.cuit) || '', d.firmante, M.formatoCuit(d.ident) || d.ident || '', d.resumenTexto, d.punto, d.resumen, d.poder, d.detalle || ''])),
+        fl.filter(f => f.estado !== 'dup').flatMap(f => f.diferencias.map(d => [f.empresa, M.formatoCuit(f.cuit) || '', d.firmante, M.formatoCuit(d.ident) || d.ident || '', d.resumenTexto, d.punto, d.resumen, d.poder, d.detalle || ''])),
         [40, 16, 32, 16, 26, 16, 22, 60, 40]);
       hoja('Firmantes', ['Empresa', 'CUIT', 'Firmante', 'CUIT/DNI', 'Resumen (Excel)', 'Resultado', 'Puntos con diferencia'],
-        fl.flatMap(f => f.control.map(c => [f.empresa, M.formatoCuit(f.cuit) || '', c.nombre, M.formatoCuit(c.ident) || c.ident || '', c.resumen,
+        fl.filter(f => f.estado !== 'dup').flatMap(f => f.control.map(c => [f.empresa, M.formatoCuit(f.cuit) || '', c.nombre, M.formatoCuit(c.ident) || c.ident || '', c.resumen,
           c.sinPoder ? 'Sin poder en Complif' : c.puntos.some(p => p.ok === false) ? 'Con diferencias' : 'Coincide', c.puntos.filter(p => p.ok === false).map(p => p.punto).join(', ')])),
         [40, 16, 32, 16, 26, 20, 30]);
       const buf = await wb.xlsx.writeBuffer();

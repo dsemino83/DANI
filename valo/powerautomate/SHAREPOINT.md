@@ -33,7 +33,8 @@ Página ──{clave, accion:"archivo", ruta}───▶ Flujo ──"Obtener c
           ícono de carpeta), **Incluir elementos anidados = No**, *Recuento superior* `5000`
           (y en Configuración de la acción, **Paginación** activada con umbral 5000).
        2. **Seleccionar** (Select), De: `body('Archivos')?['value']`, Asignar:
-          `nombre` = `item()?['{FilenameWithExtension}']`, `ruta` = `item()?['{FullPath}']`, `carpeta` = `item()?['{IsFolder}']`.
+          `nombre` = `item()?['{FilenameWithExtension}']`, `ruta` = `item()?['{FullPath}']`, `carpeta` = `item()?['{IsFolder}']`, `creado` = `item()?['Created']`, `modificado` = `item()?['Modified']`
+          (las fechas sirven para quedarse con el archivo más nuevo cuando una empresa está repetida).
        3. **Respuesta** `200`, mismos encabezados, Cuerpo = salida de **Seleccionar**.
      - **Caso `archivo`**
        1. **SharePoint → Obtener contenido de archivo mediante la ruta de acceso**, renombrarla `Contenido`:
