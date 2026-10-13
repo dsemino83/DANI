@@ -1676,9 +1676,22 @@
     const t = String(g == null ? '' : g).trim().replace(/^grupo\s+/i, '');
     return /^[A-Z0-9]{1,2}$/i.test(t) ? t.toUpperCase() : '';
   }
+  const USO_RESTRINGIDO = /(\bs[oó]lo (para|a)\b|[uú]nicamente|exclusivamente|endoso para dep[oó]sito|e-?banval)/i;
   function jsonBastanteoUnico(jsons, cliente) {
+    jsons = jsons.map(j => Object.assign({}, j));
     const letra = n => { let s = ''; n++; while (n > 0) { const r = (n - 1) % 26; s = String.fromCharCode(65 + r) + s; n = Math.floor((n - 1) / 26); } return s; };
     const personas = new Map(); // id + tipo → datos
+    // Uso individual de alcance restringido ("solo para endoso para depósito", "E-BANVAL") en un poder que tiene firma
+    // conjunta: no es un grupo individual aparte; queda como limitación de la firma conjunta.
+    const restringidas = [];
+    jsons.forEach(j => {
+      if (!j.estructuras_de_firma.some(e => e.firma_conjunta)) return;
+      j.estructuras_de_firma = j.estructuras_de_firma.filter(e => {
+        const r = e.firma_individual && !e.firma_conjunta && USO_RESTRINGIDO.test(`${e.estructura_de_firma || ''} ${e.limitaciones || ''}`);
+        if (r) restringidas.push(e.estructura_de_firma);
+        return !r;
+      });
+    });
     jsons.forEach(j => j.estructuras_de_firma.forEach(e => (e.apoderados ? j.apoderados.filter(a => e.apoderados.includes(a.numero_de_identificacion)) : j.apoderados).forEach(a => {
       // Grupo del poder: un carácter ("A", "Grupo B"). Si es una descripción ("Grupo Aeromar"), cada descripción distinta
       // es un grupo propio con letra puesta por la página (como un poder sin asignación de grupos).
@@ -1710,6 +1723,7 @@
       p.combinaciones.forEach(x => g.combinaciones.add(x));
     });
     const lista = [...grupos.values()].sort((a, b) => b.personas.length - a.personas.length);
+    if (restringidas.length) lista.filter(g => g.conjunta).forEach(g => restringidas.forEach(x => g.limitaciones.add('Firma individual restringida (no es un grupo aparte): ' + x)));
     const usados = new Set(lista.filter(g => g.nombre).map(g => g.nombre));
     let n = 0;
     lista.forEach(g => {
