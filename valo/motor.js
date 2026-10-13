@@ -1647,7 +1647,7 @@
       estructuras_de_firma: poder.usos.map((u, n) => {
         const ed = (edicion.facultades || [])[n] || {};
         // Si el uso es de un grupo y el poder asigna grupos, el uso vale solo para los apoderados de ese grupo.
-        const delUso = u.grupo && apoderados.some(a => a.grupo) ? apoderados.filter(a => String(a.grupo || '').trim().toUpperCase() === u.grupo) : apoderados;
+        const delUso = u.grupo && apoderados.some(a => a.grupo) ? apoderados.filter(a => letraGrupo(a.grupo) === u.grupo) : apoderados;
         return {
           grupo: u.grupo || null,
           combinaciones: u.combinaciones && u.combinaciones.length ? u.combinaciones : null,
@@ -1668,13 +1668,21 @@
   // firma, vale lo que le dé cualquiera de ellos). Si el poder asigna un grupo al apoderado, se respeta; si no, los
   // apoderados con el mismo tipo de firma y las mismas facultades van al mismo grupo (A, B, C…, sin repetir los que ya
   // traen los poderes). Hay una estructura de firma por grupo. jsons = los JSON de cada poder (ya revisados).
+  // Letra de grupo de un apoderado: "A", "b", "Grupo C" → "A"/"B"/"C"; una descripción ("Grupo Aeromar") → ''.
+  function letraGrupo(g) {
+    const t = String(g == null ? '' : g).trim().replace(/^grupo\s+/i, '');
+    return /^[A-Z0-9]{1,2}$/i.test(t) ? t.toUpperCase() : '';
+  }
   function jsonBastanteoUnico(jsons, cliente) {
     const letra = n => { let s = ''; n++; while (n > 0) { const r = (n - 1) % 26; s = String.fromCharCode(65 + r) + s; n = Math.floor((n - 1) / 26); } return s; };
     const personas = new Map(); // id + tipo → datos
     jsons.forEach(j => j.estructuras_de_firma.forEach(e => (e.apoderados ? j.apoderados.filter(a => e.apoderados.includes(a.numero_de_identificacion)) : j.apoderados).forEach(a => {
-      const grupoPoder = e.grupo || (a.grupo ? String(a.grupo).trim() : '');
-      const k = a.numero_de_identificacion + '|' + (e.tipo_de_firma || '') + '|' + grupoPoder;
-      if (!personas.has(k)) personas.set(k, { apoderado: a, grupoPoder, tipo: e.tipo_de_firma, individual: e.firma_individual, conjunta: e.firma_conjunta,
+      // Grupo del poder: un carácter ("A", "Grupo B"). Si es una descripción ("Grupo Aeromar"), cada descripción distinta
+      // es un grupo propio con letra puesta por la página (como un poder sin asignación de grupos).
+      const grupoPoder = e.grupo || letraGrupo(a.grupo);
+      const grupoDesc = !grupoPoder && a.grupo ? normalizar(a.grupo) : '';
+      const k = a.numero_de_identificacion + '|' + (e.tipo_de_firma || '') + '|' + grupoPoder + '|' + grupoDesc;
+      if (!personas.has(k)) personas.set(k, { apoderado: a, grupoPoder, grupoDesc, tipo: e.tipo_de_firma, individual: e.firma_individual, conjunta: e.firma_conjunta,
         facultades: Object.fromEntries(BASTANTEO_CLAVES.map(c => [c, false])), limitaciones: new Set(), escrituras: new Set(), estructuras: new Set(), combinaciones: new Set() });
       const p = personas.get(k);
       (e.combinaciones || []).forEach(c => p.combinaciones.add(c));
@@ -1685,7 +1693,7 @@
     })));
     const grupos = new Map();
     personas.forEach(p => {
-      const k = p.grupoPoder ? 'G|' + p.grupoPoder + '|' + (p.tipo || '')
+      const k = p.grupoPoder ? 'G|' + p.grupoPoder + '|' + (p.tipo || '') : p.grupoDesc ? 'D|' + p.grupoDesc + '|' + (p.tipo || '')
         : (p.tipo || '') + '|' + BASTANTEO_CLAVES.map(c => (p.facultades[c] ? 1 : 0)).join('');
       if (!grupos.has(k)) grupos.set(k, { nombre: p.grupoPoder, tipo: p.tipo, individual: p.individual, conjunta: p.conjunta,
         facultades: Object.assign({}, p.facultades), personas: [], limitaciones: new Set(), escrituras: new Set(), combinaciones: new Set() });
