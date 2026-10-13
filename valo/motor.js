@@ -1573,17 +1573,19 @@
             const cand = [icu, icu + 1, icu - 1].map(k => String(fila[k] == null ? '' : fila[k]).replace(/\D/g, ''));
             const num = cand.find(x => x.length === 11) || cand.find(x => x.length >= 7 && x.length <= 8) || '';
             const nombre = String(fila[iNom] || fila[iNom + 1] || '').trim();
-            if (!num || !nombre || /^\d+$/.test(nombre)) {
-              if (fila.some(c => c != null && String(c).trim())) { if (r.firmantes.length) break; } else if (r.firmantes.length && ++vacias > 1) break;
-              continue;
-            }
-            vacias = 0;
-            if (vistos.has(num)) continue;
-            vistos.add(num);
             const enteVal = [iEnte, iEnte + 1].map(k => (k > -1 ? String(fila[k] == null ? '' : fila[k]).trim() : '')).find(x => /^\d{2,7}$/.test(x)) || '';
             // Uso de firma del resumen ("B CONJUNTA B+B; B+C") y monto hasta (puede venir corrido una columna).
             const despues = fila.slice(iNom + 1).map(c => (c == null ? '' : String(c).trim()));
             const observacion = despues.find(c => /\b(individual|conjunta|indistinta)\b/i.test(c)) || '';
+            // Sin CUIT/DNI se acepta igual si tiene nombre y ente u observación (el CUIT sale después de la base de entes).
+            if (!nombre || /^\d+$/.test(nombre) || !(num || enteVal || observacion)) {
+              if (fila.some(c => c != null && String(c).trim())) { if (r.firmantes.length) break; } else if (r.firmantes.length && ++vacias > 1) break;
+              continue;
+            }
+            vacias = 0;
+            const clave = num || 'n:' + normalizar(nombre);
+            if (vistos.has(clave)) continue;
+            vistos.add(clave);
             const montos = (iHasta > -1 ? [fila[iHasta], fila[iHasta + 1], fila[iHasta - 1]] : []).map(c => Number(String(c == null ? '' : c).replace(/[^\d.]/g, ''))).filter(x => x > 0);
             // "REVOCADO" en cualquier celda de la fila: el firmante figura como revocado en el resumen.
             const revocado = despues.some(c => /\brevoc/i.test(c));
