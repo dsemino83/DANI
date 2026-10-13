@@ -2188,8 +2188,10 @@
     fila.firmantes = cliente.firmantes.length;
     if (!cliente.firmantes.length) { fila.estado = 'err'; fila.error = 'El Excel no tiene firmantes (no se encontró la tabla de firmantes)'; return fila; }
     const r = M.complifDeEmpresa(docs, cliente.cuit, cliente.cliente);
-    let poderes = r.poderes;
-    if (!poderes.length) {
+    const rv = M.aplicarRevocatorias(r.poderes);
+    let poderes = rv.vigentes;
+    fila.anulados = rv.anulados.length;
+    if (!poderes.length && !rv.anulados.length) {
       const pres = M.poderDelPresidente(r.actas);
       if (pres && M.firmanteDe(pres.presidente, cliente.firmantes)) poderes = [pres];
     }
@@ -2197,7 +2199,7 @@
     if (!poderes.length) { fila.estado = 'sinpod'; fila.error = r.actas.length ? 'Solo hay actas de designación en Complif' : 'Sin poderes en Complif'; return fila; }
     const jsons = poderes.map(p => M.jsonPoder(p, cliente, { deed_number: p.deed_number || '', board_resolution_power_attorney: p.board_resolution_power_attorney || '',
       power_attorney_type: p.power_attorney_type || 'Poder Especial para Operaciones Bancarias' }));
-    const sinPoder = M.firmantesSinPoder(poderes, cliente.firmantes);
+    const sinPoder = M.firmantesSinPoder(poderes, cliente.firmantes).filter(f => !f.revocado);
     const unico = M.jsonBastanteoUnico(jsons, Object.assign({}, cliente, { sinPoder }));
     fila.control = M.controlResumen(unico, cliente);
     fila.diferencias = fila.control.flatMap(f => f.puntos.filter(p => p.ok === false).map(p => Object.assign({ firmante: f.nombre, ident: f.ident, resumenTexto: f.resumen }, p)));
@@ -2367,7 +2369,10 @@
         bast.avisoPresidente = aviso('warn', `El PDF no tiene "Acreditación de Poderes": se toma al presidente del acta de designación (${esc(pp.fecha_emision || 's/f')}), ${quien}, que está en la planilla como apoderado, con <b>todas las facultades</b> y firma individual. Revisalo antes de usar el JSON.`);
       } else bast.avisoPresidente = aviso('bad', `El PDF no tiene "Acreditación de Poderes" y el presidente del acta, ${quien}, no figura en la planilla del cliente: no se arma el bastanteo.`);
     }
-    bast.poderes = todos.slice();
+    // Revocatorias: los poderes anteriores a uno que revoca quedan anulados.
+    const rv = M.aplicarRevocatorias(todos);
+    bast.anulados = rv.anulados;
+    bast.poderes = rv.vigentes;
     bast.otrosPoderes = [];
     bast.edPorPoder = bast.edPorPoder || {};
     if (!bast.poderes.length) { bast.ediciones = []; renderBastanteo(); return; }
@@ -2419,6 +2424,8 @@
     $('bastAcciones').classList.toggle('oculto', !hay);
     let estado = '';
     estado += bast.avisoPresidente || '';
+    if ((bast.anulados || []).length) estado += aviso('warn', `<b>${bast.anulados.length} poder${bast.anulados.length > 1 ? 'es anulados' : ' anulado'} por revocatoria:</b> ` +
+      bast.anulados.map(a => `${esc(a.poder.fecha_emision || 's/f')}${a.poder.deed_number ? ' (esc. ' + esc(a.poder.deed_number) + ')' : ''} — ${esc(a.motivo)}`).join(' · ') + '. No se usan en el bastanteo.');
     if (hay && !bast.cliente) estado += aviso('warn', 'Falta la planilla del cliente: sin ella no se completan los CUIT de los firmantes ni la escritura, y se muestran todas las personas del PDF.');
     const otros = bast.otrosPoderes || [];
     if (otros.length) estado += aviso(hay ? 'ok' : 'warn', `${hay ? '' : '<b>Ningún poder del PDF es de la empresa de la planilla</b> (CUIT ' + esc(M.formatoCuit(bast.cliente.cuit)) + '). '}` +
@@ -2507,7 +2514,7 @@
     if (v) { const i = Number(v.dataset.bastVer), pre = $('bastJson' + i); pre.textContent = JSON.stringify(jsonDe(i), null, 2); pre.classList.toggle('oculto'); }
   });
   // Un solo JSON con todos los poderes, agrupando apoderados por tipo de firma y facultades.
-  const sinPoder = () => (bast.cliente ? M.firmantesSinPoder(bast.poderes, bast.cliente.firmantes) : []);
+  const sinPoder = () => (bast.cliente ? M.firmantesSinPoder(bast.poderes, bast.cliente.firmantes).filter(f => !f.revocado) : []);
   function jsonUnico() { return M.jsonBastanteoUnico(bast.poderes.map((p, i) => jsonDe(i)), bast.cliente && Object.assign({}, bast.cliente, { sinPoder: sinPoder() })); }
   // Control del resumen (Excel) contra los poderes, firmante por firmante: uso de firma, grupo, conjuntas y límite.
   function renderControlResumen() {
