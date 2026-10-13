@@ -1180,11 +1180,13 @@
   // integrante de Grupo C o Grupo B conjuntamente" → grupo B, combinaciones B+B y B+C. Sin grupo en la descripción: null.
   function gruposDelUso(u) {
     const gs = [...String(u.descripcion || '').matchAll(/\bgrupos?\s+([A-Z0-9]{1,2})\b/gi)].map(m => m[1].toUpperCase());
-    if (!gs.length) return { grupo: null, combinaciones: [] };
-    const g = gs[0];
-    if (!/CONJUNTA/.test(u.tipo || '')) return { grupo: g, combinaciones: [g] };
+    if (!gs.length) return { grupo: null, grupos: [], combinaciones: [] };
+    const g = gs[0], grupos = [...new Set(gs)].sort();
+    // Individual: vale para todos los grupos que nombra ("cualquier apoderado de Grupo A o Grupo B").
+    if (!/CONJUNTA/.test(u.tipo || '')) return { grupo: g, grupos, combinaciones: grupos };
+    // Conjunta: el primer grupo con cada uno de los que siguen ("2 del Grupo A, o 1 del Grupo A + 1 del Grupo B" → A+A, A+B).
     const otros = gs.length > 1 ? gs.slice(1) : [g];
-    return { grupo: g, combinaciones: [...new Set(otros.map(o => [g, o].sort().join('+')))].sort() };
+    return { grupo: g, grupos, combinaciones: [...new Set(otros.map(o => [g, o].sort().join('+')))].sort() };
   }
 
   // ------------------------------------------------------------ COMPLIF
@@ -1360,7 +1362,7 @@
       if (!est.length) { fila.sinPoder = true; fila.puntos.push({ punto: 'Poder', ok: false, resumen: res.texto || '—', poder: 'No figura como apoderado en los poderes' }); return fila; }
       const tipos = [...new Set(est.map(e => e.tipo_de_firma).filter(Boolean))];
       const grupos = [...new Set(est.map(e => e.grupo))];
-      const combos = [...new Set(est.flatMap(e => e.combinaciones || []))].sort();
+      const combos = [...new Set(est.filter(e => e.firma_conjunta).flatMap(e => (e.combinaciones || []).filter(c => c.includes('+'))))].sort();
       const limites = [...new Set(est.map(e => e.limitaciones).filter(Boolean))];
       fila.poder = { tipos, grupos, combos, limites };
       fila.puntos.push({ punto: 'Uso de firma', ok: !res.tipo || tipos.includes(res.tipo) ? (res.tipo ? true : null) : false, resumen: res.tipo || '—', poder: tipos.join(' / ') || '—' });
@@ -1615,9 +1617,9 @@
   }
   // Firmantes de la planilla que no aparecen como apoderados en ningún poder.
   function firmantesSinPoder(poderes, firmantes) {
-    const usados = new Set();
-    poderes.forEach(p => p.apoderados.forEach(a => { const f = firmanteDe(a, firmantes); if (f) usados.add(f); }));
-    return (firmantes || []).filter(f => !usados.has(f));
+    // Un firmante repetido en la planilla (con CUIT y con DNI) cuenta como usado si cualquiera de sus renglones coincide.
+    const aps = poderes.flatMap(p => p.apoderados);
+    return (firmantes || []).filter(f => !aps.some(a => firmanteDe(a, [f])));
   }
 
   // Arma el JSON de un poder. edicion: { deed_number, board_resolution_power_attorney, power_attorney_type, cuits: {dni: cuit} }.
@@ -1647,7 +1649,8 @@
       estructuras_de_firma: poder.usos.map((u, n) => {
         const ed = (edicion.facultades || [])[n] || {};
         // Si el uso es de un grupo y el poder asigna grupos, el uso vale solo para los apoderados de ese grupo.
-        const delUso = u.grupo && apoderados.some(a => a.grupo) ? apoderados.filter(a => letraGrupo(a.grupo) === u.grupo) : apoderados;
+        const gruposUso = u.grupos && u.grupos.length ? u.grupos : u.grupo ? [u.grupo] : [];
+        const delUso = gruposUso.length && apoderados.some(a => a.grupo) ? apoderados.filter(a => gruposUso.includes(letraGrupo(a.grupo))) : apoderados;
         return {
           grupo: u.grupo || null,
           combinaciones: u.combinaciones && u.combinaciones.length ? u.combinaciones : null,
@@ -1679,13 +1682,14 @@
     jsons.forEach(j => j.estructuras_de_firma.forEach(e => (e.apoderados ? j.apoderados.filter(a => e.apoderados.includes(a.numero_de_identificacion)) : j.apoderados).forEach(a => {
       // Grupo del poder: un carácter ("A", "Grupo B"). Si es una descripción ("Grupo Aeromar"), cada descripción distinta
       // es un grupo propio con letra puesta por la página (como un poder sin asignación de grupos).
-      const grupoPoder = e.grupo || letraGrupo(a.grupo);
+      const grupoPoder = letraGrupo(a.grupo) || e.grupo || '';
       const grupoDesc = !grupoPoder && a.grupo ? normalizar(a.grupo) : '';
       const k = a.numero_de_identificacion + '|' + (e.tipo_de_firma || '') + '|' + grupoPoder + '|' + grupoDesc;
       if (!personas.has(k)) personas.set(k, { apoderado: a, grupoPoder, grupoDesc, tipo: e.tipo_de_firma, individual: e.firma_individual, conjunta: e.firma_conjunta,
         facultades: Object.fromEntries(BASTANTEO_CLAVES.map(c => [c, false])), limitaciones: new Set(), escrituras: new Set(), estructuras: new Set(), combinaciones: new Set() });
       const p = personas.get(k);
-      (e.combinaciones || []).forEach(c => p.combinaciones.add(c));
+      // Solo las combinaciones donde aparece el grupo del apoderado (B en "A+A; A+B" → A+B).
+      (e.combinaciones || []).filter(c => !grupoPoder || c.split('+').includes(grupoPoder)).forEach(c => p.combinaciones.add(c));
       BASTANTEO_CLAVES.forEach(c => { if (e.facultades[c]) p.facultades[c] = true; });
       if (e.limitaciones) p.limitaciones.add(e.limitaciones);
       if (j.deed_number) p.escrituras.add(String(j.deed_number));
