@@ -1370,9 +1370,15 @@
         fila.puntos.push(auto ? { punto: 'Grupo', ok: null, resumen: res.grupo, poder: `No aplica: el poder no asigna grupos (letra ${grupos.join(', ')} puesta según las facultades)` }
           : { punto: 'Grupo', ok: grupos.includes(res.grupo), resumen: res.grupo, poder: grupos.join(', ') });
       }
+      const grupoAuto = est.every(e => e.grupoAutomatico);
       if (res.tipo === 'CONJUNTA' || combos.length) {
-        const sobran = res.combinaciones.filter(c => !combos.includes(c)), faltan = combos.filter(c => !res.combinaciones.includes(c));
-        fila.puntos.push({ punto: 'Firmas conjuntas', ok: !sobran.length && !faltan.length, resumen: res.combinaciones.join('; ') || '—', poder: combos.join('; ') || '—',
+        // Grupos automáticos: no importa la letra sino la forma de la combinación (dos del mismo grupo o de grupos distintos).
+        const forma = c => { const [a, b] = c.split('+'); return a === b ? 'dos del mismo grupo' : 'de grupos distintos'; };
+        const resC = grupoAuto ? [...new Set(res.combinaciones.map(forma))] : res.combinaciones;
+        const podC = grupoAuto ? [...new Set(combos.map(forma))] : combos;
+        const sobran = resC.filter(c => !podC.includes(c)), faltan = podC.filter(c => !resC.includes(c));
+        fila.puntos.push({ punto: 'Firmas conjuntas', ok: !sobran.length && !faltan.length, resumen: res.combinaciones.join('; ') || '—',
+          poder: (combos.join('; ') || '—') + (grupoAuto && combos.length ? ` (${podC.join(', ')}; letra puesta según las facultades)` : ''),
           detalle: [sobran.length ? 'el resumen incluye ' + sobran.join(', ') + ' que el poder no da' : '', faltan.length ? 'el poder también da ' + faltan.join(', ') : ''].filter(Boolean).join('; ') });
       }
       // Firma conjunta: el límite del poder es para la firma individual, así que no se controla.
@@ -1713,7 +1719,15 @@
     const integrantes = {};
     lista.forEach(g => { integrantes[g.grupo] = new Set(g.personas.map(p => p.apoderado.numero_de_identificacion)).size; });
     const posible = c => { const n = {}; c.split('+').forEach(x => { n[x] = (n[x] || 0) + 1; }); return Object.keys(n).every(x => (integrantes[x] || 0) >= n[x]); };
-    lista.forEach(g => { const t = [...g.combinaciones].sort(); g.combOk = t.filter(posible); g.combNo = t.filter(c => !posible(c)); });
+    // Poder sin grupos y firma conjunta ("dos cualesquiera de los apoderados"): dos del mismo grupo (armado por facultades).
+    const totalApoderados = new Set(lista.flatMap(g => g.personas.map(p => p.apoderado.numero_de_identificacion))).size;
+    lista.forEach(g => { if (g.auto && g.conjunta && !g.combinaciones.size) g.combinaciones.add(g.grupo + '+' + g.grupo); });
+    lista.forEach(g => {
+      const t = [...g.combinaciones].sort();
+      // Con grupos automáticos la combinación vale con cualquier otro apoderado del poder.
+      const ok = c => (g.auto ? totalApoderados >= 2 : posible(c));
+      g.combOk = t.filter(ok); g.combNo = t.filter(c => !ok(c));
+    });
     const descGrupo = g => `Grupo ${g.grupo} - ${g.conjunta ? 'firma conjunta' : 'firma individual / indistinta'}` +
       (g.conjunta && g.combOk.length ? ' ' + g.combOk.join('; ') : '') + ` (${nombres(g)})`;
     return {
