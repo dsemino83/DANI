@@ -2985,6 +2985,7 @@
     const errores = M.controlarReporte(reporte);
     const cb = M.controlarBancos(reporte, bancosUso);
     const total = M.round2(reporte.reduce((s, r) => s + (r.MONTO || 0), 0));
+    // Sin Math.min(...fechas): con cientos de miles de filas excede la pila ("Maximum call stack size exceeded").
     const fechas = reporte.map(r => r.FECHA_VENCIMIENTO).filter(f => f != null);
     preparado = { reporte, errores, cb, total, hoja, bancosUso,
       opcCuotas: meli ? { orden: 'nombre' } : null, opcCreditos: meli ? { nombre: 'sinComas' } : null };
@@ -2992,7 +2993,7 @@
     let html = `<div class="kpis">
       <div class="kpi"><b>${fmtEntero(reporte.length)}</b><span>filas del reporte</span></div>
       <div class="kpi"><b>${fmtEntero(cb.detalle.length)}</b><span>bancos distintos</span></div>
-      <div class="kpi"><b>${fechas.length ? M.fechaLegible(Math.min(...fechas)) + ' – ' + M.fechaLegible(Math.max(...fechas)) : '—'}</b><span>vencimientos</span></div>
+      <div class="kpi"><b>${fechas.length ? M.fechaLegible(fechas.reduce((a, b) => b < a ? b : a)) + ' – ' + M.fechaLegible(fechas.reduce((a, b) => b > a ? b : a)) : '—'}</b><span>vencimientos</span></div>
       <div class="kpi"><b>$ ${fmtMonto(total)}</b><span>total MONTO</span></div></div>`;
     if (archivo.conciliacion && archivo.conciliacion.bruto != null && hoja.formato === 'getnet') {
       const bruto = archivo.conciliacion.bruto;
