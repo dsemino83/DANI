@@ -2211,11 +2211,12 @@
     fila.sinPoder = sinPoder.map(f => f.nombre);
     fila.noIncluidos = [...new Set(poderes.flatMap(p => p.apoderados).filter(a => !M.firmanteDe(a, cliente.firmantes)).map(a => a.nombre_completo))];
     fila.estado = fila.diferencias.length ? 'dif' : 'ok';
-    // Sin poderes de Complif: solo se pudo validar al presidente / socio gerente.
+    // Sin poderes de Complif: se valida al presidente / gerente por acta, estatuto o encabezado del resumen. Si no hay
+    // nadie validado, queda "Sin poderes"; si lo hay, el estado sale del control (los demás firmantes, sin poder).
     if (!rv.vigentes.length) {
       const validados = fila.control.filter(c => !c.sinPoder).map(c => c.nombre);
-      fila.estado = 'sinpod'; fila.diferencias = [];
-      fila.error = motivoSin + (validados.length ? `; validado como presidente / socio gerente: ${validados.join(', ')}` : '');
+      if (!validados.length) { fila.estado = 'sinpod'; fila.diferencias = []; fila.error = motivoSin; return fila; }
+      fila.error = `Sin poderes en Complif: validado como presidente / gerente (acta, estatuto o resumen): ${validados.join(', ')}`;
       return fila;
     }
     // Ningún firmante del resumen está en los poderes: lo más probable es que falten poderes en Complif (o que los
