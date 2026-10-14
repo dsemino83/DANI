@@ -2204,7 +2204,7 @@
           && (!p.deed_number || new RegExp(`\\b${String(p.deed_number).replace(/\D/g, '')}\\b`).test(tRev) || /matriz/i.test(tRev))) continue;
         // El revocante sin apoderados leídos (el OCR no los trajo): no se puede saber a quién designa, así que no deja a
         // los anteriores sin poder. Queda el aviso para revisarlo.
-        if (!r.apoderados.length && otorga(r)) { if (!avisos.some(a => a.poder === r)) avisos.push({ poder: r, motivo: 'revoca los poderes anteriores, pero no trae apoderados (revisar el OCR): se mantienen los anteriores' }); continue; }
+        if (!r.apoderados.length && (r.usos || []).some(u => u.tipo)) { if (!avisos.some(a => a.poder === r)) avisos.push({ poder: r, motivo: 'revoca los poderes anteriores, pero no trae apoderados (revisar el OCR): se mantienen los anteriores' }); continue; }
         const tr = textoRevocatorio(r);
         // Una revocación sin usos de firma que lista apoderados (Complif pone ahí a los revocados) es parcial: solo ellos.
         const listados = !otorga(r) && r.apoderados.length ? p.apoderados.filter(a => r.apoderados.some(x => firmanteDe(x, [{ nombre: a.nombre_completo, dni: a.dni, cuit: a.cuit }]))) : [];
