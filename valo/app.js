@@ -1274,6 +1274,94 @@
       `<th class="num">${fmtMonto(d.pp)}</th><th class="num">${fmtMonto(d.saldoDeuda)}</th></tr></tfoot></table>`;
   }
   $('btnDeudaTraer').addEventListener('click', () => traerDeuda());
+  // Tramos de atraso (días desde el vencimiento hasta la fecha de corte).
+  const TRAMOS_ATRASO = [['0 a 30 días', 0, 30], ['31 a 60 días', 31, 60], ['61 a 90 días', 61, 90], ['91 a 180 días', 91, 180], ['Más de 180 días', 181, Infinity]];
+  // Un tono, de claro a oscuro: más atraso, más oscuro (rampa ordinal validada sobre fondo claro).
+  const COLORES_ATRASO = ['#86b6ef', '#5598e7', '#2a78d6', '#1c5cab', '#104281'];
+  // Gráfico de barras del saldo de deuda por tramo, como PNG para el Excel (ExcelJS no arma gráficos nativos).
+  function graficoAtraso(tramos, total) {
+    const W = 960, H = 460, esc2 = 2, cv = document.createElement('canvas');
+    cv.width = W * esc2; cv.height = H * esc2;
+    const g = cv.getContext('2d'); g.scale(esc2, esc2);
+    g.fillStyle = '#ffffff'; g.fillRect(0, 0, W, H);
+    const fuente = '"Segoe UI", Arial, sans-serif';
+    g.fillStyle = '#1f1f1f'; g.font = `600 18px ${fuente}`; g.fillText('Saldo de deuda por días de atraso', 32, 36);
+    g.fillStyle = '#6b6b6b'; g.font = `13px ${fuente}`; g.fillText('Impago + saldo de Paga Parcial, en pesos', 32, 58);
+    const x0 = 80, y0 = H - 64, alto = y0 - 100, ancho = W - x0 - 40;
+    const max = Math.max(...tramos.map(t => t.saldo), 1);
+    const paso = Math.pow(10, Math.floor(Math.log10(max))), tope = Math.ceil(max / paso) * paso;
+    const abrev = v => v >= 1e9 ? (v / 1e9).toFixed(1).replace('.', ',') + ' MM' : v >= 1e6 ? (v / 1e6).toFixed(1).replace('.', ',') + ' M' : v >= 1e3 ? (v / 1e3).toFixed(0) + ' mil' : String(Math.round(v));
+    // Grilla recesiva y eje.
+    g.strokeStyle = '#e6e6e3'; g.lineWidth = 1; g.fillStyle = '#6b6b6b'; g.font = `12px ${fuente}`; g.textAlign = 'right';
+    for (let k = 0; k <= 4; k++) { const y = y0 - alto * k / 4; g.beginPath(); g.moveTo(x0, y); g.lineTo(x0 + ancho, y); g.stroke(); g.fillText('$ ' + abrev(tope * k / 4), x0 - 8, y + 4); }
+    const n = tramos.length, hueco = ancho / n, bw = Math.min(110, hueco * 0.56);
+    tramos.forEach((t, i) => {
+      const h = alto * t.saldo / tope, x = x0 + hueco * i + (hueco - bw) / 2, y = y0 - h, r = Math.min(4, h / 2);
+      g.fillStyle = COLORES_ATRASO[i];
+      g.beginPath(); g.moveTo(x, y0); g.lineTo(x, y + r); g.quadraticCurveTo(x, y, x + r, y); g.lineTo(x + bw - r, y); g.quadraticCurveTo(x + bw, y, x + bw, y + r); g.lineTo(x + bw, y0); g.closePath(); g.fill();
+      g.textAlign = 'center';
+      g.fillStyle = '#1f1f1f'; g.font = `600 13px ${fuente}`; g.fillText('$ ' + abrev(t.saldo), x + bw / 2, y - 22);
+      g.fillStyle = '#6b6b6b'; g.font = `12px ${fuente}`; g.fillText((total ? (100 * t.saldo / total).toFixed(1).replace('.', ',') : '0') + ' %', x + bw / 2, y - 7);
+      g.fillStyle = '#3d3d3d'; g.font = `13px ${fuente}`; g.fillText(t.nombre, x0 + hueco * i + hueco / 2, y0 + 22);
+      g.fillStyle = '#6b6b6b'; g.font = `12px ${fuente}`; g.fillText(t.creditos.toLocaleString('es-AR') + (t.creditos === 1 ? ' crédito' : ' créditos'), x0 + hueco * i + hueco / 2, y0 + 40);
+    });
+    g.strokeStyle = '#9a9a96'; g.beginPath(); g.moveTo(x0, y0); g.lineTo(x0 + ancho, y0); g.stroke();
+    return cv.toDataURL('image/png');
+  }
+  // Solapa "Por días de atraso": saldo por tramo (tabla + gráfico) y apertura por fiduciante.
+  function agregarHojaAtraso(wb, d, det) {
+    const corte = new Date(d.hasta + 'T00:00:00');
+    const dias = vto => Math.max(0, Math.round((corte - new Date(vto + 'T00:00:00')) / 864e5));
+    const tramoDe = n => TRAMOS_ATRASO.findIndex(([, a, b]) => n >= a && n <= b);
+    const nuevo = nombre => ({ nombre, creditos: new Set(), cuotas: 0, impago: 0, cuotasPP: 0, pp: 0, saldo: 0 });
+    const tramos = TRAMOS_ATRASO.map(([n]) => nuevo(n));
+    const porFid = new Map();
+    det.forEach(x => {
+      if (!x.vto) return;
+      const k = tramoDe(dias(x.vto)), t = tramos[k];
+      if (!porFid.has(x.fiduciante)) porFid.set(x.fiduciante, { cuit: x.cuitFid, tramos: TRAMOS_ATRASO.map(() => 0), total: 0 });
+      const f = porFid.get(x.fiduciante);
+      t.creditos.add(x.cuit + '|' + x.credito); t.cuotas += x.cuotas; t.impago += x.impago; t.cuotasPP += x.cuotasPP; t.pp += x.pp; t.saldo += x.saldo;
+      f.tramos[k] += x.saldo; f.total += x.saldo;
+    });
+    tramos.forEach(t => { t.creditos = t.creditos.size; ['impago', 'pp', 'saldo'].forEach(c => { t[c] = M.round2(t[c]); }); });
+    const total = M.round2(tramos.reduce((a, t) => a + t.saldo, 0));
+    const ws = wb.addWorksheet('Por días de atraso');
+    ws.addRow([`Saldo de deuda por días de atraso (desde el vencimiento hasta el ${fechaAr(d.hasta)}) · foto de cartera ${fechaAr(d.periodo)}`]).font = { bold: true };
+    ws.addRow([]);
+    const pintar = fila => { fila.font = { bold: true, color: { argb: 'FFFFFFFF' } }; fila.eachCell(c => { c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFC8102E' } }; }); };
+    pintar(ws.addRow(['Días de atraso', 'Créditos', 'Cuotas impagas', 'Impago', 'Cuotas Paga Parcial', 'Saldo Paga Parcial', 'Saldo de deuda', '% del total']));
+    tramos.forEach((t, i) => {
+      const fila = ws.addRow([t.nombre, t.creditos, t.cuotas, t.impago, t.cuotasPP, t.pp, t.saldo, total ? t.saldo / total : 0]);
+      fila.getCell(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF' + COLORES_ATRASO[i].slice(1) } };
+      fila.getCell(1).font = { color: { argb: i < 2 ? 'FF1F1F1F' : 'FFFFFFFF' }, bold: true };
+    });
+    ws.addRow(['Total', tramos.reduce((a, t) => a + t.creditos, 0), tramos.reduce((a, t) => a + t.cuotas, 0), M.round2(tramos.reduce((a, t) => a + t.impago, 0)),
+      tramos.reduce((a, t) => a + t.cuotasPP, 0), M.round2(tramos.reduce((a, t) => a + t.pp, 0)), total, total ? 1 : 0]).font = { bold: true };
+    ws.getColumn(1).width = 40; [2, 3, 5].forEach(k => { ws.getColumn(k).width = 14; ws.getColumn(k).numFmt = '#,##0'; });
+    [4, 6, 7].forEach(k => { ws.getColumn(k).width = 20; ws.getColumn(k).numFmt = '#,##0.00'; }); ws.getColumn(8).width = 12; ws.getColumn(8).numFmt = '0.0%';
+    // Gráfico debajo de la tabla.
+    try {
+      const img = wb.addImage({ base64: graficoAtraso(tramos, total), extension: 'png' });
+      ws.addImage(img, { tl: { col: 0, row: 10 }, ext: { width: 960, height: 460 } });
+    } catch (e) { ws.getCell('A11').value = 'No se pudo dibujar el gráfico: ' + (e.message || e); }
+    // Apertura por fiduciante (debajo del gráfico).
+    const ini = 36;
+    ws.getRow(ini).getCell(1).value = 'Por fiduciante'; ws.getRow(ini).font = { bold: true };
+    const enc = ws.getRow(ini + 1);
+    ['Fiduciante', 'CUIT', ...TRAMOS_ATRASO.map(([n]) => n), 'Saldo de deuda'].forEach((v, k) => { enc.getCell(k + 1).value = v; });
+    pintar(enc);
+    let r = ini + 2;
+    [...porFid.entries()].sort((a, b) => b[1].total - a[1].total).forEach(([fid, f]) => {
+      const fila = ws.getRow(r++);
+      [fid, M.formatoCuit(f.cuit), ...f.tramos.map(v => (v ? M.round2(v) : null)), M.round2(f.total)].forEach((v, k) => { fila.getCell(k + 1).value = v; });
+    });
+    const tot = ws.getRow(r);
+    ['Total', '', ...tramos.map(t => t.saldo), total].forEach((v, k) => { tot.getCell(k + 1).value = v; });
+    tot.font = { bold: true };
+    for (let k = 3; k <= 3 + TRAMOS_ATRASO.length; k++) for (let i = ini + 2; i <= r; i++) ws.getRow(i).getCell(k).numFmt = '#,##0.00';
+    [3, 4, 5, 6, 7, 8].forEach(k => { if (ws.getColumn(k).width < 18) ws.getColumn(k).width = 18; });
+  }
   $('btnDeudaExcel').addEventListener('click', async () => {
     try {
       const d = deuda;
@@ -1296,9 +1384,10 @@
       const wc = wb.addWorksheet('Por crédito');
       wc.addRow([`Deuda por crédito y vencimiento (impago + saldo de Paga Parcial) · vencidas hasta ${fechaAr(d.hasta)} · foto de cartera ${fechaAr(d.periodo)}`]).font = { bold: true };
       wc.addRow([]);
+      let det = null;
       try {
         $('deudaEstado').innerHTML = '<p class="sub">Trayendo de Power BI el detalle por crédito para la exportación…</p>';
-        const det = M.armarDeudaDetalle(await consultarPbi(M.daxSaldoDeudaDetalle(d.opciones || { hasta: d.hasta })));
+        det = M.armarDeudaDetalle(await consultarPbi(M.daxSaldoDeudaDetalle(d.opciones || { hasta: d.hasta })));
         // Días de atraso: desde el vencimiento hasta la fecha de corte ("vencidas hasta").
         const corte = new Date(d.hasta + 'T00:00:00');
         const atraso = vto => vto ? Math.max(0, Math.round((corte - new Date(vto + 'T00:00:00')) / 864e5)) : null;
@@ -1322,6 +1411,7 @@
       wc.getColumn(5).numFmt = 'dd/mm/yyyy';
       [6, 7, 9].forEach(k => { wc.getColumn(k).width = 12; });
       [8, 10, 11].forEach(k => { wc.getColumn(k).width = 18; wc.getColumn(k).numFmt = '#,##0.00'; });
+      if (det) agregarHojaAtraso(wb, d, det);
       // Apertura: cada mes en los días de vencimiento que tuvieron deuda, con su importe y el subtotal del mes.
       const wd = wb.addWorksheet('Apertura por día');
       wd.addRow(['Apertura por día de vencimiento']).font = { bold: true };
