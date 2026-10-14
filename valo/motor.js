@@ -627,13 +627,13 @@
   }
 
   // Saldo de deuda por fiduciante y mes de vencimiento, sin filtrar negocios. Cuotas de la última foto mensual
-  // (Periodo más reciente) vencidas hasta ayer (la cobranza del día no está bajada). Deuda impaga = cuotas en estado
+  // (Periodo más reciente) vencidas hasta antes de ayer (la cobranza de ayer y hoy puede no estar bajada). Deuda impaga = cuotas en estado
   // Impaga (4) por su valor (capital + interés, "ficuo valor cuota"); además, lo que falta cobrar de las Paga Parcial (1)
   // = saldo de capital + saldo de interés. Saldo de deuda = impago + saldo de Paga Parcial. Quedan afuera Normal (0),
   // Paga (2) y Paga a Regularizar (3) (cobradas, saldo 0).
   function daxSaldoDeuda(opciones = {}) {
     const t = opciones.tabla || PBI_TABLA, c = n => `'${t}'[${n}]`;
-    const hasta = opciones.hasta ? `DATE ( ${opciones.hasta.slice(0, 4)}, ${Number(opciones.hasta.slice(5, 7))}, ${Number(opciones.hasta.slice(8, 10))} )` : 'TODAY () - 1';
+    const hasta = opciones.hasta ? `DATE ( ${opciones.hasta.slice(0, 4)}, ${Number(opciones.hasta.slice(5, 7))}, ${Number(opciones.hasta.slice(8, 10))} )` : 'TODAY () - 2';
     // Una misma cuota puede estar repetida en la foto (otro lote u otra fecha de cálculo, a veces con otro estado):
     // se toma el renglón más reciente de cada cuota (fecha de cálculo y número de lote) antes de mirar el estado.
     // Además devuelve, por fiduciante (renglones sin vencimiento), las cuotas vencidas que siguen en estado Normal: nadie
@@ -673,7 +673,7 @@
   // daxSaldoDeuda (última foto de cartera o la del mes elegido, el renglón más reciente de cada cuota).
   function daxSaldoDeudaDetalle(opciones = {}) {
     const t = opciones.tabla || PBI_TABLA, c = n => `'${t}'[${n}]`;
-    const hasta = opciones.hasta ? `DATE ( ${opciones.hasta.slice(0, 4)}, ${Number(opciones.hasta.slice(5, 7))}, ${Number(opciones.hasta.slice(8, 10))} )` : 'TODAY () - 1';
+    const hasta = opciones.hasta ? `DATE ( ${opciones.hasta.slice(0, 4)}, ${Number(opciones.hasta.slice(5, 7))}, ${Number(opciones.hasta.slice(8, 10))} )` : 'TODAY () - 2';
     return [
       'DEFINE',
       `  VAR Hasta = ${hasta}`,
