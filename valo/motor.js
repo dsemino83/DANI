@@ -1136,19 +1136,24 @@
   function leerAutoridadesOcr(lineas) {
     const L = lineas.map(l => String(l || '').replace(/\s+/g, ' ').trim()).filter(l => l && l !== '<<PAGINA>>');
     const actas = [];
+    // Actas de designación y estatutos (su "Estructura Administración": presidente, gerentes…).
     L.forEach((l, i) => {
-      if (!/^dictamen acta de designaci[oó]n/i.test(l)) return;
+      const esEstatuto = /^estatuto$/i.test(l);
+      if (!esEstatuto && !/^dictamen acta de designaci[oó]n/i.test(l)) return;
       let fin = L.length;
-      for (let j = i + 1; j < L.length; j++) if (/^(acreditaci[oó]n de poderes|balance|dictamen\b)/i.test(L[j])) { fin = j; break; }
+      for (let j = i + 1; j < L.length; j++) if (/^(acreditaci[oó]n de poderes|balance|dictamen\b|estatuto$)/i.test(L[j])) { fin = j; break; }
       const b = L.slice(i, fin);
       const valor = et => { const re = new RegExp('^' + et + '\\s*:\\s*(.*)$', 'i'); const x = b.find(y => re.test(y)); return x ? x.match(re)[1].trim() : ''; };
-      const acta = { razon_social: valor('Raz[oó]n Social'), cuit_empresa: valor('CUIT').replace(/\D/g, ''), fecha: valor('Fecha del Documento'), autoridades: [] };
-      const ia = b.findIndex(x => /^autoridades designadas/i.test(x));
+      const acta = { razon_social: valor('Raz[oó]n Social'), cuit_empresa: valor('CUIT').replace(/\D/g, ''), fecha: valor('Fecha del Documento') || valor('Fecha de Constituci[oó]n'), autoridades: [] };
+      if (esEstatuto) acta.estatuto = true;
+      const ia = b.findIndex(x => (esEstatuto ? /^estructura (de )?administraci[oó]n/i : /^autoridades designadas/i).test(x));
+      if (esEstatuto && ia < 0) return;
+      const corte = esEstatuto ? b.findIndex((x, k) => k > ia && /^(accionistas|otros autorizados|facultades|conclusi[oó]n)/i.test(x)) : -1;
       let ult = null;
-      b.slice(ia > -1 ? ia + 1 : 0).forEach(x => {
+      b.slice(ia > -1 ? ia + 1 : 0, corte > -1 ? corte : undefined).forEach(x => {
         if (/^(nombre completo|identificaci[oó]n|rol|duraci[oó]n)(\s|$)/i.test(x) || /:/.test(x)) return;
         const m = x.match(/^(.*?\D)\s*(\d{6,9})(?:\s+(.+))?$/);
-        const sinDni = !m && x.match(/^(.+?)\s+((?:director|directora|presidente|presidenta|vicepresidente|vicepresidenta|s[ií]ndico)\b.*)$/i);
+        const sinDni = !m && x.match(/^(.+?)\s+((?:director|directora|presidente|presidenta|vicepresidente|vicepresidenta|s[ií]ndico|gerente|socio gerente)\b.*)$/i);
         if (m && m[1].trim()) { ult = { nombre_completo: m[1].trim(), dni: m[2], rol: (m[3] || '').trim() }; acta.autoridades.push(ult); }
         else if (sinDni) { ult = { nombre_completo: sinDni[1].trim(), dni: '', rol: sinDni[2].trim() }; acta.autoridades.push(ult); }
         else if (ult && !ult.rol) ult.rol = x;
@@ -1160,7 +1165,8 @@
   }
   // Presidente o equivalente: "Director titular y/- Presidente", "Socio gerente", "Gerente titular" (SRL). No vicepresidente
   // ni suplentes.
-  const esPresidente = rol => { const r = normalizar(rol); return /\bpresident[ea]\b/.test(r) || (/\bgerente\b/.test(r) && !/suplente/.test(r)); };
+  // También quien tiene la representación legal ("Director Titular / Vicepresidente (con representación legal)").
+  const esPresidente = rol => { const r = normalizar(rol); return /\bpresident[ea]\b/.test(r) || (/\bgerente\b|representacion legal|representante legal/.test(r) && !/suplente/.test(r)); };
   // Firmante con grupo "D" en el resumen = el presidente, con todas las facultades (firma individual). Si no figura en
   // ningún poder, se arma un poder con él para el bastanteo y el control.
   // Presidente: el de la última acta de directorio (actas de Complif o del PDF), o el firmante "D" o "(Presidente)" del resumen.
@@ -1463,7 +1469,8 @@
   // autoridades"; document_type = PODER_COMPLEJO_AR, ACTA_DESIGNACION_AUTORIDADES_AR…). Lo que extrajo el OCR viene en
   // ocr_data_responses; se busca adentro el objeto con apoderados / estructuras de firma (mismo modelo que el JSON del
   // bastanteo) o la lista de autoridades del acta.
-  const COMPLIF_TIPOS = ['Poder', 'Poder Complejo', 'Acta de designación de autoridades'];
+  // El Estatuto trae las autoridades de la sociedad ("directors": presidente, gerentes…): se usa como un acta.
+  const COMPLIF_TIPOS = ['Poder', 'Poder Complejo', 'Acta de designación de autoridades', 'Estatuto'];
   function complifJson(v) {
     if (typeof v === 'string' && /^\s*[\[{]/.test(v)) { try { return JSON.parse(v); } catch (e) { return v; } }
     return v;
@@ -1475,7 +1482,7 @@
     for (const x of Array.isArray(v) ? v : Object.values(v)) { const r = complifBuscar(x, prueba, prof + 1); if (r) return r; }
     return null;
   }
-  const complifEsActa = doc => /acta de designaci/i.test(doc.type || '') || /ACTA_DESIGNACION/i.test(doc.document_type || '');
+  const complifEsActa = doc => /acta de designaci|^estatuto/i.test(doc.type || '') || /ACTA_DESIGNACION|ESTATUTO/i.test(doc.document_type || '');
   const complifEsPoder = doc => !complifEsActa(doc) && (/^poder/i.test(doc.type || '') || /^PODER/i.test(doc.document_type || ''));
   const complifNumero = v => String(v == null ? '' : v).replace(/\D/g, '');
   const complifDni = v => { const d = complifNumero(v); return d.length === 11 ? d.slice(2, 10).replace(/^0+/, '') : d; };
@@ -1546,7 +1553,8 @@
     const valor = (y, re) => { const k = Object.keys(y).find(c => re.test(c)); return k && y[k] != null ? String(y[k]).trim() : ''; };
     return {
       razon_social: complifCampo(doc.ocr_data_responses || doc, ['razon_social', 'company_name']), cuit_empresa: complifNumero(complifCampo(doc.ocr_data_responses || doc, ['cuit_empresa', 'cuit', 'tax_id'])),
-      fecha: complifCampo(doc.ocr_data_responses || doc, ['fecha_del_documento', 'fecha_documento', 'fecha', 'document_date', 'issue_date']),
+      fecha: complifCampo(doc.ocr_data_responses || doc, ['fecha_del_documento', 'fecha_documento', 'fecha', 'document_date', 'issue_date', 'registration_date', 'incorporation_date']),
+      estatuto: /^estatuto/i.test(doc.type || '') || undefined,
       autoridades: lista.map(y => ({ nombre_completo: valor(y, /nombre|name/i), dni: complifDni(valor(y, /identificaci|dni|document|numero|id_number|cuit|cuil|tax/i)), rol: valor(y, /rol|cargo|role|position|title/i) })).filter(a => a.nombre_completo),
       complif: { id: doc.id_document || doc.id || doc.uuid || null, type: doc.type || '', document_type: doc.document_type || '' },
     };
@@ -3531,7 +3539,7 @@ try {
     leerTxtMeli, bancoMeliDeTxt, bancosParaMeli,
     sqlExtraccionCartera, bookmarkletCartera, scriptPowerShellCartera, comandoTareaCartera, IMPORTES_CARTERA,
     NO_COBIS, ultimoDiaHabil, fechasNoCobis, lineaNoCobis, txtNoCobis, loteApiNoCobis, scriptPowerShellNoCobis, scriptPowerShellProbarNoCobis, scriptPowerShellAgenteNoCobis, cmdEnvioNoCobis,
-    leerCartera, BASTANTEO_CATALOGO, BASTANTEO_CLAVES, BASTANTEO_EXTRA, leerPoderesOcr, leerAutoridadesOcr, COMPLIF_TIPOS, poderDesdeComplif, actaDesdeComplif, complifDeEmpresa, controlResumen, usoDelResumen, aplicarRevocatorias, poderesFirmantesD, gruposDelUso, usoCompleto, tokensDe, combosDeClausula, poderDelPresidente, leerClienteBastanteo, cuitPorDni, formatoCuit, firmanteDe, firmantesSinPoder, jsonPoder, jsonBastanteoUnico, leerInventarioGarantias, INVENTARIOS_CONTABLES, INVENTARIO_DENOMINACION, INVENTARIO_FIRMAS, fechaReporteIso, fechaInventarioDesdeReporte, leerPadronDesdeInventarios, leerBaseEntes, unirPadron, armarInventariosContables, leerCom3500, leerTcApiBcra, elegirTipoCambio, numeroEnLetras, daxCarteraPowerBI, daxDiagnosticoPowerBI, daxSaldoDeuda, armarSaldoDeuda, leerFilasPowerBI, sugerirColumnaCartera, columnasNumericasCartera, agruparCartera, valoresDistintos, sqlCartera,
+    leerCartera, BASTANTEO_CATALOGO, BASTANTEO_CLAVES, BASTANTEO_EXTRA, leerPoderesOcr, leerAutoridadesOcr, COMPLIF_TIPOS, poderDesdeComplif, actaDesdeComplif, complifDeEmpresa, controlResumen, usoDelResumen, aplicarRevocatorias, poderesFirmantesD, presidentesDeActas, gruposDelUso, usoCompleto, tokensDe, combosDeClausula, poderDelPresidente, leerClienteBastanteo, cuitPorDni, formatoCuit, firmanteDe, firmantesSinPoder, jsonPoder, jsonBastanteoUnico, leerInventarioGarantias, INVENTARIOS_CONTABLES, INVENTARIO_DENOMINACION, INVENTARIO_FIRMAS, fechaReporteIso, fechaInventarioDesdeReporte, leerPadronDesdeInventarios, leerBaseEntes, unirPadron, armarInventariosContables, leerCom3500, leerTcApiBcra, elegirTipoCambio, numeroEnLetras, daxCarteraPowerBI, daxDiagnosticoPowerBI, daxSaldoDeuda, armarSaldoDeuda, leerFilasPowerBI, sugerirColumnaCartera, columnasNumericasCartera, agruparCartera, valoresDistintos, sqlCartera,
     leerCsv, encabezadosEjemplo, leerDefinicionInterfaz, sugerirColumna, detectarHojaInterfaz,
     normalizar, provinciaPorNombre, crearBuscadorBancoPorNombre, round2, aNumero, aFechaSerial, aCodigoBanco,
     fechaDDMMYY, fechaYYYYMMDD, fechaLegible, hoyDDMMYY,
