@@ -2535,6 +2535,7 @@
     // Revocatorias: los poderes anteriores a uno que revoca quedan anulados.
     const rv = M.aplicarRevocatorias(todos);
     bast.anulados = rv.anulados;
+    bast.avisosRev = rv.avisos || [];
     // Firmante "D" en el resumen = presidente con todas las facultades (si no está en ningún poder).
     const dd = M.poderesFirmantesD(bast.cliente, rv.vigentes, bast.actas);
     dd.forEach((p, i) => { p._k = 'firmanteD' + i; });
@@ -2594,6 +2595,7 @@
     if ((bast.firmantesD || []).length) estado += aviso('warn', `<b>Presidente:</b> ${bast.firmantesD.map(p => esc(p.presidente.nombre_completo) + ' (grupo ' + esc(p.presidente.grupo) + ')').join(', ')} no está en los poderes; por el acta de directorio o el resumen ("D" / "Presidente") se lo toma como presidente con <b>todas las facultades</b> y firma individual.`);
     if ((bast.anulados || []).length) estado += aviso('warn', `<b>${bast.anulados.length} poder${bast.anulados.length > 1 ? 'es anulados' : ' anulado'} por revocatoria:</b> ` +
       bast.anulados.map(a => `${esc(a.poder.fecha_emision || 's/f')}${a.poder.deed_number ? ' (esc. ' + esc(a.poder.deed_number) + ')' : ''} — ${esc(a.motivo)}`).join(' · ') + '. No se usan en el bastanteo.');
+    (bast.avisosRev || []).forEach(a => { estado += aviso('warn', `<b>Revocatoria sin apoderados:</b> el poder del ${esc(a.poder.fecha_emision || 's/f')}${a.poder.deed_number ? ' (esc. ' + esc(a.poder.deed_number) + ')' : ''} ${esc(a.motivo)}.`); });
     if (hay && !bast.cliente) estado += aviso('warn', 'Falta la planilla del cliente: sin ella no se completan los CUIT de los firmantes ni la escritura, y se muestran todas las personas del PDF.');
     const otros = bast.otrosPoderes || [];
     if (otros.length) estado += aviso(hay ? 'ok' : 'warn', `${hay ? '' : '<b>Ningún poder del PDF es de la empresa de la planilla</b> (CUIT ' + esc(M.formatoCuit(bast.cliente.cuit)) + '). '}` +
