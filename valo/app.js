@@ -1248,6 +1248,7 @@
     try {
       const hasta = $('deudaHasta').value || ayerIso();
       deuda = M.armarSaldoDeuda(await consultarPbi(M.daxSaldoDeuda({ hasta, periodo: $('deudaPeriodo').value })));
+      deuda.opciones = { hasta, periodo: $('deudaPeriodo').value };
       renderDeuda();
       const sm = deuda.sinMarcar || [];
       $('deudaEstado').innerHTML = (sm.length ? aviso('warn', `<b>Estado sin actualizar en Power BI:</b> ` + sm.map(a => `${esc(a.fiduciante)}: ${fmtEntero(a.cuotas)} cuotas vencidas siguen en estado Normal ($ ${fmtMonto(a.valor)})`).join(' · ') +
@@ -1290,6 +1291,34 @@
       tot.font = { bold: true };
       ws.getColumn(1).width = 48; ws.getColumn(2).width = 16;
       for (let k = 3; k <= d.meses.length + 5; k++) { ws.getColumn(k).width = 18; ws.getColumn(k).numFmt = '#,##0.00'; }
+      // Por crédito: CUIT del deudor, número de crédito y deuda por vencimiento (impago y saldo de Paga Parcial). Se consulta
+      // a Power BI al exportar (es un detalle grande que no hace falta para la pantalla).
+      const wc = wb.addWorksheet('Por crédito');
+      wc.addRow([`Deuda por crédito y vencimiento (impago + saldo de Paga Parcial) · vencidas hasta ${fechaAr(d.hasta)} · foto de cartera ${fechaAr(d.periodo)}`]).font = { bold: true };
+      wc.addRow([]);
+      try {
+        $('deudaEstado').innerHTML = '<p class="sub">Trayendo de Power BI el detalle por crédito para la exportación…</p>';
+        const det = M.armarDeudaDetalle(await consultarPbi(M.daxSaldoDeudaDetalle(d.opciones || { hasta: d.hasta })));
+        const e3 = wc.addRow(['Fiduciante', 'CUIT fiduciante', 'CUIT deudor', 'Crédito', 'Vencimiento', 'Cuotas impagas', 'Impago', 'Cuotas Paga Parcial', 'Saldo Paga Parcial', 'Saldo de deuda']);
+        e3.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+        e3.eachCell(c => { c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFC8102E' } }; });
+        let ci = 0, im = 0, cp = 0, pp = 0;
+        det.forEach(x => {
+          ci += x.cuotas; im += x.impago; cp += x.cuotasPP; pp += x.pp;
+          wc.addRow([x.fiduciante, M.formatoCuit(x.cuitFid), M.formatoCuit(x.cuit) || x.cuit, x.credito, x.vto ? new Date(x.vto + 'T00:00:00') : '', x.cuotas || null, x.impago || null, x.cuotasPP || null, x.pp || null, x.saldo]);
+        });
+        wc.addRow(['Total', '', '', '', '', ci, M.round2(im), cp, M.round2(pp), M.round2(im + pp)]).font = { bold: true };
+        wc.autoFilter = { from: { row: 3, column: 1 }, to: { row: 3, column: 10 } };
+        wc.views = [{ state: 'frozen', ySplit: 3 }];
+        $('deudaEstado').innerHTML = '';
+      } catch (e) {
+        wc.addRow(['No se pudo traer el detalle por crédito de Power BI: ' + (e.message || e)]);
+        $('deudaEstado').innerHTML = aviso('warn', 'El Excel salió sin el detalle por crédito: ' + esc(e.message || e));
+      }
+      wc.getColumn(1).width = 40; [2, 3].forEach(k => { wc.getColumn(k).width = 16; }); wc.getColumn(4).width = 14; wc.getColumn(5).width = 14;
+      wc.getColumn(5).numFmt = 'dd/mm/yyyy';
+      [6, 8].forEach(k => { wc.getColumn(k).width = 12; });
+      [7, 9, 10].forEach(k => { wc.getColumn(k).width = 18; wc.getColumn(k).numFmt = '#,##0.00'; });
       // Apertura: cada mes en los días de vencimiento que tuvieron deuda, con su importe y el subtotal del mes.
       const wd = wb.addWorksheet('Apertura por día');
       wd.addRow(['Apertura por día de vencimiento']).font = { bold: true };
