@@ -22,7 +22,8 @@
   // ---------------------------------------------------------------- utilidades
 
   function normalizar(texto) {
-    return String(texto == null ? '' : texto)
+    // "¥" es una Ñ mal codificada en algunos Excel ("VENINI NU¥EZ").
+    return String(texto == null ? '' : texto).replace(/¥/g, 'Ñ')
       .normalize('NFD').replace(/[̀-ͯ]/g, '')
       .toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
   }
@@ -1157,21 +1158,31 @@
     });
     return actas;
   }
-  const esPresidente = rol => /\bpresident[ea]\b/i.test(normalizar(rol));
+  // Presidente o equivalente: "Director titular y/- Presidente", "Socio gerente", "Gerente titular" (SRL). No vicepresidente
+  // ni suplentes.
+  const esPresidente = rol => { const r = normalizar(rol); return /\bpresident[ea]\b/.test(r) || (/\bgerente\b/.test(r) && !/suplente/.test(r)); };
   // Firmante con grupo "D" en el resumen = el presidente, con todas las facultades (firma individual). Si no figura en
   // ningún poder, se arma un poder con él para el bastanteo y el control.
   // Presidente: el de la última acta de directorio (actas de Complif o del PDF), o el firmante "D" o "(Presidente)" del resumen.
   function presidentesDeActas(actas) {
     const l = [].concat(actas || []).filter(a => a && a.autoridades).sort((a, b) => String(b.fecha || '').localeCompare(String(a.fecha || '')));
-    for (const a of l) { const p = a.autoridades.filter(x => esPresidente(x.rol)); if (p.length) return p; }
-    return [];
+    // La última acta de cada empresa (Complif vincula actas de empresas del mismo grupo): se juntan sus presidentes.
+    const vistas = new Set(), out = [];
+    for (const a of l) {
+      const k = razonClave(a.razon_social || '');
+      if (vistas.has(k)) continue;
+      const p = a.autoridades.filter(x => esPresidente(x.rol));
+      if (p.length) { vistas.add(k); out.push(...p); }
+    }
+    return out;
   }
   function poderesFirmantesD(cliente, poderes, actas) {
     const pres = presidentesDeActas(actas);
     return ((cliente && cliente.firmantes) || []).filter(f => !f.revocado
       // "D" es el presidente cuando firma individual (o lo dice el texto / el acta). "D CONJUNTA: A+D, B+D…" con varios
       // firmantes es un grupo D de un poder, no el presidente.
-      && ((f.uso && f.uso.grupo === 'D' && !(f.uso.tipos || [f.uso.tipo]).every(t => t === 'CONJUNTA')) || /\bpresident[ea]\b/i.test(f.observacion || '') || pres.some(p => firmanteDe(p, [f])))
+      && ((f.uso && f.uso.grupo === 'D' && !(f.uso.tipos || [f.uso.tipo]).every(t => t === 'CONJUNTA')) || /\bpresident[ea]\b|\bsocio\s+gerente\b/i.test(f.observacion || '')
+        || pres.some(p => firmanteDe(p, [f])) || ((cliente && cliente.presidentes) || []).some(p => firmanteDe({ nombre_completo: p }, [f])))
       && !(poderes || []).some(p => p.apoderados.some(a => firmanteDe(a, [f])))).map(f => {
       const letra = (f.uso && f.uso.grupo) || 'D';
       const persona = { nombre_completo: f.nombre, dni: f.dni || '', cuit: f.cuit || '', grupo: letra };
@@ -1541,7 +1552,13 @@
     };
   }
   // Documentos de una empresa: por CUIT (el OCR no siempre lo trae) o por razón social (sin "S.A.", "SA", "SRL"…).
-  const razonClave = t => normalizar(t).replace(/[.,]/g, ' ').replace(/\b(s ?a ?u?|s ?r ?l|s ?a ?s|sociedad anonima|ltda|limitada|sa|srl|sas|sau)\b/g, ' ').replace(/\s+/g, ' ').trim();
+  const razonClave = t => normalizar(String(t || '').replace(/\((?:ex|antes)\b[^)]*\)|\s-\s*(?:ex|antes)\b.*$|\s-\s*cuenta cerrada.*$/i, ' ')).replace(/[.,]/g, ' ')
+    .replace(/\b(s ?a ?u?|s ?r ?l|s ?a ?s|sociedad anonima|ltda|limitada|sa|srl|sas|sau)\b/g, ' ').replace(/\s+/g, ' ').trim();
+  // Palabras que pueden sobrar en una razón social sin que sea otra empresa ("… SOCIEDAD DE BOLSA", "… ALYC Y AN PROPIO").
+  const RAZON_EXTRA = new Set(['compania', 'sociedad', 'de', 'del', 'la', 'el', 'y', 'bolsa', 'agente', 'agentes', 'liquidacion', 'compensacion', 'integral', 'alyc', 'an', 'propio',
+    'negociacion', 'argentina', 'sucursal', 'anonima', 'colectiva', 'unipersonal', 'comercial', 'industrial', 'financiera', 'saic', 'saci', 'sacif', 'saicf', 'sacifi', 'saicfi', 'sh', 'scs', 'sca']);
+  const extraOk = w => RAZON_EXTRA.has(w) || w.length <= 2; // iniciales ("C.I.A.S.A.")
+  const sinExtra = (corto, largo) => largo.split(' ').filter(w => w && !corto.split(' ').includes(w)).every(extraOk);
   // Razones sociales parecidas, con errores de tipeo ("INTERPRISE" / "ENTERPRISES"): cada palabra de la más corta está
   // en la otra, igual o a 2 letras de distancia (palabras de más de 4 letras).
   function distancia(a, b) {
@@ -1558,7 +1575,9 @@
     // Una palabra con letras agregadas adelante es otra palabra ("CAPITAL" / "INCAPITAL"); al final es un plural
     // ("SERVICE" / "SERVICES").
     const otra = (w, v) => { const [c, l] = w.length <= v.length ? [w, v] : [v, w]; return l.includes(c) && !l.startsWith(c); };
-    return x.every(w => y.some(v => v === w || (w.length > 4 && v.length > 4 && !otra(w, v) && distancia(w, v) <= 2)));
+    const parecida = (w, v) => v === w || (w.length > 4 && v.length > 4 && !otra(w, v) && distancia(w, v) <= 2);
+    // Las palabras de más en la razón más larga tienen que ser de forma ("SOCIEDAD DE BOLSA"), no otro nombre ("Y CIA").
+    return x.every(w => y.some(v => parecida(w, v))) && y.filter(v => !x.some(w => parecida(w, v))).every(extraOk);
   }
   // Texto completo de un documento (para buscar el CUIT): se calcula una vez por documento (el chequeo masivo recorre
   // todos los documentos de Complif por cada empresa).
@@ -1574,12 +1593,18 @@
       if (d) { const p = complifEsActa(d) ? actaDesdeComplif(d) : poderDesdeComplif(d); if (p) nombre = p.razon_social; }
     }
     const n = razonClave(nombre);
+    // Alias entre paréntesis ("NSS SA (IPLAN)", "… SOCIEDAD ANONIMA (CAMMESA)"): también valen como nombre.
+    const alias = t => [...String(t || '').matchAll(/\(([^)]+)\)/g)].map(m => m[1]).filter(x => !/^\s*(ex|antes)\b/i.test(x)).map(x => razonClave(x)).filter(x => x.length >= 3);
+    const sinParen = t => razonClave(String(t || '').replace(/\([^)]*\)/g, ' '));
+    const nombres = [...new Set([n, sinParen(nombre), ...alias(nombre)].filter(Boolean))];
+    const mismaRazon = (dnTexto) => { const ds = [...new Set([razonClave(dnTexto), sinParen(dnTexto), ...alias(dnTexto)].filter(Boolean))];
+      return nombres.some(a => ds.some(b => a === b || (a.length > 5 && b.length > 5 && ((b.includes(a) && sinExtra(a, b)) || (a.includes(b) && sinExtra(b, a)))) || razonParecida(a, b))); };
     const poderes = [], actas = [];
     // Vínculos de Complif (relations: id, name, type): un documento es de la empresa si está vinculado a ella, aunque el
     // OCR diga otra razón social (un poder otorgado por varias empresas). Se toman los vínculos de los documentos que
     // coinciden por CUIT y los que tienen el nombre de la empresa.
     const rels = doc => (Array.isArray(doc.relations) ? doc.relations : []).filter(x => x && typeof x === 'object');
-    const relDeEmpresa = x => { const r = razonClave(x.name); return !!(n && r && (r === n || razonParecida(n, r))); };
+    const relDeEmpresa = x => !!(n && x.name && mismaRazon(x.name));
     const idsEmpresa = new Set();
     (docs || []).forEach(doc => {
       const p0 = complifEsActa(doc) ? null : leidoDe(doc);
@@ -1597,7 +1622,7 @@
       const dn = razonClave(p.razon_social || complifCampo(doc, ['razon_social', 'company_name']));
       // El CUIT se busca con guiones (30-70819244-5, como lo guarda Complif) y sin guiones, en cualquier campo del documento.
       const enDoc = c.length === 11 && (texto => texto.includes(formatoCuit(c)) || texto.includes(c))(textoDoc(doc));
-      if (!((c && (dc === c || enDoc)) || (n && dn && (dn === n || (n.length > 5 && (dn.includes(n) || n.includes(dn))) || razonParecida(n, dn))))) return;
+      if (!((c && (dc === c || enDoc)) || (n && dn && mismaRazon(p.razon_social || complifCampo(doc, ['razon_social', 'company_name']))))) return;
       p.complif.creado = doc.ocr_created_at || doc.created_at || '';
       (p.autoridades ? actas : poderes).push(p);
     });
@@ -1632,7 +1657,7 @@
   const comboComparable = c => c.split('+').map(grupoComparable).sort().join('+');
   function controlResumen(unico, cliente, actas) {
     const firmantes = (cliente && cliente.firmantes) || [];
-    const presidentes = actas ? presidentesDeActas(actas) : [];
+    const presidentes = (actas ? presidentesDeActas(actas) : []).concat(((cliente && cliente.presidentes) || []).map(n => ({ nombre_completo: n })));
     const textoDe = (f, res) => `${res.texto || ''} ${f.observacion || ''}`;
     const base = firmantes.map(f => {
       const ids = [f.cuit, f.dni].filter(Boolean).map(x => String(Number(String(x).replace(/\D/g, ''))));
@@ -1682,7 +1707,7 @@
       if ((res.grupo === 'D' || dicePres) && (presActa || dicePres) && !est.some(e => e.grupo === res.grupo)) {
         fila.presidente = true;
         fila.puntos.push({ punto: 'Grupo', ok: presActa ? true : null, resumen: res.grupo || 'Presidente',
-          poder: presActa ? 'Presidente según el acta de designación: todas las facultades' : 'Presidente según el resumen (no está en las actas de Complif); en los poderes: grupo ' + [...new Set(est.map(e => e.grupo))].join(', ') });
+          poder: presActa ? 'Presidente (o socio gerente) según el acta o el resumen: todas las facultades' : 'Presidente según el resumen (no está en las actas de Complif); en los poderes: grupo ' + [...new Set(est.map(e => e.grupo))].join(', ') });
         return fila;
       }
       const tipos = [...new Set(est.map(e => e.tipo_de_firma).filter(Boolean))];
@@ -1892,7 +1917,7 @@
   }
 
   function leerClienteBastanteo(hojas) {
-    const r = { cliente: '', cuit: '', firmantes: [], escrituras: [], marcas: {} };
+    const r = { cliente: '', cuit: '', firmantes: [], escrituras: [], marcas: {}, presidentes: [] };
     const iso = v => {
       if (v instanceof Date && !isNaN(v)) return `${v.getFullYear()}-${ceros(v.getMonth() + 1, 2)}-${ceros(v.getDate(), 2)}`;
       if (typeof v === 'number' && v > 20000 && v < 80000) { const d = new Date(Math.round((v - 25569) * 864e5)); return `${d.getUTCFullYear()}-${ceros(d.getUTCMonth() + 1, 2)}-${ceros(d.getUTCDate(), 2)}`; }
@@ -1907,6 +1932,13 @@
         // Datos del cliente.
         const ic = n.indexOf('cliente');
         if (ic > -1 && !r.cliente) { const v = f.slice(ic + 1).find(c => String(c).trim() && !/^\d+$/.test(String(c))); if (v) r.cliente = String(v).trim(); }
+        // Encabezado del resumen: "PRESIDENTE", "PRESIDENTE / REPRESENTANTE LEGAL", "SOCIO GERENTE", "REPRESENTANTE LEGAL"
+        // y al lado el nombre: esa persona firma como presidente (todas las facultades).
+        if (!r.firmantes.length) n.forEach((c, k) => {
+          if (!/^(presidente|socio gerente|gerente|representante legal)\b/.test(c)) return;
+          const v = f.slice(k + 1).map(x => String(x).trim()).find(x => x && /^[A-Za-zÁÉÍÓÚÑáéíóúñ¥.'\s-]+$/.test(x) && x.split(/\s+/).length >= 2 && !/^(cuit|mandato|acta|cuentas)\b/i.test(x));
+          if (v && !r.presidentes.includes(v)) r.presidentes.push(v);
+        });
         const icu = n.indexOf('cuit') > -1 ? n.indexOf('cuit') : n.indexOf('cdi');
         if (icu > -1 && !r.cuit) { const v = f.slice(icu + 1).map(c => String(c).replace(/\D/g, '')).find(c => c.length === 11); if (v) r.cuit = v; }
         // Encabezado de firmantes: una columna de identificación ("Cuit", "CUIL", "DNI / CUIL"…) y una de nombre.

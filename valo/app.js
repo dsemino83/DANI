@@ -2178,23 +2178,30 @@
   // ------------------------------------------------------------ Chequeo masivo de resúmenes (SharePoint / carpeta)
   // Cada Excel de la carpeta (sin subcarpetas) se controla contra los poderes de Complif como el bastanteo de un cliente.
   const mas = { filas: [], cancelar: false, corriendo: false };
-  const esResumen = n => /\.xlsx?$/i.test(n) && !/^~\$/.test(n);
+  // Los resúmenes de cuentas cerradas ("… - CUENTA CERRADA.xlsx") no se controlan.
+  const esCerrada = n => /cerrad/i.test(n);
+  const esResumen = n => /\.xlsx?$/i.test(n) && !/^~\$/.test(n) && !esCerrada(n);
   function controlarResumen(nombre, cliente, docs) {
     const fila = { archivo: nombre, empresa: '', cuit: '', firmantes: 0, poderes: 0, estado: '', diferencias: [], control: [], sinPoder: [], noIncluidos: [], error: '' };
     fila.empresa = cliente.cliente || nombre.replace(/\.xlsx?$/i, '');
     fila.cuit = cliente.cuit || '';
     fila.firmantes = cliente.firmantes.length;
     if (!cliente.firmantes.length) { fila.estado = 'err'; fila.error = 'El Excel no tiene firmantes (no se encontró la tabla de firmantes)'; return fila; }
-    const r = M.complifDeEmpresa(docs, cliente.cuit, cliente.cliente);
+    // Sin razón social en el Excel: la del nombre del archivo (los poderes sin CUIT se encuentran por nombre).
+    const r = M.complifDeEmpresa(docs, cliente.cuit, cliente.cliente || fila.empresa.replace(/\s*-\s*(ex|cuenta)\b.*$/i, ''));
     const rv = M.aplicarRevocatorias(r.poderes);
-    let poderes = rv.vigentes.length ? rv.vigentes.concat(M.poderesFirmantesD(cliente, rv.vigentes, r.actas)) : rv.vigentes;
+    // Presidente / socio gerente (por acta, por el encabezado del resumen o "D" / "(Presidente)"): firma con todas las
+    // facultades aunque no figure en los poderes.
+    const presidencia = M.poderesFirmantesD(cliente, rv.vigentes, r.actas);
+    let poderes = rv.vigentes.concat(presidencia);
     fila.anulados = rv.anulados.length;
     if (!poderes.length && !rv.anulados.length) {
       const pres = M.poderDelPresidente(r.actas);
       if (pres && M.firmanteDe(pres.presidente, cliente.firmantes)) poderes = [pres];
     }
-    fila.poderes = poderes.length;
-    if (!poderes.length) { fila.estado = 'sinpod'; fila.error = rv.anulados.length ? `Los ${rv.anulados.length} poderes de Complif quedaron anulados por revocatorias` : r.actas.length ? 'Solo hay actas de designación en Complif' : 'Sin poderes en Complif'; return fila; }
+    fila.poderes = rv.vigentes.length;
+    const motivoSin = rv.anulados.length ? `Los ${rv.anulados.length} poderes de Complif quedaron anulados por revocatorias` : r.actas.length ? 'Solo hay actas de designación en Complif' : 'Sin poderes en Complif';
+    if (!poderes.length) { fila.estado = 'sinpod'; fila.error = motivoSin; return fila; }
     const jsons = poderes.map(p => M.jsonPoder(p, cliente, { deed_number: p.deed_number || '', board_resolution_power_attorney: p.board_resolution_power_attorney || '',
       power_attorney_type: p.power_attorney_type || 'Poder Especial para Operaciones Bancarias' }));
     const sinPoder = M.firmantesSinPoder(poderes, cliente.firmantes).filter(f => !f.revocado);
@@ -2204,6 +2211,13 @@
     fila.sinPoder = sinPoder.map(f => f.nombre);
     fila.noIncluidos = [...new Set(poderes.flatMap(p => p.apoderados).filter(a => !M.firmanteDe(a, cliente.firmantes)).map(a => a.nombre_completo))];
     fila.estado = fila.diferencias.length ? 'dif' : 'ok';
+    // Sin poderes de Complif: solo se pudo validar al presidente / socio gerente.
+    if (!rv.vigentes.length) {
+      const validados = fila.control.filter(c => !c.sinPoder).map(c => c.nombre);
+      fila.estado = 'sinpod'; fila.diferencias = [];
+      fila.error = motivoSin + (validados.length ? `; validado como presidente / socio gerente: ${validados.join(', ')}` : '');
+      return fila;
+    }
     // Ningún firmante del resumen está en los poderes: lo más probable es que falten poderes en Complif (o que los
     // vinculados sean de otra empresa), no que el resumen esté mal.
     const vigentes = cliente.firmantes.filter(f => !f.revocado);
@@ -2217,6 +2231,7 @@
     if (mas.corriendo) return;
     if (!hayComplif()) { $('masEstado').innerHTML = aviso('warn', 'El chequeo masivo usa Complif: entrá a la versión web (con la base compartida).'); return; }
     const lista = fuentes.filter(f => esResumen(f.nombre));
+    mas.cerradas = fuentes.filter(f => /\.xlsx?$/i.test(f.nombre) && esCerrada(f.nombre)).length;
     if (!lista.length) { $('masEstado').innerHTML = aviso('warn', 'No hay archivos Excel para controlar.'); return; }
     Object.assign(mas, { filas: [], cancelar: false, corriendo: true });
     $('btnMasCancelar').disabled = false; $('btnMasExcel').disabled = true;
@@ -2250,7 +2265,8 @@
         l.slice(1).forEach(f => { dups++; f.estadoOriginal = f.estado; f.estado = 'dup'; f.error = `Duplicado: se tomó "${l[0].archivo}" (más nuevo)`; });
       });
       $('masEstado').innerHTML = aviso(mas.cancelar ? 'warn' : 'ok', `${mas.cancelar ? 'Cancelado: ' : ''}${mas.filas.length - dups} empresas controladas contra ${docs.length} documentos de Complif` +
-        (dups ? ` · ${dups} archivo${dups > 1 ? 's' : ''} duplicado${dups > 1 ? 's' : ''} descartado${dups > 1 ? 's' : ''} (se tomó el más nuevo de cada empresa)` : '') + '.');
+        (dups ? ` · ${dups} archivo${dups > 1 ? 's' : ''} duplicado${dups > 1 ? 's' : ''} descartado${dups > 1 ? 's' : ''} (se tomó el más nuevo de cada empresa)` : '') +
+        (mas.cerradas ? ` · ${mas.cerradas} archivo${mas.cerradas > 1 ? 's' : ''} de cuenta cerrada sin controlar` : '') + '.');
     } catch (e) { $('masEstado').innerHTML = aviso('bad', 'No se pudo hacer el chequeo: ' + esc(errorComplif(e))); }
     finally { mas.corriendo = false; $('btnMasCancelar').disabled = true; renderMasivo(); }
   }
