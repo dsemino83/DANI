@@ -2257,7 +2257,9 @@
       for (let i = 0; i < lista.length && !mas.cancelar; i += 4) await Promise.all(lista.slice(i, i + 4).map(uno));
       // Empresas repetidas (mismo CUIT o razón social): vale el archivo con fecha de creación y modificación más nuevas.
       const grupos = new Map();
-      mas.filas.forEach(f => { const k = f.cuit ? 'c' + f.cuit : 'n' + M.normalizar(f.empresa).replace(/\b(s ?a|s ?r ?l|sau)\b/g, '').trim(); if (!grupos.has(k)) grupos.set(k, []); grupos.get(k).push(f); });
+      // (Sin CUIT y con un nombre que no es una razón social —"PRESIDENTE", vacío—, cada archivo es una empresa distinta.)
+      const nombreDudoso = t => !t || /^(presidente|vicepresidente|socio|gerente|representante|apoderad|director)\b/i.test(M.normalizar(t));
+      mas.filas.forEach(f => { const k = f.cuit ? 'c' + f.cuit : nombreDudoso(f.empresa) ? 'a' + f.archivo : 'n' + M.normalizar(f.empresa).replace(/\b(s ?a|s ?r ?l|sau)\b/g, '').trim(); if (!grupos.has(k)) grupos.set(k, []); grupos.get(k).push(f); });
       let dups = 0;
       grupos.forEach(l => {
         if (l.length < 2) return;
