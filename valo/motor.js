@@ -1552,11 +1552,16 @@
     };
   }
   // Documentos de una empresa: por CUIT (el OCR no siempre lo trae) o por razón social (sin "S.A.", "SA", "SRL"…).
+  // Abreviaturas de cooperativas ("PLURAL COOP DE CRED CONS Y VIV LTDA").
+  const ABREV_RAZON = { coop: 'cooperativa', cred: 'credito', cons: 'consumo', viv: 'vivienda', serv: 'servicios', prov: 'provision' };
   const razonClave = t => normalizar(String(t || '').replace(/\((?:ex|antes)\b[^)]*\)|\s-\s*(?:ex|antes)\b.*$|\s-\s*cuenta cerrada.*$/i, ' ')).replace(/[.,]/g, ' ')
-    .replace(/\b(s ?a ?u?|s ?r ?l|s ?a ?s|sociedad anonima|ltda|limitada|sa|srl|sas|sau)\b/g, ' ').replace(/\s+/g, ' ').trim();
+    .replace(/\b(s ?a ?u?|s ?r ?l|s ?a ?s|sociedad anonima|ltda|limitada|sa|srl|sas|sau)\b/g, ' ').replace(/\b(coop|cred|cons|viv|serv|prov)\b/g, w => ABREV_RAZON[w]).replace(/\s+/g, ' ').trim();
   // Palabras que pueden sobrar en una razón social sin que sea otra empresa ("… SOCIEDAD DE BOLSA", "… ALYC Y AN PROPIO").
   const RAZON_EXTRA = new Set(['compania', 'sociedad', 'de', 'del', 'la', 'el', 'y', 'bolsa', 'agente', 'agentes', 'liquidacion', 'compensacion', 'integral', 'alyc', 'an', 'propio',
     'negociacion', 'argentina', 'sucursal', 'anonima', 'colectiva', 'unipersonal', 'comercial', 'industrial', 'financiera', 'saic', 'saci', 'sacif', 'saicf', 'sacifi', 'saicfi', 'sh', 'scs', 'sca']);
+  // Palabras comunes que solas no identifican a una empresa.
+  const RAZON_GENERICA = new Set(['cooperativa', 'mercado', 'banco', 'grupo', 'inversiones', 'valores', 'capital', 'seguros', 'credito', 'consumo', 'vivienda',
+    'servicios', 'asociacion', 'mutual', 'fondos', 'fondo', 'fideicomiso', 'securities', 'bursatil', 'financiera', 'argentina', 'asset', 'management', 'partners', 'holding']);
   const extraOk = w => RAZON_EXTRA.has(w) || w.length <= 2; // iniciales ("C.I.A.S.A.")
   const sinExtra = (corto, largo) => largo.split(' ').filter(w => w && !corto.split(' ').includes(w)).every(extraOk);
   // Razones sociales parecidas, con errores de tipeo ("INTERPRISE" / "ENTERPRISES"): cada palabra de la más corta está
@@ -1575,7 +1580,9 @@
     // Una palabra con letras agregadas adelante es otra palabra ("CAPITAL" / "INCAPITAL"); al final es un plural
     // ("SERVICE" / "SERVICES").
     const otra = (w, v) => { const [c, l] = w.length <= v.length ? [w, v] : [v, w]; return l.includes(c) && !l.startsWith(c); };
-    const parecida = (w, v) => v === w || (w.length > 4 && v.length > 4 && !otra(w, v) && distancia(w, v) <= 2);
+    // Una sola palabra: hasta 1 letra de diferencia ("CETROGAR" no es "METROGAS").
+    const tope = x.length === 1 ? 1 : 2;
+    const parecida = (w, v) => v === w || (w.length > 4 && v.length > 4 && !otra(w, v) && distancia(w, v) <= tope);
     // Las palabras de más en la razón más larga tienen que ser de forma ("SOCIEDAD DE BOLSA"), no otro nombre ("Y CIA").
     return x.every(w => y.some(v => parecida(w, v))) && y.filter(v => !x.some(w => parecida(w, v))).every(extraOk);
   }
@@ -1594,11 +1601,15 @@
     }
     const n = razonClave(nombre);
     // Alias entre paréntesis ("NSS SA (IPLAN)", "… SOCIEDAD ANONIMA (CAMMESA)"): también valen como nombre.
-    const alias = t => [...String(t || '').matchAll(/\(([^)]+)\)/g)].map(m => m[1]).filter(x => !/^\s*(ex|antes)\b/i.test(x)).map(x => razonClave(x)).filter(x => x.length >= 3);
+    // (Un alias genérico como "(COOPERATIVA LIMITADA)" no cuenta.)
+    const alias = t => [...String(t || '').matchAll(/\(([^)]+)\)/g)].map(m => m[1]).filter(x => !/^\s*(ex|antes)\b/i.test(x)).map(x => razonClave(x))
+      .filter(x => x.length >= 3 && !x.split(' ').every(w => RAZON_EXTRA.has(w) || RAZON_GENERICA.has(w)));
     const sinParen = t => razonClave(String(t || '').replace(/\([^)]*\)/g, ' '));
     const nombres = [...new Set([n, sinParen(nombre), ...alias(nombre)].filter(Boolean))];
     const mismaRazon = (dnTexto) => { const ds = [...new Set([razonClave(dnTexto), sinParen(dnTexto), ...alias(dnTexto)].filter(Boolean))];
-      return nombres.some(a => ds.some(b => a === b || (a.length > 5 && b.length > 5 && ((b.includes(a) && sinExtra(a, b)) || (a.includes(b) && sinExtra(b, a)))) || razonParecida(a, b))); };
+      // Nombre de una sola palabra distintiva ("PLURALCOOP") que aparece como palabra en la razón del documento.
+      const palabra = (a, b) => !a.includes(' ') && a.length >= 6 && !RAZON_GENERICA.has(a) && b.split(' ').includes(a);
+      return nombres.some(a => ds.some(b => a === b || palabra(a, b) || palabra(b, a) || (a.length > 5 && b.length > 5 && ((b.includes(a) && sinExtra(a, b)) || (a.includes(b) && sinExtra(b, a)))) || razonParecida(a, b))); };
     const poderes = [], actas = [];
     // Vínculos de Complif (relations: id, name, type): un documento es de la empresa si está vinculado a ella, aunque el
     // OCR diga otra razón social (un poder otorgado por varias empresas). Se toman los vínculos de los documentos que
@@ -1607,8 +1618,8 @@
     const relDeEmpresa = x => !!(n && x.name && mismaRazon(x.name));
     const idsEmpresa = new Set();
     (docs || []).forEach(doc => {
-      const p0 = complifEsActa(doc) ? null : leidoDe(doc);
-      const porCuit = c && p0 && p0.cuit_empresa === c;
+      const p0 = leidoDe(doc);
+      const porCuit = (c && p0 && !p0.autoridades && p0.cuit_empresa === c) || (p0 && n && p0.razon_social && mismaRazon(p0.razon_social));
       rels(doc).forEach(x => { if (x.id != null && (porCuit || relDeEmpresa(x))) idsEmpresa.add(String(x.id)); });
     });
     const vinculado = doc => rels(doc).some(x => (x.id != null && idsEmpresa.has(String(x.id))) || relDeEmpresa(x));
@@ -1930,8 +1941,18 @@
         const f = (fila || []).map(c => (c == null ? '' : c));
         const n = f.map(c => normalizar(c));
         // Datos del cliente.
+        // El valor de cada rótulo es la primera celda con dato a su derecha. Algunos resúmenes tienen el encabezado cruzado
+        // ("CLIENTE 30716908816 … CUIT ACA VALORES SA"): el número de 11 dígitos es el CUIT y el texto, la razón social.
+        // Un rol ("PRESIDENTE / REPRESENTANTE LEGAL", "SOCIO GERENTE") nunca es la razón social.
+        const ES_ROL = /^(presidente|vicepresidente|socio|gerente|representante|apoderad|director|mandato|acta|cuit|cdi|cuentas)\b/;
+        const valorDe = k => { const v = f.slice(k + 1).map(c => String(c).trim()).find(Boolean); return v == null ? '' : v; };
+        const tomar = v => {
+          const d = String(v).replace(/[\s.-]/g, '');
+          if (/^\d{11}$/.test(d)) { if (!r.cuit) r.cuit = d; return; }
+          if (!r.cliente && v && !/^\d+$/.test(d) && !ES_ROL.test(normalizar(v))) r.cliente = String(v).trim();
+        };
         const ic = n.indexOf('cliente');
-        if (ic > -1 && !r.cliente) { const v = f.slice(ic + 1).find(c => String(c).trim() && !/^\d+$/.test(String(c))); if (v) r.cliente = String(v).trim(); }
+        if (ic > -1) tomar(valorDe(ic));
         // Encabezado del resumen: "PRESIDENTE", "PRESIDENTE / REPRESENTANTE LEGAL", "SOCIO GERENTE", "REPRESENTANTE LEGAL"
         // y al lado el nombre: esa persona firma como presidente (todas las facultades).
         if (!r.firmantes.length) n.forEach((c, k) => {
@@ -1940,7 +1961,11 @@
           if (v && !r.presidentes.includes(v)) r.presidentes.push(v);
         });
         const icu = n.indexOf('cuit') > -1 ? n.indexOf('cuit') : n.indexOf('cdi');
-        if (icu > -1 && !r.cuit) { const v = f.slice(icu + 1).map(c => String(c).replace(/\D/g, '')).find(c => c.length === 11); if (v) r.cuit = v; }
+        // (Una fila de encabezado de firmantes también tiene "Cuit": esa no es el dato del cliente.)
+        if (icu > -1 && !n.some(c => /firmante|nombre/.test(c))) {
+          tomar(valorDe(icu));
+          if (!r.cuit) { const v = f.slice(icu + 1).map(c => String(c).replace(/\D/g, '')).find(c => c.length === 11); if (v) r.cuit = v; }
+        }
         // Encabezado de firmantes: una columna de identificación ("Cuit", "CUIL", "DNI / CUIL"…) y una de nombre.
         const iNom = n.findIndex(c => /nombre/.test(c) && /firmante|apellido|nombre/.test(c));
         // Identificación: CUIT, CUIL, DNI o, para extranjeros, CI / cédula / CDI / pasaporte ("CI URUGUAY").
