@@ -668,6 +668,47 @@
       'ORDER BY [Fid], [Vto]',
     ].join('\n');
   }
+  // Detalle del saldo de deuda por deudor y crédito: un renglón por fiduciante, CUIT del deudor, número de crédito y
+  // fecha de vencimiento, con lo impago (estado 4) y el saldo de las cuotas Paga Parcial (estado 1). Mismo criterio que
+  // daxSaldoDeuda (última foto de cartera o la del mes elegido, el renglón más reciente de cada cuota).
+  function daxSaldoDeudaDetalle(opciones = {}) {
+    const t = opciones.tabla || PBI_TABLA, c = n => `'${t}'[${n}]`;
+    const hasta = opciones.hasta ? `DATE ( ${opciones.hasta.slice(0, 4)}, ${Number(opciones.hasta.slice(5, 7))}, ${Number(opciones.hasta.slice(8, 10))} )` : 'TODAY () - 1';
+    return [
+      'DEFINE',
+      `  VAR Hasta = ${hasta}`,
+      opciones.periodo ? `  VAR UltimoPeriodo = CALCULATE ( MAX ( ${c('Periodo')} ), FILTER ( ALL ( ${c('Periodo')} ), FORMAT ( ${c('Periodo')}, "yyyy-MM" ) = "${String(opciones.periodo).slice(0, 7).replace(/"/g, '')}" ) )`
+        : `  VAR UltimoPeriodo = MAX ( ${c('Periodo')} )`,
+      '  VAR T = SELECTCOLUMNS (',
+      `      FILTER ( '${t}', ${c('Periodo')} = UltimoPeriodo && ${c('CuotaFechaVencimientoId')} <= Hasta ),`,
+      `      "Clave", ${c('NroCredito')} & "|" & ${c('CuotaNumero')},`,
+      `      "Orden", FORMAT ( ${c('Fecha de Calculo')}, "yyyyMMdd" ) & FORMAT ( ${c('Numero de Lote')}, "000" ),`,
+      `      "Fid", ${c('EnteFiducianteId')} & "",`,
+      `      "Cuit", ${c('CUITDeudor')} & "",`,
+      `      "Cred", ${c('NroCredito')} & "",`,
+      `      "Est", ${c('FideicomisoCreditoCuotaEstadoId')} & "",`,
+      `      "Vto", FORMAT ( ${c('CuotaFechaVencimientoId')}, "yyyy-MM-dd" ),`,
+      `      "Valor", ${c('Capital')} + ${c('Interes')},`,
+      `      "Saldo", ${c('Saldo_Capital')} + ${c('Saldo_Interes')} )`,
+      '  VAR Ult = SELECTCOLUMNS ( GROUPBY ( T, [Clave], "M", MAXX ( CURRENTGROUP (), [Orden] ) ), "Clave", [Clave] & "", "Orden", [M] & "" )',
+      '  VAR Ultimas = NATURALINNERJOIN ( T, Ult )',
+      '  VAR G = GROUPBY ( FILTER ( Ultimas, [Est] IN { "1", "4" } ), [Fid], [Cuit], [Cred], [Vto],',
+      '      "Cuotas", SUMX ( CURRENTGROUP (), IF ( [Est] = "4", 1, 0 ) ), "Deuda", SUMX ( CURRENTGROUP (), IF ( [Est] = "4", [Valor], 0 ) ),',
+      '      "CuotasPP", SUMX ( CURRENTGROUP (), IF ( [Est] = "1", 1, 0 ) ), "SaldoPP", SUMX ( CURRENTGROUP (), IF ( [Est] = "1", [Saldo], 0 ) ) )',
+      'EVALUATE',
+      "  ADDCOLUMNS ( G, \"Fiduciante\", LOOKUPVALUE ( 'Fiduciante'[Ente], 'Fiduciante'[EnteId], [Fid] ) )",
+      'ORDER BY [Fiduciante], [Cuit], [Cred], [Vto]',
+    ].join('\n');
+  }
+  // Renglones del detalle: [{ fiduciante, cuitFid, cuit, credito, vto, cuotas, impago, cuotasPP, pp, saldo }].
+  function armarDeudaDetalle(respuesta) {
+    const num = v => Number(v) || 0;
+    return leerFilasPowerBI(respuesta).datos.map(r => ({
+      fiduciante: String(r.Fiduciante || ''), cuitFid: String(r.Fid == null ? '' : r.Fid), cuit: String(r.Cuit == null ? '' : r.Cuit).replace(/\D/g, ''),
+      credito: String(r.Cred == null ? '' : r.Cred), vto: String(r.Vto || '').slice(0, 10),
+      cuotas: num(r.Cuotas), impago: round2(num(r.Deuda)), cuotasPP: num(r.CuotasPP), pp: round2(num(r.SaldoPP)),
+    })).map(x => Object.assign(x, { saldo: round2(x.impago + x.pp) })).filter(x => x.saldo || x.cuotas || x.cuotasPP);
+  }
   // Tabla fiduciante × mes: { meses, filas: [{ cuit, fiduciante, porMes: {mes: deuda}, fechas: {mes: [vencimientos]},
   // cuotas, total }], totalesMes, total }. Power BI devuelve un renglón por fiduciante y fecha de vencimiento.
   function armarSaldoDeuda(respuesta) {
@@ -3539,7 +3580,7 @@ try {
     leerTxtMeli, bancoMeliDeTxt, bancosParaMeli,
     sqlExtraccionCartera, bookmarkletCartera, scriptPowerShellCartera, comandoTareaCartera, IMPORTES_CARTERA,
     NO_COBIS, ultimoDiaHabil, fechasNoCobis, lineaNoCobis, txtNoCobis, loteApiNoCobis, scriptPowerShellNoCobis, scriptPowerShellProbarNoCobis, scriptPowerShellAgenteNoCobis, cmdEnvioNoCobis,
-    leerCartera, BASTANTEO_CATALOGO, BASTANTEO_CLAVES, BASTANTEO_EXTRA, leerPoderesOcr, leerAutoridadesOcr, COMPLIF_TIPOS, poderDesdeComplif, actaDesdeComplif, complifDeEmpresa, controlResumen, usoDelResumen, aplicarRevocatorias, poderesFirmantesD, presidentesDeActas, gruposDelUso, usoCompleto, tokensDe, combosDeClausula, poderDelPresidente, leerClienteBastanteo, cuitPorDni, formatoCuit, firmanteDe, firmantesSinPoder, jsonPoder, jsonBastanteoUnico, leerInventarioGarantias, INVENTARIOS_CONTABLES, INVENTARIO_DENOMINACION, INVENTARIO_FIRMAS, fechaReporteIso, fechaInventarioDesdeReporte, leerPadronDesdeInventarios, leerBaseEntes, unirPadron, armarInventariosContables, leerCom3500, leerTcApiBcra, elegirTipoCambio, numeroEnLetras, daxCarteraPowerBI, daxDiagnosticoPowerBI, daxSaldoDeuda, armarSaldoDeuda, leerFilasPowerBI, sugerirColumnaCartera, columnasNumericasCartera, agruparCartera, valoresDistintos, sqlCartera,
+    leerCartera, BASTANTEO_CATALOGO, BASTANTEO_CLAVES, BASTANTEO_EXTRA, leerPoderesOcr, leerAutoridadesOcr, COMPLIF_TIPOS, poderDesdeComplif, actaDesdeComplif, complifDeEmpresa, controlResumen, usoDelResumen, aplicarRevocatorias, poderesFirmantesD, presidentesDeActas, gruposDelUso, usoCompleto, tokensDe, combosDeClausula, poderDelPresidente, leerClienteBastanteo, cuitPorDni, formatoCuit, firmanteDe, firmantesSinPoder, jsonPoder, jsonBastanteoUnico, leerInventarioGarantias, INVENTARIOS_CONTABLES, INVENTARIO_DENOMINACION, INVENTARIO_FIRMAS, fechaReporteIso, fechaInventarioDesdeReporte, leerPadronDesdeInventarios, leerBaseEntes, unirPadron, armarInventariosContables, leerCom3500, leerTcApiBcra, elegirTipoCambio, numeroEnLetras, daxCarteraPowerBI, daxDiagnosticoPowerBI, daxSaldoDeuda, armarSaldoDeuda, daxSaldoDeudaDetalle, armarDeudaDetalle, leerFilasPowerBI, sugerirColumnaCartera, columnasNumericasCartera, agruparCartera, valoresDistintos, sqlCartera,
     leerCsv, encabezadosEjemplo, leerDefinicionInterfaz, sugerirColumna, detectarHojaInterfaz,
     normalizar, provinciaPorNombre, crearBuscadorBancoPorNombre, round2, aNumero, aFechaSerial, aCodigoBanco,
     fechaDDMMYY, fechaYYYYMMDD, fechaLegible, hoyDDMMYY,
