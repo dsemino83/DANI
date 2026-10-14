@@ -54,7 +54,7 @@
     display: flex; align-items: center; justify-content: center; gap: 20px; }
   .boton-amarillo:active { transform: translateY(6px); box-shadow: 0 2px 0 #D99A00; }
   /* El botón que hay que apretar late y brilla después de la pregunta. */
-  .boton-amarillo.llamar { animation: llamar 1.1s ease-in-out infinite; }
+  .boton-amarillo.llamar, .flecha.llamar { animation: llamar 1.1s ease-in-out infinite; }
   @keyframes llamar { 0%, 100% { scale: 1; outline: 0 solid rgba(255,255,255,.0); }
     50% { scale: 1.07; outline: 10px solid rgba(255,255,255,.55); } }
   #btn-comenzar { left: 680px; top: 680px; width: 420px; height: 108px; }
@@ -1255,6 +1255,7 @@
   }
 
   function irAPaso(i) {
+    $('btn-siguiente').classList.remove('llamar');
     estado.paso = i; estado.tiempo = 0; estado.completado = false;
     var p = PASOS[i], svg = $('svg-paso');
     $('paso-contador').textContent = (i + 1) + '/' + PASOS.length;
@@ -1509,6 +1510,7 @@
       hablar(ultimo ? '¡Excelente! ¿Terminamos? ¡Decí sí!' : '¡Muy bien! ¿Seguimos? ¡Decí sí!', ultimo ? 'terminar' : 'seguir')
         .then(function () {
           if (estado.pantalla !== 'paso' || estado.paso !== pasoTerminado) return;
+          $('btn-siguiente').classList.add('llamar'); // también se puede tocar la flecha
           if (micUsable()) {
             mic.avisar = true;
             escuchar(true);
@@ -2126,14 +2128,22 @@
       !!PANTALLAS_CON_MIC[estado.pantalla] && !$('config').classList.contains('ver');
   }
   function mantenerMic() {
-    clearTimeout(mic.reTimer);
+    clearTimeout(mic.reTimer); mic.reTimer = null;
     if (mic.sinApi) return;
-    if (debeEscuchar()) { if (!mic.activo && !mic.arrancando && !mic.reiniciando) encender(); }
-    else if (mic.activo || mic.arrancando) { mic.arrancando = false; clearTimeout(mic.espera); try { mic.rec.abort(); } catch (e) {} }
+    if (debeEscuchar()) { if (!mic.activo && !mic.arrancando) encender(); }
+    else if (mic.activo || mic.arrancando) pararMic();
   }
   function reintentarMic(ms) {
     clearTimeout(mic.reTimer);
     mic.reTimer = setTimeout(mantenerMic, ms);
+  }
+  // Corta la escucha sin esperar a que Android avise que terminó (a veces no avisa y el
+  // micrófono quedaba «trabado»): el reconocedor viejo se suelta y el próximo es nuevo.
+  function pararMic() {
+    clearTimeout(mic.espera);
+    var viejo = mic.rec;
+    mic.rec = null; mic.activo = false; mic.arrancando = false;
+    if (viejo) { try { viejo.abort(); } catch (e) {} }
   }
   // Si falla seguido, espera cada vez un poco más (hasta 8 s), pero nunca se rinde.
   function demorarMic(motivo) {
@@ -2145,25 +2155,28 @@
     mic.fallos = 0; mic.demora = 0;
     cartelMic('oido', oido.trim());
     escuchar(false);
-    reiniciarMic(); // escucha nueva para la próxima pregunta
     accionSi();
-  }
-  // Corta la sesión de escucha actual; al terminar (onend) se abre una nueva enseguida.
-  function reiniciarMic() {
-    if (!mic.activo && !mic.arrancando) return;
-    mic.reiniciando = true;
-    try { mic.rec.abort(); } catch (e) { mic.reiniciando = false; }
   }
   function crearReconocedor() {
     var r = new Reconocedor();
     r.lang = mic.idioma; r.continuous = true; r.interimResults = true; r.maxAlternatives = 5;
+    function vivo() { return r === mic.rec; } // los avisos de un reconocedor viejo se ignoran
+    function señal() { if (vivo()) mic.ultimaSeñal = Date.now(); }
+    r.onaudiostart = r.onsoundstart = r.onspeechstart = r.onspeechend = r.onsoundend = r.onaudioend = function () {
+      señal();
+      if (vivo()) mic.permiso = 'ok'; // ya entró audio: el permiso está dado
+    };
     r.onstart = function () {
+      if (!vivo()) return;
+      señal();
       mic.activo = true; mic.arrancando = false; clearTimeout(mic.espera);
       if (mic.esperando) cartelMic('escuchando');
       // Una vibración cortita avisa que ya se puede hablar (no la capta el micrófono).
       if (mic.avisar && mic.esperando) { mic.avisar = false; try { navigator.vibrate && navigator.vibrate(40); } catch (e) {} }
     };
     r.onresult = function (ev) {
+      if (!vivo()) return;
+      señal(); mic.permiso = 'ok';
       mic.demora = 0;
       var ahora = tReloj(), i;
       // Mientras habla Superdiente (y un instante después) es su propia voz: se descarta.
@@ -2172,6 +2185,7 @@
       // Hasta 3 s después de su frase, se descarta lo que se parece a lo que dijo (eco con retraso).
       var reciente = ahora < hablandoHasta + 3;
       for (i = ev.resultIndex; i < ev.results.length; i++) {
+        if (!ev.results[i]) continue;
         for (var j = 0; j < ev.results[i].length; j++) {
           var oido = ev.results[i][j].transcript;
           if (reciente && esEco(oido)) continue;
@@ -2185,41 +2199,48 @@
       }
     };
     r.onerror = function (ev) {
+      if (!vivo()) return;
+      señal();
       var e = ev.error;
-      if (e === 'language-not-supported' && mic.idioma !== 'es-ES') { mic.idioma = 'es-ES'; mic.rec = null; return; }
+      if (e === 'language-not-supported' && mic.idioma !== 'es-ES') { mic.idioma = 'es-ES'; return; }
       if (e === 'no-speech' || e === 'aborted') return; // normal: se retoma enseguida
       if ((e === 'not-allowed' || e === 'service-not-allowed') && mic.permiso !== 'ok') { marcarBloqueado('permiso'); return; }
       // Errores pasajeros (Android rechaza un reinicio, micrófono ocupado, sin señal): se reintenta.
-      mic.rec = null;
       demorarMic(e === 'network' ? 'internet' : 'arranque');
     };
     r.onend = function () {
-      mic.activo = false; mic.arrancando = false; mic.reiniciando = false;
+      if (!vivo()) return;
+      mic.rec = null; mic.activo = false; mic.arrancando = false;
       if (!mic.bloqueado && !$('aviso-mic').classList.contains('toca')) cartelMic('oculto');
-      // En Android la escucha se corta después de cada frase: se retoma enseguida.
-      reintentarMic(mic.demora || 80);
+      // En Android la escucha se corta después de cada frase: se retoma enseguida con uno nuevo.
+      reintentarMic(mic.demora || 120);
     };
     return r;
   }
   function encender() {
+    // Siempre un reconocedor nuevo: reusar uno ya cortado falla en algunos Android.
+    if (mic.rec) pararMic();
     mic.arrancando = true;
-    try { mic.rec = mic.rec || crearReconocedor(); mic.rec.start(); }
-    catch (e) { if (e && e.name === 'InvalidStateError') { mic.arrancando = false; mic.activo = true; return; } }
-    // Si no arranca en 2,5 s, se descarta ese intento y se prueba de nuevo.
+    mic.ultimaSeñal = Date.now();
+    try { mic.rec = crearReconocedor(); mic.rec.start(); }
+    catch (e) { mic.rec = null; mic.arrancando = false; demorarMic('arranque'); reintentarMic(mic.demora); return; }
+    // Si no arranca en 3 s, se descarta ese intento y se prueba de nuevo.
     clearTimeout(mic.espera);
     mic.espera = setTimeout(function () {
       if (mic.activo || !mic.arrancando) return;
-      mic.arrancando = false;
-      try { mic.rec.abort(); } catch (e) {}
-      mic.rec = null;
+      pararMic();
       demorarMic('arranque');
-      // Algunos celulares necesitan un toque para arrancar: se ofrece enseguida, sin dejar de reintentar.
-      if (mic.esperando && PANTALLAS_CON_MIC[estado.pantalla] && estado.pantalla !== 'paso') { mic.motivo = 'arranque'; cartelMic('bloqueado'); }
       reintentarMic(mic.demora);
-    }, 2500);
+    }, 3000);
   }
-  // escuchar(true): el juego espera un «sí» ahora. escuchar(false): deja de esperarlo
-  // (el micrófono sigue abierto igual en las pantallas del juego).
+  // Guardián: mientras el juego espera el «sí», revisa cada segundo que el micrófono esté
+  // escuchando de verdad; si se quedó trabado (sin ninguna señal en 12 s), lo vuelve a abrir.
+  setInterval(function () {
+    if (mic.sinApi || !debeEscuchar()) return;
+    if (mic.activo && Date.now() - (mic.ultimaSeñal || 0) > 12000) { pararMic(); mantenerMic(); return; }
+    if (!mic.activo && !mic.arrancando && !mic.reTimer) mantenerMic();
+  }, 1000);
+  // escuchar(true): el juego espera un «sí» ahora. escuchar(false): deja de esperarlo.
   function escuchar(si) {
     mic.esperando = !!si && micUsable();
     if (mic.sinApi) return;
@@ -2227,7 +2248,7 @@
     if (!si && (mic.bloqueado || $('aviso-mic').classList.contains('toca'))) cartelMic('oculto');
     if (!si && $('aviso-mic').classList.contains('ver') && textoMic.textContent === 'Decí «sí»') cartelMic('oculto');
     if (mic.bloqueado) return;
-    if (si && mic.activo && !mic.reiniciando) {
+    if (si && mic.activo) {
       cartelMic('escuchando');
       if (mic.avisar) { mic.avisar = false; try { navigator.vibrate && navigator.vibrate(40); } catch (e) {} }
     }
@@ -2235,8 +2256,11 @@
   }
   // Permiso del micrófono: se pide solo, con el primer toque en la app (Chrome lo pide así).
   // Si se acepta, el micrófono queda andando solo en todo el juego.
+  // Ya no se abre el micrófono aparte (getUserMedia) antes de escuchar: en Android eso podía dejarlo
+  // tomado y el reconocimiento de voz no oía nada. El permiso lo pide el propio reconocedor.
+  var PEDIR_MIC_APARTE = false;
   function pedirMicrofono(alTerminar) {
-    if (mic.sinApi || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { if (alTerminar) alTerminar(); return; }
+    if (!PEDIR_MIC_APARTE || mic.sinApi || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { if (alTerminar) alTerminar(); return; }
     mic.permiso = 'pidiendo';
     navigator.mediaDevices.getUserMedia({ audio: true }).then(function (flujo) {
       flujo.getTracks().forEach(function (t) { t.stop(); });
@@ -2253,11 +2277,8 @@
   }
   document.addEventListener('pointerdown', function permisoMic() {
     document.removeEventListener('pointerdown', permisoMic, true);
-    if (!mic.permiso) pedirMicrofono(function () {
-      // Si ya estaba esperando el «sí», arranca a escuchar.
-      mic.listo = true;
-      mantenerMic();
-    });
+    mic.listo = true;
+    mantenerMic();
   }, true);
   // Si el navegador ya sabe que el micrófono está bloqueado, se avisa desde el principio.
   try {
@@ -2275,9 +2296,8 @@
       mic.bloqueado = false; mic.demora = 0; mic.fallos = 0; mic.listo = true;
       cartelMic(mic.esperando ? 'escuchando' : 'oculto');
       // Arranque nuevo dentro del mismo toque (algunos celulares solo lo permiten así).
-      clearTimeout(mic.espera); clearTimeout(mic.reTimer);
-      if (mic.rec) { var viejo = mic.rec; viejo.onend = null; viejo.onerror = null; try { viejo.abort(); } catch (e) {} }
-      mic.rec = null; mic.activo = false; mic.arrancando = false; mic.reiniciando = false;
+      clearTimeout(mic.reTimer); mic.reTimer = null;
+      pararMic();
       if (debeEscuchar()) encender();
     });
   });
@@ -2300,7 +2320,7 @@
   };
   // Apenas el permiso queda habilitado (en Chrome o en los ajustes), el juego se desbloquea solo.
   function desbloquearMic() {
-    mic.bloqueado = false; mic.permiso = 'ok';
+    mic.bloqueado = false; if (mic.permiso === 'denegado') mic.permiso = null;
     if (ayudaPara === 'mic') $('ayuda-mic').classList.remove('ver');
     cartelMic('oculto');
     mic.demora = 0; mic.fallos = 0; mic.listo = true;
@@ -2310,13 +2330,13 @@
   function revisarPermisos() {
     if (!navigator.permissions || !navigator.permissions.query) {
       // Sin forma de consultar: al volver se prueba de nuevo directamente.
-      if (mic.bloqueado && mic.motivo === 'permiso') pedirMicrofono(function () { if (mic.permiso === 'ok') desbloquearMic(); });
+      if (mic.bloqueado && mic.motivo === 'permiso') desbloquearMic(); // se prueba escuchar de nuevo: si sigue negado, el reconocedor lo avisa
       if (camaraEsperaPermiso && estado.pantalla === 'foto') abrirCamara();
       return;
     }
     navigator.permissions.query({ name: 'microphone' }).then(function (r) {
       if (mic.bloqueado && mic.motivo === 'permiso' && r.state !== 'denied')
-        pedirMicrofono(function () { if (mic.permiso === 'ok') desbloquearMic(); });
+        desbloquearMic(); // se prueba escuchar de nuevo: si sigue negado, el reconocedor lo avisa
     }).catch(function () {});
     navigator.permissions.query({ name: 'camera' }).then(function (r) {
       if (camaraEsperaPermiso && estado.pantalla === 'foto' && r.state !== 'denied') { $('ayuda-mic').classList.remove('ver'); abrirCamara(); }
