@@ -2194,7 +2194,7 @@
       if (pres && M.firmanteDe(pres.presidente, cliente.firmantes)) poderes = [pres];
     }
     fila.poderes = poderes.length;
-    if (!poderes.length) { fila.estado = 'sinpod'; fila.error = r.actas.length ? 'Solo hay actas de designación en Complif' : 'Sin poderes en Complif'; return fila; }
+    if (!poderes.length) { fila.estado = 'sinpod'; fila.error = rv.anulados.length ? `Los ${rv.anulados.length} poderes de Complif quedaron anulados por revocatorias` : r.actas.length ? 'Solo hay actas de designación en Complif' : 'Sin poderes en Complif'; return fila; }
     const jsons = poderes.map(p => M.jsonPoder(p, cliente, { deed_number: p.deed_number || '', board_resolution_power_attorney: p.board_resolution_power_attorney || '',
       power_attorney_type: p.power_attorney_type || 'Poder Especial para Operaciones Bancarias' }));
     const sinPoder = M.firmantesSinPoder(poderes, cliente.firmantes).filter(f => !f.revocado);
