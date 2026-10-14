@@ -1715,6 +1715,9 @@
           : ok && usados.length && !grupos.includes(res.grupo) ? { punto: 'Grupo', ok: /^[A-Z]$/.test(usados[0]) ? null : true, resumen: res.grupo, poder: grupos.join(', '),
             detalle: 'el resumen nombra ' + usados.map(g => `"${equiv[g]}" al grupo ${g} del poder`).join(' y ') }
           : okOtro ? { punto: 'Grupo', ok: true, resumen: res.grupo, poder: grupos.join(', ') + ' (y ' + otros.join(', ') + ' en otro poder)' }
+          // También está en un poder que no asigna grupos (letra puesta por la página): la letra del resumen puede ser esa.
+          : !ok && est.some(e => e.grupoAutomatico) ? { punto: 'Grupo', ok: null, resumen: res.grupo, poder: grupos.join(', '),
+            detalle: 'uno de sus poderes no asigna grupos (letra ' + est.filter(e => e.grupoAutomatico).map(e => e.grupo).join(', ') + ' puesta según las facultades)' }
           : { punto: 'Grupo', ok, resumen: res.grupo, poder: grupos.join(', ') });
       }
       // Combinaciones: se controlan cuando el resumen da firma conjunta y las lista.
@@ -2060,16 +2063,39 @@
     const ra = razonClave(a.razon_social), rb = razonClave(b.razon_social);
     return !ra || !rb || ra === rb || razonParecida(ra, rb);
   }
+  const otorga = p => (p.usos || []).some(u => u.tipo || String(u.descripcion || '').trim());
+  // Poder complementario que incorpora apoderados a un grupo de un poder anterior ("es incorporada como integrante del
+  // Grupo B … con las mismas facultades"): hereda los usos de firma del poder anterior en los que participa ese grupo.
+  function heredarComplementarios(vigentes) {
+    vigentes.forEach(p => {
+      const a = p.alcance || {};
+      if (!(a.complementary === true || /\bincorporad[oa]s?\b|\bse\s+incorpora|mismas\s+facultades/i.test(textoPoder(p)))) return;
+      const gs = [...new Set(p.apoderados.map(x => letraGrupo(x.grupo)).filter(Boolean))];
+      if (!gs.length) return;
+      const vistas = new Set(p.usos.map(u => (u.tipo || '') + '|' + (u.combinaciones || []).join(',')));
+      vigentes.filter(q => q !== p && !q.complementarioDe && mismaEmpresa(p, q) && q.fecha_emision && p.fecha_emision && q.fecha_emision < p.fecha_emision)
+        .forEach(q => q.usos.forEach(u => {
+          const toca = (u.combinaciones || []).some(c => c.split('+').some(x => gs.includes(x))) || (u.grupos || []).some(x => gs.includes(x));
+          const k = (u.tipo || '') + '|' + (u.combinaciones || []).join(',');
+          if (!toca || vistas.has(k)) return;
+          vistas.add(k);
+          p.usos.push(Object.assign({}, u, { heredadoDe: q.fecha_emision }));
+        }));
+      p.complementarioDe = true;
+    });
+  }
   function aplicarRevocatorias(poderes) {
     const revocan = poderes.filter(revocaPoder);
-    if (!revocan.length) return { vigentes: poderes.slice(), anulados: [], quitados: [] };
+    if (!revocan.length) { const vigentes = poderes.slice(); heredarComplementarios(vigentes); return { vigentes, anulados: [], quitados: [] }; }
     const anulados = [], quitados = [];
     const vigentes = poderes.filter(p => {
       for (const r of revocan) {
         if (r === p || !r.fecha_emision || !p.fecha_emision || !(p.fecha_emision < r.fecha_emision) || !mismaEmpresa(r, p)) continue;
         const tr = textoRevocatorio(r);
-        const nombrados = p.apoderados.filter(a => nombradoEn(a, tr));
-        const parcial = /parcial|[uú]nicamente\s+(con\s+)?respecto|s[oó]lo\s+(con\s+)?respecto|en\s+cuanto\s+a/i.test(tr) || (nombrados.length && nombrados.length < p.apoderados.length);
+        // Una revocación sin usos de firma que lista apoderados (Complif pone ahí a los revocados) es parcial: solo ellos.
+        const listados = !otorga(r) && r.apoderados.length ? p.apoderados.filter(a => r.apoderados.some(x => firmanteDe(x, [{ nombre: a.nombre_completo, dni: a.dni, cuit: a.cuit }]))) : [];
+        const nombrados = [...new Set(p.apoderados.filter(a => nombradoEn(a, tr)).concat(listados))];
+        const parcial = /parcial|[uú]nicamente\s+(con\s+)?respecto|s[oó]lo\s+(con\s+)?respecto|en\s+cuanto\s+a/i.test(tr) || listados.length > 0 || (nombrados.length && nombrados.length < p.apoderados.length);
         if (parcial) {
           if (!nombrados.length) continue;
           nombrados.forEach(a => quitados.push({ apoderado: a, poder: p, motivo: `revocado por el poder del ${r.fecha_emision}` }));
@@ -2082,9 +2108,11 @@
         return false;
       }
       const a = p.alcance || {};
-      if (revocaPoder(p) && a.new === false && a.complementary === false) { anulados.push({ poder: p, motivo: 'revocatoria: no otorga facultades' }); return false; }
+      // Solo revoca (no tiene usos de firma propios): no otorga facultades. Si trae usos, otorga aunque Complif diga "new: false".
+      if (revocaPoder(p) && !otorga(p)) { anulados.push({ poder: p, motivo: 'revocatoria: no otorga facultades' }); return false; }
       return true;
     });
+    heredarComplementarios(vigentes);
     return { vigentes, anulados, quitados };
   }
 
