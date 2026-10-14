@@ -1158,6 +1158,30 @@
     return actas;
   }
   const esPresidente = rol => /\bpresident[ea]\b/i.test(normalizar(rol));
+  // Firmante con grupo "D" en el resumen = el presidente, con todas las facultades (firma individual). Si no figura en
+  // ningún poder, se arma un poder con él para el bastanteo y el control.
+  // Presidente: el de la última acta de directorio (actas de Complif o del PDF), o el firmante "D" o "(Presidente)" del resumen.
+  function presidentesDeActas(actas) {
+    const l = [].concat(actas || []).filter(a => a && a.autoridades).sort((a, b) => String(b.fecha || '').localeCompare(String(a.fecha || '')));
+    for (const a of l) { const p = a.autoridades.filter(x => esPresidente(x.rol)); if (p.length) return p; }
+    return [];
+  }
+  function poderesFirmantesD(cliente, poderes, actas) {
+    const pres = presidentesDeActas(actas);
+    return ((cliente && cliente.firmantes) || []).filter(f => !f.revocado
+      // "D" es el presidente cuando firma individual (o lo dice el texto / el acta). "D CONJUNTA: A+D, B+D…" con varios
+      // firmantes es un grupo D de un poder, no el presidente.
+      && ((f.uso && f.uso.grupo === 'D' && !(f.uso.tipos || [f.uso.tipo]).every(t => t === 'CONJUNTA')) || /\bpresident[ea]\b/i.test(f.observacion || '') || pres.some(p => firmanteDe(p, [f])))
+      && !(poderes || []).some(p => p.apoderados.some(a => firmanteDe(a, [f])))).map(f => {
+      const letra = (f.uso && f.uso.grupo) || 'D';
+      const persona = { nombre_completo: f.nombre, dni: f.dni || '', cuit: f.cuit || '', grupo: letra };
+      const u = { tipo: 'INDIVIDUAL', descripcion: 'Presidente: todas las facultades', limitaciones: null, grupo: letra, grupos: [letra], combinaciones: [letra],
+        facultades: Object.fromEntries(BASTANTEO_CLAVES.map(k => [k, true])) };
+      return { razon_social: cliente.cliente || '', cuit_empresa: cliente.cuit || '', fecha_emision: null, otorgante: { nombre_completo: f.nombre, dni: f.dni || '', fecha_nacimiento: null },
+        apoderados: [persona], usos: [u], presidente: persona, porFirmanteD: true };
+    });
+  }
+
   // Sin "Acreditación de Poderes": poder armado con el presidente del acta, con todas las facultades.
   function poderDelPresidente(actas) {
     for (const acta of [].concat(actas || []).reverse()) {
@@ -1176,15 +1200,251 @@
     return null;
   }
 
-  // Grupo al que corresponde un uso de firma y combinaciones de firma, según la descripción del poder. "Grupo B con
-  // integrante de Grupo C o Grupo B conjuntamente" → grupo B, combinaciones B+B y B+C. Sin grupo en la descripción: null.
+  // Grupos y combinaciones de firma de un uso, según su descripción (y sus limitaciones). Contempla:
+  //  - combinaciones explícitas "A+A, A+B, B+B+C" (en la descripción o las limitaciones): mandan;
+  //  - cláusulas separadas por "o" / "y/o" / ";": "Dos del Grupo A, o uno del A con uno del B, o dos del B con uno
+  //    del C" → A+A, A+B, B+B+C;
+  //  - en cada cláusula, integrantes unidos por "con", "junto con", "+", "y uno/otro…": cada uno con su cantidad
+  //    (un/uno/una/otro = 1, dos/ambos/2 = 2, tres/3 = 3…) y sus grupos alternativos ("uno del Grupo B o C");
+  //  - un solo grupo sin cantidad en una firma conjunta ("Grupo B conjuntamente") → B+B; "tres del Grupo A" → A+A+A;
+  //  - "dos cualesquiera de los Grupos A, B y C" → todos los pares entre esos grupos;
+  //  - "con el Presidente" → grupo + D; letras sin rótulo "A y B", "A + B", "un A con un B"; texto en mayúsculas.
+  // Sin grupo en la descripción: grupo null (los grupos se arman por facultades).
+  const RE_ETIQUETA = '(?:[Gg]rupos?|GRUPOS?|[Cc]ategor[ií]as?|CATEGOR[IÍ]AS?|[Cc]lases?|CLASES?)';
+  const RE_SEP = '(?:,|\\b[oOyYuU]\\b|\\b[yY]\\s*\\/\\s*[oO]\\b|\\/|-)';
+  const RE_CUANTO = '(?:[Uu]n[oa]?|U[Nn][OoAa]?|[Oo]tr[oa]|O[Tt][Rr][OoAa]|[Dd]os|DOS|[Tt]res|TRES|[Cc]uatro|CUATRO|[Aa]mbos|AMBOS)';
+  function letrasDe(texto) {
+    // "Categoría B o C", "Grupos A, B y C", "Grupo A / Grupo B", "GRUPO A Y GRUPO B".
+    const re = new RegExp(`\\b${RE_ETIQUETA}\\s+([A-Z0-9]{1,2})\\b((?:\\s*${RE_SEP}\\s*(?:${RE_ETIQUETA}\\s+)?[A-Z0-9]\\b(?!\\.))*)`, 'g');
+    const sig = new RegExp(`${RE_SEP}\\s*(?:${RE_ETIQUETA}\\s+)?([A-Z0-9])\\b`, 'g');
+    let out = [];
+    for (const m of texto.matchAll(re)) out.push(m[1], ...[...m[2].matchAll(sig)].map(x => x[1]));
+    // "un A con un B", "dos B".
+    if (!out.length) out = [...texto.matchAll(new RegExp(`\\b${RE_CUANTO}\\s+([A-Z])\\b`, 'g'))].map(m => m[1]);
+    // Letras sin rótulo: "A y B", "A + B", "A con B", "A, B o C".
+    if (!out.length) {
+      const m = texto.match(/(?:^|[\s(])([A-Z])((?:\s*(?:,|\+|\b[yYoOeE]\b|\bcon\b|\bCON\b)\s*[A-Z])+)\b(?![a-záéíóúñ])/);
+      if (m) out = [m[1], ...[...m[2].matchAll(/(?:,|\+|\b[yYoOeE]\b|\bcon\b|\bCON\b)\s*([A-Z])/g)].map(x => x[1])];
+    }
+    return out.map(x => x.toUpperCase());
+  }
+  // Cantidad de firmantes de un integrante ("dos del Grupo B" → 2; sin cantidad → null).
+  function cuantosDe(t) {
+    // La cantidad más cercana antes del grupo ("Dos firmas: una del Grupo A" → 1).
+    const ms = [...String(t).matchAll(/\b(un|uno|una|otro|otra|dos|ambos|tres|cuatro|1|2|3|4)\b(?!\s*[.,]\d)/gi)];
+    const g = String(t).search(new RegExp(`\\b${RE_ETIQUETA}\\s+[A-Z0-9]|\\b[A-Z]\\b`));
+    const m = ms.filter(x => g < 0 || x.index < g).pop() || ms[0];
+    if (!m) return null;
+    return { un: 1, uno: 1, una: 1, otro: 1, otra: 1, 1: 1, dos: 2, ambos: 2, 2: 2, tres: 3, 3: 3, cuatro: 4, 4: 4 }[m[1].toLowerCase()];
+  }
+  // Combinaciones de una cláusula, leída como una pequeña gramática:
+  //   alternativas (separadas por "o", "/", ";") de integrantes (unidos por "con", "+", "y", "junto con"), cada uno
+  //   con su cantidad ("dos del Grupo B") y sus grupos posibles ("uno del Grupo B o C", "Grupo I/II/III").
+  // Casos: "Grupo B + Grupo A o Grupo B + Grupo B" → A+B, B+B; "Grupo A con Grupo B o con Grupo C" → A+B, A+C;
+  // "Grupo A (dos cualesquiera) o indistinta con Grupo B" → A+A, A+B; "Grupo I con Grupo I (dos integrantes)" → I+I;
+  // "2 apoderados de Grupo A + Grupo B" → A+B (el 2 es el total); "Grupo 1 (dos) + Grupo 2 (uno)" → 1+1+2;
+  // lo que está entre paréntesis y nombra grupos es otra alternativa: "Grupo A (2 de A) o (1 de A + 1 de B)".
+  // Las palabras se escriben sin distinguir mayúsculas, pero las letras de grupo tienen que ser mayúsculas ("Grupo A",
+  // no "grupo a la vez"): la expresión no usa la bandera i y cada palabra se arma con ci().
+  const ci = w => w.split('').map(ch => ch === ' ' ? '\\s+' : ch.toLowerCase() !== ch.toUpperCase() ? `[${ch.toLowerCase()}${ch.toUpperCase()}]` : ch).join('');
+  const cis = l => '(?:' + l.map(ci).join('|') + ')';
+  const RE_GX = '(?:IV|VI{1,3}|IX|I{2,3}|\\d{1,2}|[A-Z])(?![\\wÁÉÍÓÚáéíóúÑñ-])';
+  const NUM = { un: 1, uno: 1, una: 1, otro: 1, otra: 1, dos: 2, ambos: 2, tres: 3, cuatro: 4 };
+  const RE_NUM = `(?:${cis(Object.keys(NUM))}|[1-4](?![\\d.,%]))`;
+  const RE_SUST = cis(['apoderados', 'apoderado', 'apoderadas', 'apoderada', 'firmas', 'firma', 'integrantes', 'integrante', 'miembros', 'miembro', 'mandatarios', 'mandatario', 'del', 'de', 'los', 'las', 'la', 'el']);
+  const numDe = t => NUM[t.toLowerCase()] || Number(t);
+  function tokensDe(s, sueltas = false) {
+    const etq = RE_ETIQUETA, b = '(?<![\\wÁÉÍÓÚáéíóúÑñ])', f = '(?![\\wÁÉÍÓÚáéíóúÑñ])';
+    // Un elemento de lista no es una cantidad ("Grupo 1 y 1 del Grupo 2").
+    const noCant = `(?!\\s+${RE_SUST}${f})`;
+    const sepLista = `(?:,|\\/|${b}${ci('y')}\\s*\\/\\s*${ci('o')}${f}|${b}[oOyYuUeE]${f})`;
+    const re = new RegExp([
+      // "de cualquier otro Grupo", "de otro Grupo distinto" (= un grupo distinto de los demás) / "de cualquier Grupo".
+      `${b}(?<comodin>(?:${cis(['cualquier', 'cualquiera'])}\\s+(?:${cis(['de los', 'del'])}\\s+)?)?(?:${cis(['otro', 'otros'])}\\s+)?${etq}(?:\\s+${cis(['distinto', 'distintos', 'diferente'])})?)(?!\\s+(?:${ci('tipo')}\\s+)?${RE_GX})(?=[\\s,;.)]|$)`,
+      `${b}${etq}\\s+(?:${ci('tipo')}\\s+)?(?<g>${RE_GX})(?<lista>(?:\\s*${sepLista}\\s*(?:${etq}\\s+)?${RE_GX}${noCant})*)`, // Grupo X (o lista "B o C", "A y B", "I/II")
+      `${b}(?<ng>${RE_NUM})\\s+(?:${RE_SUST}\\s+)*(?<gn>${RE_GX})(?=\\s|$|[,;)+.])`, // dos del A / 2 Firma A
+      `${b}(?<n>${RE_NUM})${f}`,
+      `${b}(?<j>${cis(['junto con', 'conjuntamente con', 'con', 'más', 'mas'])})${f}|(?<mas>\\+)`,
+      `${b}(?<o>${cis(['o bien', 'o', 'u', 'ó'])}|${ci('y')}\\s*\\/\\s*${ci('o')})${f}|(?<barra>\\/)`,
+      `${b}(?<y>[yYeE])${f}`,
+      `(?<s>;)`, `(?<c>,)`,
+      `⟨(?<p>\\d)⟩`,
+      sueltas ? `${b}(?<l>[A-Z])(?![\\wÁÉÍÓÚáéíóúÑñ.-])` : '(?<l>(?!))', // (no iniciales: "J.A. Salvochea")
+    ].join('|'), 'g');
+    const out = [];
+    for (const m of s.matchAll(re)) {
+      const g = m.groups;
+      if (g.comodin != null) {
+        // Solo cuenta si dice "cualquier" u "otro" (un "Grupo" suelto no es un comodín).
+        if (/cualquier|otro|distint|diferente/i.test(g.comodin)) out.push({ t: 'G', v: /otro|distint|diferente/i.test(g.comodin) ? '*' : '?' });
+      } else if (g.g != null) {
+        out.push({ t: 'G', v: g.g });
+        // Lista: "," "/" "o" = otro grupo posible del mismo integrante; "y" = otro integrante.
+        // Con rótulo propio ("Grupo A o Grupo B + …") la "o" puede abrir otra combinación: decide la gramática.
+        for (const x of (g.lista || '').matchAll(new RegExp(`(${sepLista})\\s*(${etq}\\s+)?(${RE_GX})${noCant}`, 'g')))
+          out.push(/^[yYeE]$/.test(x[1]) ? { t: 'J' } : x[2] ? { t: 'O' } : { t: 'A' }, { t: 'G', v: x[3] });
+      } else if (g.ng != null) out.push({ t: 'N', v: numDe(g.ng) }, { t: 'G', v: g.gn });
+      else if (g.n != null) out.push({ t: 'N', v: numDe(g.n) });
+      else if (g.j != null || g.mas != null || g.y != null) out.push({ t: 'J' });
+      else if (g.o != null || g.barra != null) out.push({ t: 'O' });
+      else if (g.s != null) out.push({ t: 'S' });
+      else if (g.c != null) out.push({ t: 'C' });
+      else if (g.p != null) out.push({ t: 'P', v: Number(g.p) });
+      else if (g.l != null) out.push({ t: 'G', v: g.l });
+    }
+    return out;
+  }
+  function combosDeClausula(c, minimo = 2) {
+    const res = [];
+    // Paréntesis: si nombran grupos son otra alternativa; si solo dicen una cantidad ("(dos)", "(2)") quedan como marca.
+    let s = String(c);
+    for (let i = 0; i < 3 && /\([^()]*\)/.test(s); i++) {
+      s = s.replace(/\(([^()]*)\)/g, (x, inner) => {
+        const sub = inner.replace(/^\s*(?:o|y\s*\/\s*o|o\s+bien)\s+/i, '');
+        const ts = tokensDe(sub);
+        // "(entre sí o con Grupo A)", "(…, o … con Clase C)": sigue la frase de afuera ("Grupo C … o con Grupo A").
+        const primero = ts.find(t => t.t !== 'C' && t.t !== 'O');
+        if (ts.some(t => t.t === 'G') && primero && primero.t === 'J') return ' o ' + sub.replace(/^[^]*?(?=\b(?:junto\s+con|conjuntamente\s+con|con)\b)/i, '') + ' ';
+        if (ts.some(t => t.t === 'G')) { combosDeClausula(sub, minimo).forEach(r => res.push(r)); return ' ; '; }
+        const n = inner.match(new RegExp(`^\\s*(?:${RE_NUM})(?![\\wÁÉÍÓÚáéíóúÑñ])`));
+        return n ? ` ⟨${numDe(n[0].trim())}⟩ ` : ' ';
+      });
+    }
+    let tk = tokensDe(s);
+    if (!tk.some(t => t.t === 'G')) tk = tokensDe(s, true);
+    let alt = [], ult = null, union = false, pend = null;
+    const cerrar = () => {
+      if (!alt.length) return;
+      const m = alt.map(x => ({ gs: [...new Set(x.gs)], n: x.n }));
+      // "2 apoderados de Grupo A + Grupo B": la cantidad inicial es el total de firmantes.
+      if (m.length > 1 && !alt[0].fijo && m[0].n === m.length && m.slice(1).every(x => x.n == null)) m[0].n = 1;
+      if (m.length === 1) m[0].n = Math.max(m[0].n || minimo, minimo);
+      let r = [[]];
+      m.forEach(x => { r = r.flatMap(p => x.gs.map(g => [...p, ...Array(x.n || 1).fill(g)])); });
+      // Un integrante con varios grupos posibles y cantidad 2 ("dos del Grupo A o B"): sin repetir el mismo par.
+      r.forEach(p => res.push(p.slice().sort()));
+      alt = []; ult = null; union = false; pend = null;
+    };
+    const siguiente = i => tk.slice(i + 1).find(t => t.t !== 'C');
+    const hayUnionAntesDeOtra = i => { for (let k = i + 1; k < tk.length; k++) { if (tk[k].t === 'O' || tk[k].t === 'S') return false; if (tk[k].t === 'J') return true; } return false; };
+    tk.forEach((t, i) => {
+      if (t.t === 'S') { cerrar(); return; }
+      if (t.t === 'N') { pend = t.v; return; }
+      // "(dos)" detrás de un grupo es su cantidad; "(dos integrantes)" detrás de "Grupo I con Grupo I" es el total.
+      if (t.t === 'P') { if (ult && (alt.length === 1 || t.v !== alt.length)) { ult.n = t.v; ult.fijo = true; } return; }
+      if (t.t === 'J') { union = true; return; }
+      if (t.t === 'A') { if (ult) ult.alterna = true; return; }
+      if (t.t === 'G') {
+        if (ult && !union && ult.gs.includes(t.v) && pend == null) return;            // "Grupo A (2 de A)"
+        if (ult && !union && pend == null && ult.alterna) { ult.gs.push(t.v); ult.alterna = false; return; }
+        if (ult && !union && ult.gs.includes(t.v) && pend != null) { ult.n = pend; pend = null; return; }
+        // Sin "con" y con un grupo ya nombrado: es la misma regla dicha de nuevo ("Grupo A (…) + Grupo B (…) - uno de A
+        // con uno de B"): otra alternativa.
+        if (!union && alt.some(x => x.gs.includes(t.v))) { const p = pend; cerrar(); pend = p; }
+        ult = { gs: [t.v], n: pend }; alt.push(ult); pend = null; union = false; return;
+      }
+      if (t.t === 'O' || t.t === 'C') {
+        const sig = siguiente(i);
+        if (!sig || !alt.length) return;
+        if (sig.t === 'N') { cerrar(); return; }
+        if (sig.t === 'J' && t.t === 'O') {
+          // "Grupo A con Grupo B o con Grupo C": otra alternativa con los mismos integrantes salvo el último.
+          const base = alt.length > 1 ? alt.slice(0, -1).map(x => Object.assign({}, x)) : [{ gs: alt[0].gs.slice(), n: 1 }];
+          cerrar(); alt = base; ult = alt[alt.length - 1]; return;
+        }
+        if (sig.t === 'G') {
+          if (t.t === 'O' && hayUnionAntesDeOtra(i)) { cerrar(); return; }
+          if (ult) ult.alterna = true;
+        }
+      }
+    });
+    cerrar();
+    return res;
+  }
+  // Uso de firma tal como queda en el bastanteo: corrige el tipo cuando la descripción lo contradice (Complif a veces
+  // marca INDIVIDUAL "Dos cualesquiera conjunta e indistinta") y separa los usos mixtos ("Grupo A individual, o dos de
+  // Grupo B conjuntos, o uno de Grupo B con uno de Grupo C") en uno individual y uno conjunto.
+  // "Firma 2: …", "Uso 3 - …": numeración del uso, no una cantidad de firmantes.
+  const sinNumeracion = t => String(t || '').replace(/^\s*(?:firma|uso(?:\s+de\s+firma)?|estructura|esquema)\s+\d+\s*[:\-–.]\s*/i, '');
+  function usoCompleto(u) {
+    const d = sinNumeracion(u.descripcion);
+    // "conjunta e indistinta" = dos cualesquiera en conjunto; "conjunta o indistinta" / "y/o" = cualquiera de las dos formas.
+    const plano = t => String(t).replace(/conjunta(mente)?\s+e\s+indistinta(mente)?/gi, 'conjunta');
+    const RE_IND = /individual|indistint|separad|alternad/i, RE_CONJ = /conjunt/i;
+    const esConj = c => { const t = tokensDe(c); return RE_CONJ.test(plano(c)) || t.some(x => x.t === 'J') || t.some(x => x.t === 'N' && x.v >= 2); };
+    const esInd = c => RE_IND.test(plano(c)) && !esConj(c);
+    let tipo = String(u.tipo || '').toUpperCase();
+    // Cláusulas (fuera de paréntesis) separadas por "o" / ";".
+    const partes = [];
+    let desde = 0;
+    for (const m of d.matchAll(/;|,?\s+(?:o|u|ó)\s+(?=(?:dos|tres|un|uno|una|ambos|cualquier|grupo|categor|clase|[A-Z]\b|[1-4]\b))/gi)) {
+      const antes = d.slice(0, m.index);
+      if ((antes.match(/\(/g) || []).length > (antes.match(/\)/g) || []).length) continue;
+      partes.push(d.slice(desde, m.index)); desde = m.index + m[0].length;
+    }
+    partes.push(d.slice(desde));
+    const ind = partes.filter(esInd), conj = partes.filter(c => !esInd(c) && esConj(c));
+    if (ind.length && conj.length && tokensDe(ind.join(' ')).some(t => t.t === 'G') && tokensDe(conj.join(' ')).some(t => t.t === 'G')) {
+      const parte = (tp, txt) => { const v = Object.assign({}, u, { tipo: tp, descripcion: txt }); Object.assign(v, gruposDelUso(v)); v.descripcion = u.descripcion; v.parte = txt; return v; };
+      return [parte('INDIVIDUAL', ind.join(' o ')), parte('CONJUNTA', conj.join(' o '))];
+    }
+    const pd = plano(d);
+    if (/INDIVIDUAL|INDISTINTA/.test(tipo) && !RE_IND.test(pd) && esConj(d)) tipo = 'CONJUNTA';
+    else if (/CONJUNTA/.test(tipo) && RE_IND.test(pd) && !esConj(d)) tipo = 'INDIVIDUAL';
+    if (tipo && tipo !== String(u.tipo || '').toUpperCase()) { u.tipoOriginal = u.tipo; u.tipo = tipo; }
+    return [Object.assign(u, gruposDelUso(u))];
+  }
   function gruposDelUso(u) {
-    const gs = [...String(u.descripcion || '').matchAll(/\bgrupos?\s+([A-Z0-9]{1,2})\b/gi)].map(m => m[1].toUpperCase());
-    if (!gs.length) return { grupo: null, combinaciones: [] };
-    const g = gs[0];
-    if (!/CONJUNTA/.test(u.tipo || '')) return { grupo: g, combinaciones: [g] };
-    const otros = gs.length > 1 ? gs.slice(1) : [g];
-    return { grupo: g, combinaciones: [...new Set(otros.map(o => [g, o].sort().join('+')))].sort() };
+    const d = sinNumeracion(u.descripcion), lim = String(u.limitaciones || '');
+    const conjunta = /CONJUNTA/.test(u.tipo || '');
+    const combo = l => l.slice().sort().join('+');
+    const unicos = l => [...new Set(l)].sort();
+    // Firma conjunta "con el Presidente": el presidente es el grupo D (A + Presidente → A+D).
+    if (conjunta && /\bpresident[ea]\b/i.test(d)) {
+      const gp = unicos(letrasDe(d).filter(x => x !== 'D'));
+      return { grupo: gp[0] || null, grupos: gp, combinaciones: gp.map(x => x + '+D'), conPresidente: true };
+    }
+    const todas = letrasDe(d);
+    if (!conjunta) {
+      if (!todas.length) return { grupo: null, grupos: [], combinaciones: [] };
+      // Individual: vale para todos los grupos que nombra ("cualquier apoderado de Grupo A o Grupo B").
+      const grupos = unicos(todas);
+      return { grupo: todas[0], grupos, combinaciones: grupos };
+    }
+    // 1) Combinaciones explícitas ("A+B", "B + B + C").
+    let combos = unicos([...`${d} ${lim}`.matchAll(/\b[A-Z](?:\s*\+\s*[A-Z])+\b/g)].map(m => combo(m[0].replace(/\s/g, '').split('+'))));
+    // Junto a las explícitas: "2 de A, o A+B, o A+C, o 2 de C" → también A+A y C+C.
+    if (combos.length) [...d.matchAll(/\b(dos|2|tres|3)\s+(?:del?\s+)?(?:(?:los|las)\s+)?(?:apoderad[oa]s\s+)?(?:(?:del?\s+)?(?:grupo|clase|categor[ií]a)\s+)?([A-Z])\b(?!\s*\+)/gi)]
+      .filter(m => /[A-Z]/.test(m[2]) && m[2] === m[2].toUpperCase()).forEach(m => combos.push(combo(Array(/tres|3/i.test(m[1]) ? 3 : 2).fill(m[2]))));
+    combos = unicos(combos);
+    // 2) Cláusulas.
+    if (!combos.length) {
+      const RE_INICIO = '(?=(?:dos|tres|cuatro|un|uno|una|ambos|cualquier|al menos|de a|1|2|3|4)\\b)';
+      // Cortes fuera de los paréntesis ("Grupo A (2 de A, o 1 de A + 1 de B)" queda entero).
+      const clausulas = [];
+      let desde = 0;
+      for (const m of d.matchAll(new RegExp(`;|,?\\s+(?:y\\s*\\/\\s*o|o|u|ó)\\s+${RE_INICIO}`, 'gi'))) {
+        const antes = d.slice(0, m.index);
+        if ((antes.match(/\(/g) || []).length > (antes.match(/\)/g) || []).length) continue;
+        clausulas.push(d.slice(desde, m.index)); desde = m.index + m[0].length;
+      }
+      clausulas.push(d.slice(desde));
+      // Todos los multiconjuntos de tamaño n con esas letras.
+      const multis = (ls, n, desde = 0) => n === 0 ? [[]] : ls.slice(desde).flatMap((x, i) => multis(ls, n - 1, desde + i).map(r => [x, ...r]));
+      clausulas.forEach(c => {
+        const l = letrasDe(c);
+        if (!l.length && !tokensDe(c).some(t => t.t === 'G') && !tokensDe(c, true).some(t => t.t === 'G')) return;
+        const ls = [...new Set(l)];
+        const n = cuantosDe(c);
+        // "Dos cualesquiera de los Grupos A, B y C": todas las combinaciones posibles entre esos grupos.
+        if (ls.length > 1 && /\b(cualesquiera|cualquiera|indistintamente)\b/i.test(c) && !/\bcon\b|\+/i.test(c)) { multis(ls, Math.max(n || 2, 2)).forEach(r => combos.push(combo(r))); return; }
+        combosDeClausula(c).forEach(r => combos.push(combo(r)));
+      });
+      combos = unicos(combos);
+    }
+    if (!combos.length) return { grupo: todas[0] || null, grupos: unicos(todas), combinaciones: [] };
+    const grupos = unicos(combos.flatMap(c => c.split('+')).filter(x => x !== '*' && x !== '?'));
+    return { grupo: todas[0] || grupos[0], grupos, combinaciones: combos };
   }
 
   // ------------------------------------------------------------ COMPLIF
@@ -1233,7 +1493,7 @@
       deed_number: complifValor(ocr, /deed|escritura/i), board_resolution_power_attorney: '', power_attorney_type: '',
       otorgante: { nombre_completo: otorg.nombre_completo, dni: otorg.dni, fecha_nacimiento: null },
       apoderados: complifJson(ocr.authorized_agents).map(persona).filter(a => a.nombre_completo),
-      usos: [Object.assign(u, gruposDelUso(u))],
+      usos: usoCompleto(u),
       simple: true,
       complif: { id: doc.id_document || doc.id || doc.uuid || null, type: doc.type || '', document_type: doc.document_type || '' },
     };
@@ -1245,13 +1505,13 @@
     if (!ocr) return null;
     const otorg = complifJson(ocr.otorgante) || {};
     const estructuras = complifJson(ocr.estructuras_de_firma);
-    const usos = (Array.isArray(estructuras) && estructuras.length ? estructuras : [ocr]).map(e => {
+    const usos = (Array.isArray(estructuras) && estructuras.length ? estructuras : [ocr]).flatMap(e => {
       const fac = complifJson(e.facultades) || {};
       const facultades = {};
       Object.keys(fac).forEach(k => { if (typeof fac[k] !== 'object') facultades[k] = complifSiNo(fac[k]); });
       const tipo = String(e.tipo_de_firma || (e.firma_conjunta ? 'CONJUNTA' : e.firma_individual ? 'INDIVIDUAL' : '')).toUpperCase();
       const u = { descripcion: e.estructura_de_firma || e.descripcion || '', tipo, limitaciones: e.limitaciones || null, limite_de_operacion: e.limite_de_operacion || null, facultades };
-      return Object.assign(u, gruposDelUso(u));
+      return usoCompleto(u);
     });
     return {
       razon_social: ocr.razon_social || complifCampo(doc, ['razon_social', 'company_name']) || '',
@@ -1259,6 +1519,7 @@
       fecha_emision: ocr.fecha_emision || null,
       deed_number: ocr.deed_number != null ? String(ocr.deed_number) : '',
       board_resolution_power_attorney: ocr.board_resolution_power_attorney != null ? String(ocr.board_resolution_power_attorney) : '',
+      alcance: complifJson(ocr.power_attorney_scope) || null,
       power_attorney_type: ocr.power_attorney_type || '',
       otorgante: { nombre_completo: otorg.nombre_completo || '', dni: complifDni(otorg.numero_de_identificacion), fecha_nacimiento: otorg.fecha_nacimiento || null },
       apoderados: (complifJson(ocr.apoderados) || []).map(a => ({ nombre_completo: a.nombre_completo || a.nombre || '', dni: complifDni(a.numero_de_identificacion || a.dni), cuit: complifNumero(a.numero_de_identificacion).length === 11 ? complifNumero(a.numero_de_identificacion) : '', grupo: a.grupo ? String(a.grupo).trim().toUpperCase() : null })),
@@ -1294,8 +1555,17 @@
     let x = a.split(' ').filter(Boolean), y = b.split(' ').filter(Boolean);
     if (x.length > y.length) [x, y] = [y, x];
     if (!x.length || x.join('').length < 6) return false;
-    return x.every(w => y.some(v => v === w || (w.length > 4 && v.length > 4 && distancia(w, v) <= 2)));
+    // Una palabra con letras agregadas adelante es otra palabra ("CAPITAL" / "INCAPITAL"); al final es un plural
+    // ("SERVICE" / "SERVICES").
+    const otra = (w, v) => { const [c, l] = w.length <= v.length ? [w, v] : [v, w]; return l.includes(c) && !l.startsWith(c); };
+    return x.every(w => y.some(v => v === w || (w.length > 4 && v.length > 4 && !otra(w, v) && distancia(w, v) <= 2)));
   }
+  // Texto completo de un documento (para buscar el CUIT): se calcula una vez por documento (el chequeo masivo recorre
+  // todos los documentos de Complif por cada empresa).
+  const TEXTO_DOC = new WeakMap();
+  const textoDoc = doc => { if (!TEXTO_DOC.has(doc)) TEXTO_DOC.set(doc, JSON.stringify(doc)); return TEXTO_DOC.get(doc); };
+  const LEIDO_DOC = new WeakMap();
+  const leidoDe = doc => { if (!LEIDO_DOC.has(doc)) LEIDO_DOC.set(doc, complifEsActa(doc) ? actaDesdeComplif(doc) : poderDesdeComplif(doc)); return LEIDO_DOC.get(doc); };
   function complifDeEmpresa(docs, cuit, nombre) {
     const c = complifNumero(cuit);
     // Sin razón social: la del primer documento que coincide por CUIT (así entran las actas, que no traen CUIT).
@@ -1312,19 +1582,21 @@
     const relDeEmpresa = x => { const r = razonClave(x.name); return !!(n && r && (r === n || razonParecida(n, r))); };
     const idsEmpresa = new Set();
     (docs || []).forEach(doc => {
-      const p0 = complifEsActa(doc) ? null : poderDesdeComplif(doc);
+      const p0 = complifEsActa(doc) ? null : leidoDe(doc);
       const porCuit = c && p0 && p0.cuit_empresa === c;
       rels(doc).forEach(x => { if (x.id != null && (porCuit || relDeEmpresa(x))) idsEmpresa.add(String(x.id)); });
     });
     const vinculado = doc => rels(doc).some(x => (x.id != null && idsEmpresa.has(String(x.id))) || relDeEmpresa(x));
     (docs || []).forEach(doc => {
-      const p = complifEsActa(doc) ? actaDesdeComplif(doc) : poderDesdeComplif(doc);
-      if (!p) return;
+      const p0 = leidoDe(doc);
+      if (!p0) return;
+      // Copia: el resultado leído se reutiliza entre empresas y acá se le agregan datos.
+      const p = structuredClone(p0);
       if (vinculado(doc)) { p.vinculado = true; p.complif.creado = doc.ocr_created_at || doc.created_at || ''; (p.autoridades ? actas : poderes).push(p); return; }
       const dc = p.cuit_empresa || complifNumero(complifCampo(doc, ['cuit_empresa', 'cuit', 'tax_id']));
       const dn = razonClave(p.razon_social || complifCampo(doc, ['razon_social', 'company_name']));
       // El CUIT se busca con guiones (30-70819244-5, como lo guarda Complif) y sin guiones, en cualquier campo del documento.
-      const enDoc = c.length === 11 && (texto => texto.includes(formatoCuit(c)) || texto.includes(c))(JSON.stringify(doc));
+      const enDoc = c.length === 11 && (texto => texto.includes(formatoCuit(c)) || texto.includes(c))(textoDoc(doc));
       if (!((c && (dc === c || enDoc)) || (n && dn && (dn === n || (n.length > 5 && (dn.includes(n) || n.includes(dn))) || razonParecida(n, dn))))) return;
       p.complif.creado = doc.ocr_created_at || doc.created_at || '';
       (p.autoridades ? actas : poderes).push(p);
@@ -1348,32 +1620,141 @@
   // Control firmante por firmante: el uso de firma del resumen (Excel) contra lo que dan los poderes (JSON único).
   // Puntos: tipo de firma, grupo, combinaciones conjuntas y límite.
   const TIENE_LIMITE = /(no exced|no superen?|hasta (la suma|un monto|u\$s|usd|\$)|monto m[aá]ximo|l[ií]mite de|tope)/i;
-  function controlResumen(unico, cliente) {
+  // Una frase pone un límite de monto si habla de un tope y trae un importe ("hasta U$S 50.000", "no superen $3.000.000"),
+  // y no es "sin límite de monto" ni "hasta la suma autorizada por el Banco".
+  const RE_IMPORTE = /(\$|u\$s|usd|d[oó]lares|pesos|\b\d{1,3}(?:\.\d{3}){1,}\b|\b\d+\s*(?:mil|millones)\b)/i;
+  const fraseConLimite = x => TIENE_LIMITE.test(x) && RE_IMPORTE.test(x) && !/\bsin\s+(l[ií]mite|limitaci[oó]n)\s+de\s+(tiempo\s+ni\s+de\s+)?(monto|montos|importe|cantidad)/i.test(x);
+  const frasesDe = l => String(l).split(/(?<=[.;|])\s+(?=[A-ZÁÉÍÓÚ¡¿(])|\s+\|\s+/);
+  const tieneLimite = l => frasesDe(l).some(fraseConLimite);
+  // Grupos para comparar: "1"/"I" = A, "2"/"II" = B… (un poder numera los grupos y el resumen usa letras, o al revés).
+  const GRUPO_EQUIV = { 1: 'A', I: 'A', 2: 'B', II: 'B', 3: 'C', III: 'C', 4: 'D', IV: 'D', 5: 'E', V: 'E', 6: 'F', VI: 'F' };
+  const grupoComparable = g => GRUPO_EQUIV[g] || g;
+  const comboComparable = c => c.split('+').map(grupoComparable).sort().join('+');
+  function controlResumen(unico, cliente, actas) {
     const firmantes = (cliente && cliente.firmantes) || [];
-    return firmantes.map(f => {
+    const presidentes = actas ? presidentesDeActas(actas) : [];
+    const textoDe = (f, res) => `${res.texto || ''} ${f.observacion || ''}`;
+    const base = firmantes.map(f => {
       const ids = [f.cuit, f.dni].filter(Boolean).map(x => String(Number(String(x).replace(/\D/g, ''))));
       const apo = (unico.apoderados || []).find(a => ids.includes(String(a.numero_de_identificacion)) || (a.numero_de_identificacion && ids.some(i => i.length <= 8 && String(a.numero_de_identificacion).slice(2, 10).replace(/^0+/, '') === i)))
         || (unico.apoderados || []).find(a => firmanteDe({ nombre_completo: a.nombre_completo }, [f]));
       const est = apo && !apo.advertencia ? unico.estructuras_de_firma.filter(e => e.apoderados.includes(apo.numero_de_identificacion)) : [];
-      const res = f.uso || { grupo: '', tipo: '', combinaciones: [], texto: f.observacion || '' };
+      const res = f.uso || { grupo: '', tipo: '', tipos: [], combinaciones: [], texto: f.observacion || '' };
+      return { f, est, res, apo };
+    });
+    // Equivalencia de grupos de la empresa: el resumen puede nombrar con otra letra (o con letras donde el poder usa
+    // números) el mismo grupo. Se arma con los firmantes que tienen un solo grupo en el poder: números y romanos por
+    // mayoría; letras solo si todos los firmantes de ese grupo coinciden y ninguna letra del resumen se repite.
+    const votos = {};
+    base.forEach(({ f, est, res }) => {
+      if (!res.grupo || !est.length || est.every(e => e.grupoAutomatico) || /\bpresident/i.test(textoDe(f, res))) return;
+      const gs = [...new Set(est.map(e => e.grupo).filter(Boolean))];
+      if (gs.length !== 1) return;
+      (votos[gs[0]] = votos[gs[0]] || {})[res.grupo] = (votos[gs[0]][res.grupo] || 0) + 1;
+    });
+    const equiv = {};
+    Object.entries(votos).forEach(([g, v]) => {
+      const tot = Object.values(v).reduce((x, y) => x + y, 0);
+      const [letra, n] = Object.entries(v).sort((x, y) => y[1] - x[1])[0];
+      if (letra === g) return;
+      if (!/^[A-Z]$/.test(g)) { if (n / tot >= 0.6) equiv[g] = letra; return; }
+      if (n === tot) equiv[g] = letra;
+    });
+    Object.keys(equiv).forEach(g => { if (/^[A-Z]$/.test(g) && Object.keys(equiv).some(h => h !== g && equiv[h] === equiv[g])) delete equiv[g]; });
+    // No se traduce a una letra que ya es un grupo propio del poder (sería mezclar dos grupos distintos).
+    const gruposPoder = new Set(base.flatMap(x => x.est.map(e => e.grupo)).filter(Boolean));
+    Object.keys(equiv).forEach(g => { if (gruposPoder.has(equiv[g])) delete equiv[g]; });
+    const trad = g => equiv[g] || grupoComparable(g);
+    const tradCombo = c => c.split('+').map(trad).sort().join('+');
+    return base.map(({ f, est, res, apo }) => {
       const fila = { nombre: f.nombre, ident: f.cuit || f.dni, resumen: res.texto || '', monto_hasta: f.monto_hasta, puntos: [] };
-      if (!est.length) { fila.sinPoder = true; fila.puntos.push({ punto: 'Poder', ok: false, resumen: res.texto || '—', poder: 'No figura como apoderado en los poderes' }); return fila; }
+      if (!est.length) {
+        fila.sinPoder = true;
+        fila.puntos.push(f.revocado ? { punto: 'Poder', ok: true, resumen: 'REVOCADO', poder: 'Sin poder vigente (revocado)' }
+          : { punto: 'Poder', ok: false, resumen: res.texto || '—', poder: 'No figura como apoderado en los poderes' });
+        return fila;
+      }
+      if (f.revocado) fila.puntos.push({ punto: 'Poder', ok: false, resumen: 'REVOCADO', poder: 'Tiene un poder vigente', detalle: 'el resumen lo da por revocado pero el poder sigue vigente' });
+      // "D" / "(Presidente)" en el resumen: el presidente firma con todas las facultades aunque también sea apoderado.
+      const dicePres = /\bpresident[ea]\b/i.test(textoDe(f, res));
+      const presActa = presidentes.some(p => firmanteDe(p, [f]));
+      // (Solo si el grupo del resumen no coincide con el de los poderes; si coincide, se controla como a cualquier firmante.)
+      if ((res.grupo === 'D' || dicePres) && (presActa || dicePres) && !est.some(e => e.grupo === res.grupo)) {
+        fila.presidente = true;
+        fila.puntos.push({ punto: 'Grupo', ok: presActa ? true : null, resumen: res.grupo || 'Presidente',
+          poder: presActa ? 'Presidente según el acta de designación: todas las facultades' : 'Presidente según el resumen (no está en las actas de Complif); en los poderes: grupo ' + [...new Set(est.map(e => e.grupo))].join(', ') });
+        return fila;
+      }
       const tipos = [...new Set(est.map(e => e.tipo_de_firma).filter(Boolean))];
       const grupos = [...new Set(est.map(e => e.grupo))];
-      const combos = [...new Set(est.flatMap(e => e.combinaciones || []))].sort();
-      const limites = [...new Set(est.map(e => e.limitaciones).filter(Boolean))];
+      // Combinaciones que da el poder, también las que hoy no tienen firmantes en la planilla (B+C sin nadie del grupo C).
+      const combos = [...new Set(est.filter(e => e.firma_conjunta).flatMap(e => (e.combinaciones || []).filter(c => c.includes('+'))))].sort();
+      const combosSinFirmantes = [...new Set(est.filter(e => e.firma_conjunta).flatMap(e => (e.combinaciones_sin_firmantes || []).filter(c => c.includes('+'))))];
+      // El límite se controla sobre la firma individual (en la conjunta no aplica).
+      const estLim = est.some(e => !e.firma_conjunta) ? est.filter(e => !e.firma_conjunta) : est;
+      const limites = [...new Set(estLim.map(e => e.limitaciones).filter(Boolean))];
       fila.poder = { tipos, grupos, combos, limites };
-      fila.puntos.push({ punto: 'Uso de firma', ok: !res.tipo || tipos.includes(res.tipo) ? (res.tipo ? true : null) : false, resumen: res.tipo || '—', poder: tipos.join(' / ') || '—' });
-      if (res.grupo) fila.puntos.push({ punto: 'Grupo', ok: grupos.includes(res.grupo), resumen: res.grupo, poder: grupos.join(', ') });
-      if (res.tipo === 'CONJUNTA' || combos.length) {
-        const sobran = res.combinaciones.filter(c => !combos.includes(c)), faltan = combos.filter(c => !res.combinaciones.includes(c));
-        fila.puntos.push({ punto: 'Firmas conjuntas', ok: !sobran.length && !faltan.length, resumen: res.combinaciones.join('; ') || '—', poder: combos.join('; ') || '—',
-          detalle: [sobran.length ? 'el resumen incluye ' + sobran.join(', ') + ' que el poder no da' : '', faltan.length ? 'el poder también da ' + faltan.join(', ') : ''].filter(Boolean).join('; ') });
+      // Tipos del resumen: puede dar los dos ("A INDIVIDUAL h/ $2.000.000 * A CONJUNTA A+A").
+      const resTipos = res.tipos && res.tipos.length ? res.tipos : res.tipo ? [res.tipo] : [];
+      const faltaTipo = resTipos.filter(t => !tipos.includes(t));
+      // Si el poder le da firma individual, también puede firmar en conjunto: un resumen conjunto es más restrictivo.
+      const masRestrictivo = faltaTipo.length === 1 && faltaTipo[0] === 'CONJUNTA' && tipos.includes('INDIVIDUAL');
+      // El poder le da una firma individual restringida ("solo endoso para depósito", E-BANVAL) que quedó como limitación.
+      const restringida = faltaTipo.length === 1 && faltaTipo[0] === 'INDIVIDUAL' && est.some(e => /Firma individual restringida/.test(e.limitaciones || ''));
+      fila.puntos.push(restringida ? { punto: 'Uso de firma', ok: null, resumen: resTipos.join(' / '), poder: tipos.join(' / '), detalle: 'el poder solo le da una firma individual restringida (ver limitaciones)' }
+        : masRestrictivo ? { punto: 'Uso de firma', ok: null, resumen: resTipos.join(' / '), poder: tipos.join(' / '), detalle: 'el poder le da firma individual; el resumen (conjunta) es más restrictivo' }
+        : { punto: 'Uso de firma', ok: !resTipos.length ? null : !faltaTipo.length, resumen: resTipos.join(' / ') || '—', poder: tipos.join(' / ') || '—' });
+      // Si el poder no asigna grupos, la letra la pone la página (por las facultades): no se compara.
+      const grupoAuto = est.every(e => e.grupoAutomatico);
+      if (res.grupo) {
+        const usados = grupos.filter(g => equiv[g] && equiv[g] !== g);
+        const otros = apo && unico.otrosGrupos && unico.otrosGrupos[apo.numero_de_identificacion] ? [...unico.otrosGrupos[apo.numero_de_identificacion]] : [];
+        const okOtro = !grupos.map(trad).includes(grupoComparable(res.grupo)) && otros.map(trad).includes(grupoComparable(res.grupo));
+        const ok = grupos.includes(res.grupo) || grupos.map(trad).includes(grupoComparable(res.grupo)) || grupos.map(grupoComparable).includes(grupoComparable(res.grupo)) || okOtro;
+        fila.puntos.push(grupoAuto ? { punto: 'Grupo', ok: null, resumen: res.grupo, poder: `No aplica: el poder no asigna grupos (letra ${grupos.join(', ')} puesta según las facultades)` }
+          : ok && usados.length && !grupos.includes(res.grupo) ? { punto: 'Grupo', ok: /^[A-Z]$/.test(usados[0]) ? null : true, resumen: res.grupo, poder: grupos.join(', '),
+            detalle: 'el resumen nombra ' + usados.map(g => `"${equiv[g]}" al grupo ${g} del poder`).join(' y ') }
+          : okOtro ? { punto: 'Grupo', ok: true, resumen: res.grupo, poder: grupos.join(', ') + ' (y ' + otros.join(', ') + ' en otro poder)' }
+          : { punto: 'Grupo', ok, resumen: res.grupo, poder: grupos.join(', ') });
       }
-      const sinLimite = !f.monto_hasta || f.monto_hasta >= 99999999;
-      const conLimite = limites.some(l => TIENE_LIMITE.test(l));
-      fila.puntos.push({ punto: 'Límite', ok: sinLimite === !conLimite ? true : (sinLimite ? false : null), resumen: sinLimite ? 'sin límite' : String(f.monto_hasta),
-        poder: conLimite ? [...new Set(limites.flatMap(l => l.split(/(?<=\.)\s+(?=[A-ZÁÉÍÓÚ])/).filter(x => TIENE_LIMITE.test(x))))].join(' | ') : 'sin límite en el poder' });
+      // Combinaciones: se controlan cuando el resumen da firma conjunta y las lista.
+      if (!masRestrictivo && res.combinaciones.length) {
+        // Grupos automáticos: no importa la letra sino la forma de la combinación (dos del mismo grupo o de grupos distintos).
+        const forma = c => new Set(c.split('+')).size === 1 ? 'dos del mismo grupo' : 'de grupos distintos';
+        // El resumen puede listar todas las combinaciones de la empresa: se miran las que incluyen el grupo del firmante.
+        const propios = new Set([grupoComparable(res.grupo), ...grupos.map(trad)].filter(Boolean));
+        const delFirmante = res.combinaciones.filter(c => comboComparable(c).split('+').some(x => propios.has(x)));
+        const resLista = grupoAuto || !delFirmante.length ? res.combinaciones : delFirmante;
+        const resC = grupoAuto ? [...new Set(resLista.map(forma))] : [...new Set(resLista.map(comboComparable))];
+        // Se compara con y sin la equivalencia de letras, y vale la lectura que menos diferencias da.
+        const podT = grupoAuto ? [...new Set(combos.map(forma))] : [...new Set(combos.map(tradCombo))];
+        const podD = grupoAuto ? podT : [...new Set(combos.map(comboComparable))];
+        const difs = pc => resC.filter(c => !pc.includes(c)).length;
+        const podC = difs(podD) < difs(podT) ? podD : podT;
+        // Lo que el poder da aunque hoy no haya firmantes para armarlo (B+C sin nadie del grupo C) no es un "sobrante".
+        const podNo = grupoAuto ? [] : combosSinFirmantes.map(podC === podD ? comboComparable : tradCombo);
+        const sobran = resC.filter(c => !podC.includes(c) && !podNo.includes(c)), faltan = podC.filter(c => !resC.includes(c));
+        // Que el poder dé más combinaciones que las que lista el resumen no es un error: el resumen es más restrictivo.
+        fila.puntos.push({ punto: 'Firmas conjuntas', ok: sobran.length ? false : faltan.length ? null : true, resumen: res.combinaciones.join('; ') || '—',
+          poder: (combos.join('; ') || '—') + (grupoAuto && combos.length ? ` (${podC.join(', ')}; letra puesta según las facultades)` : ''),
+          detalle: [sobran.length ? 'el resumen incluye ' + sobran.join(', ') + ' que el poder no da' : '', faltan.length ? (sobran.length ? 'el poder también da ' : 'el resumen es más restrictivo: el poder también da ') + faltan.join(', ') : ''].filter(Boolean).join('; ') });
+      }
+      // Firma conjunta: el límite del poder es para la firma individual, así que no se controla.
+      const limiteRes = f.monto_hasta && f.monto_hasta < 99999999 ? f.monto_hasta : res.limite || null;
+      if (resTipos.length ? !resTipos.includes('INDIVIDUAL') : (tipos.length && tipos.every(t => t === 'CONJUNTA'))) {
+        fila.puntos.push({ punto: 'Límite', ok: null, resumen: limiteRes ? (res.limiteTexto || String(limiteRes)) : 'sin límite', poder: 'No aplica: firma conjunta (el límite es para la firma individual)' });
+        return fila;
+      }
+      const sinLimite = !limiteRes;
+      // Frases de límite que valen para este firmante: no las de la firma conjunta ni las que nombran a otro apoderado
+      // ("Jorge Martín Amar tiene límite de $200.000").
+      const otros = (unico.apoderados || []).filter(a => a !== apo && a.nombre_completo && !firmanteDe({ nombre_completo: a.nombre_completo }, [f]));
+      const nombra = (x, nombre) => { const ps = palabrasNombre(nombre), t = ' ' + normalizar(x) + ' '; return ps.length >= 2 && ps.every(w => t.includes(' ' + w + ' ')); };
+      const aplica = x => fraseConLimite(x) && !/conjunt/i.test(x) && (nombra(x, f.nombre) || !otros.some(a => nombra(x, a.nombre_completo)));
+      const frasesLim = [...new Set(limites.flatMap(l => frasesDe(l).filter(aplica)))];
+      const conLimite = frasesLim.length > 0;
+      fila.puntos.push({ punto: 'Límite', ok: sinLimite === !conLimite ? true : (sinLimite ? false : null), resumen: sinLimite ? 'sin límite' : (res.limiteTexto || String(limiteRes)),
+        poder: conLimite ? frasesLim.join(' | ') : 'sin límite en el poder' });
       return fila;
     });
   }
@@ -1436,7 +1817,7 @@
         });
       });
       if (!poder.usos.length) poder.usos.push({ descripcion: '', tipo: '', limitaciones: null, facultades: {} });
-      poder.usos.forEach(u => Object.assign(u, gruposDelUso(u)));
+      poder.usos = poder.usos.flatMap(usoCompleto);
       // Tabla de facultades: grupos (Cuentas Corrientes, Cheques…) y renglones "texto Si/No"; los textos largos pueden
       // venir partidos en dos renglones con el Si/No en el medio.
       if (iFac > -1) {
@@ -1487,14 +1868,24 @@
     ['homebanking', ['firmar_contratos_de_banca_electronica']], ['interbanking', ['firmar_contratos_de_banca_electronica']],
   ];
   // "B CONJUNTA B+B; B+C" → { grupo: 'B', tipo: 'CONJUNTA', combinaciones: ['B+B', 'B+C'] }.
+  // "B CONJUNTA B+B; B+C" → { grupo: 'B', tipo: 'CONJUNTA', tipos: ['CONJUNTA'], combinaciones: ['B+B', 'B+C'] }.
+  // "* A INDIVIDUAL H/ $2.000.000 * A CONJUNTA A+A" → tipos INDIVIDUAL y CONJUNTA, límite 2.000.000 (de la individual).
   function usoDelResumen(texto) {
     const t = String(texto || '').toUpperCase().trim();
     if (!t) return null;
-    const tipo = (t.match(/\b(INDIVIDUAL|CONJUNTA|INDISTINTA)\b/) || [])[1] || '';
-    const pre = t.split(/\b(?:INDIVIDUAL|CONJUNTA|INDISTINTA)\b/)[0].trim();
-    const grupo = /^[A-Z]{1,2}$/.test(pre) ? pre : '';
-    const combinaciones = [...new Set((t.match(/\b[A-Z]{1,2}\s*\+\s*[A-Z]{1,2}\b/g) || []).map(c => c.replace(/\s/g, '').split('+').sort().join('+')))].sort();
-    return { grupo, tipo: tipo === 'INDISTINTA' ? 'INDIVIDUAL' : tipo, combinaciones, texto: String(texto).trim() };
+    const tipos = [...new Set((t.match(/\b(INDIVIDUAL|CONJUNTA|INDISTINTA)\b/g) || []).map(x => (x === 'INDISTINTA' ? 'INDIVIDUAL' : x)))];
+    const tipo = tipos[0] || '';
+    const pre = t.split(/\b(?:INDIVIDUAL|CONJUNTA|INDISTINTA)\b/)[0].replace(/^[\s*•\-]+|[\s:*\-]+$/g, '').replace(/^GRUPO\s+/, '').trim();
+    const grupo = /^[A-Z]{1,3}$/.test(pre) ? pre : '';
+    const combinaciones = [...new Set((t.match(/\b[A-Z]{1,3}(?:\s*\+\s*[A-Z]{1,3})+\b/g) || []).map(c => c.replace(/\s/g, '').split('+').sort().join('+')))].sort();
+    // Límite escrito en el texto de la firma individual ("H/ $ 50.000.000", "HASTA USD 50.000").
+    let limite = null, limiteTexto = '';
+    const ind = t.match(/\b(?:INDIVIDUAL|INDISTINTA)\b([^*;]*?)(?=\bCONJUNTA\b|\b[A-Z]{1,3}\s*\+|\*|;|$)/);
+    const RE_HASTA = /(?:\bH\s*\/|\bHASTA\b)\s*(?:LA SUMA DE\s*)?(U\$S|USD|US\$|\$)?\s*([\d.,]+\d)/;
+    // Si el texto solo habla de firma individual, el "hasta" puede estar antes ("A) Hasta USD 600.000 de forma indistinta").
+    const m = (ind && !/SIN L[IÍ]MITE/.test(ind[1]) && ind[1].match(RE_HASTA)) || (tipos.length === 1 && tipos[0] === 'INDIVIDUAL' && !/SIN L[IÍ]MITE/.test(t) && t.match(RE_HASTA));
+    if (m) { limite = Number(m[2].replace(/\.(?=\d{3}\b)/g, '').replace(/,(\d{1,2})$/, '.$1').replace(/,/g, '')) || null; limiteTexto = `${m[1] || ''} ${m[2]}`.trim(); }
+    return { grupo, tipo, tipos, combinaciones, limite, limiteTexto, texto: String(texto).trim() };
   }
 
   function leerClienteBastanteo(hojas) {
@@ -1513,11 +1904,16 @@
         // Datos del cliente.
         const ic = n.indexOf('cliente');
         if (ic > -1 && !r.cliente) { const v = f.slice(ic + 1).find(c => String(c).trim() && !/^\d+$/.test(String(c))); if (v) r.cliente = String(v).trim(); }
-        const icu = n.indexOf('cuit');
+        const icu = n.indexOf('cuit') > -1 ? n.indexOf('cuit') : n.indexOf('cdi');
         if (icu > -1 && !r.cuit) { const v = f.slice(icu + 1).map(c => String(c).replace(/\D/g, '')).find(c => c.length === 11); if (v) r.cuit = v; }
-        // Encabezado de firmantes: tiene "cuit" y una columna de nombre.
+        // Encabezado de firmantes: una columna de identificación ("Cuit", "CUIL", "DNI / CUIL"…) y una de nombre.
         const iNom = n.findIndex(c => /nombre/.test(c) && /firmante|apellido|nombre/.test(c));
-        if (icu > -1 && iNom > -1) {
+        // Identificación: CUIT, CUIL, DNI o, para extranjeros, CI / cédula / CDI / pasaporte ("CI URUGUAY").
+        const iId = n.findIndex(c => /\b(cuit|cuil|dni|cdi|ci|cedula|pasaporte|documento)\b/.test(c) && c.length <= 20);
+        // Sin columna CUIT/DNI ("Ente | Rol | Nombre y Apellido firmante | …"): se lee igual, por número de ente y nombre.
+        const sinId = iId < 0 && iNom > -1 && n.includes('ente') && n.some(c => /observaci|monto hasta|rol/.test(c));
+        if ((iId > -1 || sinId) && iNom > -1) {
+          const icu = iId;
           // La columna CUIT a veces trae el DNI (7 u 8 dígitos): queda como DNI y el CUIT se busca después en la base
           // de entes (por número de ente o por DNI).
           const iEnte = n.indexOf('ente');
@@ -1526,22 +1922,26 @@
           for (const g of t.slice(i + 1)) {
             const fila = g || [];
             // El dato puede estar corrido una columna (filas con una marca adelante): se busca alrededor de la columna.
-            const cand = [icu, icu + 1, icu - 1].map(k => String(fila[k] == null ? '' : fila[k]).replace(/\D/g, ''));
+            const cand = icu < 0 ? [] : [icu, icu + 1, icu - 1].map(k => String(fila[k] == null ? '' : fila[k]).replace(/\D/g, ''));
             const num = cand.find(x => x.length === 11) || cand.find(x => x.length >= 7 && x.length <= 8) || '';
             const nombre = String(fila[iNom] || fila[iNom + 1] || '').trim();
-            if (!num || !nombre || /^\d+$/.test(nombre)) {
-              if (fila.some(c => c != null && String(c).trim())) { if (r.firmantes.length) break; } else if (r.firmantes.length && ++vacias > 1) break;
-              continue;
-            }
-            vacias = 0;
-            if (vistos.has(num)) continue;
-            vistos.add(num);
             const enteVal = [iEnte, iEnte + 1].map(k => (k > -1 ? String(fila[k] == null ? '' : fila[k]).trim() : '')).find(x => /^\d{2,7}$/.test(x)) || '';
             // Uso de firma del resumen ("B CONJUNTA B+B; B+C") y monto hasta (puede venir corrido una columna).
             const despues = fila.slice(iNom + 1).map(c => (c == null ? '' : String(c).trim()));
             const observacion = despues.find(c => /\b(individual|conjunta|indistinta)\b/i.test(c)) || '';
+            // Sin CUIT/DNI se acepta igual si tiene nombre y ente u observación (el CUIT sale después de la base de entes).
+            if (!nombre || /^\d+$/.test(nombre) || !(num || enteVal || observacion)) {
+              if (fila.some(c => c != null && String(c).trim())) { if (r.firmantes.length) break; } else if (r.firmantes.length && ++vacias > 1) break;
+              continue;
+            }
+            vacias = 0;
+            const clave = num || (enteVal ? 'e:' + enteVal : 'n:' + normalizar(nombre));
+            if (vistos.has(clave)) continue;
+            vistos.add(clave);
             const montos = (iHasta > -1 ? [fila[iHasta], fila[iHasta + 1], fila[iHasta - 1]] : []).map(c => Number(String(c == null ? '' : c).replace(/[^\d.]/g, ''))).filter(x => x > 0);
-            const extra = { observacion, monto_hasta: montos.length ? Math.max(...montos) : null, uso: usoDelResumen(observacion) };
+            // "REVOCADO" en cualquier celda de la fila: el firmante figura como revocado en el resumen.
+            const revocado = despues.some(c => /\brevoc/i.test(c));
+            const extra = { observacion, monto_hasta: montos.length ? Math.max(...montos) : null, uso: usoDelResumen(observacion), revocado };
             r.firmantes.push(Object.assign(num.length === 11 ? { cuit: num, dni: num.slice(2, 10).replace(/^0+/, ''), ente: enteVal, nombre }
               : { cuit: '', dni: num, ente: enteVal, nombre }, extra));
           }
@@ -1593,13 +1993,106 @@
     if (porDni) return porDni;
     const palabras = t => normalizar(t).split(' ').filter(Boolean).sort().join(' ');
     const n = palabras(persona.nombre_completo);
-    return n ? lista.find(f => palabras(f.nombre) === n) || null : null;
+    if (!n) return null;
+    const exacto = lista.find(f => palabras(f.nombre) === n);
+    if (exacto) return exacto;
+    // Nombre parecido (uno de los dos más corto o con una letra distinta): "Sandra Alejandra VELAZQUEZ" / "Sandra Velázquez",
+    // "ANGEL REY LOPEZ (H)" / "Angel REY LOPEZ (Hijo)", "CANALE" / "CANALES". Solo si no tienen documentos distintos y hay
+    // un único candidato.
+    const doc = x => { const c = String(x.cuit || '').replace(/\D/g, ''); return x.dni ? String(x.dni).replace(/\D/g, '').padStart(8, '0') : c.length === 11 ? c.slice(2, 10) : ''; };
+    const dp = doc(persona);
+    const cands = lista.filter(f => { const df = doc(f); return !(dp && df && dp !== df) && nombresParecidos(persona.nombre_completo, f.nombre); });
+    return cands.length === 1 ? cands[0] : null;
   }
+  const NOMBRE_VACIAS = new Set(['de', 'del', 'la', 'las', 'los', 'y', 'e', 'h', 'hijo', 'jr', 'vda', 'venezolana', 'venezolano', 'venez']);
+  const palabrasNombre = t => normalizar(String(t || '').replace(/\([^)]*\)/g, ' ')).split(' ').filter(w => w.length > 1 && !NOMBRE_VACIAS.has(w)).map(w => (w === 'ma' ? 'maria' : w));
+  function casiIgual(a, b) {
+    if (a === b) return true;
+    if (Math.min(a.length, b.length) < 5 || Math.abs(a.length - b.length) > 1) return false;
+    // Distancia de edición ≤ 1.
+    let i = 0, j = 0, dif = 0;
+    while (i < a.length && j < b.length) {
+      if (a[i] === b[j]) { i++; j++; continue; }
+      if (++dif > 1) return false;
+      if (a.length > b.length) i++; else if (b.length > a.length) j++; else { i++; j++; }
+    }
+    return dif + (a.length - i) + (b.length - j) <= 1;
+  }
+  function nombresParecidos(x, y) {
+    let a = palabrasNombre(x), b = palabrasNombre(y);
+    if (a.length > b.length) [a, b] = [b, a];
+    if (a.length < 2) return false;
+    return a.every(w => b.some(v => casiIgual(w, v))) && a.some(w => w.length >= 4 && b.includes(w));
+  }
+  // Revocatorias: un poder que revoca (alcance "revoke" de Complif, o el texto del poder: "revoca los poderes…") anula los
+  // poderes anteriores de la empresa. Si solo revoca (no es nuevo ni complementario), tampoco otorga facultades.
+  const TEXTO_REVOCA = /\brevoc(a|an|ando|ase)\s+(expresamente\s+|en todos sus t[eé]rminos\s+)?(el|los|todo|todos|la|las)\s+(poder|poderes|mandato)/i;
+  function revocaPoder(p) {
+    const a = p.alcance || {};
+    if (a.revoke === true) return true;
+    return (p.usos || []).some(u => TEXTO_REVOCA.test(`${u.descripcion || ''} ${u.limitaciones || ''}`));
+  }
+  // Alcance de una revocatoria:
+  //  - parcial ("revocación parcial", "únicamente con respecto a: (i) Ariel IBACETA (DNI …)"): solo saca de los poderes
+  //    anteriores a las personas que nombra (por DNI o por nombre) cerca de la palabra "revoca";
+  //  - de un poder E-BANVAL / banca electrónica: anula solo los poderes anteriores de ese tipo;
+  //  - si no: anula todos los poderes anteriores de la empresa.
+  const RE_EBANVAL = /e[.\-\s]?banval|banca electr[oó]nica/i;
+  const textoPoder = p => (p.usos || []).map(u => `${u.descripcion || ''} ${u.limitaciones || ''}`).join(' ');
+  function textoRevocatorio(p) {
+    const t = textoPoder(p);
+    const partes = [];
+    for (const m of t.matchAll(/revoc/gi)) partes.push(t.slice(Math.max(0, m.index - 80), m.index + 900));
+    return partes.join(' ');
+  }
+  function nombradoEn(a, texto) {
+    const digitos = texto.replace(/(\d)\.(?=\d{3}\b)/g, '$1');
+    const dni = String(a.dni || '').replace(/\D/g, '').replace(/^0+/, '');
+    if (dni.length >= 7 && new RegExp(`\\b0*${dni}\\b`).test(digitos)) return true;
+    const ps = palabrasNombre(a.nombre_completo);
+    const t = ' ' + normalizar(texto) + ' ';
+    return ps.length >= 2 && ps.every(w => t.includes(' ' + w + ' '));
+  }
+  // Una revocatoria solo alcanza a los poderes de la misma empresa (Complif vincula poderes de varias empresas).
+  function mismaEmpresa(a, b) {
+    const ca = complifNumero(a.cuit_empresa), cb = complifNumero(b.cuit_empresa);
+    if (ca.length === 11 && cb.length === 11) return ca === cb;
+    const ra = razonClave(a.razon_social), rb = razonClave(b.razon_social);
+    return !ra || !rb || ra === rb || razonParecida(ra, rb);
+  }
+  function aplicarRevocatorias(poderes) {
+    const revocan = poderes.filter(revocaPoder);
+    if (!revocan.length) return { vigentes: poderes.slice(), anulados: [], quitados: [] };
+    const anulados = [], quitados = [];
+    const vigentes = poderes.filter(p => {
+      for (const r of revocan) {
+        if (r === p || !r.fecha_emision || !p.fecha_emision || !(p.fecha_emision < r.fecha_emision) || !mismaEmpresa(r, p)) continue;
+        const tr = textoRevocatorio(r);
+        const nombrados = p.apoderados.filter(a => nombradoEn(a, tr));
+        const parcial = /parcial|[uú]nicamente\s+(con\s+)?respecto|s[oó]lo\s+(con\s+)?respecto|en\s+cuanto\s+a/i.test(tr) || (nombrados.length && nombrados.length < p.apoderados.length);
+        if (parcial) {
+          if (!nombrados.length) continue;
+          nombrados.forEach(a => quitados.push({ apoderado: a, poder: p, motivo: `revocado por el poder del ${r.fecha_emision}` }));
+          p.apoderados = p.apoderados.filter(a => !nombrados.includes(a));
+          if (!p.apoderados.length) { anulados.push({ poder: p, motivo: `revocación parcial del ${r.fecha_emision}: no le quedan apoderados` }); return false; }
+          continue;
+        }
+        if (RE_EBANVAL.test(textoPoder(r)) && !RE_EBANVAL.test(textoPoder(p))) continue;
+        anulados.push({ poder: p, motivo: `revocado por el poder del ${r.fecha_emision}` });
+        return false;
+      }
+      const a = p.alcance || {};
+      if (revocaPoder(p) && a.new === false && a.complementary === false) { anulados.push({ poder: p, motivo: 'revocatoria: no otorga facultades' }); return false; }
+      return true;
+    });
+    return { vigentes, anulados, quitados };
+  }
+
   // Firmantes de la planilla que no aparecen como apoderados en ningún poder.
   function firmantesSinPoder(poderes, firmantes) {
-    const usados = new Set();
-    poderes.forEach(p => p.apoderados.forEach(a => { const f = firmanteDe(a, firmantes); if (f) usados.add(f); }));
-    return (firmantes || []).filter(f => !usados.has(f));
+    // Un firmante repetido en la planilla (con CUIT y con DNI) cuenta como usado si cualquiera de sus renglones coincide.
+    const aps = poderes.flatMap(p => p.apoderados);
+    return (firmantes || []).filter(f => !aps.some(a => firmanteDe(a, [f])));
   }
 
   // Arma el JSON de un poder. edicion: { deed_number, board_resolution_power_attorney, power_attorney_type, cuits: {dni: cuit} }.
@@ -1629,10 +2122,16 @@
       estructuras_de_firma: poder.usos.map((u, n) => {
         const ed = (edicion.facultades || [])[n] || {};
         // Si el uso es de un grupo y el poder asigna grupos, el uso vale solo para los apoderados de ese grupo.
-        const delUso = u.grupo && apoderados.some(a => a.grupo) ? apoderados.filter(a => String(a.grupo || '').trim().toUpperCase() === u.grupo) : apoderados;
+        const comb = expandirComodines(u.combinaciones && u.combinaciones.length ? u.combinaciones : combinacionesPorGrupos(u, poder.apoderados), poder.apoderados);
+        const conComodin = (u.combinaciones || []).some(c => /[*?]/.test(c));
+        const gruposUso = conComodin ? [] : u.grupos && u.grupos.length ? u.grupos : u.grupo ? [u.grupo] : [];
+        // Si ningún apoderado del poder tiene una letra (grupos escritos como descripción), el uso vale para todos.
+        const mapea = gruposUso.length && poder.apoderados.some(a => letraGrupo(a.grupo));
+        const delUso = mapea ? apoderados.filter(a => gruposUso.includes(letraGrupo(a.grupo))) : apoderados;
         return {
           grupo: u.grupo || null,
-          combinaciones: u.combinaciones && u.combinaciones.length ? u.combinaciones : null,
+          combinaciones: comb && comb.length ? comb : null,
+          con_presidente: u.conPresidente || undefined,
           apoderados: delUso.map(a => ident(a.dni, a)),
           tipo_de_firma: u.tipo || null,
           estructura_de_firma: u.descripcion || null,
@@ -1650,24 +2149,89 @@
   // firma, vale lo que le dé cualquiera de ellos). Si el poder asigna un grupo al apoderado, se respeta; si no, los
   // apoderados con el mismo tipo de firma y las mismas facultades van al mismo grupo (A, B, C…, sin repetir los que ya
   // traen los poderes). Hay una estructura de firma por grupo. jsons = los JSON de cada poder (ya revisados).
+  // Letra de grupo de un apoderado: "A", "b", "Grupo C" → "A"/"B"/"C"; una descripción ("Grupo Aeromar") → ''.
+  // También "CATEGORÍA A", "CLASE B", "TIPO DE FIRMA C", "GRUPO DE FIRMAS CLASE A", "GRUPO II - CONJUNTA",
+  // "GRUPO A - APODERADO AUTORIZADOR". Con dos rótulos ("GRUPO 1 - CATEGORIA A") o "CLASE A DE LIQUIDACIONES" (distinta de
+  // "CLASE A DE PATRIMONIO") no hay una sola letra: queda como descripción.
+  function letraGrupo(g) {
+    const t = String(g == null ? '' : g).toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().replace(/^ESQUEMA GENERICO\s*-\s*/, '');
+    const m = t.match(/^(?:(?:GRUPO(?:\s+DE\s+FIRMAS?)?|CLASE|CATEGORIA|TIPO(?:\s+DE\s+FIRMA)?|FIRMA)\s+)*([A-Z0-9]{1,2}|I{3}|VI{2,3})(?:\s*[-–(:]\s*(.*))?$/);
+    if (!m || (m[2] && /\b(GRUPO|CLASE|CATEGORIA|TIPO)\s+[A-Z0-9]{1,3}\b/.test(m[2]))) return '';
+    return m[1];
+  }
+  // Firma conjunta que no nombra grupos ("Dos apoderados conjuntamente", "con otro apoderado", "dos de distinta
+  // clase"): las combinaciones salen de los grupos que el poder les da a sus apoderados.
+  // Combinaciones con comodín ("A+*" = A con uno de cualquier otro grupo; "?" = de cualquier grupo): se completan con
+  // los grupos que el poder les da a sus apoderados.
+  function expandirComodines(combos, apoderados) {
+    if (!combos || !combos.some(c => /[*?]/.test(c))) return combos;
+    const gs = [...new Set((apoderados || []).map(a => letraGrupo(a.grupo)).filter(Boolean))].sort();
+    const out = new Set();
+    combos.forEach(c => {
+      let r = [[]];
+      c.split('+').forEach(x => {
+        r = r.flatMap(p => (x === '*' || x === '?' ? gs.filter(g => x === '?' || !p.includes(g)) : [x]).map(g => [...p, g]));
+      });
+      // "*" también tiene que ser distinto de los grupos fijos que vienen después.
+      r.filter(p => c.split('+').every((x, i) => x !== '*' || p.filter((y, j) => j !== i && y === p[i]).length === 0)).forEach(p => out.add(p.slice().sort().join('+')));
+    });
+    return [...out].sort();
+  }
+  function combinacionesPorGrupos(u, apoderados) {
+    if (!/CONJUNTA/.test(u.tipo || '')) return null;
+    const gs = [...new Set((apoderados || []).map(a => letraGrupo(a.grupo)).filter(Boolean))].sort();
+    if (!gs.length) return null;
+    const d = String(u.descripcion || '');
+    const n = Math.min(Math.max(cuantosDe(d) || 2, 2), 4);
+    const distintos = /distint|diferente|otro grupo|de otra clase/i.test(d);
+    const multis = (ls, k, desde = 0) => k === 0 ? [[]] : ls.slice(desde).flatMap((x, i) => multis(ls, k - 1, desde + i).map(r => [x, ...r]));
+    const r = multis(gs, n).filter(c => !distintos || new Set(c).size === c.length).map(c => c.join('+'));
+    return r.length && r.length <= 30 ? r : null;
+  }
+  const USO_RESTRINGIDO = /(\bs[oó]lo (para|a)\b|[uú]nicamente|exclusivamente|endoso para dep[oó]sito|e-?banval)/i;
   function jsonBastanteoUnico(jsons, cliente) {
+    jsons = jsons.map(j => Object.assign({}, j));
     const letra = n => { let s = ''; n++; while (n > 0) { const r = (n - 1) % 26; s = String.fromCharCode(65 + r) + s; n = Math.floor((n - 1) / 26); } return s; };
     const personas = new Map(); // id + tipo → datos
+    // Uso individual de alcance restringido ("solo para endoso para depósito", "E-BANVAL") en un poder que tiene firma
+    // conjunta: no es un grupo individual aparte; queda como limitación de la firma conjunta.
+    const restringidas = [];
+    jsons.forEach(j => {
+      if (!j.estructuras_de_firma.some(e => e.firma_conjunta)) return;
+      j.estructuras_de_firma = j.estructuras_de_firma.filter(e => {
+        const r = e.firma_individual && !e.firma_conjunta && USO_RESTRINGIDO.test(`${e.estructura_de_firma || ''} ${e.limitaciones || ''}`);
+        if (r) restringidas.push(e.estructura_de_firma);
+        return !r;
+      });
+    });
     jsons.forEach(j => j.estructuras_de_firma.forEach(e => (e.apoderados ? j.apoderados.filter(a => e.apoderados.includes(a.numero_de_identificacion)) : j.apoderados).forEach(a => {
-      const grupoPoder = e.grupo || (a.grupo ? String(a.grupo).trim() : '');
-      const k = a.numero_de_identificacion + '|' + (e.tipo_de_firma || '') + '|' + grupoPoder;
-      if (!personas.has(k)) personas.set(k, { apoderado: a, grupoPoder, tipo: e.tipo_de_firma, individual: e.firma_individual, conjunta: e.firma_conjunta,
+      // Grupo del poder: un carácter ("A", "Grupo B"). Si es una descripción ("Grupo Aeromar"), cada descripción distinta
+      // es un grupo propio con letra puesta por la página (como un poder sin asignación de grupos).
+      const grupoPoder = letraGrupo(a.grupo) || e.grupo || '';
+      const grupoDesc = !grupoPoder && a.grupo ? normalizar(a.grupo) : '';
+      const k = a.numero_de_identificacion + '|' + (e.tipo_de_firma || '') + '|' + grupoPoder + '|' + grupoDesc;
+      if (!personas.has(k)) personas.set(k, { apoderado: a, grupoPoder, grupoDesc, tipo: e.tipo_de_firma, individual: e.firma_individual, conjunta: e.firma_conjunta,
         facultades: Object.fromEntries(BASTANTEO_CLAVES.map(c => [c, false])), limitaciones: new Set(), escrituras: new Set(), estructuras: new Set(), combinaciones: new Set() });
       const p = personas.get(k);
-      (e.combinaciones || []).forEach(c => p.combinaciones.add(c));
+      // Solo las combinaciones donde aparece el grupo del apoderado (B en "A+A; A+B" → A+B).
+      (e.combinaciones || []).filter(c => !grupoPoder || c.split('+').includes(grupoPoder)).forEach(c => p.combinaciones.add(c));
+      if (e.con_presidente) p.conPresidente = true;
       BASTANTEO_CLAVES.forEach(c => { if (e.facultades[c]) p.facultades[c] = true; });
       if (e.limitaciones) p.limitaciones.add(e.limitaciones);
       if (j.deed_number) p.escrituras.add(String(j.deed_number));
       if (e.estructura_de_firma) p.estructuras.add(e.estructura_de_firma);
     })));
+    // Una persona en varios grupos de los poderes (A, B, C…): vale la primera letra y se descarta la de menos poder.
+    const primera = new Map();
+    personas.forEach(p => { if (!p.grupoPoder) return; const id = p.apoderado.numero_de_identificacion, g = primera.get(id); if (!g || p.grupoPoder < g) primera.set(id, p.grupoPoder); });
+    const descartados = {};
+    personas.forEach((p, k) => {
+      const id = p.apoderado.numero_de_identificacion;
+      if (p.grupoPoder && p.grupoPoder !== primera.get(id)) { (descartados[id] = descartados[id] || new Set()).add(p.grupoPoder); personas.delete(k); }
+    });
     const grupos = new Map();
     personas.forEach(p => {
-      const k = p.grupoPoder ? 'G|' + p.grupoPoder + '|' + (p.tipo || '')
+      const k = p.grupoPoder ? 'G|' + p.grupoPoder + '|' + (p.tipo || '') : p.grupoDesc ? 'D|' + p.grupoDesc + '|' + (p.tipo || '')
         : (p.tipo || '') + '|' + BASTANTEO_CLAVES.map(c => (p.facultades[c] ? 1 : 0)).join('');
       if (!grupos.has(k)) grupos.set(k, { nombre: p.grupoPoder, tipo: p.tipo, individual: p.individual, conjunta: p.conjunta,
         facultades: Object.assign({}, p.facultades), personas: [], limitaciones: new Set(), escrituras: new Set(), combinaciones: new Set() });
@@ -1678,12 +2242,14 @@
       p.limitaciones.forEach(x => g.limitaciones.add(x));
       p.escrituras.forEach(x => g.escrituras.add(x));
       p.combinaciones.forEach(x => g.combinaciones.add(x));
+      if (p.conPresidente) g.conPresidente = true;
     });
     const lista = [...grupos.values()].sort((a, b) => b.personas.length - a.personas.length);
+    if (restringidas.length) lista.filter(g => g.conjunta).forEach(g => restringidas.forEach(x => g.limitaciones.add('Firma individual restringida (no es un grupo aparte): ' + x)));
     const usados = new Set(lista.filter(g => g.nombre).map(g => g.nombre));
     let n = 0;
     lista.forEach(g => {
-      if (!g.nombre) { while (usados.has(letra(n))) n++; g.nombre = letra(n); usados.add(g.nombre); }
+      if (!g.nombre) { while (usados.has(letra(n))) n++; g.nombre = letra(n); usados.add(g.nombre); g.auto = true; }
       g.grupo = g.nombre;
       g.personas.forEach(p => { p.grupo = g.grupo; });
     });
@@ -1699,9 +2265,22 @@
     const nombres = g => g.personas.map(p => p.apoderado.nombre_completo).join(', ');
     // Combinaciones posibles con los apoderados que quedaron (B+B necesita dos del grupo B; B+C, uno de cada uno).
     const integrantes = {};
-    lista.forEach(g => { integrantes[g.grupo] = new Set(g.personas.map(p => p.apoderado.numero_de_identificacion)).size; });
+    // (Una letra puede tener un grupo individual y uno conjunto: se cuentan las personas de todos.)
+    const porLetra = {};
+    lista.forEach(g => g.personas.forEach(p => (porLetra[g.grupo] = porLetra[g.grupo] || new Set()).add(p.apoderado.numero_de_identificacion)));
+    Object.keys(porLetra).forEach(l => { integrantes[l] = porLetra[l].size; });
     const posible = c => { const n = {}; c.split('+').forEach(x => { n[x] = (n[x] || 0) + 1; }); return Object.keys(n).every(x => (integrantes[x] || 0) >= n[x]); };
-    lista.forEach(g => { const t = [...g.combinaciones].sort(); g.combOk = t.filter(posible); g.combNo = t.filter(c => !posible(c)); });
+    // Poder sin grupos y firma conjunta ("dos cualesquiera de los apoderados"): dos del mismo grupo (armado por facultades).
+    const totalApoderados = new Set(lista.flatMap(g => g.personas.map(p => p.apoderado.numero_de_identificacion))).size;
+    // Con el presidente sin letra de grupo en el poder: la letra del grupo + D.
+    lista.forEach(g => { if (g.conPresidente && ![...g.combinaciones].some(c => c.endsWith('+D'))) g.combinaciones.add([g.grupo, 'D'].sort().join('+')); });
+    lista.forEach(g => { if (g.auto && g.conjunta && !g.combinaciones.size) g.combinaciones.add(g.grupo + '+' + g.grupo); });
+    lista.forEach(g => {
+      const t = [...g.combinaciones].sort();
+      // Con grupos automáticos la combinación vale con cualquier otro apoderado del poder.
+      const ok = c => (g.auto ? totalApoderados >= 2 : posible(c));
+      g.combOk = t.filter(ok); g.combNo = t.filter(c => !ok(c));
+    });
     const descGrupo = g => `Grupo ${g.grupo} - ${g.conjunta ? 'firma conjunta' : 'firma individual / indistinta'}` +
       (g.conjunta && g.combOk.length ? ' ' + g.combOk.join('; ') : '') + ` (${nombres(g)})`;
     return {
@@ -1718,7 +2297,7 @@
       apoderados: [...apoderados.values()].map(a => Object.assign(a, { grupo: a.grupo.join(', ') }))
         .concat(((cliente && cliente.sinPoder) || []).filter(f => !apoderados.has(Number(f.cuit || f.dni))).map(f => ({ numero_de_identificacion: Number(f.cuit || f.dni),
           nombre_completo: f.nombre, grupo: null, advertencia: 'Está en la planilla del cliente pero no figura en ningún poder' }))),
-      estructuras_de_firma: lista.map(g => ({
+      estructuras_de_firma: lista.map(g => Object.defineProperty({
         grupo: g.grupo,
         tipo_de_firma: g.tipo || null,
         estructura_de_firma: descGrupo(g),
@@ -1731,7 +2310,10 @@
         facultades: g.facultades,
         limitaciones: [...g.limitaciones].join(' | ') || null,
         limite_de_operacion: null,
-      })),
+      // Letra puesta por la página (el poder no asigna grupos): no se exporta en el JSON.
+      }, 'grupoAutomatico', { value: !!g.auto, enumerable: false })),
+      // Grupos que la persona tiene en otros poderes (descartados por la regla de la primera letra): el control los acepta.
+      get otrosGrupos() { return descartados; },
       poderes: jsons.map(j => ({ deed_number: j.deed_number, fecha_emision: j.fecha_emision, razon_social: j.razon_social, cuit_empresa: j.cuit_empresa,
         power_attorney_type: j.power_attorney_type, board_resolution_power_attorney: j.board_resolution_power_attorney,
         apoderados: j.apoderados.map(a => a.numero_de_identificacion), estructuras: j.estructuras_de_firma.map(e => e.estructura_de_firma) })),
@@ -2864,7 +3446,7 @@ try {
     leerTxtMeli, bancoMeliDeTxt, bancosParaMeli,
     sqlExtraccionCartera, bookmarkletCartera, scriptPowerShellCartera, comandoTareaCartera, IMPORTES_CARTERA,
     NO_COBIS, ultimoDiaHabil, fechasNoCobis, lineaNoCobis, txtNoCobis, loteApiNoCobis, scriptPowerShellNoCobis, scriptPowerShellProbarNoCobis, scriptPowerShellAgenteNoCobis, cmdEnvioNoCobis,
-    leerCartera, BASTANTEO_CATALOGO, BASTANTEO_CLAVES, BASTANTEO_EXTRA, leerPoderesOcr, leerAutoridadesOcr, COMPLIF_TIPOS, poderDesdeComplif, actaDesdeComplif, complifDeEmpresa, controlResumen, usoDelResumen, poderDelPresidente, leerClienteBastanteo, cuitPorDni, formatoCuit, firmanteDe, firmantesSinPoder, jsonPoder, jsonBastanteoUnico, leerInventarioGarantias, INVENTARIOS_CONTABLES, INVENTARIO_DENOMINACION, INVENTARIO_FIRMAS, fechaReporteIso, fechaInventarioDesdeReporte, leerPadronDesdeInventarios, leerBaseEntes, unirPadron, armarInventariosContables, leerCom3500, leerTcApiBcra, elegirTipoCambio, numeroEnLetras, daxCarteraPowerBI, daxDiagnosticoPowerBI, daxSaldoDeuda, armarSaldoDeuda, leerFilasPowerBI, sugerirColumnaCartera, columnasNumericasCartera, agruparCartera, valoresDistintos, sqlCartera,
+    leerCartera, BASTANTEO_CATALOGO, BASTANTEO_CLAVES, BASTANTEO_EXTRA, leerPoderesOcr, leerAutoridadesOcr, COMPLIF_TIPOS, poderDesdeComplif, actaDesdeComplif, complifDeEmpresa, controlResumen, usoDelResumen, aplicarRevocatorias, poderesFirmantesD, gruposDelUso, usoCompleto, tokensDe, combosDeClausula, poderDelPresidente, leerClienteBastanteo, cuitPorDni, formatoCuit, firmanteDe, firmantesSinPoder, jsonPoder, jsonBastanteoUnico, leerInventarioGarantias, INVENTARIOS_CONTABLES, INVENTARIO_DENOMINACION, INVENTARIO_FIRMAS, fechaReporteIso, fechaInventarioDesdeReporte, leerPadronDesdeInventarios, leerBaseEntes, unirPadron, armarInventariosContables, leerCom3500, leerTcApiBcra, elegirTipoCambio, numeroEnLetras, daxCarteraPowerBI, daxDiagnosticoPowerBI, daxSaldoDeuda, armarSaldoDeuda, leerFilasPowerBI, sugerirColumnaCartera, columnasNumericasCartera, agruparCartera, valoresDistintos, sqlCartera,
     leerCsv, encabezadosEjemplo, leerDefinicionInterfaz, sugerirColumna, detectarHojaInterfaz,
     normalizar, provinciaPorNombre, crearBuscadorBancoPorNombre, round2, aNumero, aFechaSerial, aCodigoBanco,
     fechaDDMMYY, fechaYYYYMMDD, fechaLegible, hoyDDMMYY,
