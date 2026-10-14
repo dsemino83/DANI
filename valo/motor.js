@@ -2192,11 +2192,19 @@
   }
   function aplicarRevocatorias(poderes) {
     const revocan = poderes.filter(revocaPoder);
-    if (!revocan.length) { const vigentes = poderes.slice(); heredarComplementarios(vigentes); return { vigentes, anulados: [], quitados: [] }; }
-    const anulados = [], quitados = [];
+    if (!revocan.length) { const vigentes = poderes.slice(); heredarComplementarios(vigentes); return { vigentes, anulados: [], quitados: [], avisos: [] }; }
+    const anulados = [], quitados = [], avisos = [];
     const vigentes = poderes.filter(p => {
       for (const r of revocan) {
         if (r === p || !r.fecha_emision || !p.fecha_emision || !(p.fecha_emision < r.fecha_emision) || !mismaEmpresa(r, p)) continue;
+        // Un poder que se remite al anterior como vigente ("quedan sometidos a … la Escritura Matriz N° 415 … mientras
+        // subsista el Poder Matriz") lo complementa: no lo revoca.
+        const tRev = textoPoder(r);
+        if (/sometid[oa]s?\s+a|se\s+remite|por\s+reproducida|mientras\s+subsista|poder\s+matriz|escritura\s+matriz/i.test(tRev)
+          && (!p.deed_number || new RegExp(`\\b${String(p.deed_number).replace(/\D/g, '')}\\b`).test(tRev) || /matriz/i.test(tRev))) continue;
+        // El revocante sin apoderados leídos (el OCR no los trajo): no se puede saber a quién designa, así que no deja a
+        // los anteriores sin poder. Queda el aviso para revisarlo.
+        if (!r.apoderados.length && otorga(r)) { if (!avisos.some(a => a.poder === r)) avisos.push({ poder: r, motivo: 'revoca los poderes anteriores, pero no trae apoderados (revisar el OCR): se mantienen los anteriores' }); continue; }
         const tr = textoRevocatorio(r);
         // Una revocación sin usos de firma que lista apoderados (Complif pone ahí a los revocados) es parcial: solo ellos.
         const listados = !otorga(r) && r.apoderados.length ? p.apoderados.filter(a => r.apoderados.some(x => firmanteDe(x, [{ nombre: a.nombre_completo, dni: a.dni, cuit: a.cuit }]))) : [];
@@ -2219,7 +2227,7 @@
       return true;
     });
     heredarComplementarios(vigentes);
-    return { vigentes, anulados, quitados };
+    return { vigentes, anulados, quitados, avisos };
   }
 
   // Firmantes de la planilla que no aparecen como apoderados en ningún poder.
