@@ -2304,13 +2304,33 @@
   const esCerrada = n => /cerrad/i.test(n);
   const esResumen = n => /\.xlsx?$/i.test(n) && !/^~\$/.test(n) && !esCerrada(n);
   function controlarResumen(nombre, cliente, docs) {
+    const fila = controlarResumen0(nombre, cliente, docs);
+    if (fila.obsEmpresa) fila.error = fila.obsEmpresa + (fila.error ? ' ' + fila.error : '');
+    return fila;
+  }
+  function controlarResumen0(nombre, cliente, docs) {
     const fila = { archivo: nombre, empresa: '', cuit: '', firmantes: 0, poderes: 0, estado: '', diferencias: [], control: [], sinPoder: [], noIncluidos: [], error: '' };
     fila.empresa = cliente.cliente || nombre.replace(/\.xlsx?$/i, '');
     fila.cuit = cliente.cuit || '';
+    // CLIENTE del Excel de otra empresa (un resumen copiado: "FIORITO FACTORING SA.xlsx" con CLIENTE "ABUT S.A"): manda
+    // el CUIT. La razón social sale de Complif por ese CUIT o, si no hay, del nombre del archivo; así la empresa y el
+    // CUIT son los mismos en todas las hojas y no se controla contra los poderes de la otra empresa.
+    let nombreCliente = cliente.cliente, soloCuit = false;
+    const cuitNum = String(cliente.cuit || '').replace(/\D/g, '');
+    const deArchivo = nombre.replace(/\.xlsx?$/i, '').replace(/\s*-\s*(ex|cuenta)\b.*$/i, '').trim();
+    if (cliente.cliente && cuitNum.length === 11 && !/resumen|blanco|modelo|plantilla|copia/i.test(deArchivo) && !M.razonDelArchivo(cliente.cliente, deArchivo)) {
+      const rc = M.razonPorCuit(docs, cuitNum), cuitTxt = M.formatoCuit(cuitNum);
+      // Sin poderes con ese CUIT: si los del nombre del Excel son de otro CUIT, el CLIENTE es de otra empresa.
+      const deOtro = !rc && M.complifDeEmpresa(docs, cuitNum, cliente.cliente).poderes.some(p => /^\d{11}$/.test(p.cuit_empresa || '') && p.cuit_empresa !== cuitNum);
+      if (rc && !M.razonDelArchivo(cliente.cliente, rc) || deOtro) {
+        nombreCliente = fila.empresa = rc || deArchivo; soloCuit = true;
+        fila.obsEmpresa = `El Excel dice CLIENTE "${cliente.cliente}" pero el CUIT ${cuitTxt} es de ${rc ? rc + ' en Complif' : deArchivo + ' (nombre del archivo; los poderes de ' + cliente.cliente + ' en Complif son de otro CUIT)'}: se controla como ${nombreCliente}. Revisar el resumen.`;
+      } else if (!rc) fila.obsEmpresa = `El Excel dice CLIENTE "${cliente.cliente}" pero el archivo se llama "${deArchivo}" (Complif no tiene poderes con el CUIT ${cuitTxt} para confirmar la empresa). Revisar el resumen.`;
+    }
     fila.firmantes = cliente.firmantes.length;
     if (!cliente.firmantes.length) { fila.estado = 'err'; fila.error = 'El Excel no tiene firmantes (no se encontró la tabla de firmantes)'; return fila; }
     // Sin razón social en el Excel: la del nombre del archivo (los poderes sin CUIT se encuentran por nombre).
-    const r = M.complifDeEmpresa(docs, cliente.cuit, cliente.cliente || fila.empresa.replace(/\s*-\s*(ex|cuenta)\b.*$/i, ''));
+    const r = M.complifDeEmpresa(docs, cliente.cuit, nombreCliente || fila.empresa.replace(/\s*-\s*(ex|cuenta)\b.*$/i, ''), { soloCuit });
     const rv = M.aplicarRevocatorias(r.poderes);
     // Presidente / socio gerente (por acta, por el encabezado del resumen o "D" / "(Presidente)"): firma con todas las
     // facultades aunque no figure en los poderes.

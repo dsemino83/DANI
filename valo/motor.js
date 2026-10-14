@@ -1635,13 +1635,44 @@
     // Las palabras de más en la razón más larga tienen que ser de forma ("SOCIEDAD DE BOLSA"), no otro nombre ("Y CIA").
     return x.every(w => y.some(v => parecida(w, v))) && y.filter(v => !x.some(w => parecida(w, v))).every(extraOk);
   }
+  // ¿La razón social del Excel ("CLIENTE") corresponde al nombre del archivo? Un resumen copiado de otra empresa
+  // conserva el CLIENTE de la original ("FIORITO FACTORING SA.xlsx" con CLIENTE "ABUT S.A"). Basta una palabra
+  // distintiva en común, un prefijo ("BCO" / "BANCO") o la sigla ("CAMMESA").
+  function razonDelArchivo(cliente, archivo) {
+    const pal = t => razonClave(String(t || '').replace(/\.xlsx?$/i, '').replace(/[()_\-]/g, ' ')).split(' ').filter(w => w.length >= 2);
+    const x = pal(cliente), y = pal(archivo);
+    if (!x.length || !y.length) return true;
+    if (x.join('') === y.join('')) return true;
+    const dist = w => w.length >= 3 && !RAZON_EXTRA.has(w) && !RAZON_GENERICA.has(w);
+    const igual = (w, v) => w === v || (w.length >= 3 && v.length >= 3 && (w.startsWith(v) || v.startsWith(w))) || (w.length > 4 && v.length > 4 && distancia(w, v) <= 1);
+    if (x.some(w => dist(w) && y.some(v => dist(v) && igual(w, v)))) return true;
+    // Sigla con sílabas ("FECOVITA" = FEderación de COoperativas VITivinícolas Argentinas).
+    const silabas = (t, ws, usadas) => !t ? usadas >= 2 : ws.some((w, i) => [...Array(Math.min(w.length, t.length))].some((_, k) => t.startsWith(w.slice(0, k + 1)) && silabas(t.slice(k + 1), ws.slice(i + 1), usadas + 1)));
+    if ((y.length === 1 && y[0].length >= 4 && silabas(y[0], x, 0)) || (x.length === 1 && x[0].length >= 4 && silabas(x[0], y, 0))) return true;
+    const sigla = ws => ws.filter(w => !['de', 'del', 'la', 'el', 'y'].includes(w)).map(w => w[0]).join('');
+    const jx = x.join(''), jy = y.join('');
+    return [sigla(x), jx].some(a => a.length >= 3 && (a === sigla(y) || jy.includes(a))) || [sigla(y), jy].some(a => a.length >= 3 && jx.includes(a));
+  }
+  // Razón social de los documentos de Complif con ese CUIT (la del poder más usado), o ''.
+  function razonPorCuit(docs, cuit) {
+    const c = complifNumero(cuit);
+    if (c.length !== 11) return '';
+    const cuenta = new Map();
+    (docs || []).forEach(doc => {
+      const p = leidoDe(doc);
+      if (!p || p.autoridades || p.cuit_empresa !== c || !p.razon_social) return;
+      cuenta.set(p.razon_social, (cuenta.get(p.razon_social) || 0) + 1);
+    });
+    return [...cuenta].sort((a, b) => b[1] - a[1]).map(e => e[0])[0] || '';
+  }
   // Texto completo de un documento (para buscar el CUIT): se calcula una vez por documento (el chequeo masivo recorre
   // todos los documentos de Complif por cada empresa).
   const TEXTO_DOC = new WeakMap();
   const textoDoc = doc => { if (!TEXTO_DOC.has(doc)) TEXTO_DOC.set(doc, JSON.stringify(doc)); return TEXTO_DOC.get(doc); };
   const LEIDO_DOC = new WeakMap();
   const leidoDe = doc => { if (!LEIDO_DOC.has(doc)) LEIDO_DOC.set(doc, complifEsActa(doc) ? actaDesdeComplif(doc) : poderDesdeComplif(doc)); return LEIDO_DOC.get(doc); };
-  function complifDeEmpresa(docs, cuit, nombre) {
+  function complifDeEmpresa(docs, cuit, nombre, opciones) {
+    const soloCuit = !!(opciones && opciones.soloCuit);
     const c = complifNumero(cuit);
     // Sin razón social: la del primer documento que coincide por CUIT (así entran las actas, que no traen CUIT).
     if (!nombre && c.length === 11) {
@@ -1668,7 +1699,9 @@
     const idsEmpresa = new Set();
     (docs || []).forEach(doc => {
       const p0 = leidoDe(doc);
-      const porCuit = (c && p0 && !p0.autoridades && p0.cuit_empresa === c) || (p0 && n && p0.razon_social && mismaRazon(p0.razon_social));
+      // soloCuit (el Excel de una empresa con la razón social de otra): por nombre solo si el documento no es de otro CUIT.
+      const otroCuit = x => soloCuit && c.length === 11 && complifNumero(x && x.cuit_empresa).length === 11 && complifNumero(x.cuit_empresa) !== c;
+      const porCuit = (c && p0 && !p0.autoridades && p0.cuit_empresa === c) || (p0 && n && p0.razon_social && !otroCuit(p0) && mismaRazon(p0.razon_social));
       rels(doc).forEach(x => { if (x.id != null && (porCuit || relDeEmpresa(x))) idsEmpresa.add(String(x.id)); });
     });
     const vinculado = doc => rels(doc).some(x => (x.id != null && idsEmpresa.has(String(x.id))) || relDeEmpresa(x));
@@ -1682,7 +1715,8 @@
       const dn = razonClave(p.razon_social || complifCampo(doc, ['razon_social', 'company_name']));
       // El CUIT se busca con guiones (30-70819244-5, como lo guarda Complif) y sin guiones, en cualquier campo del documento.
       const enDoc = c.length === 11 && (texto => texto.includes(formatoCuit(c)) || texto.includes(c))(textoDoc(doc));
-      if (!((c && (dc === c || enDoc)) || (n && dn && mismaRazon(p.razon_social || complifCampo(doc, ['razon_social', 'company_name']))))) return;
+      const dcOtro = soloCuit && c.length === 11 && complifNumero(dc).length === 11 && complifNumero(dc) !== c;
+      if (!((c && (dc === c || enDoc)) || (n && dn && !dcOtro && mismaRazon(p.razon_social || complifCampo(doc, ['razon_social', 'company_name']))))) return;
       p.complif.creado = doc.ocr_created_at || doc.created_at || '';
       (p.autoridades ? actas : poderes).push(p);
     });
@@ -3583,7 +3617,7 @@ try {
     return errores;
   }
 
-  const api = {
+  const api = { razonDelArchivo, razonPorCuit,
     PROVINCIAS, FIJOS, COLS_REPORTE, FORMATOS, COLUMNAS_MONTO, CAMPOS_INTERFAZ,
     leerTxtMeli, bancoMeliDeTxt, bancosParaMeli,
     sqlExtraccionCartera, bookmarkletCartera, scriptPowerShellCartera, comandoTareaCartera, IMPORTES_CARTERA,
