@@ -8,24 +8,26 @@
 ## Historia de usuario
 
 **Como** Jefe de Control Operativo Contable (Contaduría),
-**quiero** que todas las fuentes del Régimen de Deudores generen datos correctos y conciliados con la contabilidad, que lleguen en término y que, para los productos no COBIS, se informe la última versión del dato al último día del mes aunque después se haya pisado. Las fuentes son COBIS (Udincli, Udcrpro, inventarios), la base de clientes, los datos de Riesgos, ePortfolio/MELI y Etrust/Cubo.
+**quiero** que todas las fuentes del Régimen de Deudores generen datos correctos, conciliados con la contabilidad y en término. Las fuentes son COBIS (Udincli, Udcrpro, inventarios), la base de clientes, los datos de Riesgos y los productos no COBIS. Para los productos no COBIS, quiero que se informe la última versión del dato al último día del mes, aunque después se haya pisado.
 **para** procesar el ESD en UNIDATO de forma automática, sin corregir a mano interfaces ni archivos finales, en término y cumpliendo la normativa del BCRA y lo que exigen Auditoría Interna y Externa.
 
 ## Contexto
 
 - Armar el régimen de agosto 2026 llevó **una semana de trabajo manual**, con riesgo de errores y de no llegar al vencimiento.
-- Ya se informan unos **165.000 clientes** al BCRA, y Etrust/Cubo aportó cerca de **170.000 registros**.
+- Ya se informan unos **165.000 clientes** al BCRA.
 - Muchos de estos problemas **ya se habían reportado antes** y siguen sin solución.
 - Los ajustes manuales en las interfaces de entrada y en los archivos finales **no los aceptan Auditoría Interna/Externa ni la normativa del BCRA**.
 
 ## Necesidades y criterios de aceptación
 
-### N1 – Base de clientes: CUIT erróneos (SAC / COBIS)
-**Problema:** en Udincli hay clientes con CUIT que empieza en **98**, y UNIDATO los rechaza. Ejemplo: `A9830708240873 VR GLOBAL PARTNERS L.P.`, cuyo CUIT real es 30708240873.
-- **CA1.1** – Se corrigen en la base de clientes / MIS los CUIT de los casos detectados.
-- **CA1.2** – Se hace un relevamiento en el MIS de **todos** los clientes con CUIT inválido (prefijo 98, dígito verificador incorrecto) y se regularizan.
-- **CA1.3** – La base de clientes no permite dar de alta ni modificar un cliente con CUIT/CUIL inválido.
-- **CA1.4** – Udincli sale sin CUIT inválidos y Contaduría no corrige la interfaz a mano.
+### N1 – Base de clientes: codificador de tipo de documento erróneo (SAC / COBIS)
+**Problema:** en Udincli hay clientes con el **código de tipo de documento 98**, que es incorrecto. UNIDATO no levanta esos registros y Contaduría tiene que corregir la interfaz a mano.
+- Ejemplo: `A 98 30708240873 VR GLOBAL PARTNERS L.P.`
+- El número 30708240873 es correcto. Lo que está mal es el tipo de documento 98, que debería ser el código de CUIT.
+- **CA1.1** – Se corrige en la base de clientes / MIS el tipo de documento de los casos detectados.
+- **CA1.2** – Se hace un relevamiento directo en el MIS de **todos** los clientes con tipo de documento 98 o con cualquier otro código que no esté en la tabla de tipos de documento que acepta UNIDATO/BCRA, y se regularizan.
+- **CA1.3** – La base de clientes no permite dar de alta ni modificar un cliente con un código de tipo de documento inválido, ni con un tipo que no corresponda al número informado. Por ejemplo, un número de CUIT tiene que llevar el código de CUIT.
+- **CA1.4** – Udincli sale sin tipos de documento inválidos y Contaduría no corrige la interfaz a mano.
 
 ### N2 – Situación y tipo de cartera de clientes depurados (Riesgos Económicos / SAC)
 **Problema:** Riesgos no puede actualizar la situación de clientes que figuran **depurados**, y Contaduría termina corrigiendo a mano el archivo de salida al BCRA.
@@ -54,7 +56,7 @@
 - **CA5.3** – Se da de baja el inventario manual en Excel y el inventario de COBIS pasa a ser la única fuente.
 - **CA5.4** – Si aparecen diferencias, se avisa automáticamente antes de generar las interfaces.
 
-### N6 – Cartera MELI / ePortfolio (Activas)
+### N6 – Cartera MELI (Activas)
 **Problema:** los préstamos de MELI trajeron unos **24.000 errores**: símbolos en los nombres y **situación 10** (inexistente). Esto rompió Udincli y Udcrpro.
 - **CA6.1** – Los nombres y razones sociales se normalizan al set de caracteres que admiten UNIDATO y el BCRA.
 - **CA6.2** – La situación siempre es un valor válido de la tabla BCRA. La situación 10 se rechaza o se mapea según la regla que acuerden Riesgos y Activas.
@@ -66,10 +68,10 @@
 - **CA7.2** – Hay un cronograma de cierre con hitos y responsables por área.
 
 ### N8 – Todos los sistemas conciliados con contabilidad
-- **CA8.1** – Los inventarios y saldos de **todos** los sistemas del proceso cierran con la contabilidad. Esto incluye COBIS, ePortfolio/MELI, Etrust/Cubo y cualquier otro sistema que participe.
+- **CA8.1** – Los inventarios y saldos de **todos** los sistemas que participan del proceso, COBIS y no COBIS, cierran con la contabilidad.
 - **CA8.2** – Antes de entregar, corre un validador automático sobre cada interfaz que controla:
   - formato y caracteres;
-  - CUIT válido;
+  - tipo de documento válido y coherente con el número;
   - situación válida;
   - cruce Udincli ↔ Udcrpro;
   - totales vs. contabilidad.
@@ -79,7 +81,7 @@
 - **CA9.1** – En el cierre siguiente a la puesta en producción, Contaduría procesa el ESD en UNIDATO **sin modificar a mano** las interfaces de entrada ni los archivos finales al BCRA, sin contar previsiones.
 
 ### N10 – Productos no COBIS: tomar la última versión al último día del mes
-**Problema:** hoy, cualquier novedad de un producto no COBIS (por ejemplo ePortfolio/MELI o Etrust/Cubo) **da de baja la versión anterior y deja vigente la nueva**. Si la novedad llega después del cierre, el dato al cierre se pisa y la interfaz informa un dato que no corresponde al período.
+**Problema:** hoy, cualquier novedad de un producto no COBIS **da de baja la versión anterior y deja vigente la nueva**. Si la novedad llega después del cierre, el dato al cierre se pisa y la interfaz informa un dato que no corresponde al período.
 - **CA10.1 – Historial de versiones:** una novedad no borra ni pisa el registro anterior. La versión anterior queda guardada como histórica, con fecha de novedad, fecha y hora de carga y estado (vigente/histórica).
 - **CA10.2 – Regla de corte:** al generar Udincli y Udcrpro de un período, para cada cliente u operación no COBIS se toma la **última versión con fecha de novedad menor o igual al último día del mes**. Si hay varias versiones ese mismo día, se toma la última por fecha y hora de carga o por secuencia.
 - **CA10.3 – Datos pisados:** el dato al cierre se informa aunque una novedad posterior al cierre lo haya pisado o dado de baja en la base.
@@ -116,11 +118,11 @@ Escenario: baja posterior al cierre
 ## Tareas sugeridas
 
 1. Clasificar los ~710 ajustes del *Udcrpro previo 31082026.xlsx* por causa raíz.
-2. Relevar y corregir los CUIT inválidos en el MIS y agregar la validación en el alta y la modificación de clientes.
+2. Relevar y corregir en el MIS los tipos de documento inválidos (98 u otros fuera de tabla) y agregar la validación en el alta y la modificación de clientes.
 3. Revisar con Riesgos y SAC el circuito de situación, tipo de cartera y depuración, y definir el punto de control.
 4. COBIS: corregir la extracción de descubiertos y de intereses congelados en UDCRPRO.
 5. COBIS y Activas: hacer que los inventarios cierren con la contabilidad y dar de baja el Excel manual.
-6. ePortfolio/MELI: limpiar caracteres y validar la situación en origen.
+6. Cartera MELI: limpiar caracteres y validar la situación en origen.
 7. Desarrollar el validador automático pre-UNIDATO con reporte de conciliación.
 8. Definir el cronograma de cierre (hito: 5.º día hábil).
 9. Productos no COBIS: pasar de "pisar" el dato a guardar historial de versiones, e implementar en la generación de interfaces la regla de corte al último día del mes, con log de versión tomada.
@@ -135,4 +137,4 @@ Escenario: baja posterior al cierre
 
 ## Interesados
 
-Contaduría (Alejandro Orona, Daniel Real) · Sistemas – COBIS · SAC · Riesgos Económicos · Activas · ePortfolio (Diego Apezteguia) · Auditoría Interna · Riesgo Operacional.
+Contaduría (Alejandro Orona, Daniel Real) · Sistemas – COBIS · SAC · Riesgos Económicos · Activas · Auditoría Interna · Riesgo Operacional.
