@@ -22,7 +22,8 @@
   // ---------------------------------------------------------------- utilidades
 
   function normalizar(texto) {
-    return String(texto == null ? '' : texto)
+    // "¥" es una Ñ mal codificada en algunos Excel ("VENINI NU¥EZ").
+    return String(texto == null ? '' : texto).replace(/¥/g, 'Ñ')
       .normalize('NFD').replace(/[̀-ͯ]/g, '')
       .toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
   }
@@ -626,13 +627,13 @@
   }
 
   // Saldo de deuda por fiduciante y mes de vencimiento, sin filtrar negocios. Cuotas de la última foto mensual
-  // (Periodo más reciente) vencidas hasta ayer (la cobranza del día no está bajada). Deuda impaga = cuotas en estado
+  // (Periodo más reciente) vencidas hasta antes de ayer (la cobranza de ayer y hoy puede no estar bajada). Deuda impaga = cuotas en estado
   // Impaga (4) por su valor (capital + interés, "ficuo valor cuota"); además, lo que falta cobrar de las Paga Parcial (1)
   // = saldo de capital + saldo de interés. Saldo de deuda = impago + saldo de Paga Parcial. Quedan afuera Normal (0),
   // Paga (2) y Paga a Regularizar (3) (cobradas, saldo 0).
   function daxSaldoDeuda(opciones = {}) {
     const t = opciones.tabla || PBI_TABLA, c = n => `'${t}'[${n}]`;
-    const hasta = opciones.hasta ? `DATE ( ${opciones.hasta.slice(0, 4)}, ${Number(opciones.hasta.slice(5, 7))}, ${Number(opciones.hasta.slice(8, 10))} )` : 'TODAY () - 1';
+    const hasta = opciones.hasta ? `DATE ( ${opciones.hasta.slice(0, 4)}, ${Number(opciones.hasta.slice(5, 7))}, ${Number(opciones.hasta.slice(8, 10))} )` : 'TODAY () - 2';
     // Una misma cuota puede estar repetida en la foto (otro lote u otra fecha de cálculo, a veces con otro estado):
     // se toma el renglón más reciente de cada cuota (fecha de cálculo y número de lote) antes de mirar el estado.
     // Además devuelve, por fiduciante (renglones sin vencimiento), las cuotas vencidas que siguen en estado Normal: nadie
@@ -666,6 +667,47 @@
       '    "Periodo", UltimoPeriodo, "Hasta", Hasta )',
       'ORDER BY [Fid], [Vto]',
     ].join('\n');
+  }
+  // Detalle del saldo de deuda por deudor y crédito: un renglón por fiduciante, CUIT del deudor, número de crédito y
+  // fecha de vencimiento, con lo impago (estado 4) y el saldo de las cuotas Paga Parcial (estado 1). Mismo criterio que
+  // daxSaldoDeuda (última foto de cartera o la del mes elegido, el renglón más reciente de cada cuota).
+  function daxSaldoDeudaDetalle(opciones = {}) {
+    const t = opciones.tabla || PBI_TABLA, c = n => `'${t}'[${n}]`;
+    const hasta = opciones.hasta ? `DATE ( ${opciones.hasta.slice(0, 4)}, ${Number(opciones.hasta.slice(5, 7))}, ${Number(opciones.hasta.slice(8, 10))} )` : 'TODAY () - 2';
+    return [
+      'DEFINE',
+      `  VAR Hasta = ${hasta}`,
+      opciones.periodo ? `  VAR UltimoPeriodo = CALCULATE ( MAX ( ${c('Periodo')} ), FILTER ( ALL ( ${c('Periodo')} ), FORMAT ( ${c('Periodo')}, "yyyy-MM" ) = "${String(opciones.periodo).slice(0, 7).replace(/"/g, '')}" ) )`
+        : `  VAR UltimoPeriodo = MAX ( ${c('Periodo')} )`,
+      '  VAR T = SELECTCOLUMNS (',
+      `      FILTER ( '${t}', ${c('Periodo')} = UltimoPeriodo && ${c('CuotaFechaVencimientoId')} <= Hasta ),`,
+      `      "Clave", ${c('NroCredito')} & "|" & ${c('CuotaNumero')},`,
+      `      "Orden", FORMAT ( ${c('Fecha de Calculo')}, "yyyyMMdd" ) & FORMAT ( ${c('Numero de Lote')}, "000" ),`,
+      `      "Fid", ${c('EnteFiducianteId')} & "",`,
+      `      "Cuit", ${c('CUITDeudor')} & "",`,
+      `      "Cred", ${c('NroCredito')} & "",`,
+      `      "Est", ${c('FideicomisoCreditoCuotaEstadoId')} & "",`,
+      `      "Vto", FORMAT ( ${c('CuotaFechaVencimientoId')}, "yyyy-MM-dd" ),`,
+      `      "Valor", ${c('Capital')} + ${c('Interes')},`,
+      `      "Saldo", ${c('Saldo_Capital')} + ${c('Saldo_Interes')} )`,
+      '  VAR Ult = SELECTCOLUMNS ( GROUPBY ( T, [Clave], "M", MAXX ( CURRENTGROUP (), [Orden] ) ), "Clave", [Clave] & "", "Orden", [M] & "" )',
+      '  VAR Ultimas = NATURALINNERJOIN ( T, Ult )',
+      '  VAR G = GROUPBY ( FILTER ( Ultimas, [Est] IN { "1", "4" } ), [Fid], [Cuit], [Cred], [Vto],',
+      '      "Cuotas", SUMX ( CURRENTGROUP (), IF ( [Est] = "4", 1, 0 ) ), "Deuda", SUMX ( CURRENTGROUP (), IF ( [Est] = "4", [Valor], 0 ) ),',
+      '      "CuotasPP", SUMX ( CURRENTGROUP (), IF ( [Est] = "1", 1, 0 ) ), "SaldoPP", SUMX ( CURRENTGROUP (), IF ( [Est] = "1", [Saldo], 0 ) ) )',
+      'EVALUATE',
+      "  ADDCOLUMNS ( G, \"Fiduciante\", LOOKUPVALUE ( 'Fiduciante'[Ente], 'Fiduciante'[EnteId], [Fid] ) )",
+      'ORDER BY [Fiduciante], [Cuit], [Cred], [Vto]',
+    ].join('\n');
+  }
+  // Renglones del detalle: [{ fiduciante, cuitFid, cuit, credito, vto, cuotas, impago, cuotasPP, pp, saldo }].
+  function armarDeudaDetalle(respuesta) {
+    const num = v => Number(v) || 0;
+    return leerFilasPowerBI(respuesta).datos.map(r => ({
+      fiduciante: String(r.Fiduciante || ''), cuitFid: String(r.Fid == null ? '' : r.Fid), cuit: String(r.Cuit == null ? '' : r.Cuit).replace(/\D/g, ''),
+      credito: String(r.Cred == null ? '' : r.Cred), vto: String(r.Vto || '').slice(0, 10),
+      cuotas: num(r.Cuotas), impago: round2(num(r.Deuda)), cuotasPP: num(r.CuotasPP), pp: round2(num(r.SaldoPP)),
+    })).map(x => Object.assign(x, { saldo: round2(x.impago + x.pp) })).filter(x => x.saldo || x.cuotas || x.cuotasPP);
   }
   // Tabla fiduciante × mes: { meses, filas: [{ cuit, fiduciante, porMes: {mes: deuda}, fechas: {mes: [vencimientos]},
   // cuotas, total }], totalesMes, total }. Power BI devuelve un renglón por fiduciante y fecha de vencimiento.
@@ -1135,19 +1177,24 @@
   function leerAutoridadesOcr(lineas) {
     const L = lineas.map(l => String(l || '').replace(/\s+/g, ' ').trim()).filter(l => l && l !== '<<PAGINA>>');
     const actas = [];
+    // Actas de designación y estatutos (su "Estructura Administración": presidente, gerentes…).
     L.forEach((l, i) => {
-      if (!/^dictamen acta de designaci[oó]n/i.test(l)) return;
+      const esEstatuto = /^estatuto$/i.test(l);
+      if (!esEstatuto && !/^dictamen acta de designaci[oó]n/i.test(l)) return;
       let fin = L.length;
-      for (let j = i + 1; j < L.length; j++) if (/^(acreditaci[oó]n de poderes|balance|dictamen\b)/i.test(L[j])) { fin = j; break; }
+      for (let j = i + 1; j < L.length; j++) if (/^(acreditaci[oó]n de poderes|balance|dictamen\b|estatuto$)/i.test(L[j])) { fin = j; break; }
       const b = L.slice(i, fin);
       const valor = et => { const re = new RegExp('^' + et + '\\s*:\\s*(.*)$', 'i'); const x = b.find(y => re.test(y)); return x ? x.match(re)[1].trim() : ''; };
-      const acta = { razon_social: valor('Raz[oó]n Social'), cuit_empresa: valor('CUIT').replace(/\D/g, ''), fecha: valor('Fecha del Documento'), autoridades: [] };
-      const ia = b.findIndex(x => /^autoridades designadas/i.test(x));
+      const acta = { razon_social: valor('Raz[oó]n Social'), cuit_empresa: valor('CUIT').replace(/\D/g, ''), fecha: valor('Fecha del Documento') || valor('Fecha de Constituci[oó]n'), autoridades: [] };
+      if (esEstatuto) acta.estatuto = true;
+      const ia = b.findIndex(x => (esEstatuto ? /^estructura (de )?administraci[oó]n/i : /^autoridades designadas/i).test(x));
+      if (esEstatuto && ia < 0) return;
+      const corte = esEstatuto ? b.findIndex((x, k) => k > ia && /^(accionistas|otros autorizados|facultades|conclusi[oó]n)/i.test(x)) : -1;
       let ult = null;
-      b.slice(ia > -1 ? ia + 1 : 0).forEach(x => {
+      b.slice(ia > -1 ? ia + 1 : 0, corte > -1 ? corte : undefined).forEach(x => {
         if (/^(nombre completo|identificaci[oó]n|rol|duraci[oó]n)(\s|$)/i.test(x) || /:/.test(x)) return;
         const m = x.match(/^(.*?\D)\s*(\d{6,9})(?:\s+(.+))?$/);
-        const sinDni = !m && x.match(/^(.+?)\s+((?:director|directora|presidente|presidenta|vicepresidente|vicepresidenta|s[ií]ndico)\b.*)$/i);
+        const sinDni = !m && x.match(/^(.+?)\s+((?:director|directora|presidente|presidenta|vicepresidente|vicepresidenta|s[ií]ndico|gerente|socio gerente)\b.*)$/i);
         if (m && m[1].trim()) { ult = { nombre_completo: m[1].trim(), dni: m[2], rol: (m[3] || '').trim() }; acta.autoridades.push(ult); }
         else if (sinDni) { ult = { nombre_completo: sinDni[1].trim(), dni: '', rol: sinDni[2].trim() }; acta.autoridades.push(ult); }
         else if (ult && !ult.rol) ult.rol = x;
@@ -1157,21 +1204,32 @@
     });
     return actas;
   }
-  const esPresidente = rol => /\bpresident[ea]\b/i.test(normalizar(rol));
+  // Presidente o equivalente: "Director titular y/- Presidente", "Socio gerente", "Gerente titular" (SRL). No vicepresidente
+  // ni suplentes.
+  // También quien tiene la representación legal ("Director Titular / Vicepresidente (con representación legal)").
+  const esPresidente = rol => { const r = normalizar(rol); return /\bpresident[ea]\b/.test(r) || (/\bgerente\b|representacion legal|representante legal/.test(r) && !/suplente/.test(r)); };
   // Firmante con grupo "D" en el resumen = el presidente, con todas las facultades (firma individual). Si no figura en
   // ningún poder, se arma un poder con él para el bastanteo y el control.
   // Presidente: el de la última acta de directorio (actas de Complif o del PDF), o el firmante "D" o "(Presidente)" del resumen.
   function presidentesDeActas(actas) {
     const l = [].concat(actas || []).filter(a => a && a.autoridades).sort((a, b) => String(b.fecha || '').localeCompare(String(a.fecha || '')));
-    for (const a of l) { const p = a.autoridades.filter(x => esPresidente(x.rol)); if (p.length) return p; }
-    return [];
+    // La última acta de cada empresa (Complif vincula actas de empresas del mismo grupo): se juntan sus presidentes.
+    const vistas = new Set(), out = [];
+    for (const a of l) {
+      const k = razonClave(a.razon_social || '');
+      if (vistas.has(k)) continue;
+      const p = a.autoridades.filter(x => esPresidente(x.rol));
+      if (p.length) { vistas.add(k); out.push(...p); }
+    }
+    return out;
   }
   function poderesFirmantesD(cliente, poderes, actas) {
     const pres = presidentesDeActas(actas);
     return ((cliente && cliente.firmantes) || []).filter(f => !f.revocado
       // "D" es el presidente cuando firma individual (o lo dice el texto / el acta). "D CONJUNTA: A+D, B+D…" con varios
       // firmantes es un grupo D de un poder, no el presidente.
-      && ((f.uso && f.uso.grupo === 'D' && !(f.uso.tipos || [f.uso.tipo]).every(t => t === 'CONJUNTA')) || /\bpresident[ea]\b/i.test(f.observacion || '') || pres.some(p => firmanteDe(p, [f])))
+      && ((f.uso && f.uso.grupo === 'D' && !(f.uso.tipos || [f.uso.tipo]).every(t => t === 'CONJUNTA')) || /\bpresident[ea]\b|\bsocio\s+gerente\b/i.test(f.observacion || '')
+        || pres.some(p => firmanteDe(p, [f])) || ((cliente && cliente.presidentes) || []).some(p => firmanteDe({ nombre_completo: p }, [f])))
       && !(poderes || []).some(p => p.apoderados.some(a => firmanteDe(a, [f])))).map(f => {
       const letra = (f.uso && f.uso.grupo) || 'D';
       const persona = { nombre_completo: f.nombre, dni: f.dni || '', cuit: f.cuit || '', grupo: letra };
@@ -1452,7 +1510,8 @@
   // autoridades"; document_type = PODER_COMPLEJO_AR, ACTA_DESIGNACION_AUTORIDADES_AR…). Lo que extrajo el OCR viene en
   // ocr_data_responses; se busca adentro el objeto con apoderados / estructuras de firma (mismo modelo que el JSON del
   // bastanteo) o la lista de autoridades del acta.
-  const COMPLIF_TIPOS = ['Poder', 'Poder Complejo', 'Acta de designación de autoridades'];
+  // El Estatuto trae las autoridades de la sociedad ("directors": presidente, gerentes…): se usa como un acta.
+  const COMPLIF_TIPOS = ['Poder', 'Poder Complejo', 'Acta de designación de autoridades', 'Estatuto'];
   function complifJson(v) {
     if (typeof v === 'string' && /^\s*[\[{]/.test(v)) { try { return JSON.parse(v); } catch (e) { return v; } }
     return v;
@@ -1464,7 +1523,7 @@
     for (const x of Array.isArray(v) ? v : Object.values(v)) { const r = complifBuscar(x, prueba, prof + 1); if (r) return r; }
     return null;
   }
-  const complifEsActa = doc => /acta de designaci/i.test(doc.type || '') || /ACTA_DESIGNACION/i.test(doc.document_type || '');
+  const complifEsActa = doc => /acta de designaci|^estatuto/i.test(doc.type || '') || /ACTA_DESIGNACION|ESTATUTO/i.test(doc.document_type || '');
   const complifEsPoder = doc => !complifEsActa(doc) && (/^poder/i.test(doc.type || '') || /^PODER/i.test(doc.document_type || ''));
   const complifNumero = v => String(v == null ? '' : v).replace(/\D/g, '');
   const complifDni = v => { const d = complifNumero(v); return d.length === 11 ? d.slice(2, 10).replace(/^0+/, '') : d; };
@@ -1535,13 +1594,25 @@
     const valor = (y, re) => { const k = Object.keys(y).find(c => re.test(c)); return k && y[k] != null ? String(y[k]).trim() : ''; };
     return {
       razon_social: complifCampo(doc.ocr_data_responses || doc, ['razon_social', 'company_name']), cuit_empresa: complifNumero(complifCampo(doc.ocr_data_responses || doc, ['cuit_empresa', 'cuit', 'tax_id'])),
-      fecha: complifCampo(doc.ocr_data_responses || doc, ['fecha_del_documento', 'fecha_documento', 'fecha', 'document_date', 'issue_date']),
+      fecha: complifCampo(doc.ocr_data_responses || doc, ['fecha_del_documento', 'fecha_documento', 'fecha', 'document_date', 'issue_date', 'registration_date', 'incorporation_date']),
+      estatuto: /^estatuto/i.test(doc.type || '') || undefined,
       autoridades: lista.map(y => ({ nombre_completo: valor(y, /nombre|name/i), dni: complifDni(valor(y, /identificaci|dni|document|numero|id_number|cuit|cuil|tax/i)), rol: valor(y, /rol|cargo|role|position|title/i) })).filter(a => a.nombre_completo),
       complif: { id: doc.id_document || doc.id || doc.uuid || null, type: doc.type || '', document_type: doc.document_type || '' },
     };
   }
   // Documentos de una empresa: por CUIT (el OCR no siempre lo trae) o por razón social (sin "S.A.", "SA", "SRL"…).
-  const razonClave = t => normalizar(t).replace(/[.,]/g, ' ').replace(/\b(s ?a ?u?|s ?r ?l|s ?a ?s|sociedad anonima|ltda|limitada|sa|srl|sas|sau)\b/g, ' ').replace(/\s+/g, ' ').trim();
+  // Abreviaturas de cooperativas ("PLURAL COOP DE CRED CONS Y VIV LTDA").
+  const ABREV_RAZON = { coop: 'cooperativa', cred: 'credito', cons: 'consumo', viv: 'vivienda', serv: 'servicios', prov: 'provision' };
+  const razonClave = t => normalizar(String(t || '').replace(/\((?:ex|antes)\b[^)]*\)|\s-\s*(?:ex|antes)\b.*$|\s-\s*cuenta cerrada.*$/i, ' ')).replace(/[.,]/g, ' ')
+    .replace(/\b(s ?a ?u?|s ?r ?l|s ?a ?s|sociedad anonima|ltda|limitada|sa|srl|sas|sau)\b/g, ' ').replace(/\b(coop|cred|cons|viv|serv|prov)\b/g, w => ABREV_RAZON[w]).replace(/\s+/g, ' ').trim();
+  // Palabras que pueden sobrar en una razón social sin que sea otra empresa ("… SOCIEDAD DE BOLSA", "… ALYC Y AN PROPIO").
+  const RAZON_EXTRA = new Set(['compania', 'sociedad', 'de', 'del', 'la', 'el', 'y', 'bolsa', 'agente', 'agentes', 'liquidacion', 'compensacion', 'integral', 'alyc', 'an', 'propio',
+    'negociacion', 'argentina', 'sucursal', 'anonima', 'colectiva', 'unipersonal', 'comercial', 'industrial', 'financiera', 'saic', 'saci', 'sacif', 'saicf', 'sacifi', 'saicfi', 'sh', 'scs', 'sca']);
+  // Palabras comunes que solas no identifican a una empresa.
+  const RAZON_GENERICA = new Set(['cooperativa', 'mercado', 'banco', 'grupo', 'inversiones', 'valores', 'capital', 'seguros', 'credito', 'consumo', 'vivienda',
+    'servicios', 'asociacion', 'mutual', 'fondos', 'fondo', 'fideicomiso', 'securities', 'bursatil', 'financiera', 'argentina', 'asset', 'management', 'partners', 'holding']);
+  const extraOk = w => RAZON_EXTRA.has(w) || w.length <= 2; // iniciales ("C.I.A.S.A.")
+  const sinExtra = (corto, largo) => largo.split(' ').filter(w => w && !corto.split(' ').includes(w)).every(extraOk);
   // Razones sociales parecidas, con errores de tipeo ("INTERPRISE" / "ENTERPRISES"): cada palabra de la más corta está
   // en la otra, igual o a 2 letras de distancia (palabras de más de 4 letras).
   function distancia(a, b) {
@@ -1558,7 +1629,41 @@
     // Una palabra con letras agregadas adelante es otra palabra ("CAPITAL" / "INCAPITAL"); al final es un plural
     // ("SERVICE" / "SERVICES").
     const otra = (w, v) => { const [c, l] = w.length <= v.length ? [w, v] : [v, w]; return l.includes(c) && !l.startsWith(c); };
-    return x.every(w => y.some(v => v === w || (w.length > 4 && v.length > 4 && !otra(w, v) && distancia(w, v) <= 2)));
+    // Una sola palabra: hasta 1 letra de diferencia ("CETROGAR" no es "METROGAS").
+    const tope = x.length === 1 ? 1 : 2;
+    const parecida = (w, v) => v === w || (w.length > 4 && v.length > 4 && !otra(w, v) && distancia(w, v) <= tope);
+    // Las palabras de más en la razón más larga tienen que ser de forma ("SOCIEDAD DE BOLSA"), no otro nombre ("Y CIA").
+    return x.every(w => y.some(v => parecida(w, v))) && y.filter(v => !x.some(w => parecida(w, v))).every(extraOk);
+  }
+  // ¿La razón social del Excel ("CLIENTE") corresponde al nombre del archivo? Un resumen copiado de otra empresa
+  // conserva el CLIENTE de la original ("FIORITO FACTORING SA.xlsx" con CLIENTE "ABUT S.A"). Basta una palabra
+  // distintiva en común, un prefijo ("BCO" / "BANCO") o la sigla ("CAMMESA").
+  function razonDelArchivo(cliente, archivo) {
+    const pal = t => razonClave(String(t || '').replace(/\.xlsx?$/i, '').replace(/[()_\-]/g, ' ')).split(' ').filter(w => w.length >= 2);
+    const x = pal(cliente), y = pal(archivo);
+    if (!x.length || !y.length) return true;
+    if (x.join('') === y.join('')) return true;
+    const dist = w => w.length >= 3 && !RAZON_EXTRA.has(w) && !RAZON_GENERICA.has(w);
+    const igual = (w, v) => w === v || (w.length >= 3 && v.length >= 3 && (w.startsWith(v) || v.startsWith(w))) || (w.length > 4 && v.length > 4 && distancia(w, v) <= 1);
+    if (x.some(w => dist(w) && y.some(v => dist(v) && igual(w, v)))) return true;
+    // Sigla con sílabas ("FECOVITA" = FEderación de COoperativas VITivinícolas Argentinas).
+    const silabas = (t, ws, usadas) => !t ? usadas >= 2 : ws.some((w, i) => [...Array(Math.min(w.length, t.length))].some((_, k) => t.startsWith(w.slice(0, k + 1)) && silabas(t.slice(k + 1), ws.slice(i + 1), usadas + 1)));
+    if ((y.length === 1 && y[0].length >= 4 && silabas(y[0], x, 0)) || (x.length === 1 && x[0].length >= 4 && silabas(x[0], y, 0))) return true;
+    const sigla = ws => ws.filter(w => !['de', 'del', 'la', 'el', 'y'].includes(w)).map(w => w[0]).join('');
+    const jx = x.join(''), jy = y.join('');
+    return [sigla(x), jx].some(a => a.length >= 3 && (a === sigla(y) || jy.includes(a))) || [sigla(y), jy].some(a => a.length >= 3 && jx.includes(a));
+  }
+  // Razón social de los documentos de Complif con ese CUIT (la del poder más usado), o ''.
+  function razonPorCuit(docs, cuit) {
+    const c = complifNumero(cuit);
+    if (c.length !== 11) return '';
+    const cuenta = new Map();
+    (docs || []).forEach(doc => {
+      const p = leidoDe(doc);
+      if (!p || p.autoridades || p.cuit_empresa !== c || !p.razon_social) return;
+      cuenta.set(p.razon_social, (cuenta.get(p.razon_social) || 0) + 1);
+    });
+    return [...cuenta].sort((a, b) => b[1] - a[1]).map(e => e[0])[0] || '';
   }
   // Texto completo de un documento (para buscar el CUIT): se calcula una vez por documento (el chequeo masivo recorre
   // todos los documentos de Complif por cada empresa).
@@ -1566,7 +1671,8 @@
   const textoDoc = doc => { if (!TEXTO_DOC.has(doc)) TEXTO_DOC.set(doc, JSON.stringify(doc)); return TEXTO_DOC.get(doc); };
   const LEIDO_DOC = new WeakMap();
   const leidoDe = doc => { if (!LEIDO_DOC.has(doc)) LEIDO_DOC.set(doc, complifEsActa(doc) ? actaDesdeComplif(doc) : poderDesdeComplif(doc)); return LEIDO_DOC.get(doc); };
-  function complifDeEmpresa(docs, cuit, nombre) {
+  function complifDeEmpresa(docs, cuit, nombre, opciones) {
+    const soloCuit = !!(opciones && opciones.soloCuit);
     const c = complifNumero(cuit);
     // Sin razón social: la del primer documento que coincide por CUIT (así entran las actas, que no traen CUIT).
     if (!nombre && c.length === 11) {
@@ -1574,16 +1680,28 @@
       if (d) { const p = complifEsActa(d) ? actaDesdeComplif(d) : poderDesdeComplif(d); if (p) nombre = p.razon_social; }
     }
     const n = razonClave(nombre);
+    // Alias entre paréntesis ("NSS SA (IPLAN)", "… SOCIEDAD ANONIMA (CAMMESA)"): también valen como nombre.
+    // (Un alias genérico como "(COOPERATIVA LIMITADA)" no cuenta.)
+    const alias = t => [...String(t || '').matchAll(/\(([^)]+)\)/g)].map(m => m[1]).filter(x => !/^\s*(ex|antes)\b/i.test(x)).map(x => razonClave(x))
+      .filter(x => x.length >= 3 && !x.split(' ').every(w => RAZON_EXTRA.has(w) || RAZON_GENERICA.has(w)));
+    const sinParen = t => razonClave(String(t || '').replace(/\([^)]*\)/g, ' '));
+    const nombres = [...new Set([n, sinParen(nombre), ...alias(nombre)].filter(Boolean))];
+    const mismaRazon = (dnTexto) => { const ds = [...new Set([razonClave(dnTexto), sinParen(dnTexto), ...alias(dnTexto)].filter(Boolean))];
+      // Nombre de una sola palabra distintiva ("PLURALCOOP") que aparece como palabra en la razón del documento.
+      const palabra = (a, b) => !a.includes(' ') && a.length >= 6 && !RAZON_GENERICA.has(a) && b.split(' ').includes(a);
+      return nombres.some(a => ds.some(b => a === b || palabra(a, b) || palabra(b, a) || (a.length > 5 && b.length > 5 && ((b.includes(a) && sinExtra(a, b)) || (a.includes(b) && sinExtra(b, a)))) || razonParecida(a, b))); };
     const poderes = [], actas = [];
     // Vínculos de Complif (relations: id, name, type): un documento es de la empresa si está vinculado a ella, aunque el
     // OCR diga otra razón social (un poder otorgado por varias empresas). Se toman los vínculos de los documentos que
     // coinciden por CUIT y los que tienen el nombre de la empresa.
     const rels = doc => (Array.isArray(doc.relations) ? doc.relations : []).filter(x => x && typeof x === 'object');
-    const relDeEmpresa = x => { const r = razonClave(x.name); return !!(n && r && (r === n || razonParecida(n, r))); };
+    const relDeEmpresa = x => !!(n && x.name && mismaRazon(x.name));
     const idsEmpresa = new Set();
     (docs || []).forEach(doc => {
-      const p0 = complifEsActa(doc) ? null : leidoDe(doc);
-      const porCuit = c && p0 && p0.cuit_empresa === c;
+      const p0 = leidoDe(doc);
+      // soloCuit (el Excel de una empresa con la razón social de otra): por nombre solo si el documento no es de otro CUIT.
+      const otroCuit = x => soloCuit && c.length === 11 && complifNumero(x && x.cuit_empresa).length === 11 && complifNumero(x.cuit_empresa) !== c;
+      const porCuit = (c && p0 && !p0.autoridades && p0.cuit_empresa === c) || (p0 && n && p0.razon_social && !otroCuit(p0) && mismaRazon(p0.razon_social));
       rels(doc).forEach(x => { if (x.id != null && (porCuit || relDeEmpresa(x))) idsEmpresa.add(String(x.id)); });
     });
     const vinculado = doc => rels(doc).some(x => (x.id != null && idsEmpresa.has(String(x.id))) || relDeEmpresa(x));
@@ -1597,7 +1715,8 @@
       const dn = razonClave(p.razon_social || complifCampo(doc, ['razon_social', 'company_name']));
       // El CUIT se busca con guiones (30-70819244-5, como lo guarda Complif) y sin guiones, en cualquier campo del documento.
       const enDoc = c.length === 11 && (texto => texto.includes(formatoCuit(c)) || texto.includes(c))(textoDoc(doc));
-      if (!((c && (dc === c || enDoc)) || (n && dn && (dn === n || (n.length > 5 && (dn.includes(n) || n.includes(dn))) || razonParecida(n, dn))))) return;
+      const dcOtro = soloCuit && c.length === 11 && complifNumero(dc).length === 11 && complifNumero(dc) !== c;
+      if (!((c && (dc === c || enDoc)) || (n && dn && !dcOtro && mismaRazon(p.razon_social || complifCampo(doc, ['razon_social', 'company_name']))))) return;
       p.complif.creado = doc.ocr_created_at || doc.created_at || '';
       (p.autoridades ? actas : poderes).push(p);
     });
@@ -1632,7 +1751,7 @@
   const comboComparable = c => c.split('+').map(grupoComparable).sort().join('+');
   function controlResumen(unico, cliente, actas) {
     const firmantes = (cliente && cliente.firmantes) || [];
-    const presidentes = actas ? presidentesDeActas(actas) : [];
+    const presidentes = (actas ? presidentesDeActas(actas) : []).concat(((cliente && cliente.presidentes) || []).map(n => ({ nombre_completo: n })));
     const textoDe = (f, res) => `${res.texto || ''} ${f.observacion || ''}`;
     const base = firmantes.map(f => {
       const ids = [f.cuit, f.dni].filter(Boolean).map(x => String(Number(String(x).replace(/\D/g, ''))));
@@ -1682,7 +1801,7 @@
       if ((res.grupo === 'D' || dicePres) && (presActa || dicePres) && !est.some(e => e.grupo === res.grupo)) {
         fila.presidente = true;
         fila.puntos.push({ punto: 'Grupo', ok: presActa ? true : null, resumen: res.grupo || 'Presidente',
-          poder: presActa ? 'Presidente según el acta de designación: todas las facultades' : 'Presidente según el resumen (no está en las actas de Complif); en los poderes: grupo ' + [...new Set(est.map(e => e.grupo))].join(', ') });
+          poder: presActa ? 'Presidente (o socio gerente) según el acta o el resumen: todas las facultades' : 'Presidente según el resumen (no está en las actas de Complif); en los poderes: grupo ' + [...new Set(est.map(e => e.grupo))].join(', ') });
         return fila;
       }
       const tipos = [...new Set(est.map(e => e.tipo_de_firma).filter(Boolean))];
@@ -1715,6 +1834,9 @@
           : ok && usados.length && !grupos.includes(res.grupo) ? { punto: 'Grupo', ok: /^[A-Z]$/.test(usados[0]) ? null : true, resumen: res.grupo, poder: grupos.join(', '),
             detalle: 'el resumen nombra ' + usados.map(g => `"${equiv[g]}" al grupo ${g} del poder`).join(' y ') }
           : okOtro ? { punto: 'Grupo', ok: true, resumen: res.grupo, poder: grupos.join(', ') + ' (y ' + otros.join(', ') + ' en otro poder)' }
+          // También está en un poder que no asigna grupos (letra puesta por la página): la letra del resumen puede ser esa.
+          : !ok && est.some(e => e.grupoAutomatico) ? { punto: 'Grupo', ok: null, resumen: res.grupo, poder: grupos.join(', '),
+            detalle: 'uno de sus poderes no asigna grupos (letra ' + est.filter(e => e.grupoAutomatico).map(e => e.grupo).join(', ') + ' puesta según las facultades)' }
           : { punto: 'Grupo', ok, resumen: res.grupo, poder: grupos.join(', ') });
       }
       // Combinaciones: se controlan cuando el resumen da firma conjunta y las lista.
@@ -1889,7 +2011,7 @@
   }
 
   function leerClienteBastanteo(hojas) {
-    const r = { cliente: '', cuit: '', firmantes: [], escrituras: [], marcas: {} };
+    const r = { cliente: '', cuit: '', firmantes: [], escrituras: [], marcas: {}, presidentes: [] };
     const iso = v => {
       if (v instanceof Date && !isNaN(v)) return `${v.getFullYear()}-${ceros(v.getMonth() + 1, 2)}-${ceros(v.getDate(), 2)}`;
       if (typeof v === 'number' && v > 20000 && v < 80000) { const d = new Date(Math.round((v - 25569) * 864e5)); return `${d.getUTCFullYear()}-${ceros(d.getUTCMonth() + 1, 2)}-${ceros(d.getUTCDate(), 2)}`; }
@@ -1902,10 +2024,31 @@
         const f = (fila || []).map(c => (c == null ? '' : c));
         const n = f.map(c => normalizar(c));
         // Datos del cliente.
+        // El valor de cada rótulo es la primera celda con dato a su derecha. Algunos resúmenes tienen el encabezado cruzado
+        // ("CLIENTE 30716908816 … CUIT ACA VALORES SA"): el número de 11 dígitos es el CUIT y el texto, la razón social.
+        // Un rol ("PRESIDENTE / REPRESENTANTE LEGAL", "SOCIO GERENTE") nunca es la razón social.
+        const ES_ROL = /^(presidente|vicepresidente|socio|gerente|representante|apoderad|director|mandato|acta|cuit|cdi|cuentas)\b/;
+        const valorDe = k => { const v = f.slice(k + 1).map(c => String(c).trim()).find(Boolean); return v == null ? '' : v; };
+        const tomar = v => {
+          const d = String(v).replace(/[\s.-]/g, '');
+          if (/^\d{11}$/.test(d)) { if (!r.cuit) r.cuit = d; return; }
+          if (!r.cliente && v && !/^\d+$/.test(d) && !ES_ROL.test(normalizar(v))) r.cliente = String(v).trim();
+        };
         const ic = n.indexOf('cliente');
-        if (ic > -1 && !r.cliente) { const v = f.slice(ic + 1).find(c => String(c).trim() && !/^\d+$/.test(String(c))); if (v) r.cliente = String(v).trim(); }
+        if (ic > -1) tomar(valorDe(ic));
+        // Encabezado del resumen: "PRESIDENTE", "PRESIDENTE / REPRESENTANTE LEGAL", "SOCIO GERENTE", "REPRESENTANTE LEGAL"
+        // y al lado el nombre: esa persona firma como presidente (todas las facultades).
+        if (!r.firmantes.length) n.forEach((c, k) => {
+          if (!/^(presidente|socio gerente|gerente|representante legal)\b/.test(c)) return;
+          const v = f.slice(k + 1).map(x => String(x).trim()).find(x => x && /^[A-Za-zÁÉÍÓÚÑáéíóúñ¥.'\s-]+$/.test(x) && x.split(/\s+/).length >= 2 && !/^(cuit|mandato|acta|cuentas)\b/i.test(x));
+          if (v && !r.presidentes.includes(v)) r.presidentes.push(v);
+        });
         const icu = n.indexOf('cuit') > -1 ? n.indexOf('cuit') : n.indexOf('cdi');
-        if (icu > -1 && !r.cuit) { const v = f.slice(icu + 1).map(c => String(c).replace(/\D/g, '')).find(c => c.length === 11); if (v) r.cuit = v; }
+        // (Una fila de encabezado de firmantes también tiene "Cuit": esa no es el dato del cliente.)
+        if (icu > -1 && !n.some(c => /firmante|nombre/.test(c))) {
+          tomar(valorDe(icu));
+          if (!r.cuit) { const v = f.slice(icu + 1).map(c => String(c).replace(/\D/g, '')).find(c => c.length === 11); if (v) r.cuit = v; }
+        }
         // Encabezado de firmantes: una columna de identificación ("Cuit", "CUIL", "DNI / CUIL"…) y una de nombre.
         const iNom = n.findIndex(c => /nombre/.test(c) && /firmante|apellido|nombre/.test(c));
         // Identificación: CUIT, CUIL, DNI o, para extranjeros, CI / cédula / CDI / pasaporte ("CI URUGUAY").
@@ -2060,16 +2203,47 @@
     const ra = razonClave(a.razon_social), rb = razonClave(b.razon_social);
     return !ra || !rb || ra === rb || razonParecida(ra, rb);
   }
+  const otorga = p => (p.usos || []).some(u => u.tipo || String(u.descripcion || '').trim());
+  // Poder complementario que incorpora apoderados a un grupo de un poder anterior ("es incorporada como integrante del
+  // Grupo B … con las mismas facultades"): hereda los usos de firma del poder anterior en los que participa ese grupo.
+  function heredarComplementarios(vigentes) {
+    vigentes.forEach(p => {
+      const a = p.alcance || {};
+      if (!(a.complementary === true || /\bincorporad[oa]s?\b|\bse\s+incorpora|mismas\s+facultades/i.test(textoPoder(p)))) return;
+      const gs = [...new Set(p.apoderados.map(x => letraGrupo(x.grupo)).filter(Boolean))];
+      if (!gs.length) return;
+      const vistas = new Set(p.usos.map(u => (u.tipo || '') + '|' + (u.combinaciones || []).join(',')));
+      vigentes.filter(q => q !== p && !q.complementarioDe && mismaEmpresa(p, q) && q.fecha_emision && p.fecha_emision && q.fecha_emision < p.fecha_emision)
+        .forEach(q => q.usos.forEach(u => {
+          const toca = (u.combinaciones || []).some(c => c.split('+').some(x => gs.includes(x))) || (u.grupos || []).some(x => gs.includes(x));
+          const k = (u.tipo || '') + '|' + (u.combinaciones || []).join(',');
+          if (!toca || vistas.has(k)) return;
+          vistas.add(k);
+          p.usos.push(Object.assign({}, u, { heredadoDe: q.fecha_emision }));
+        }));
+      p.complementarioDe = true;
+    });
+  }
   function aplicarRevocatorias(poderes) {
     const revocan = poderes.filter(revocaPoder);
-    if (!revocan.length) return { vigentes: poderes.slice(), anulados: [], quitados: [] };
-    const anulados = [], quitados = [];
+    if (!revocan.length) { const vigentes = poderes.slice(); heredarComplementarios(vigentes); return { vigentes, anulados: [], quitados: [], avisos: [] }; }
+    const anulados = [], quitados = [], avisos = [];
     const vigentes = poderes.filter(p => {
       for (const r of revocan) {
         if (r === p || !r.fecha_emision || !p.fecha_emision || !(p.fecha_emision < r.fecha_emision) || !mismaEmpresa(r, p)) continue;
+        // Un poder que se remite al anterior como vigente ("quedan sometidos a … la Escritura Matriz N° 415 … mientras
+        // subsista el Poder Matriz") lo complementa: no lo revoca.
+        const tRev = textoPoder(r);
+        if (/sometid[oa]s?\s+a|se\s+remite|por\s+reproducida|mientras\s+subsista|poder\s+matriz|escritura\s+matriz/i.test(tRev)
+          && (!p.deed_number || new RegExp(`\\b${String(p.deed_number).replace(/\D/g, '')}\\b`).test(tRev) || /matriz/i.test(tRev))) continue;
+        // El revocante sin apoderados leídos (el OCR no los trajo): no se puede saber a quién designa, así que no deja a
+        // los anteriores sin poder. Queda el aviso para revisarlo.
+        if (!r.apoderados.length && (r.usos || []).some(u => u.tipo)) { if (!avisos.some(a => a.poder === r)) avisos.push({ poder: r, motivo: 'revoca los poderes anteriores, pero no trae apoderados (revisar el OCR): se mantienen los anteriores' }); continue; }
         const tr = textoRevocatorio(r);
-        const nombrados = p.apoderados.filter(a => nombradoEn(a, tr));
-        const parcial = /parcial|[uú]nicamente\s+(con\s+)?respecto|s[oó]lo\s+(con\s+)?respecto|en\s+cuanto\s+a/i.test(tr) || (nombrados.length && nombrados.length < p.apoderados.length);
+        // Una revocación sin usos de firma que lista apoderados (Complif pone ahí a los revocados) es parcial: solo ellos.
+        const listados = !otorga(r) && r.apoderados.length ? p.apoderados.filter(a => r.apoderados.some(x => firmanteDe(x, [{ nombre: a.nombre_completo, dni: a.dni, cuit: a.cuit }]))) : [];
+        const nombrados = [...new Set(p.apoderados.filter(a => nombradoEn(a, tr)).concat(listados))];
+        const parcial = /parcial|[uú]nicamente\s+(con\s+)?respecto|s[oó]lo\s+(con\s+)?respecto|en\s+cuanto\s+a/i.test(tr) || listados.length > 0 || (nombrados.length && nombrados.length < p.apoderados.length);
         if (parcial) {
           if (!nombrados.length) continue;
           nombrados.forEach(a => quitados.push({ apoderado: a, poder: p, motivo: `revocado por el poder del ${r.fecha_emision}` }));
@@ -2082,10 +2256,12 @@
         return false;
       }
       const a = p.alcance || {};
-      if (revocaPoder(p) && a.new === false && a.complementary === false) { anulados.push({ poder: p, motivo: 'revocatoria: no otorga facultades' }); return false; }
+      // Solo revoca (no tiene usos de firma propios): no otorga facultades. Si trae usos, otorga aunque Complif diga "new: false".
+      if (revocaPoder(p) && !otorga(p)) { anulados.push({ poder: p, motivo: 'revocatoria: no otorga facultades' }); return false; }
       return true;
     });
-    return { vigentes, anulados, quitados };
+    heredarComplementarios(vigentes);
+    return { vigentes, anulados, quitados, avisos };
   }
 
   // Firmantes de la planilla que no aparecen como apoderados en ningún poder.
@@ -3441,12 +3617,12 @@ try {
     return errores;
   }
 
-  const api = {
+  const api = { razonDelArchivo, razonPorCuit,
     PROVINCIAS, FIJOS, COLS_REPORTE, FORMATOS, COLUMNAS_MONTO, CAMPOS_INTERFAZ,
     leerTxtMeli, bancoMeliDeTxt, bancosParaMeli,
     sqlExtraccionCartera, bookmarkletCartera, scriptPowerShellCartera, comandoTareaCartera, IMPORTES_CARTERA,
     NO_COBIS, ultimoDiaHabil, fechasNoCobis, lineaNoCobis, txtNoCobis, loteApiNoCobis, scriptPowerShellNoCobis, scriptPowerShellProbarNoCobis, scriptPowerShellAgenteNoCobis, cmdEnvioNoCobis,
-    leerCartera, BASTANTEO_CATALOGO, BASTANTEO_CLAVES, BASTANTEO_EXTRA, leerPoderesOcr, leerAutoridadesOcr, COMPLIF_TIPOS, poderDesdeComplif, actaDesdeComplif, complifDeEmpresa, controlResumen, usoDelResumen, aplicarRevocatorias, poderesFirmantesD, gruposDelUso, usoCompleto, tokensDe, combosDeClausula, poderDelPresidente, leerClienteBastanteo, cuitPorDni, formatoCuit, firmanteDe, firmantesSinPoder, jsonPoder, jsonBastanteoUnico, leerInventarioGarantias, INVENTARIOS_CONTABLES, INVENTARIO_DENOMINACION, INVENTARIO_FIRMAS, fechaReporteIso, fechaInventarioDesdeReporte, leerPadronDesdeInventarios, leerBaseEntes, unirPadron, armarInventariosContables, leerCom3500, leerTcApiBcra, elegirTipoCambio, numeroEnLetras, daxCarteraPowerBI, daxDiagnosticoPowerBI, daxSaldoDeuda, armarSaldoDeuda, leerFilasPowerBI, sugerirColumnaCartera, columnasNumericasCartera, agruparCartera, valoresDistintos, sqlCartera,
+    leerCartera, BASTANTEO_CATALOGO, BASTANTEO_CLAVES, BASTANTEO_EXTRA, leerPoderesOcr, leerAutoridadesOcr, COMPLIF_TIPOS, poderDesdeComplif, actaDesdeComplif, complifDeEmpresa, controlResumen, usoDelResumen, aplicarRevocatorias, poderesFirmantesD, presidentesDeActas, gruposDelUso, usoCompleto, tokensDe, combosDeClausula, poderDelPresidente, leerClienteBastanteo, cuitPorDni, formatoCuit, firmanteDe, firmantesSinPoder, jsonPoder, jsonBastanteoUnico, leerInventarioGarantias, INVENTARIOS_CONTABLES, INVENTARIO_DENOMINACION, INVENTARIO_FIRMAS, fechaReporteIso, fechaInventarioDesdeReporte, leerPadronDesdeInventarios, leerBaseEntes, unirPadron, armarInventariosContables, leerCom3500, leerTcApiBcra, elegirTipoCambio, numeroEnLetras, daxCarteraPowerBI, daxDiagnosticoPowerBI, daxSaldoDeuda, armarSaldoDeuda, daxSaldoDeudaDetalle, armarDeudaDetalle, leerFilasPowerBI, sugerirColumnaCartera, columnasNumericasCartera, agruparCartera, valoresDistintos, sqlCartera,
     leerCsv, encabezadosEjemplo, leerDefinicionInterfaz, sugerirColumna, detectarHojaInterfaz,
     normalizar, provinciaPorNombre, crearBuscadorBancoPorNombre, round2, aNumero, aFechaSerial, aCodigoBanco,
     fechaDDMMYY, fechaYYYYMMDD, fechaLegible, hoyDDMMYY,

@@ -1226,11 +1226,11 @@
   });
   // ------------------------------------------------------------ Saldo de deuda (Power BI, todos los negocios)
   let deuda = null, deudaAutoHecho = false;
-  // Por defecto, vencidas hasta ayer: la cobranza de hoy todavía no está bajada en la cartera.
-  const ayerIso = () => { const d = new Date(); d.setDate(d.getDate() - 1); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+  // Por defecto, vencidas hasta antes de ayer: la cobranza de ayer y de hoy puede no estar bajada en la cartera.
+  const anteayerIso = () => { const d = new Date(); d.setDate(d.getDate() - 2); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
   const nombreMes = m => { const [a, n] = String(m).split('-'); return ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'][Number(n) - 1] + '-' + a; };
   async function alAbrirDeuda() {
-    if (!$('deudaHasta').value) $('deudaHasta').value = ayerIso();
+    if (!$('deudaHasta').value) $('deudaHasta').value = anteayerIso();
     if (deudaAutoHecho || deuda || !almacen) return;
     deudaAutoHecho = true;
     const f = datos().nocobisFlujo || {};
@@ -1246,8 +1246,9 @@
     b.disabled = true;
     $('deudaEstado').innerHTML = '<p class="sub">Consultando Power BI…</p>';
     try {
-      const hasta = $('deudaHasta').value || ayerIso();
+      const hasta = $('deudaHasta').value || anteayerIso();
       deuda = M.armarSaldoDeuda(await consultarPbi(M.daxSaldoDeuda({ hasta, periodo: $('deudaPeriodo').value })));
+      deuda.opciones = { hasta, periodo: $('deudaPeriodo').value };
       renderDeuda();
       const sm = deuda.sinMarcar || [];
       $('deudaEstado').innerHTML = (sm.length ? aviso('warn', `<b>Estado sin actualizar en Power BI:</b> ` + sm.map(a => `${esc(a.fiduciante)}: ${fmtEntero(a.cuotas)} cuotas vencidas siguen en estado Normal ($ ${fmtMonto(a.valor)})`).join(' · ') +
@@ -1273,6 +1274,94 @@
       `<th class="num">${fmtMonto(d.pp)}</th><th class="num">${fmtMonto(d.saldoDeuda)}</th></tr></tfoot></table>`;
   }
   $('btnDeudaTraer').addEventListener('click', () => traerDeuda());
+  // Tramos de atraso (días desde el vencimiento hasta la fecha de corte).
+  const TRAMOS_ATRASO = [['0 a 30 días', 0, 30], ['31 a 60 días', 31, 60], ['61 a 90 días', 61, 90], ['91 a 180 días', 91, 180], ['Más de 180 días', 181, Infinity]];
+  // Un tono, de claro a oscuro: más atraso, más oscuro (rampa ordinal validada sobre fondo claro).
+  const COLORES_ATRASO = ['#86b6ef', '#5598e7', '#2a78d6', '#1c5cab', '#104281'];
+  // Gráfico de barras del saldo de deuda por tramo, como PNG para el Excel (ExcelJS no arma gráficos nativos).
+  function graficoAtraso(tramos, total) {
+    const W = 960, H = 460, esc2 = 2, cv = document.createElement('canvas');
+    cv.width = W * esc2; cv.height = H * esc2;
+    const g = cv.getContext('2d'); g.scale(esc2, esc2);
+    g.fillStyle = '#ffffff'; g.fillRect(0, 0, W, H);
+    const fuente = '"Segoe UI", Arial, sans-serif';
+    g.fillStyle = '#1f1f1f'; g.font = `600 18px ${fuente}`; g.fillText('Saldo de deuda por días de atraso', 32, 36);
+    g.fillStyle = '#6b6b6b'; g.font = `13px ${fuente}`; g.fillText('Impago + saldo de Paga Parcial, en pesos', 32, 58);
+    const x0 = 80, y0 = H - 64, alto = y0 - 100, ancho = W - x0 - 40;
+    const max = Math.max(...tramos.map(t => t.saldo), 1);
+    const paso = Math.pow(10, Math.floor(Math.log10(max))), tope = Math.ceil(max / paso) * paso;
+    const abrev = v => v >= 1e9 ? (v / 1e9).toFixed(1).replace('.', ',') + ' MM' : v >= 1e6 ? (v / 1e6).toFixed(1).replace('.', ',') + ' M' : v >= 1e3 ? (v / 1e3).toFixed(0) + ' mil' : String(Math.round(v));
+    // Grilla recesiva y eje.
+    g.strokeStyle = '#e6e6e3'; g.lineWidth = 1; g.fillStyle = '#6b6b6b'; g.font = `12px ${fuente}`; g.textAlign = 'right';
+    for (let k = 0; k <= 4; k++) { const y = y0 - alto * k / 4; g.beginPath(); g.moveTo(x0, y); g.lineTo(x0 + ancho, y); g.stroke(); g.fillText('$ ' + abrev(tope * k / 4), x0 - 8, y + 4); }
+    const n = tramos.length, hueco = ancho / n, bw = Math.min(110, hueco * 0.56);
+    tramos.forEach((t, i) => {
+      const h = alto * t.saldo / tope, x = x0 + hueco * i + (hueco - bw) / 2, y = y0 - h, r = Math.min(4, h / 2);
+      g.fillStyle = COLORES_ATRASO[i];
+      g.beginPath(); g.moveTo(x, y0); g.lineTo(x, y + r); g.quadraticCurveTo(x, y, x + r, y); g.lineTo(x + bw - r, y); g.quadraticCurveTo(x + bw, y, x + bw, y + r); g.lineTo(x + bw, y0); g.closePath(); g.fill();
+      g.textAlign = 'center';
+      g.fillStyle = '#1f1f1f'; g.font = `600 13px ${fuente}`; g.fillText('$ ' + abrev(t.saldo), x + bw / 2, y - 22);
+      g.fillStyle = '#6b6b6b'; g.font = `12px ${fuente}`; g.fillText((total ? (100 * t.saldo / total).toFixed(1).replace('.', ',') : '0') + ' %', x + bw / 2, y - 7);
+      g.fillStyle = '#3d3d3d'; g.font = `13px ${fuente}`; g.fillText(t.nombre, x0 + hueco * i + hueco / 2, y0 + 22);
+      g.fillStyle = '#6b6b6b'; g.font = `12px ${fuente}`; g.fillText(t.creditos.toLocaleString('es-AR') + (t.creditos === 1 ? ' crédito' : ' créditos'), x0 + hueco * i + hueco / 2, y0 + 40);
+    });
+    g.strokeStyle = '#9a9a96'; g.beginPath(); g.moveTo(x0, y0); g.lineTo(x0 + ancho, y0); g.stroke();
+    return cv.toDataURL('image/png');
+  }
+  // Solapa "Por días de atraso": saldo por tramo (tabla + gráfico) y apertura por fiduciante.
+  function agregarHojaAtraso(wb, d, det) {
+    const corte = new Date(d.hasta + 'T00:00:00');
+    const dias = vto => Math.max(0, Math.round((corte - new Date(vto + 'T00:00:00')) / 864e5));
+    const tramoDe = n => TRAMOS_ATRASO.findIndex(([, a, b]) => n >= a && n <= b);
+    const nuevo = nombre => ({ nombre, creditos: new Set(), cuotas: 0, impago: 0, cuotasPP: 0, pp: 0, saldo: 0 });
+    const tramos = TRAMOS_ATRASO.map(([n]) => nuevo(n));
+    const porFid = new Map();
+    det.forEach(x => {
+      if (!x.vto) return;
+      const k = tramoDe(dias(x.vto)), t = tramos[k];
+      if (!porFid.has(x.fiduciante)) porFid.set(x.fiduciante, { cuit: x.cuitFid, tramos: TRAMOS_ATRASO.map(() => 0), total: 0 });
+      const f = porFid.get(x.fiduciante);
+      t.creditos.add(x.cuit + '|' + x.credito); t.cuotas += x.cuotas; t.impago += x.impago; t.cuotasPP += x.cuotasPP; t.pp += x.pp; t.saldo += x.saldo;
+      f.tramos[k] += x.saldo; f.total += x.saldo;
+    });
+    tramos.forEach(t => { t.creditos = t.creditos.size; ['impago', 'pp', 'saldo'].forEach(c => { t[c] = M.round2(t[c]); }); });
+    const total = M.round2(tramos.reduce((a, t) => a + t.saldo, 0));
+    const ws = wb.addWorksheet('Por días de atraso');
+    ws.addRow([`Saldo de deuda por días de atraso (desde el vencimiento hasta el ${fechaAr(d.hasta)}) · foto de cartera ${fechaAr(d.periodo)}`]).font = { bold: true };
+    ws.addRow([]);
+    const pintar = fila => { fila.font = { bold: true, color: { argb: 'FFFFFFFF' } }; fila.eachCell(c => { c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFC8102E' } }; }); };
+    pintar(ws.addRow(['Días de atraso', 'Créditos', 'Cuotas impagas', 'Impago', 'Cuotas Paga Parcial', 'Saldo Paga Parcial', 'Saldo de deuda', '% del total']));
+    tramos.forEach((t, i) => {
+      const fila = ws.addRow([t.nombre, t.creditos, t.cuotas, t.impago, t.cuotasPP, t.pp, t.saldo, total ? t.saldo / total : 0]);
+      fila.getCell(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF' + COLORES_ATRASO[i].slice(1) } };
+      fila.getCell(1).font = { color: { argb: i < 2 ? 'FF1F1F1F' : 'FFFFFFFF' }, bold: true };
+    });
+    ws.addRow(['Total', tramos.reduce((a, t) => a + t.creditos, 0), tramos.reduce((a, t) => a + t.cuotas, 0), M.round2(tramos.reduce((a, t) => a + t.impago, 0)),
+      tramos.reduce((a, t) => a + t.cuotasPP, 0), M.round2(tramos.reduce((a, t) => a + t.pp, 0)), total, total ? 1 : 0]).font = { bold: true };
+    ws.getColumn(1).width = 40; [2, 3, 5].forEach(k => { ws.getColumn(k).width = 14; ws.getColumn(k).numFmt = '#,##0'; });
+    [4, 6, 7].forEach(k => { ws.getColumn(k).width = 20; ws.getColumn(k).numFmt = '#,##0.00'; }); ws.getColumn(8).width = 12; ws.getColumn(8).numFmt = '0.0%';
+    // Gráfico debajo de la tabla.
+    try {
+      const img = wb.addImage({ base64: graficoAtraso(tramos, total), extension: 'png' });
+      ws.addImage(img, { tl: { col: 0, row: 10 }, ext: { width: 960, height: 460 } });
+    } catch (e) { ws.getCell('A11').value = 'No se pudo dibujar el gráfico: ' + (e.message || e); }
+    // Apertura por fiduciante (debajo del gráfico).
+    const ini = 36;
+    ws.getRow(ini).getCell(1).value = 'Por fiduciante'; ws.getRow(ini).font = { bold: true };
+    const enc = ws.getRow(ini + 1);
+    ['Fiduciante', 'CUIT', ...TRAMOS_ATRASO.map(([n]) => n), 'Saldo de deuda'].forEach((v, k) => { enc.getCell(k + 1).value = v; });
+    pintar(enc);
+    let r = ini + 2;
+    [...porFid.entries()].sort((a, b) => b[1].total - a[1].total).forEach(([fid, f]) => {
+      const fila = ws.getRow(r++);
+      [fid, M.formatoCuit(f.cuit), ...f.tramos.map(v => (v ? M.round2(v) : null)), M.round2(f.total)].forEach((v, k) => { fila.getCell(k + 1).value = v; });
+    });
+    const tot = ws.getRow(r);
+    ['Total', '', ...tramos.map(t => t.saldo), total].forEach((v, k) => { tot.getCell(k + 1).value = v; });
+    tot.font = { bold: true };
+    for (let k = 3; k <= 3 + TRAMOS_ATRASO.length; k++) for (let i = ini + 2; i <= r; i++) ws.getRow(i).getCell(k).numFmt = '#,##0.00';
+    [3, 4, 5, 6, 7, 8].forEach(k => { if (ws.getColumn(k).width < 18) ws.getColumn(k).width = 18; });
+  }
   $('btnDeudaExcel').addEventListener('click', async () => {
     try {
       const d = deuda;
@@ -1290,6 +1379,39 @@
       tot.font = { bold: true };
       ws.getColumn(1).width = 48; ws.getColumn(2).width = 16;
       for (let k = 3; k <= d.meses.length + 5; k++) { ws.getColumn(k).width = 18; ws.getColumn(k).numFmt = '#,##0.00'; }
+      // Por crédito: CUIT del deudor, número de crédito y deuda por vencimiento (impago y saldo de Paga Parcial). Se consulta
+      // a Power BI al exportar (es un detalle grande que no hace falta para la pantalla).
+      const wc = wb.addWorksheet('Por crédito');
+      wc.addRow([`Deuda por crédito y vencimiento (impago + saldo de Paga Parcial) · vencidas hasta ${fechaAr(d.hasta)} · foto de cartera ${fechaAr(d.periodo)}`]).font = { bold: true };
+      wc.addRow([]);
+      let det = null;
+      try {
+        $('deudaEstado').innerHTML = '<p class="sub">Trayendo de Power BI el detalle por crédito para la exportación…</p>';
+        det = M.armarDeudaDetalle(await consultarPbi(M.daxSaldoDeudaDetalle(d.opciones || { hasta: d.hasta })));
+        // Días de atraso: desde el vencimiento hasta la fecha de corte ("vencidas hasta").
+        const corte = new Date(d.hasta + 'T00:00:00');
+        const atraso = vto => vto ? Math.max(0, Math.round((corte - new Date(vto + 'T00:00:00')) / 864e5)) : null;
+        const e3 = wc.addRow(['Fiduciante', 'CUIT fiduciante', 'CUIT deudor', 'Crédito', 'Vencimiento', 'Días de atraso', 'Cuotas impagas', 'Impago', 'Cuotas Paga Parcial', 'Saldo Paga Parcial', 'Saldo de deuda']);
+        e3.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+        e3.eachCell(c => { c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFC8102E' } }; });
+        let ci = 0, im = 0, cp = 0, pp = 0;
+        det.forEach(x => {
+          ci += x.cuotas; im += x.impago; cp += x.cuotasPP; pp += x.pp;
+          wc.addRow([x.fiduciante, M.formatoCuit(x.cuitFid), M.formatoCuit(x.cuit) || x.cuit, x.credito, x.vto ? new Date(x.vto + 'T00:00:00') : '', atraso(x.vto), x.cuotas || null, x.impago || null, x.cuotasPP || null, x.pp || null, x.saldo]);
+        });
+        wc.addRow(['Total', '', '', '', '', '', ci, M.round2(im), cp, M.round2(pp), M.round2(im + pp)]).font = { bold: true };
+        wc.autoFilter = { from: { row: 3, column: 1 }, to: { row: 3, column: 11 } };
+        wc.views = [{ state: 'frozen', ySplit: 3 }];
+        $('deudaEstado').innerHTML = '';
+      } catch (e) {
+        wc.addRow(['No se pudo traer el detalle por crédito de Power BI: ' + (e.message || e)]);
+        $('deudaEstado').innerHTML = aviso('warn', 'El Excel salió sin el detalle por crédito: ' + esc(e.message || e));
+      }
+      wc.getColumn(1).width = 40; [2, 3].forEach(k => { wc.getColumn(k).width = 16; }); wc.getColumn(4).width = 14; wc.getColumn(5).width = 14;
+      wc.getColumn(5).numFmt = 'dd/mm/yyyy';
+      [6, 7, 9].forEach(k => { wc.getColumn(k).width = 12; });
+      [8, 10, 11].forEach(k => { wc.getColumn(k).width = 18; wc.getColumn(k).numFmt = '#,##0.00'; });
+      if (det) agregarHojaAtraso(wb, d, det);
       // Apertura: cada mes en los días de vencimiento que tuvieron deuda, con su importe y el subtotal del mes.
       const wd = wb.addWorksheet('Apertura por día');
       wd.addRow(['Apertura por día de vencimiento']).font = { bold: true };
@@ -2178,23 +2300,50 @@
   // ------------------------------------------------------------ Chequeo masivo de resúmenes (SharePoint / carpeta)
   // Cada Excel de la carpeta (sin subcarpetas) se controla contra los poderes de Complif como el bastanteo de un cliente.
   const mas = { filas: [], cancelar: false, corriendo: false };
-  const esResumen = n => /\.xlsx?$/i.test(n) && !/^~\$/.test(n);
+  // Los resúmenes de cuentas cerradas ("… - CUENTA CERRADA.xlsx") no se controlan.
+  const esCerrada = n => /cerrad/i.test(n);
+  const esResumen = n => /\.xlsx?$/i.test(n) && !/^~\$/.test(n) && !esCerrada(n);
   function controlarResumen(nombre, cliente, docs) {
+    const fila = controlarResumen0(nombre, cliente, docs);
+    if (fila.obsEmpresa) fila.error = fila.obsEmpresa + (fila.error ? ' ' + fila.error : '');
+    return fila;
+  }
+  function controlarResumen0(nombre, cliente, docs) {
     const fila = { archivo: nombre, empresa: '', cuit: '', firmantes: 0, poderes: 0, estado: '', diferencias: [], control: [], sinPoder: [], noIncluidos: [], error: '' };
     fila.empresa = cliente.cliente || nombre.replace(/\.xlsx?$/i, '');
     fila.cuit = cliente.cuit || '';
+    // CLIENTE del Excel de otra empresa (un resumen copiado: "FIORITO FACTORING SA.xlsx" con CLIENTE "ABUT S.A"): manda
+    // el CUIT. La razón social sale de Complif por ese CUIT o, si no hay, del nombre del archivo; así la empresa y el
+    // CUIT son los mismos en todas las hojas y no se controla contra los poderes de la otra empresa.
+    let nombreCliente = cliente.cliente, soloCuit = false;
+    const cuitNum = String(cliente.cuit || '').replace(/\D/g, '');
+    const deArchivo = nombre.replace(/\.xlsx?$/i, '').replace(/\s*-\s*(ex|cuenta)\b.*$/i, '').trim();
+    if (cliente.cliente && cuitNum.length === 11 && !/resumen|blanco|modelo|plantilla|copia/i.test(deArchivo) && !M.razonDelArchivo(cliente.cliente, deArchivo)) {
+      const rc = M.razonPorCuit(docs, cuitNum), cuitTxt = M.formatoCuit(cuitNum);
+      // Sin poderes con ese CUIT: si los del nombre del Excel son de otro CUIT, el CLIENTE es de otra empresa.
+      const deOtro = !rc && M.complifDeEmpresa(docs, cuitNum, cliente.cliente).poderes.some(p => /^\d{11}$/.test(p.cuit_empresa || '') && p.cuit_empresa !== cuitNum);
+      if (rc && !M.razonDelArchivo(cliente.cliente, rc) || deOtro) {
+        nombreCliente = fila.empresa = rc || deArchivo; soloCuit = true;
+        fila.obsEmpresa = `El Excel dice CLIENTE "${cliente.cliente}" pero el CUIT ${cuitTxt} es de ${rc ? rc + ' en Complif' : deArchivo + ' (nombre del archivo; los poderes de ' + cliente.cliente + ' en Complif son de otro CUIT)'}: se controla como ${nombreCliente}. Revisar el resumen.`;
+      } else if (!rc) fila.obsEmpresa = `El Excel dice CLIENTE "${cliente.cliente}" pero el archivo se llama "${deArchivo}" (Complif no tiene poderes con el CUIT ${cuitTxt} para confirmar la empresa). Revisar el resumen.`;
+    }
     fila.firmantes = cliente.firmantes.length;
     if (!cliente.firmantes.length) { fila.estado = 'err'; fila.error = 'El Excel no tiene firmantes (no se encontró la tabla de firmantes)'; return fila; }
-    const r = M.complifDeEmpresa(docs, cliente.cuit, cliente.cliente);
+    // Sin razón social en el Excel: la del nombre del archivo (los poderes sin CUIT se encuentran por nombre).
+    const r = M.complifDeEmpresa(docs, cliente.cuit, nombreCliente || fila.empresa.replace(/\s*-\s*(ex|cuenta)\b.*$/i, ''), { soloCuit });
     const rv = M.aplicarRevocatorias(r.poderes);
-    let poderes = rv.vigentes.length ? rv.vigentes.concat(M.poderesFirmantesD(cliente, rv.vigentes, r.actas)) : rv.vigentes;
+    // Presidente / socio gerente (por acta, por el encabezado del resumen o "D" / "(Presidente)"): firma con todas las
+    // facultades aunque no figure en los poderes.
+    const presidencia = M.poderesFirmantesD(cliente, rv.vigentes, r.actas);
+    let poderes = rv.vigentes.concat(presidencia);
     fila.anulados = rv.anulados.length;
     if (!poderes.length && !rv.anulados.length) {
       const pres = M.poderDelPresidente(r.actas);
       if (pres && M.firmanteDe(pres.presidente, cliente.firmantes)) poderes = [pres];
     }
-    fila.poderes = poderes.length;
-    if (!poderes.length) { fila.estado = 'sinpod'; fila.error = r.actas.length ? 'Solo hay actas de designación en Complif' : 'Sin poderes en Complif'; return fila; }
+    fila.poderes = rv.vigentes.length;
+    const motivoSin = rv.anulados.length ? `Los ${rv.anulados.length} poderes de Complif quedaron anulados por revocatorias` : r.actas.length ? 'Solo hay actas de designación en Complif' : 'Sin poderes en Complif';
+    if (!poderes.length) { fila.estado = 'sinpod'; fila.error = motivoSin; return fila; }
     const jsons = poderes.map(p => M.jsonPoder(p, cliente, { deed_number: p.deed_number || '', board_resolution_power_attorney: p.board_resolution_power_attorney || '',
       power_attorney_type: p.power_attorney_type || 'Poder Especial para Operaciones Bancarias' }));
     const sinPoder = M.firmantesSinPoder(poderes, cliente.firmantes).filter(f => !f.revocado);
@@ -2204,6 +2353,14 @@
     fila.sinPoder = sinPoder.map(f => f.nombre);
     fila.noIncluidos = [...new Set(poderes.flatMap(p => p.apoderados).filter(a => !M.firmanteDe(a, cliente.firmantes)).map(a => a.nombre_completo))];
     fila.estado = fila.diferencias.length ? 'dif' : 'ok';
+    // Sin poderes de Complif: se valida al presidente / gerente por acta, estatuto o encabezado del resumen. Si no hay
+    // nadie validado, queda "Sin poderes"; si lo hay, el estado sale del control (los demás firmantes, sin poder).
+    if (!rv.vigentes.length) {
+      const validados = fila.control.filter(c => !c.sinPoder).map(c => c.nombre);
+      if (!validados.length) { fila.estado = 'sinpod'; fila.diferencias = []; fila.error = motivoSin; return fila; }
+      fila.error = `Sin poderes en Complif: validado como presidente / gerente (acta, estatuto o resumen): ${validados.join(', ')}`;
+      return fila;
+    }
     // Ningún firmante del resumen está en los poderes: lo más probable es que falten poderes en Complif (o que los
     // vinculados sean de otra empresa), no que el resumen esté mal.
     const vigentes = cliente.firmantes.filter(f => !f.revocado);
@@ -2217,6 +2374,7 @@
     if (mas.corriendo) return;
     if (!hayComplif()) { $('masEstado').innerHTML = aviso('warn', 'El chequeo masivo usa Complif: entrá a la versión web (con la base compartida).'); return; }
     const lista = fuentes.filter(f => esResumen(f.nombre));
+    mas.cerradas = fuentes.filter(f => /\.xlsx?$/i.test(f.nombre) && esCerrada(f.nombre)).length;
     if (!lista.length) { $('masEstado').innerHTML = aviso('warn', 'No hay archivos Excel para controlar.'); return; }
     Object.assign(mas, { filas: [], cancelar: false, corriendo: true });
     $('btnMasCancelar').disabled = false; $('btnMasExcel').disabled = true;
@@ -2242,7 +2400,9 @@
       for (let i = 0; i < lista.length && !mas.cancelar; i += 4) await Promise.all(lista.slice(i, i + 4).map(uno));
       // Empresas repetidas (mismo CUIT o razón social): vale el archivo con fecha de creación y modificación más nuevas.
       const grupos = new Map();
-      mas.filas.forEach(f => { const k = f.cuit ? 'c' + f.cuit : 'n' + M.normalizar(f.empresa).replace(/\b(s ?a|s ?r ?l|sau)\b/g, '').trim(); if (!grupos.has(k)) grupos.set(k, []); grupos.get(k).push(f); });
+      // (Sin CUIT y con un nombre que no es una razón social —"PRESIDENTE", vacío—, cada archivo es una empresa distinta.)
+      const nombreDudoso = t => !t || /^(presidente|vicepresidente|socio|gerente|representante|apoderad|director)\b/i.test(M.normalizar(t));
+      mas.filas.forEach(f => { const k = f.cuit ? 'c' + f.cuit : nombreDudoso(f.empresa) ? 'a' + f.archivo : 'n' + M.normalizar(f.empresa).replace(/\b(s ?a|s ?r ?l|sau)\b/g, '').trim(); if (!grupos.has(k)) grupos.set(k, []); grupos.get(k).push(f); });
       let dups = 0;
       grupos.forEach(l => {
         if (l.length < 2) return;
@@ -2250,7 +2410,8 @@
         l.slice(1).forEach(f => { dups++; f.estadoOriginal = f.estado; f.estado = 'dup'; f.error = `Duplicado: se tomó "${l[0].archivo}" (más nuevo)`; });
       });
       $('masEstado').innerHTML = aviso(mas.cancelar ? 'warn' : 'ok', `${mas.cancelar ? 'Cancelado: ' : ''}${mas.filas.length - dups} empresas controladas contra ${docs.length} documentos de Complif` +
-        (dups ? ` · ${dups} archivo${dups > 1 ? 's' : ''} duplicado${dups > 1 ? 's' : ''} descartado${dups > 1 ? 's' : ''} (se tomó el más nuevo de cada empresa)` : '') + '.');
+        (dups ? ` · ${dups} archivo${dups > 1 ? 's' : ''} duplicado${dups > 1 ? 's' : ''} descartado${dups > 1 ? 's' : ''} (se tomó el más nuevo de cada empresa)` : '') +
+        (mas.cerradas ? ` · ${mas.cerradas} archivo${mas.cerradas > 1 ? 's' : ''} de cuenta cerrada sin controlar` : '') + '.');
     } catch (e) { $('masEstado').innerHTML = aviso('bad', 'No se pudo hacer el chequeo: ' + esc(errorComplif(e))); }
     finally { mas.corriendo = false; $('btnMasCancelar').disabled = true; renderMasivo(); }
   }
@@ -2394,6 +2555,7 @@
     // Revocatorias: los poderes anteriores a uno que revoca quedan anulados.
     const rv = M.aplicarRevocatorias(todos);
     bast.anulados = rv.anulados;
+    bast.avisosRev = rv.avisos || [];
     // Firmante "D" en el resumen = presidente con todas las facultades (si no está en ningún poder).
     const dd = M.poderesFirmantesD(bast.cliente, rv.vigentes, bast.actas);
     dd.forEach((p, i) => { p._k = 'firmanteD' + i; });
@@ -2453,6 +2615,7 @@
     if ((bast.firmantesD || []).length) estado += aviso('warn', `<b>Presidente:</b> ${bast.firmantesD.map(p => esc(p.presidente.nombre_completo) + ' (grupo ' + esc(p.presidente.grupo) + ')').join(', ')} no está en los poderes; por el acta de directorio o el resumen ("D" / "Presidente") se lo toma como presidente con <b>todas las facultades</b> y firma individual.`);
     if ((bast.anulados || []).length) estado += aviso('warn', `<b>${bast.anulados.length} poder${bast.anulados.length > 1 ? 'es anulados' : ' anulado'} por revocatoria:</b> ` +
       bast.anulados.map(a => `${esc(a.poder.fecha_emision || 's/f')}${a.poder.deed_number ? ' (esc. ' + esc(a.poder.deed_number) + ')' : ''} — ${esc(a.motivo)}`).join(' · ') + '. No se usan en el bastanteo.');
+    (bast.avisosRev || []).forEach(a => { estado += aviso('warn', `<b>Revocatoria sin apoderados:</b> el poder del ${esc(a.poder.fecha_emision || 's/f')}${a.poder.deed_number ? ' (esc. ' + esc(a.poder.deed_number) + ')' : ''} ${esc(a.motivo)}.`); });
     if (hay && !bast.cliente) estado += aviso('warn', 'Falta la planilla del cliente: sin ella no se completan los CUIT de los firmantes ni la escritura, y se muestran todas las personas del PDF.');
     const otros = bast.otrosPoderes || [];
     if (otros.length) estado += aviso(hay ? 'ok' : 'warn', `${hay ? '' : '<b>Ningún poder del PDF es de la empresa de la planilla</b> (CUIT ' + esc(M.formatoCuit(bast.cliente.cuit)) + '). '}` +
@@ -2822,6 +2985,7 @@
     const errores = M.controlarReporte(reporte);
     const cb = M.controlarBancos(reporte, bancosUso);
     const total = M.round2(reporte.reduce((s, r) => s + (r.MONTO || 0), 0));
+    // Sin Math.min(...fechas): con cientos de miles de filas excede la pila ("Maximum call stack size exceeded").
     const fechas = reporte.map(r => r.FECHA_VENCIMIENTO).filter(f => f != null);
     preparado = { reporte, errores, cb, total, hoja, bancosUso,
       opcCuotas: meli ? { orden: 'nombre' } : null, opcCreditos: meli ? { nombre: 'sinComas' } : null };
@@ -2829,7 +2993,7 @@
     let html = `<div class="kpis">
       <div class="kpi"><b>${fmtEntero(reporte.length)}</b><span>filas del reporte</span></div>
       <div class="kpi"><b>${fmtEntero(cb.detalle.length)}</b><span>bancos distintos</span></div>
-      <div class="kpi"><b>${fechas.length ? M.fechaLegible(Math.min(...fechas)) + ' – ' + M.fechaLegible(Math.max(...fechas)) : '—'}</b><span>vencimientos</span></div>
+      <div class="kpi"><b>${fechas.length ? M.fechaLegible(fechas.reduce((a, b) => b < a ? b : a)) + ' – ' + M.fechaLegible(fechas.reduce((a, b) => b > a ? b : a)) : '—'}</b><span>vencimientos</span></div>
       <div class="kpi"><b>$ ${fmtMonto(total)}</b><span>total MONTO</span></div></div>`;
     if (archivo.conciliacion && archivo.conciliacion.bruto != null && hoja.formato === 'getnet') {
       const bruto = archivo.conciliacion.bruto;
