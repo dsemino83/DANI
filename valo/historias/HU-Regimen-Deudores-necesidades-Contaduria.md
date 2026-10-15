@@ -8,7 +8,7 @@
 ## Historia de usuario
 
 **Como** Jefe de Control Operativo Contable (Contaduría),
-**quiero** que todas las fuentes del Régimen de Deudores generen datos correctos y conciliados con la contabilidad, y que lleguen en término. Las fuentes son COBIS (Udincli, Udcrpro, inventarios), la base de clientes, los datos de Riesgos, ePortfolio/MELI y Etrust/Cubo.
+**quiero** que todas las fuentes del Régimen de Deudores generen datos correctos y conciliados con la contabilidad, que lleguen en término y que, para los productos no COBIS, se informe la última versión del dato al último día del mes aunque después se haya pisado. Las fuentes son COBIS (Udincli, Udcrpro, inventarios), la base de clientes, los datos de Riesgos, ePortfolio/MELI y Etrust/Cubo.
 **para** procesar el ESD en UNIDATO de forma automática, sin corregir a mano interfaces ni archivos finales, en término y cumpliendo la normativa del BCRA y lo que exigen Auditoría Interna y Externa.
 
 ## Contexto
@@ -78,6 +78,41 @@
 ### N9 – Cero ajustes manuales
 - **CA9.1** – En el cierre siguiente a la puesta en producción, Contaduría procesa el ESD en UNIDATO **sin modificar a mano** las interfaces de entrada ni los archivos finales al BCRA, sin contar previsiones.
 
+### N10 – Productos no COBIS: tomar la última versión al último día del mes
+**Problema:** hoy, cualquier novedad de un producto no COBIS (por ejemplo ePortfolio/MELI o Etrust/Cubo) **da de baja la versión anterior y deja vigente la nueva**. Si la novedad llega después del cierre, el dato al cierre se pisa y la interfaz informa un dato que no corresponde al período.
+- **CA10.1 – Historial de versiones:** una novedad no borra ni pisa el registro anterior. La versión anterior queda guardada como histórica, con fecha de novedad, fecha y hora de carga y estado (vigente/histórica).
+- **CA10.2 – Regla de corte:** al generar Udincli y Udcrpro de un período, para cada cliente u operación no COBIS se toma la **última versión con fecha de novedad menor o igual al último día del mes**. Si hay varias versiones ese mismo día, se toma la última por fecha y hora de carga o por secuencia.
+- **CA10.3 – Datos pisados:** el dato al cierre se informa aunque una novedad posterior al cierre lo haya pisado o dado de baja en la base.
+- **CA10.4 – Bajas:** una operación dada de baja **después** del cierre pero vigente el último día del mes **se informa**. Una dada de baja **antes o el mismo día** del cierre **no se informa**.
+- **CA10.5 – Altas posteriores:** las operaciones o clientes dados de alta después del último día del mes no se incluyen en el período.
+- **CA10.6 – Reproceso:** regenerar las interfaces de un mes ya cerrado, en cualquier fecha posterior, da exactamente el mismo resultado.
+- **CA10.7 – Trazabilidad:** el log de generación indica, por operación, qué versión se tomó (identificador y fechas). Además se emite un reporte de las operaciones con novedades posteriores al cierre.
+- **CA10.8 – Conciliación:** los totales de productos no COBIS, armados con esta regla, concilian con la contabilidad del mes (N8).
+
+**Ejemplo (Gherkin):**
+```gherkin
+Escenario: novedad posterior al cierre no pisa el dato del período
+  Dado un préstamo MELI con saldo $100.000 y situación 1 cargado el 20/08/2026
+  Y una novedad del mismo préstamo con saldo $80.000 y situación 2 cargada el 05/09/2026
+  Cuando se genera el Udcrpro del período 31/08/2026
+  Entonces el préstamo se informa con saldo $100.000 y situación 1
+  Y el log indica la versión del 20/08/2026 como versión tomada
+
+Escenario: varias novedades dentro del mes
+  Dado un préstamo con versiones cargadas el 10/08/2026 y el 31/08/2026 a las 18:00
+  Cuando se genera el Udcrpro del período 31/08/2026
+  Entonces se toma la versión del 31/08/2026 18:00
+
+Escenario: baja posterior al cierre
+  Dado un préstamo vigente al 31/08/2026 y dado de baja el 03/09/2026
+  Cuando se genera el Udcrpro del período 31/08/2026
+  Entonces el préstamo se informa con su último dato al 31/08/2026
+```
+
+**A confirmar con Contaduría y Sistemas:**
+- Qué fecha se usa para el corte: la fecha de novedad/vigencia que informa el producto o la fecha de carga en la base. Se propone la fecha de novedad y, si no viene, la de carga.
+- Hasta cuándo se aceptan novedades con fecha dentro del mes que llegan después del cierre (por ejemplo, una novedad con fecha 31/08 que llega el 02/09). Se propone aceptarlas hasta la generación del archivo, dentro del 5.º día hábil.
+
 ## Tareas sugeridas
 
 1. Clasificar los ~710 ajustes del *Udcrpro previo 31082026.xlsx* por causa raíz.
@@ -88,11 +123,12 @@
 6. ePortfolio/MELI: limpiar caracteres y validar la situación en origen.
 7. Desarrollar el validador automático pre-UNIDATO con reporte de conciliación.
 8. Definir el cronograma de cierre (hito: 5.º día hábil).
-9. QA: correr en paralelo con el cierre siguiente y conseguir la conformidad de Contaduría y Auditoría Interna.
+9. Productos no COBIS: pasar de "pisar" el dato a guardar historial de versiones, e implementar en la generación de interfaces la regla de corte al último día del mes, con log de versión tomada.
+10. QA: correr en paralelo con el cierre siguiente y conseguir la conformidad de Contaduría y Auditoría Interna. Incluir casos de novedades posteriores al cierre y el reproceso de un mes cerrado.
 
 ## Definición de Hecho
 
-- Las necesidades N1 a N9 están verificadas con un cierre real.
+- Las necesidades N1 a N10 están verificadas con un cierre real.
 - La conciliación por partida da diferencia 0 (o la tolerancia aprobada).
 - El validador está en producción y documentado.
 - Contaduría y Auditoría Interna dan su conformidad con un ESD presentado sin ajustes manuales.
