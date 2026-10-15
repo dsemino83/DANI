@@ -164,6 +164,14 @@
     align-items: center; justify-content: center; box-shadow: inset 0 -6px 0 rgba(0,0,0,.08); }
   .opciones button small { font-size: 28px; font-weight: 700; }
   .opciones.escenarios button { width: 300px; height: 196px; font-size: 28px; gap: 4px; padding: 8px; line-height: 1; }
+  .prueba-mic { display: flex; align-items: center; gap: 18px; margin-bottom: 18px; text-align: left; }
+  #btn-probar-mic { flex: none; height: 84px; padding: 0 26px; border-radius: 28px; background: #1753C9; color: #fff;
+    font-size: 30px; font-weight: 800; box-shadow: 0 6px 0 #0E3596; }
+  #btn-probar-mic:active { transform: translateY(4px); box-shadow: 0 2px 0 #0E3596; }
+  #prueba-mic-texto { font-size: 24px; font-weight: 700; line-height: 1.25; color: #2F4C80; }
+  #prueba-mic-texto.ok { color: #1E8A3C; }
+  #prueba-mic-texto.mal { color: #C0392B; }
+  #version-juego { margin-top: 14px; font-size: 20px; color: #8796B0; }
   .opciones.escenarios img { width: 276px; height: 140px; object-fit: cover; border-radius: 16px; }
   /* Ventana compacta para que entre en la pantalla horizontal (900 de alto). */
   .tarjeta { max-height: 880px; overflow-y: auto; }
@@ -438,7 +446,13 @@
           <button data-fondo="bano"><img src="recursos/videos/dientes-adelante.jpg" alt="">Baño</button>
           <button data-fondo="hotel"><img src="recursos/videos/hotel/dientes-adelante.jpg" alt="">Hotel de monstruos</button>
         </div>
+        <div class="campo">Micrófono <small>(el «sí» de los pasos)</small></div>
+        <div class="prueba-mic">
+          <button id="btn-probar-mic" type="button">🎤 Probar micrófono</button>
+          <div id="prueba-mic-texto">Tocá el botón y decí «sí».</div>
+        </div>
         <button id="config-listo" class="boton-amarillo">Listo</button>
+        <div id="version-juego"></div>
       </div>
     </div>
 
@@ -2458,6 +2472,57 @@
   };
   $('btn-volver-jugar').onclick = function () { mostrar('inicio'); saludar(); };
   $('config-listo').onclick = confirmarConfig;
+
+  /* ---------- Probar el micrófono (en la ruedita) ----------
+     Arranca el reconocimiento de voz con el toque y muestra qué pasó: lo que escuchó o el error
+     con cómo arreglarlo. Sirve para saber por qué no avanza con el «sí» en el celular o la app. */
+  var VERSION_JUEGO = '15/10/2026';
+  (function () {
+    var enApp = window.matchMedia && (matchMedia('(display-mode: standalone)').matches || matchMedia('(display-mode: fullscreen)').matches);
+    $('version-juego').textContent = 'Versión ' + VERSION_JUEGO + ' · ' + (enApp ? 'app instalada' : 'navegador') + ' · ' + location.protocol.replace(':', '');
+  })();
+  var ERRORES_MIC = {
+    'not-allowed': 'Sin permiso del micrófono. Mantené apretado el ícono del juego → «Configuración del sitio» → Micrófono → Permitir. Revisá también Ajustes del celular → Aplicaciones → Chrome → Permisos → Micrófono.',
+    'service-not-allowed': 'El servicio de voz de Google está apagado o no está. Revisá Ajustes → Aplicaciones → «Google» (o «Servicios de voz de Google») y que esté activado.',
+    'audio-capture': 'No se pudo usar el micrófono: puede estar usándolo otra app, o falta el permiso de micrófono de Chrome en los ajustes del celular.',
+    'network': 'El reconocimiento de voz necesita internet. Revisá el wifi o los datos.',
+    'no-speech': 'No escuché nada. Probá de nuevo hablando más cerca del celular.',
+    'language-not-supported': 'El dictado en español no está disponible en este celular.',
+    'aborted': 'Se cortó la escucha. Probá de nuevo.'
+  };
+  var pruebaMic = null;
+  $('btn-probar-mic').onclick = function () {
+    var txt = $('prueba-mic-texto');
+    function poner(t, clase) { txt.textContent = t; txt.className = clase || ''; }
+    if (!Reconocedor) { poner('Esta app no tiene reconocimiento de voz: en los pasos se avanza con la flecha.', 'mal'); return; }
+    if (pruebaMic) { try { pruebaMic.abort(); } catch (e) {} pruebaMic = null; }
+    pararMic();
+    var r = new Reconocedor(), oyo = false, fallo = false;
+    pruebaMic = r;
+    r.lang = mic.idioma; r.continuous = false; r.interimResults = true; r.maxAlternatives = 5;
+    r.onstart = function () { poner('Escuchando… decí «sí» ahora.'); };
+    r.onresult = function (ev) {
+      var res = ev.results[ev.results.length - 1], frase = res[0].transcript.trim(), si = false;
+      for (var j = 0; j < res.length; j++) if (esSi(res[j].transcript)) si = true;
+      oyo = true;
+      mic.permiso = 'ok';
+      if (mic.bloqueado) { mic.bloqueado = false; cartelMic('oculto'); }
+      if (si) poner('Escuché: «' + frase + '» ✅ ¡El micrófono funciona!', 'ok');
+      else poner('Escuché: «' + frase + '». Funciona, pero no entendí «sí»: probá decirlo más claro.');
+    };
+    r.onerror = function (ev) {
+      fallo = true;
+      if (ev.error === 'language-not-supported' && mic.idioma !== 'es-ES') mic.idioma = 'es-ES';
+      poner(ERRORES_MIC[ev.error] || ('No funcionó (error: ' + ev.error + ').'), ev.error === 'no-speech' ? '' : 'mal');
+    };
+    r.onend = function () {
+      if (pruebaMic === r) pruebaMic = null;
+      if (!oyo && !fallo) poner('No escuché nada. Probá de nuevo hablando más cerca del celular.');
+    };
+    try { r.start(); poner('Encendiendo el micrófono…'); }
+    catch (e) { poner('No se pudo encender el micrófono (' + (e && e.name) + ').', 'mal'); }
+    setTimeout(function () { if (pruebaMic === r) { try { r.abort(); } catch (e) {} } }, 9000);
+  };
   // Tocar afuera cierra sin guardar, salvo la primera vez (hay que completar el nombre).
   $('config').addEventListener('click', function (ev) { if (ev.target === $('config') && perfil) abrirConfig(false); });
   aplicarPerfil();
