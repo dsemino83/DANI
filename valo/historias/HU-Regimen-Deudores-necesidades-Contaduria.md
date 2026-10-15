@@ -56,57 +56,50 @@
 - **CA5.3** – Se da de baja el inventario manual en Excel y el inventario de COBIS pasa a ser la única fuente.
 - **CA5.4** – Si aparecen diferencias, se avisa automáticamente antes de generar las interfaces.
 
-### N6 – Cartera MELI (Activas)
-**Problema:** los préstamos de MELI trajeron unos **24.000 errores**: símbolos en los nombres y **situación 10** (inexistente). Esto rompió Udincli y Udcrpro.
-- **CA6.1** – Los nombres y razones sociales se normalizan al set de caracteres que admiten UNIDATO y el BCRA.
-- **CA6.2** – La situación siempre es un valor válido de la tabla BCRA. La situación 10 se rechaza o se mapea según la regla que acuerden Riesgos y Activas.
-- **CA6.3** – Los clientes de MELI en Udcrpro existen en Udincli con la misma identificación.
+### N6 – Plazos de entrega
+- **CA6.1** – Las interfaces Udincli y Udcrpro, validadas y conciliadas, llegan a Contaduría **dentro de los primeros 5 días hábiles** del cierre.
+- **CA6.2** – Hay un cronograma de cierre con hitos y responsables por área.
 
-### N7 – Plazos de entrega
-**Problema:** el archivo balanceado por Activas llegó recién el **11/09**.
-- **CA7.1** – Las interfaces Udincli y Udcrpro, validadas y conciliadas, llegan a Contaduría **dentro de los primeros 5 días hábiles** del cierre.
-- **CA7.2** – Hay un cronograma de cierre con hitos y responsables por área.
-
-### N8 – Todos los sistemas conciliados con contabilidad
-- **CA8.1** – Los inventarios y saldos de **todos** los sistemas que participan del proceso, COBIS y no COBIS, cierran con la contabilidad.
-- **CA8.2** – Antes de entregar, corre un validador automático sobre cada interfaz que controla:
+### N7 – Todos los sistemas conciliados con contabilidad
+- **CA7.1** – Los inventarios y saldos de **todos** los sistemas que participan del proceso, COBIS y no COBIS, cierran con la contabilidad.
+- **CA7.2** – Antes de entregar, corre un validador automático sobre cada interfaz que controla:
   - formato y caracteres;
   - tipo de documento válido y coherente con el número;
   - situación válida;
   - cruce Udincli ↔ Udcrpro;
   - totales vs. contabilidad.
-- **CA8.3** – Si hay errores bloqueantes, el archivo vuelve al área de origen con el log de errores.
+- **CA7.3** – Si hay errores bloqueantes, el archivo vuelve al área de origen con el log de errores.
 
-### N9 – Cero ajustes manuales
-- **CA9.1** – En el cierre siguiente a la puesta en producción, Contaduría procesa el ESD en UNIDATO **sin modificar a mano** las interfaces de entrada ni los archivos finales al BCRA, sin contar previsiones.
+### N8 – Cero ajustes manuales
+- **CA8.1** – En el cierre siguiente a la puesta en producción, Contaduría procesa el ESD en UNIDATO **sin modificar a mano** las interfaces de entrada ni los archivos finales al BCRA, sin contar previsiones.
 
-### N10 – Productos no COBIS: tomar la última versión al último día del mes
+### N9 – Productos no COBIS: tomar la última versión al último día del mes
 **Problema:** hoy, cualquier novedad de un producto no COBIS **da de baja la versión anterior y deja vigente la nueva**. Si la novedad llega después del cierre, el dato al cierre se pisa y la interfaz informa un dato que no corresponde al período.
-- **CA10.1 – Historial de versiones:** una novedad no borra ni pisa el registro anterior. La versión anterior queda guardada como histórica, con fecha de novedad, fecha y hora de carga y estado (vigente/histórica).
-- **CA10.2 – Regla de corte:** al generar Udincli y Udcrpro de un período, para cada cliente u operación no COBIS se toma la **última versión con fecha de novedad menor o igual al último día del mes**. Si hay varias versiones ese mismo día, se toma la última por fecha y hora de carga o por secuencia.
-- **CA10.3 – Datos pisados:** el dato al cierre se informa aunque una novedad posterior al cierre lo haya pisado o dado de baja en la base.
-- **CA10.4 – Bajas:** una operación dada de baja **después** del cierre pero vigente el último día del mes **se informa**. Una dada de baja **antes o el mismo día** del cierre **no se informa**.
-- **CA10.5 – Altas posteriores:** las operaciones o clientes dados de alta después del último día del mes no se incluyen en el período.
-- **CA10.6 – Reproceso:** regenerar las interfaces de un mes ya cerrado, en cualquier fecha posterior, da exactamente el mismo resultado.
-- **CA10.7 – Trazabilidad:** el log de generación indica, por operación, qué versión se tomó (identificador y fechas). Además se emite un reporte de las operaciones con novedades posteriores al cierre.
-- **CA10.8 – Conciliación:** los totales de productos no COBIS, armados con esta regla, concilian con la contabilidad del mes (N8).
+- **CA9.1 – Historial de versiones:** una novedad no borra ni pisa el registro anterior. La versión anterior queda guardada como histórica, con fecha de novedad, fecha y hora de carga y estado (vigente/histórica).
+- **CA9.2 – Regla de corte:** al generar Udincli y Udcrpro de un período, para cada cliente u operación no COBIS se toma la **última versión con fecha de novedad menor o igual al último día del mes**. Si hay varias versiones ese mismo día, se toma la última por fecha y hora de carga o por secuencia.
+- **CA9.3 – Datos pisados:** el dato al cierre se informa aunque una novedad posterior al cierre lo haya pisado o dado de baja en la base.
+- **CA9.4 – Bajas:** una operación dada de baja **después** del cierre pero vigente el último día del mes **se informa**. Una dada de baja **antes o el mismo día** del cierre **no se informa**.
+- **CA9.5 – Altas posteriores:** las operaciones o clientes dados de alta después del último día del mes no se incluyen en el período.
+- **CA9.6 – Reproceso:** regenerar las interfaces de un mes ya cerrado, en cualquier fecha posterior, da exactamente el mismo resultado.
+- **CA9.7 – Trazabilidad:** el log de generación indica, por operación, qué versión se tomó (identificador y fechas). Además se emite un reporte de las operaciones con novedades posteriores al cierre.
+- **CA9.8 – Conciliación:** los totales de productos no COBIS, armados con esta regla, concilian con la contabilidad del mes (N7).
 
 **Ejemplo (Gherkin):**
 ```gherkin
 Escenario: novedad posterior al cierre no pisa el dato del período
-  Dado un préstamo MELI con saldo $100.000 y situación 1 cargado el 20/08/2026
+  Dado un préstamo no COBIS con saldo $100.000 y situación 1 cargado el 20/08/2026
   Y una novedad del mismo préstamo con saldo $80.000 y situación 2 cargada el 05/09/2026
   Cuando se genera el Udcrpro del período 31/08/2026
   Entonces el préstamo se informa con saldo $100.000 y situación 1
   Y el log indica la versión del 20/08/2026 como versión tomada
 
 Escenario: varias novedades dentro del mes
-  Dado un préstamo con versiones cargadas el 10/08/2026 y el 31/08/2026 a las 18:00
+  Dado un préstamo no COBIS con versiones cargadas el 10/08/2026 y el 31/08/2026 a las 18:00
   Cuando se genera el Udcrpro del período 31/08/2026
   Entonces se toma la versión del 31/08/2026 18:00
 
 Escenario: baja posterior al cierre
-  Dado un préstamo vigente al 31/08/2026 y dado de baja el 03/09/2026
+  Dado un préstamo no COBIS vigente al 31/08/2026 y dado de baja el 03/09/2026
   Cuando se genera el Udcrpro del período 31/08/2026
   Entonces el préstamo se informa con su último dato al 31/08/2026
 ```
@@ -122,15 +115,14 @@ Escenario: baja posterior al cierre
 3. Revisar con Riesgos y SAC el circuito de situación, tipo de cartera y depuración, y definir el punto de control.
 4. COBIS: corregir la extracción de descubiertos y de intereses congelados en UDCRPRO.
 5. COBIS y Activas: hacer que los inventarios cierren con la contabilidad y dar de baja el Excel manual.
-6. Cartera MELI: limpiar caracteres y validar la situación en origen.
-7. Desarrollar el validador automático pre-UNIDATO con reporte de conciliación.
-8. Definir el cronograma de cierre (hito: 5.º día hábil).
-9. Productos no COBIS: pasar de "pisar" el dato a guardar historial de versiones, e implementar en la generación de interfaces la regla de corte al último día del mes, con log de versión tomada.
-10. QA: correr en paralelo con el cierre siguiente y conseguir la conformidad de Contaduría y Auditoría Interna. Incluir casos de novedades posteriores al cierre y el reproceso de un mes cerrado.
+6. Desarrollar el validador automático pre-UNIDATO con reporte de conciliación.
+7. Definir el cronograma de cierre (hito: 5.º día hábil).
+8. Productos no COBIS: pasar de "pisar" el dato a guardar historial de versiones, e implementar en la generación de interfaces la regla de corte al último día del mes, con log de versión tomada.
+9. QA: correr en paralelo con el cierre siguiente y conseguir la conformidad de Contaduría y Auditoría Interna. Incluir casos de novedades posteriores al cierre y el reproceso de un mes cerrado.
 
 ## Definición de Hecho
 
-- Las necesidades N1 a N10 están verificadas con un cierre real.
+- Las necesidades N1 a N9 están verificadas con un cierre real.
 - La conciliación por partida da diferencia 0 (o la tolerancia aprobada).
 - El validador está en producción y documentado.
 - Contaduría y Auditoría Interna dan su conformidad con un ESD presentado sin ajustes manuales.
