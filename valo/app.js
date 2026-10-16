@@ -145,6 +145,7 @@
     if (mas) { const enMas = [...mas.options].some(o => o.value && o.value === vista); mas.value = enMas ? vista : ''; mas.classList.toggle('activa', enMas); }
     if (vista === 'cartera') alAbrirCartera();
     if (vista === 'deuda') alAbrirDeuda();
+    if (vista === 'fcic') alAbrirFcic();
   }
   document.querySelectorAll('nav button').forEach(b => b.addEventListener('click', () => irA(b.dataset.vista)));
   $('navMas').addEventListener('change', e => { if (e.target.value) irA(e.target.value); });
@@ -3343,7 +3344,15 @@
     $('fcicConcesion').value = isoDe(f.concesion); $('fcicVto').value = isoDe(f.vencimiento);
   }
   fcicFechasHoy();
-  $('btnFcicFechas').addEventListener('click', () => { fcicFechasHoy(); fcicInvalidar(); });
+  $('btnFcicFechas').addEventListener('click', () => { fcicFechasHoy(); fcicInvalidar(); fcicSaldoAuto(true); });
+  // Al abrir la pantalla: saldo del día hábil anterior (la concesión por defecto), si hay conexión y el campo está vacío.
+  function fcicSaldoAuto(siempre) {
+    const cf = fcicCfg(), f = datos().nocobisFlujo || {};
+    if (!(cf.saldoUrl && cf.saldoClave) && !(f.pbiUrl && f.pbiClave)) return;
+    if (!siempre && $('fcicPatrimonio').value.trim()) return;
+    $('btnFcicSaldoPbi').click();
+  }
+  function alAbrirFcic() { fcicSaldoAuto(false); }
   // Al cambiar la concesión a mano, el vencimiento se recalcula con la misma regla.
   $('fcicConcesion').addEventListener('change', () => {
     const c = deIso($('fcicConcesion').value);
