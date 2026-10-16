@@ -3353,20 +3353,19 @@
   $('fcicVto').addEventListener('change', fcicInvalidar);
 
   function fcicBase() {
-    const p = fcicNumero($('fcicPatrimonio').value), pct = fcicNumero($('fcicPct').value);
-    // Sin redondear, como la celda C6 de la planilla (patrimonio × 0,75): cada saldo se redondea después.
-    return isFinite(p) && p > 0 && isFinite(pct) && pct > 0 ? p * pct / 100 : NaN;
+    // Saldo de la cuenta 121049010 (celda C7 de la planilla No Cobis): se reparte tal cual, cada saldo se redondea después.
+    const p = fcicNumero($('fcicPatrimonio').value);
+    return isFinite(p) && p > 0 ? p : NaN;
   }
   function fcicInvalidar() {
     fcic.res = null;
     const b = fcicBase();
     $('fcicBase').textContent = isFinite(b) ? '$ ' + fmtMonto(b) : '—';
-    $('fcicPctTxt').textContent = $('fcicPct').value || '75';
     $('btnFcicArmar').disabled = !(fcic.rep && isFinite(b) && deIso($('fcicConcesion').value) && deIso($('fcicVto').value));
     $('btnFcicTxt').disabled = $('btnFcicExcel').disabled = true;
     $('fcicTabla').innerHTML = ''; $('fcicKpis').innerHTML = ''; $('fcicEstado').innerHTML = '';
   }
-  ['fcicPatrimonio', 'fcicPct'].forEach(id => $(id).addEventListener('input', fcicInvalidar));
+  $('fcicPatrimonio').addEventListener('input', fcicInvalidar);
 
   $('fcicArchivo').addEventListener('change', async e => {
     const f = e.target.files[0];
@@ -3426,7 +3425,7 @@
   });
   $('btnFcicExcel').addEventListener('click', () => {
     const r = fcic.res; if (!r) return;
-    const dg = [['Ultimo dia habil del mes', fBarra(r.fechas.concesion)], ['vto de producto', fBarra(r.fechas.vencimiento)], ['Monto a distribuir', r.base], [],
+    const dg = [['Ultimo dia habil del mes', fBarra(r.fechas.concesion)], ['vto de producto', fBarra(r.fechas.vencimiento)], ['Saldo cuenta 121049010', r.base], [],
       ['Ente', 'CUIT', 'Banco', 'Importe actual cheques', 'Porcentaje', 'Saldo de capital', 'Línea TXT']]
       .concat(r.filas.map(f => [Number(f.ente) || '', Number(f.cuit), f.nombre, f.conDatos ? f.monto : 0, f.porcentaje, f.saldo, f.linea]));
     const wb = XLSX.utils.book_new();
@@ -3450,7 +3449,7 @@
   async function guardarFcicCfg(cambios, ok) {
     if (!fcicPuede()) return informar('Solo lectura', 'Tu acceso es de solo lectura.');
     const c = fcicCfg();
-    const r = await intentar(() => almacen.guardarFcicMeliCfg({ dg: c.dg, bancos: c.bancos, porcentaje: c.porcentaje, fondo: c.fondo, tipoCredito: c.tipoCredito, ...cambios }), ok);
+    const r = await intentar(() => almacen.guardarFcicMeliCfg({ dg: c.dg, bancos: c.bancos, fondo: c.fondo, tipoCredito: c.tipoCredito, ...cambios }), ok);
     if (r && fcic.res) $('btnFcicArmar').click();
     return r;
   }
