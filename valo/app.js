@@ -3365,7 +3365,32 @@
     $('btnFcicTxt').disabled = $('btnFcicExcel').disabled = true;
     $('fcicTabla').innerHTML = ''; $('fcicKpis').innerHTML = ''; $('fcicEstado').innerHTML = '';
   }
-  $('fcicPatrimonio').addEventListener('input', fcicInvalidar);
+  $('fcicPatrimonio').addEventListener('input', () => { $('fcicSaldoEstado').innerHTML = ''; fcicInvalidar(); });
+  // Saldo de la cuenta 121049010 desde el modelo semántico de Power BI (tabla SaldoCuenta121049010, importada del cubo
+  // SaldosContables). Va por el flujo de Power BI de Cartera con "modelo": "saldosContables" (ver powerautomate/POWERBI.md).
+  $('btnFcicSaldoPbi').addEventListener('click', async () => {
+    const f = datos().nocobisFlujo || {};
+    if (!f.pbiUrl || !f.pbiClave) return informar('Falta la conexión con Power BI', 'Configurala en <b>Cartera → Conexión con Power BI</b>.');
+    const c = deIso($('fcicConcesion').value) || M.diaHabilAnterior(new Date());
+    const dax = `EVALUATE TOPN ( 1, FILTER ( SaldoCuenta121049010, SaldoCuenta121049010[Fecha] <= DATE ( ${c.getFullYear()}, ${c.getMonth() + 1}, ${c.getDate()} ) ), SaldoCuenta121049010[Fecha], DESC )`;
+    $('fcicSaldoEstado').innerHTML = aviso('warn', 'Consultando Power BI…');
+    $('btnFcicSaldoPbi').disabled = true;
+    try {
+      const j = await llamarFlujo({ accion: 'consultar', modelo: 'saldosContables', consulta: dax }, { url: f.pbiUrl, clave: f.pbiClave });
+      if (j && j.ok === false) throw new Error(j.mensaje || 'El flujo informó un error.');
+      const filas = M.leerFilasPowerBI(j).datos;
+      if (!filas.length) throw new Error(`El modelo no tiene saldo hasta el ${fBarra(c)}.`);
+      const saldo = Number(filas[0].Saldo), fecha = new Date(filas[0].Fecha);
+      if (!isFinite(saldo)) throw new Error('La respuesta no trae la columna Saldo: revisar que el flujo consulte el modelo de saldos (modelo = saldosContables).');
+      $('fcicPatrimonio').value = saldo.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      const igual = !isNaN(fecha) && isoDe(new Date(fecha.getUTCFullYear(), fecha.getUTCMonth(), fecha.getUTCDate())) === isoDe(c);
+      fcicInvalidar();
+      $('fcicSaldoEstado').innerHTML = aviso(igual ? 'ok' : 'warn', `Saldo de Power BI al ${isNaN(fecha) ? '?' : fBarra(new Date(fecha.getUTCFullYear(), fecha.getUTCMonth(), fecha.getUTCDate()))}: $ ${fmtMonto(saldo)}`
+        + (igual ? '' : ` — <b>no hay saldo del ${fBarra(c)}</b>: se tomó el último anterior. Revisá que el modelo esté actualizado.`));
+    } catch (e) {
+      $('fcicSaldoEstado').innerHTML = aviso('bad', esc(e.message || e));
+    } finally { $('btnFcicSaldoPbi').disabled = false; }
+  });
 
   $('fcicArchivo').addEventListener('change', async e => {
     const f = e.target.files[0];
