@@ -113,3 +113,11 @@ de `dmbi2019as` / `BVDW`, cuenta 121049010).
      del modelo nuevo, texto `outputs('Pedido')?['consulta']`), renombrada `ConsultaSaldos`, y una **Respuesta** `200`
      (mismos encabezados) con cuerpo `body('ConsultaSaldos')?['firstTableRows']`.
    - **Si no**: mover ahí las acciones de siempre (`Consulta` y sus dos Respuestas).
+
+### Alternativa recomendada: flujo propio "VALO Saldo cuenta 121049010"
+
+Paquete importable (se entrega aparte, no está en el repositorio). Recibe `{ "clave", "fecha": "aaaa-mm-dd" }`, valida la
+clave, arma él mismo la consulta DAX (la página no manda DAX) y consulta el modelo **NoCobis FCIC MELI** del área de
+trabajo **Patrimonios**. Devuelve las filas (`firstTableRows`) con `Fecha` y `Saldo`.
+En la página: **NO COBIS FCIC MELI → Lista DG y nombres de bancos → Flujo "VALO Saldo cuenta 121049010"** (dirección +
+clave) → **Guardar conexión**. Si está cargado, el botón **Traer saldo de Power BI** usa este flujo; si no, el de Cartera.

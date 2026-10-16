@@ -3369,14 +3369,17 @@
   // Saldo de la cuenta 121049010 desde el modelo semántico de Power BI (tabla SaldoCuenta121049010, importada del cubo
   // SaldosContables). Va por el flujo de Power BI de Cartera con "modelo": "saldosContables" (ver powerautomate/POWERBI.md).
   $('btnFcicSaldoPbi').addEventListener('click', async () => {
-    const f = datos().nocobisFlujo || {};
-    if (!f.pbiUrl || !f.pbiClave) return informar('Falta la conexión con Power BI', 'Configurala en <b>Cartera → Conexión con Power BI</b>.');
+    // Flujo propio (recibe solo la fecha y arma la consulta) o, si no está, el de Power BI de Cartera con modelo = saldosContables.
+    const f = datos().nocobisFlujo || {}, cf = fcicCfg();
+    const propio = !!(cf.saldoUrl && cf.saldoClave);
+    if (!propio && (!f.pbiUrl || !f.pbiClave)) return informar('Falta la conexión', 'Cargá el flujo <b>VALO Saldo cuenta 121049010</b> en <b>Lista DG y nombres de bancos</b> (abajo).');
     const c = deIso($('fcicConcesion').value) || M.diaHabilAnterior(new Date());
     const dax = `EVALUATE TOPN ( 1, FILTER ( SaldoCuenta121049010, SaldoCuenta121049010[Fecha] <= DATE ( ${c.getFullYear()}, ${c.getMonth() + 1}, ${c.getDate()} ) ), SaldoCuenta121049010[Fecha], DESC )`;
     $('fcicSaldoEstado').innerHTML = aviso('warn', 'Consultando Power BI…');
     $('btnFcicSaldoPbi').disabled = true;
     try {
-      const j = await llamarFlujo({ accion: 'consultar', modelo: 'saldosContables', consulta: dax }, { url: f.pbiUrl, clave: f.pbiClave });
+      const j = propio ? await llamarFlujo({ fecha: isoDe(c) }, { url: cf.saldoUrl, clave: cf.saldoClave })
+        : await llamarFlujo({ accion: 'consultar', modelo: 'saldosContables', consulta: dax }, { url: f.pbiUrl, clave: f.pbiClave });
       if (j && j.ok === false) throw new Error(j.mensaje || 'El flujo informó un error.');
       const filas = M.leerFilasPowerBI(j).datos;
       if (!filas.length) throw new Error(`El modelo no tiene saldo hasta el ${fBarra(c)}.`);
@@ -3469,15 +3472,23 @@
       + c.dg.map(x => `<tr><td>${esc(x.ente) || '<span class="chip bad">sin ente</span>'}</td><td>${esc(M.formatoCuit(x.cuit))}</td><td>${esc(x.nombre || '')}</td><td>${quitar('dg', x.cuit)}</td></tr>`).join('') + '</tbody></table>';
     $('fcicBcoTabla').innerHTML = '<table><thead><tr><th>Nombre en el reporte</th><th>CUIT</th><th></th></tr></thead><tbody>'
       + c.bancos.map(x => `<tr><td>${esc(x.nombre)}</td><td>${esc(M.formatoCuit(x.cuit))}</td><td>${quitar('banco', x.nombre)}</td></tr>`).join('') + '</tbody></table>';
-    ['btnFcicDgAgregar', 'btnFcicBcoAgregar', 'btnFcicCfgRestaurar'].forEach(id => { $(id).disabled = !fcicPuede(); });
+    ['btnFcicDgAgregar', 'btnFcicBcoAgregar', 'btnFcicCfgRestaurar', 'btnFcicSaldoGuardar'].forEach(id => { $(id).disabled = !fcicPuede(); });
+    if (document.activeElement !== $('fcicSaldoUrl')) $('fcicSaldoUrl').value = c.saldoUrl || '';
+    if (document.activeElement !== $('fcicSaldoClave')) $('fcicSaldoClave').value = c.saldoClave || '';
   }
   async function guardarFcicCfg(cambios, ok) {
     if (!fcicPuede()) return informar('Solo lectura', 'Tu acceso es de solo lectura.');
     const c = fcicCfg();
-    const r = await intentar(() => almacen.guardarFcicMeliCfg({ dg: c.dg, bancos: c.bancos, fondo: c.fondo, tipoCredito: c.tipoCredito, ...cambios }), ok);
+    const r = await intentar(() => almacen.guardarFcicMeliCfg({ dg: c.dg, bancos: c.bancos, fondo: c.fondo, tipoCredito: c.tipoCredito,
+      saldoUrl: c.saldoUrl || '', saldoClave: c.saldoClave || '', ...cambios }), ok);
     if (r && fcic.res) $('btnFcicArmar').click();
     return r;
   }
+  $('btnFcicSaldoGuardar').addEventListener('click', () => {
+    const saldoUrl = $('fcicSaldoUrl').value.trim();
+    if (saldoUrl && !/^https:\/\/\S+$/i.test(saldoUrl)) return informar('Dirección inválida', 'La dirección del flujo tiene que empezar con <code>https://</code>.');
+    guardarFcicCfg({ saldoUrl, saldoClave: $('fcicSaldoClave').value }, 'Conexión del saldo guardada');
+  });
   $('btnFcicDgAgregar').addEventListener('click', () => {
     const cuit = $('fcicDgCuit').value.replace(/\D/g, ''), ente = $('fcicDgEnte').value.replace(/\D/g, ''), nombre = $('fcicDgNombre').value.trim();
     if (cuit.length !== 11 || !ente) return informar('Datos incompletos', 'Cargá un CUIT de 11 dígitos y el ente COBIS.');
