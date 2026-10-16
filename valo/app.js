@@ -3343,6 +3343,9 @@
       && (!ce || String(c.emisorCuit).replace(/\D/g, '').includes(ce)) && (!cb || String(c.beneficiarioDocumento).replace(/\D/g, '').includes(cb)));
   }
   const chqSeleccionados = () => chq.filas.filter(c => chq.sel.has(c.chequeId));
+  // Seleccionados que ya pasaron por la aceptación (con su resultado): son los que van a la constancia.
+  const chqConResultado = () => chqSeleccionados().filter(c => ['ok', 'ko', 'duda'].includes((chq.res.get(c.chequeId) || {}).estado))
+    .map(c => Object.assign({}, c, chq.res.get(c.chequeId)));
 
   function renderCheques() {
     const vis = chqVisibles(), sel = chqSeleccionados();
@@ -3353,13 +3356,13 @@
       .map(([t, v]) => `<div class="kpi"><b>${v}</b><span>${t}</span></div>`).join('') : '';
     $('btnChqExportar').disabled = !vis.length;
     $('btnChqCobis').disabled = !sel.length || chq.corriendo;
-    $('btnChqAceptar').disabled = !sel.length || chq.corriendo || !chqPuede();
-    $('btnChqPdf').disabled = chq.corriendo || !(chq.ultima && chq.ultima.items.length);
+    // Solo se envían a aceptar los seleccionados que todavía no se enviaron (o que el banco rechazó).
+    $('btnChqAceptar').disabled = !sel.some(c => !chqBloqueado(c)) || chq.corriendo || !chqPuede();
+    $('btnChqPdf').disabled = chq.corriendo || !chqConResultado().length;
     $('btnChqConsultar').disabled = chq.corriendo;
     if (!chq.consultado) { $('chqTabla').innerHTML = '<div class="vacio">Pulsá <b>Consultar cheques</b> para traer los eCheqs.</div>'; return; }
     if (!vis.length) { $('chqTabla').innerHTML = '<div class="vacio">No hay cheques' + (chq.filas.length ? ' con esos filtros' : '') + '.</div>'; return; }
-    const elegibles = vis.filter(c => !chqBloqueado(c));
-    const todos = elegibles.length && elegibles.every(c => chq.sel.has(c.chequeId));
+    const todos = vis.length && vis.every(c => chq.sel.has(c.chequeId));
     const est = r => !r ? '' : r.estado === 'ok' ? '<span class="chip ok">Aceptado</span>' : r.estado === 'ko' ? '<span class="chip bad">No aceptado</span>'
       : r.estado === 'duda' ? '<span class="chip warn">Sin respuesta</span>' : r.estado === 'enviando' ? '<span class="chip warn">Aceptando…</span>' : '<span class="chip gris">En cola</span>';
     $('chqTabla').innerHTML = `<table><thead><tr><th><input type="checkbox" id="chqTodos" ${todos ? 'checked' : ''} ${chq.corriendo ? 'disabled' : ''} aria-label="Seleccionar visibles"></th>`
@@ -3367,7 +3370,7 @@
       + vis.map(c => {
         const r = chq.res.get(c.chequeId), s = chq.sel.has(c.chequeId), cod = chqCodigo(c);
         const cls = r && r.estado === 'ok' ? 'chq-ok' : r && (r.estado === 'ko' || r.estado === 'duda') ? 'chq-ko' : r && r.estado === 'enviando' ? 'chq-enc' : s ? 'chq-sel' : '';
-        return `<tr class="${cls}"><td><input type="checkbox" class="chqPick" data-id="${esc(c.chequeId)}" ${s ? 'checked' : ''} ${chq.corriendo || chqBloqueado(c) ? 'disabled' : ''}></td>`
+        return `<tr class="${cls}"><td><input type="checkbox" class="chqPick" data-id="${esc(c.chequeId)}" ${s ? 'checked' : ''} ${chq.corriendo ? 'disabled' : ''} title="${chqBloqueado(c) ? 'Ya enviado a aceptar: se puede elegir para la interfaz COBIS y la constancia, no se vuelve a aceptar' : ''}"></td>`
           + CHQ_COLS.map(([k]) => k === 'monto' ? `<td class="num">${fmtMonto(c.monto)}</td>` : k === 'cobis' ? `<td>${cod ? esc(cod) : '<span class="chip warn">sin código</span>'}</td>`
             : k === 'fechaPago' ? `<td>${esc(M.fechaEcheq(c.fechaPago))}</td>` : `<td>${esc(c[k])}</td>`).join('')
           + `<td>${est(r)}</td><td style="white-space:normal;min-width:220px">${r && r.mensaje ? esc(r.mensaje) : ''}</td></tr>`;
@@ -3378,7 +3381,7 @@
 
   $('chqTabla').addEventListener('change', e => {
     if (e.target.id === 'chqTodos') {
-      chqVisibles().filter(c => !chqBloqueado(c)).forEach(c => e.target.checked ? chq.sel.add(c.chequeId) : chq.sel.delete(c.chequeId));
+      chqVisibles().forEach(c => e.target.checked ? chq.sel.add(c.chequeId) : chq.sel.delete(c.chequeId));
     } else if (e.target.classList.contains('chqPick')) {
       e.target.checked ? chq.sel.add(e.target.dataset.id) : chq.sel.delete(e.target.dataset.id);
     } else return;
@@ -3505,7 +3508,7 @@
     $('chqCobisAviso').innerHTML = (chqCobis.sinCodigo.length ? aviso('warn', `<b>${chqCobis.sinCodigo.length} cheque(s) sin código COBIS</b> (no van a la interfaz): `
       + esc([...new Set(chqCobis.sinCodigo.map(c => `${c.beneficiarioNombre} (${c.beneficiarioDocumento})`))].join(', ')) + '. Cargá el CUIT en <b>Clientes COBIS</b>.') : '')
       + (fuera ? aviso('warn', `${fuera} cheque(s) seleccionados no fueron aceptados y quedaron afuera.`) : '')
-      + aviso(chqCobis.lineas.length ? 'ok' : 'bad', `${fmtEntero(chqCobis.lineas.length)} líneas para COBIS.`);
+      + aviso(chqCobis.lineas.length ? 'ok' : 'bad', `${fmtEntero(chqCobis.lineas.length)} líneas para COBIS, de los ${fmtEntero(chqSeleccionados().length)} cheques seleccionados.`);
     $('chqCobisTabla').innerHTML = chqCobis.lineas.length ? '<table><thead><tr><th>#</th><th>Línea</th></tr></thead><tbody>'
       + chqCobis.lineas.map((l, i) => `<tr><td class="num">${i + 1}</td><td style="font-family:monospace">${esc(l)}</td></tr>`).join('') + '</tbody></table>' : '';
     $('btnChqCobisTxt').disabled = !chqCobis.lineas.length;
@@ -3543,8 +3546,11 @@
 
   // ---- constancia PDF de la última tanda de aceptaciones
   async function chqConstanciaPdf() {
-    const t = chq.ultima;
-    if (!t || !t.items.length) return;
+    // Solo los cheques seleccionados que tienen resultado de aceptación.
+    const items = chqConResultado();
+    if (!items.length) return informar('Sin cheques para la constancia', 'Seleccioná cheques que ya hayas enviado a aceptar.');
+    const u = chq.ultima || {};
+    const t = { items, inicio: u.inicio || new Date(), fin: u.fin || new Date(), usuario: u.usuario || almacen.email || '', pendientes: 0 };
     try {
       await cargarLibreria('jspdf'); await cargarLibreria('autotable');
       const doc = new window.jspdf.jsPDF({ unit: 'mm', format: 'a4', orientation: 'landscape' });
@@ -3559,7 +3565,7 @@
       doc.setDrawColor(...MARCA.rojoRgb); doc.setLineWidth(0.6); doc.line(M0, 25, W - M0, 25);
       // Datos de la tanda en recuadros.
       const datosT = [['Inicio', fh(t.inicio)], ['Fin', fh(t.fin || new Date())], ['Usuario', t.usuario || '—'],
-        ['Cheques enviados', String(t.items.length) + (t.pendientes ? ` (${t.pendientes} sin enviar)` : '')],
+        ['Cheques', String(t.items.length)],
         ['Aceptados', `${acept.length} · $ ${fmtMonto(chqMonto(acept))}`], ['No aceptados', `${noAcept.length} · $ ${fmtMonto(chqMonto(noAcept))}`]];
       const anchoC = (W - 2 * M0 - 5 * 3) / 6;
       datosT.forEach(([k, v], i) => {
@@ -3640,6 +3646,7 @@
         r = e.sinRespuesta ? { estado: 'duda', mensaje: `${e.message}: verificá en el banco si quedó aceptado antes de volver a enviarlo.` } : { estado: 'ko', mensaje: e.message || String(e) };
         if (/clave/i.test(r.mensaje)) chq.detener = true;
       }
+      r.hora = new Date().toLocaleTimeString('es-AR', { hour12: false });
       chq.res.set(c.chequeId, r);
       if (r.estado === 'ok') { acept++; chq.sel.delete(c.chequeId); } else noAcept++;
       hechos++;
