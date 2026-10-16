@@ -1749,7 +1749,7 @@
   const GRUPO_EQUIV = { 1: 'A', I: 'A', 2: 'B', II: 'B', 3: 'C', III: 'C', 4: 'D', IV: 'D', 5: 'E', V: 'E', 6: 'F', VI: 'F' };
   const grupoComparable = g => GRUPO_EQUIV[g] || g;
   const comboComparable = c => c.split('+').map(grupoComparable).sort().join('+');
-  function controlResumen(unico, cliente, actas) {
+  function controlResumen(unico, cliente, actas, revocados) {
     const firmantes = (cliente && cliente.firmantes) || [];
     const presidentes = (actas ? presidentesDeActas(actas) : []).concat(((cliente && cliente.presidentes) || []).map(n => ({ nombre_completo: n })));
     const textoDe = (f, res) => `${res.texto || ''} ${f.observacion || ''}`;
@@ -1790,7 +1790,7 @@
       if (!est.length) {
         fila.sinPoder = true;
         fila.puntos.push(f.revocado ? { punto: 'Poder', ok: true, resumen: 'REVOCADO', poder: 'Sin poder vigente (revocado)' }
-          : { punto: 'Poder', ok: false, resumen: res.texto || '—', poder: 'No figura como apoderado en los poderes' });
+          : { punto: 'Poder', ok: false, resumen: res.texto || '—', poder: (r => r ? `Revocado: ${r}. No figura en los poderes vigentes` : 'No figura como apoderado en los poderes')(revocacionDe(f, revocados)) });
         return fila;
       }
       if (f.revocado) fila.puntos.push({ punto: 'Poder', ok: false, resumen: 'REVOCADO', poder: 'Tiene un poder vigente', detalle: 'el resumen lo da por revocado pero el poder sigue vigente' });
@@ -2262,6 +2262,20 @@
     });
     heredarComplementarios(vigentes);
     return { vigentes, anulados, quitados, avisos };
+  }
+
+  // Un firmante sin poder vigente que figuraba en un poder revocado (anulado entero o revocación parcial que lo quitó):
+  // "figuraba en el poder del 2019-07-31 (esc. 132), revocado por el poder del 2024-12-17". revocados = { anulados, quitados }.
+  function revocacionDe(f, revocados) {
+    if (!revocados) return '';
+    const etq = p => `${p.fecha_emision || 's/f'}${p.deed_number ? ' (esc. ' + p.deed_number + ')' : ''}`;
+    const casos = [];
+    (revocados.quitados || []).forEach(q => { if (q.apoderado && firmanteDe(q.apoderado, [f])) casos.push({ p: q.poder, motivo: q.motivo }); });
+    (revocados.anulados || []).forEach(a => { if (a.poder && (a.poder.apoderados || []).some(x => firmanteDe(x, [f]))) casos.push({ p: a.poder, motivo: a.motivo }); });
+    if (!casos.length) return '';
+    casos.sort((x, y) => String(y.p.fecha_emision || '').localeCompare(String(x.p.fecha_emision || '')));
+    // El más reciente: es el que lo dejó sin poder.
+    return `figuraba en el poder del ${etq(casos[0].p)}, ${casos[0].motivo || 'revocado'}`;
   }
 
   // Firmantes de la planilla que no aparecen como apoderados en ningún poder.
@@ -3708,7 +3722,7 @@ try {
     if (!mensaje) mensaje = aceptado ? 'Aceptado' : j.etapa === 'login' ? 'No se pudo ingresar al banco (login)' : j.mensaje || `No aceptado${j.estadoHttp ? ' (HTTP ' + j.estadoHttp + ')' : ''}`;
     return { aceptado, mensaje, historico: j.historico !== false, fecha: j.fecha || '' };
   }
-  const api = { normalizarEcheq, echeqsDeRespuesta, leerClientesCobis, lineaCobisEcheq, interfazCobisEcheq, resultadoAceptacion, fechaEcheq, razonDelArchivo, razonPorCuit,
+  const api = { revocacionDe, normalizarEcheq, echeqsDeRespuesta, leerClientesCobis, lineaCobisEcheq, interfazCobisEcheq, resultadoAceptacion, fechaEcheq, razonDelArchivo, razonPorCuit,
     PROVINCIAS, FIJOS, COLS_REPORTE, FORMATOS, COLUMNAS_MONTO, CAMPOS_INTERFAZ,
     leerTxtMeli, bancoMeliDeTxt, bancosParaMeli,
     sqlExtraccionCartera, bookmarkletCartera, scriptPowerShellCartera, comandoTareaCartera, IMPORTES_CARTERA,
