@@ -61,6 +61,15 @@ Todas las respuestas llevan `Access-Control-Allow-Origin: *` y `Content-Type: ap
    y la clave (la misma de la variable `ClaveCompartida` del flujo). **Guardar conexión.**
 5. Cargar los **Clientes COBIS** (CUIT → código): *Importar Excel* con el archivo de eCheqs (toma la Hoja2) o a mano.
 
+## Límites de escritura
+
+| Dónde | Límite | Cómo se maneja |
+|---|---|---|
+| Histórico de SharePoint (Excel) | El conector de Excel trabaja con archivos de hasta 25 MB y se vuelve lento con tablas muy grandes; dos escrituras a la vez sobre la misma tabla pueden chocar | Una fila por llamada y de a un cheque a la vez (nunca escrituras simultáneas). El flujo no lee la tabla, así que no lo afecta el tope de filas de "Enumerar filas". Si el archivo crece mucho, empezar uno nuevo por año (la acción toma la primera tabla del archivo configurado). Si una fila no se pudo escribir, la pantalla lo avisa en el detalle del cheque. |
+| Mensaje de Teams | ~28 KB por mensaje | Tabla corta: hasta 25 cheques y 4 columnas, con la aclaración de que el detalle completo está en el correo. |
+| Correo | — | Tabla completa, hasta 500 cheques por tanda. |
+| Respuesta HTTP del flujo | 2 minutos | Un cheque por llamada (cada llamada tarda segundos). |
+
 ## Seguridad
 
 - La dirección del flujo más la clave permiten aceptar cheques: no compartirlas fuera de VALO. Si se filtran, cambiar la
