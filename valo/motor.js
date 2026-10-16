@@ -1785,6 +1785,17 @@
     Object.keys(equiv).forEach(g => { if (gruposPoder.has(equiv[g])) delete equiv[g]; });
     const trad = g => equiv[g] || grupoComparable(g);
     const tradCombo = c => c.split('+').map(trad).sort().join('+');
+    // Grupos propios (de una sola persona) que el resumen pone en otro grupo: Bartolucci es el grupo B del poder y el
+    // resumen lo pone en el A, así que para todos el B+A del poder es A+A.
+    const unaPersona = g => new Set(unico.estructuras_de_firma.filter(e => e.grupo === g).flatMap(e => e.apoderados)).size <= 1;
+    const propioComo = {};
+    base.forEach(({ est, res }) => {
+      if (!res.grupo) return;
+      [...new Set(est.map(e => e.grupo))].forEach(g => {
+        if (!g || grupoComparable(g) === grupoComparable(res.grupo) || !unaPersona(g)) return;
+        propioComo[g] = propioComo[g] && propioComo[g] !== grupoComparable(res.grupo) ? null : grupoComparable(res.grupo);
+      });
+    });
     return base.map(({ f, est, res, apo }) => {
       const fila = { nombre: f.nombre, ident: f.cuit || f.dni, resumen: res.texto || '', monto_hasta: f.monto_hasta, puntos: [] };
       if (!est.length) {
@@ -1825,12 +1836,17 @@
         : { punto: 'Uso de firma', ok: !resTipos.length ? null : !faltaTipo.length, resumen: resTipos.join(' / ') || '—', poder: tipos.join(' / ') || '—' });
       // Si el poder no asigna grupos, la letra la pone la página (por las facultades): no se compara.
       const grupoAuto = est.every(e => e.grupoAutomatico);
+      // Grupos "propios" del firmante en el poder: tienen solo a él ("Bartolucci (B) con cualquiera del grupo A", o un poder
+      // solo para él sin grupos). El resumen suele ponerlo en el grupo con el que firma ("A CONJUNTA A+A"): su B+A es A+A.
+      const propiosPoder = res.grupo ? grupos.filter(g => grupoComparable(g) !== grupoComparable(res.grupo) && unaPersona(g)) : [];
       if (res.grupo) {
         const usados = grupos.filter(g => equiv[g] && equiv[g] !== g);
         const otros = apo && unico.otrosGrupos && unico.otrosGrupos[apo.numero_de_identificacion] ? [...unico.otrosGrupos[apo.numero_de_identificacion]] : [];
         const okOtro = !grupos.map(trad).includes(grupoComparable(res.grupo)) && otros.map(trad).includes(grupoComparable(res.grupo));
         const ok = grupos.includes(res.grupo) || grupos.map(trad).includes(grupoComparable(res.grupo)) || grupos.map(grupoComparable).includes(grupoComparable(res.grupo)) || okOtro;
         fila.puntos.push(grupoAuto ? { punto: 'Grupo', ok: null, resumen: res.grupo, poder: `No aplica: el poder no asigna grupos (letra ${grupos.join(', ')} puesta según las facultades)` }
+          : !ok && propiosPoder.length === grupos.length ? { punto: 'Grupo', ok: null, resumen: res.grupo, poder: grupos.join(', '),
+            detalle: `en el poder tiene un grupo propio (solo él: ${grupos.join(', ')}); el resumen lo pone en el grupo ${res.grupo}` }
           : ok && usados.length && !grupos.includes(res.grupo) ? { punto: 'Grupo', ok: /^[A-Z]$/.test(usados[0]) ? null : true, resumen: res.grupo, poder: grupos.join(', '),
             detalle: 'el resumen nombra ' + usados.map(g => `"${equiv[g]}" al grupo ${g} del poder`).join(' y ') }
           : okOtro ? { punto: 'Grupo', ok: true, resumen: res.grupo, poder: grupos.join(', ') + ' (y ' + otros.join(', ') + ' en otro poder)' }
@@ -1852,14 +1868,20 @@
         const podT = grupoAuto ? [...new Set(combos.map(forma))] : [...new Set(combos.map(tradCombo))];
         const podD = grupoAuto ? podT : [...new Set(combos.map(comboComparable))];
         const difs = pc => resC.filter(c => !pc.includes(c)).length;
-        const podC = difs(podD) < difs(podT) ? podD : podT;
+        // Con sus grupos propios leídos como el grupo del resumen (B+A → A+A).
+        const como = x => propiosPoder.includes(x) ? grupoComparable(res.grupo) : propioComo[x] || trad(x);
+        const podP = !grupoAuto && combos.some(c => c.split('+').some(x => propiosPoder.includes(x) || propioComo[x])) ? [...new Set(combos.map(c => c.split('+').map(como).sort().join('+')))] : null;
+        let podC = difs(podD) < difs(podT) ? podD : podT;
+        const extra = pc => pc.filter(c => !resC.includes(c)).length;
+        if (podP && (difs(podP) < difs(podC) || (difs(podP) === difs(podC) && extra(podP) < extra(podC)))) podC = podP;
         // Lo que el poder da aunque hoy no haya firmantes para armarlo (B+C sin nadie del grupo C) no es un "sobrante".
-        const podNo = grupoAuto ? [] : combosSinFirmantes.map(podC === podD ? comboComparable : tradCombo);
+        const podNo = grupoAuto ? [] : podC === podP ? [] : combosSinFirmantes.map(podC === podD ? comboComparable : tradCombo);
         const sobran = resC.filter(c => !podC.includes(c) && !podNo.includes(c)), faltan = podC.filter(c => !resC.includes(c));
         // Que el poder dé más combinaciones que las que lista el resumen no es un error: el resumen es más restrictivo.
         fila.puntos.push({ punto: 'Firmas conjuntas', ok: sobran.length ? false : faltan.length ? null : true, resumen: res.combinaciones.join('; ') || '—',
           poder: (combos.join('; ') || '—') + (grupoAuto && combos.length ? ` (${podC.join(', ')}; letra puesta según las facultades)` : ''),
-          detalle: [sobran.length ? 'el resumen incluye ' + sobran.join(', ') + ' que el poder no da' : '', faltan.length ? (sobran.length ? 'el poder también da ' : 'el resumen es más restrictivo: el poder también da ') + faltan.join(', ') : ''].filter(Boolean).join('; ') });
+          detalle: [sobran.length ? 'el resumen incluye ' + sobran.join(', ') + ' que el poder no da' : '', faltan.length ? (sobran.length ? 'el poder también da ' : 'el resumen es más restrictivo: el poder también da ') + faltan.join(', ') : '',
+            podC === podP ? 'grupo de una sola persona leído como el grupo donde la pone el resumen: ' + [...new Set(combos.flatMap(c => c.split('+')).filter(x => propiosPoder.includes(x) || propioComo[x]))].map(x => x + ' = ' + (propiosPoder.includes(x) ? grupoComparable(res.grupo) : propioComo[x])).join(', ') : ''].filter(Boolean).join('; ') });
       }
       // Firma conjunta: el límite del poder es para la firma individual, así que no se controla.
       const limiteRes = f.monto_hasta && f.monto_hasta < 99999999 ? f.monto_hasta : res.limite || null;
