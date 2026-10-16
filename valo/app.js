@@ -3393,12 +3393,16 @@
       const filas = M.leerFilasPowerBI(j).datos;
       if (!filas.length) throw new Error(`El modelo no tiene saldo hasta el ${fBarra(c)}.`);
       const saldo = Number(filas[0].Saldo), fecha = new Date(filas[0].Fecha);
+      // Patrimonio del fondo (tabla PatrimonioFondo1897, un valor: el del último día hábil del modelo), si la consulta lo trae.
+      const kPat = Object.keys(filas[0]).find(k => /patrimonio/i.test(k));
+      const patrimonio = kPat ? Number(String(filas[0][kPat]).replace(/[^\d.,-]/g, '').replace(/,(?=\d{3}\b)/g, '').replace(',', '.')) : NaN;
       if (!isFinite(saldo)) throw new Error('La respuesta no trae la columna Saldo: revisar que el flujo consulte el modelo de saldos (modelo = saldosContables).');
       $('fcicPatrimonio').value = saldo.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
       const igual = !isNaN(fecha) && isoDe(new Date(fecha.getUTCFullYear(), fecha.getUTCMonth(), fecha.getUTCDate())) === isoDe(c);
       fcicInvalidar();
       $('fcicSaldoEstado').innerHTML = aviso(igual ? 'ok' : 'warn', `Saldo de Power BI al ${isNaN(fecha) ? '?' : fBarra(new Date(fecha.getUTCFullYear(), fecha.getUTCMonth(), fecha.getUTCDate()))}: $ ${fmtMonto(saldo)}`
-        + (igual ? '' : ` — <b>no hay saldo del ${fBarra(c)}</b>: se tomó el último anterior. Revisá que el modelo esté actualizado.`));
+        + (igual ? '' : ` — <b>no hay saldo del ${fBarra(c)}</b>: se tomó el último anterior. Revisá que el modelo esté actualizado.`)
+        + (isFinite(patrimonio) && patrimonio > 0 ? `<br>Patrimonio pesificado del fondo (último día hábil del modelo): $ ${fmtMonto(patrimonio)} · el saldo es el <b>${(saldo / patrimonio * 100).toFixed(2).replace(".", ",")} %</b>` : ''));
     } catch (e) {
       $('fcicSaldoEstado').innerHTML = aviso('bad', esc(e.message || e));
     } finally { $('btnFcicSaldoPbi').disabled = false; }
