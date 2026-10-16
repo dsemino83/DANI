@@ -3354,6 +3354,7 @@
     $('btnChqExportar').disabled = !vis.length;
     $('btnChqCobis').disabled = !sel.length || chq.corriendo;
     $('btnChqAceptar').disabled = !sel.length || chq.corriendo || !chqPuede();
+    $('btnChqPdf').disabled = chq.corriendo || !(chq.ultima && chq.ultima.items.length);
     $('btnChqConsultar').disabled = chq.corriendo;
     if (!chq.consultado) { $('chqTabla').innerHTML = '<div class="vacio">Pulsá <b>Consultar cheques</b> para traer los eCheqs.</div>'; return; }
     if (!vis.length) { $('chqTabla').innerHTML = '<div class="vacio">No hay cheques' + (chq.filas.length ? ' con esos filtros' : '') + '.</div>'; return; }
@@ -3469,8 +3470,9 @@
     return j;
   }
   $('btnChqConsultar').addEventListener('click', async () => {
-    $('chqEstado').innerHTML = aviso('warn', 'Consultando eCheqs…');
+    $('chqEstado').innerHTML = '';
     $('btnChqConsultar').disabled = true;
+    chqEspera('Consultando eCheqs…', 'Esperando la respuesta del banco.');
     try {
       const j = await chqPost(chqCfg().consultaUrl, {}, false, 150);
       const vistos = new Set();
@@ -3481,7 +3483,7 @@
       $('chqEstado').innerHTML = aviso('ok', `Consulta: ${fmtEntero(chq.filas.length)} cheques por $ ${fmtMonto(chqMonto(chq.filas))}.`);
     } catch (e) {
       $('chqEstado').innerHTML = aviso('bad', esc(e.message || e));
-    } finally { $('btnChqConsultar').disabled = false; renderCheques(); }
+    } finally { chqEspera(null); $('btnChqConsultar').disabled = false; renderCheques(); }
   });
   $('btnChqExportar').addEventListener('click', () => {
     const vis = chqVisibles();
@@ -3517,13 +3519,91 @@
   });
   $('btnChqCobisCerrar').addEventListener('click', () => $('chqCobisCard').classList.add('oculto'));
 
+  // ---- espera: el isotipo del banco gira mientras se espera la respuesta del flujo
+  function chqEspera(titulo, detalle, opc) {
+    opc = opc || {};
+    const caja = $('chqEspera');
+    if (!titulo) { caja.classList.add('oculto'); return; }
+    if (!$('chqGiro').src) $('chqGiro').src = window.VALO_ISOTIPO_PNG || '';
+    $('chqEsperaTitulo').textContent = titulo;
+    $('chqEsperaDetalle').textContent = detalle || '';
+    const conAvance = opc.total != null;
+    $('chqEsperaBarra').parentNode.classList.toggle('oculto', !conAvance);
+    $('chqEsperaCuentas').classList.toggle('oculto', !conAvance);
+    if (conAvance) {
+      $('chqEsperaBarra').style.width = Math.round((opc.hechos || 0) / Math.max(opc.total, 1) * 100) + '%';
+      $('chqEsperaCuentas').innerHTML = `${opc.hechos || 0} de ${opc.total} · <span style="color:var(--ok)">aceptados ${opc.acept || 0}</span> · <span style="color:var(--bad)">no aceptados ${opc.noAcept || 0}</span>`;
+    }
+    $('chqEsperaLista').innerHTML = (opc.lista || []).slice().reverse().map(x => `<li><span class="chip ${x.estado === 'ok' ? 'ok' : x.estado === 'duda' ? 'warn' : 'bad'}">${x.estado === 'ok' ? 'Aceptado' : x.estado === 'duda' ? 'Sin respuesta' : 'No aceptado'}</span> `
+      + `${esc(x.chequeNumero || x.chequeId)} · ${esc(x.beneficiarioNombre)} · $ ${esc(fmtMonto(x.monto))}${x.estado === 'ok' ? '' : ' — ' + esc(x.mensaje || '')}</li>`).join('');
+    $('chqEsperaLista').classList.toggle('oculto', !(opc.lista || []).length);
+    $('btnChqDetener').classList.toggle('oculto', !opc.detener);
+    caja.classList.remove('oculto');
+  }
+
+  // ---- constancia PDF de la última tanda de aceptaciones
+  async function chqConstanciaPdf() {
+    const t = chq.ultima;
+    if (!t || !t.items.length) return;
+    try {
+      await cargarLibreria('jspdf'); await cargarLibreria('autotable');
+      const doc = new window.jspdf.jsPDF({ unit: 'mm', format: 'a4', orientation: 'landscape' });
+      const W = doc.internal.pageSize.getWidth(), H = doc.internal.pageSize.getHeight(), M0 = 12;
+      const acept = t.items.filter(x => x.estado === 'ok'), noAcept = t.items.filter(x => x.estado !== 'ok');
+      const fh = d => d.toLocaleString('es-AR', { dateStyle: 'short', timeStyle: 'medium' });
+      if (window.VALO_LOGO_PNG) doc.addImage(window.VALO_LOGO_PNG, 'PNG', M0, 8, 42, 14);
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(16); doc.setTextColor(...MARCA.rojoRgb);
+      doc.text('Constancia de aceptación de eCheqs', W - M0, 15, { align: 'right' });
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(...MARCA.grisRgb);
+      doc.text('Descuento de cheques', W - M0, 20.5, { align: 'right' });
+      doc.setDrawColor(...MARCA.rojoRgb); doc.setLineWidth(0.6); doc.line(M0, 25, W - M0, 25);
+      // Datos de la tanda en recuadros.
+      const datosT = [['Inicio', fh(t.inicio)], ['Fin', fh(t.fin || new Date())], ['Usuario', t.usuario || '—'],
+        ['Cheques enviados', String(t.items.length) + (t.pendientes ? ` (${t.pendientes} sin enviar)` : '')],
+        ['Aceptados', `${acept.length} · $ ${fmtMonto(chqMonto(acept))}`], ['No aceptados', `${noAcept.length} · $ ${fmtMonto(chqMonto(noAcept))}`]];
+      const anchoC = (W - 2 * M0 - 5 * 3) / 6;
+      datosT.forEach(([k, v], i) => {
+        const x = M0 + i * (anchoC + 3);
+        doc.setDrawColor(215); doc.setLineWidth(0.2); doc.setFillColor(248, 248, 249); doc.roundedRect(x, 29, anchoC, 13, 1.5, 1.5, 'FD');
+        doc.setFontSize(7); doc.setTextColor(...MARCA.grisRgb); doc.text(k.toUpperCase(), x + 2.5, 33.5);
+        doc.setFont('helvetica', 'bold'); doc.setFontSize(9); doc.setTextColor(30); doc.text(doc.splitTextToSize(v, anchoC - 5)[0], x + 2.5, 39);
+        doc.setFont('helvetica', 'normal');
+      });
+      const filas = t.items.map((x, i) => [i + 1, x.hora || '', x.chequeId, x.chequeNumero, x.beneficiarioNombre, M.formatoCuit(x.beneficiarioDocumento) || x.beneficiarioDocumento,
+        x.emisorNombre, M.fechaEcheq(x.fechaPago), fmtMonto(x.monto), x.estado === 'ok' ? 'ACEPTADO' : x.estado === 'duda' ? 'SIN RESPUESTA' : 'NO ACEPTADO', x.estado === 'ok' ? '' : x.mensaje || '']);
+      doc.autoTable({
+        startY: 47, margin: { left: M0, right: M0, bottom: 16 },
+        head: [['#', 'Hora', 'Cheque ID', 'N.º cheque', 'Beneficiario', 'CUIT beneficiario', 'Emisor', 'Fecha pago', 'Monto', 'Resultado', 'Detalle']],
+        body: filas,
+        foot: [['', '', '', '', '', '', '', 'Total aceptado', fmtMonto(chqMonto(acept)), `${acept.length} de ${t.items.length}`, '']],
+        styles: { font: 'helvetica', fontSize: 7.5, cellPadding: 1.6, overflow: 'linebreak', textColor: 40 },
+        headStyles: { fillColor: MARCA.grisRgb, textColor: 255, fontStyle: 'bold' },
+        footStyles: { fillColor: [242, 242, 243], textColor: 30, fontStyle: 'bold' },
+        alternateRowStyles: { fillColor: [248, 248, 249] },
+        columnStyles: { 0: { halign: 'right', cellWidth: 7 }, 1: { cellWidth: 14 }, 8: { halign: 'right' }, 9: { fontStyle: 'bold' }, 10: { cellWidth: 52 } },
+        didParseCell: d => { if (d.section === 'body' && d.column.index === 9) d.cell.styles.textColor = t.items[d.row.index].estado === 'ok' ? [29, 122, 70] : [163, 20, 31]; },
+      });
+      const n = doc.getNumberOfPages();
+      for (let p = 1; p <= n; p++) {
+        doc.setPage(p);
+        doc.setDrawColor(...MARCA.rojoRgb); doc.setLineWidth(0.4); doc.line(M0, H - 11, W - M0, H - 11);
+        doc.setFontSize(7.5); doc.setTextColor(...MARCA.grisRgb);
+        doc.text(`Banco de Valores S.A. · Generado el ${fh(new Date())}`, M0, H - 7);
+        doc.text(`Página ${p} de ${n}`, W - M0, H - 7, { align: 'right' });
+      }
+      const d = t.inicio, f = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}_${String(d.getHours()).padStart(2, '0')}${String(d.getMinutes()).padStart(2, '0')}`;
+      await descargar(`Constancia_aceptacion_echeqs_${f}.pdf`, doc.output('blob'), true);
+    } catch (e) { informar('No se pudo generar la constancia', esc(e.message || e)); }
+  }
+  $('btnChqPdf').addEventListener('click', chqConstanciaPdf);
+
   // ---- aceptación
   function chqProgreso(hechos, total, texto) {
     $('chqProgreso').classList.toggle('oculto', !total);
     $('chqProgresoBarra').style.width = total ? Math.round(hechos / total * 100) + '%' : '0';
     $('chqProgresoTexto').textContent = texto || '';
   }
-  $('btnChqDetener').addEventListener('click', () => { chq.detener = true; $('btnChqDetener').disabled = true; $('chqProgresoTexto').textContent += ' · deteniendo después del cheque en curso…'; });
+  $('btnChqDetener').addEventListener('click', () => { chq.detener = true; $('btnChqDetener').disabled = true; $('btnChqDetener').textContent = 'Deteniendo…'; $('chqProgresoTexto').textContent += ' · deteniendo después del cheque en curso…'; });
   $('btnChqAceptar').addEventListener('click', async () => {
     const cfg = chqCfg();
     if (!cfg.aceptarUrl || !cfg.clave) return informar('Falta la conexión', 'Configurá el flujo de aceptación y la clave en <b>Conexión con los flujos de Power Automate</b>.');
@@ -3535,7 +3615,8 @@
     if (!ok) return;
     chq.corriendo = true; chq.detener = false;
     lista.forEach(c => chq.res.set(c.chequeId, { estado: 'cola' }));
-    $('btnChqDetener').classList.remove('oculto'); $('btnChqDetener').disabled = false;
+    $('btnChqDetener').disabled = false; $('btnChqDetener').textContent = 'Detener después de este cheque';
+    chq.ultima = { inicio: new Date(), fin: null, usuario: almacen.email || '', items: [], pendientes: 0 };
     $('chqEstado').innerHTML = '';
     let hechos = 0, acept = 0, noAcept = 0;
     const resultados = [];
@@ -3546,6 +3627,8 @@
       if (chq.detener) break;
       chq.res.set(c.chequeId, { estado: 'enviando' });
       chqProgreso(hechos, lista.length, `Aceptando ${hechos + 1} de ${lista.length}: ${c.chequeNumero || c.chequeId} · ${c.beneficiarioNombre} · $ ${fmtMonto(c.monto)}`);
+      chqEspera(`Aceptando eCheq ${hechos + 1} de ${lista.length}`, `${c.chequeNumero || c.chequeId} · ${c.beneficiarioNombre} · $ ${fmtMonto(c.monto)}`,
+        { hechos, total: lista.length, acept, noAcept, lista: chq.ultima.items, detener: !chq.detener });
       renderCheques();
       let r;
       try {
@@ -3562,6 +3645,7 @@
       hechos++;
       resultados.push({ chequeId: c.chequeId, chequeNumero: c.chequeNumero, beneficiarioNombre: c.beneficiarioNombre, beneficiarioDocumento: c.beneficiarioDocumento,
         fechaPago: M.fechaEcheq(c.fechaPago), monto: fmtMonto(c.monto), estado: { ok: 'ACEPTADO', ko: 'NO ACEPTADO', duda: 'SIN RESPUESTA' }[r.estado], detalle: r.mensaje, aceptado: r.estado === 'ok' });
+      chq.ultima.items.push(Object.assign({}, c, { estado: r.estado, mensaje: r.mensaje, hora: new Date().toLocaleTimeString('es-AR', { hour12: false }) }));
       chqProgreso(hechos, lista.length, `${hechos} de ${lista.length} · aceptados ${acept} · no aceptados ${noAcept}`);
       renderCheques();
     }
@@ -3569,19 +3653,22 @@
     // Los aceptados vuelven a quedar seleccionados para armar la interfaz COBIS.
     lista.filter(c => (chq.res.get(c.chequeId) || {}).estado === 'ok').forEach(c => chq.sel.add(c.chequeId));
     chq.corriendo = false;
-    $('btnChqDetener').classList.add('oculto');
+    chq.ultima.fin = new Date(); chq.ultima.pendientes = lista.length - hechos;
     let avisoNotif = '';
     if (resultados.length) {
+      chqEspera('Enviando el aviso por Teams y correo…', `${acept} aceptados · ${noAcept} no aceptados`, { hechos, total: lista.length, acept, noAcept, lista: chq.ultima.items });
       try {
         const n = await chqPost(cfg.aceptarUrl, { accion: 'notificar', resultados, aceptados: acept, rechazados: noAcept, usuario: almacen.email || '' }, true, 110);
         avisoNotif = n.teams === false || n.correo === false ? ` Aviso: ${n.teams === false ? 'no se pudo avisar por Teams' : ''}${n.teams === false && n.correo === false ? ' ni ' : ''}${n.correo === false ? 'no se pudo enviar el correo' : ''}.`
           : ' Se avisó por Teams y correo.';
       } catch (e) { avisoNotif = ' No se pudo enviar el aviso por Teams / correo: ' + (e.message || e) + '.'; }
     }
+    chqEspera(null);
     chqProgreso(hechos, lista.length, `Terminado: ${hechos} de ${lista.length} · aceptados ${acept} · no aceptados ${noAcept}`);
     $('chqEstado').innerHTML = aviso(noAcept ? 'warn' : 'ok', `Aceptación terminada: <b>${acept}</b> aceptados, <b>${noAcept}</b> no aceptados${hechos < lista.length ? `, ${lista.length - hechos} sin enviar (detenido)` : ''}.${esc(avisoNotif)}`
-      + (acept ? ' Los aceptados quedaron seleccionados: <b>Interfaz COBIS</b> arma el archivo.' : ''));
+      + (acept ? ' Los aceptados quedaron seleccionados: <b>Interfaz COBIS</b> arma el archivo.' : '') + ' La constancia en PDF se descargó (botón <b>Constancia PDF</b> para volver a bajarla).');
     renderCheques();
+    if (chq.ultima.items.length) chqConstanciaPdf();
   });
 
   // ============================================================ RESPALDO (solo modo local)
