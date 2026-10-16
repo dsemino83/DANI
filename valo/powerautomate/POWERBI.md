@@ -98,3 +98,18 @@ el área de trabajo y el modelo ya están cargados). **Guardar** y **Probar**.
 | *Power BI login HTTP 400/401* | client id o secret mal copiados, o el secret venció |
 | *HTTP 401/403 … PowerBINotAuthorizedException* | la aplicación no está en el área de trabajo o falta habilitar las API para service principals |
 | *statement timeout* | consulta larga: `alter role authenticated set statement_timeout = '120s'; notify pgrst, 'reload config';` |
+
+## Segundo modelo: saldo de la cuenta 121049010 (NO COBIS FCIC MELI)
+
+La pantalla **NO COBIS FCIC MELI → Traer saldo de Power BI** usa el mismo flujo, pero manda `"modelo": "saldosContables"`
+y una consulta DAX sobre la tabla `SaldoCuenta121049010` (columnas `Fecha` y `Saldo`, importada del cubo SaldosContables
+de `dmbi2019as` / `BVDW`, cuenta 121049010).
+
+1. Publicar el modelo (modo **Importar**) y configurar en el servicio de Power BI el **gateway** (origen Analysis Services
+   `dmbi2019as`) y la **actualización programada** diaria.
+2. En el flujo, dentro de **Si es verdadero** y antes de `Consulta`, agregar una **Condición**:
+   `outputs('Pedido')?['modelo']` *es igual a* `saldosContables`.
+   - **Si es verdadero**: **Power BI → Ejecutar una consulta en un conjunto de datos** (área de trabajo y conjunto de datos
+     del modelo nuevo, texto `outputs('Pedido')?['consulta']`), renombrada `ConsultaSaldos`, y una **Respuesta** `200`
+     (mismos encabezados) con cuerpo `body('ConsultaSaldos')?['firstTableRows']`.
+   - **Si no**: mover ahí las acciones de siempre (`Consulta` y sus dos Respuestas).
