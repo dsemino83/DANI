@@ -57,6 +57,7 @@
       async bancosOriginales() { return clonar(root.VALO_BANCOS_INICIALES || []); },
       async guardarBancosMeli(lista) { datos.bancosMeli = clonar(lista); cambiar(); },
       async guardarNocobisFlujo(cfg) { datos.nocobisFlujo = clonar(cfg); cambiar(); },
+      async guardarChequesCfg(cfg) { datos.chequesCfg = clonar(cfg); cambiar(); },
       async guardarPadronInventario(p) { datos.padronInventario = clonar(p); cambiar(); },
       async contarEntes() { return Object.keys(datos.entesBase || {}).length; },
       async buscarCuitPorDni(dnis) { const r = {}; const v = Object.values(datos.entesBase || {}).map(x => x[0]); dnis.forEach(d => { const d8 = String(d).padStart(8, '0'); const c = v.find(x => String(x).slice(2, 10) === d8); if (c) r[d] = c; }); return r; },
@@ -103,7 +104,7 @@
     const holder = 'pestana-' + nuevoId();
     const usuarioId = user ? await user.id() : null;
     const puede = user ? await user.can('data.write') : null;
-    const datos = { clientes: [], bancos: [], bancosMeli: [], lotes: [], carteraCfg: null, nocobisFlujo: null, envios: [], agenteNoCobis: null, padronInventario: null, carteraHist: [] };
+    const datos = { clientes: [], bancos: [], bancosMeli: [], lotes: [], carteraCfg: null, nocobisFlujo: null, chequesCfg: null, envios: [], agenteNoCobis: null, padronInventario: null, carteraHist: [] };
     const listo = { clientes: false, bancos: false, lotes: false, bancosMeli: false };
     const api = {
       modo: 'compartido',
@@ -156,6 +157,11 @@
       datos.agenteNoCobis = s.exists ? clonar(s.data()) : null;
       emitirSiListo();
     }, alError);
+    // Descuento de cheques: flujos de consulta y aceptación de eCheqs, clave compartida y clientes COBIS (CUIT → código).
+    db.doc('maestros/chequesConfig').onSnapshot(s => {
+      datos.chequesCfg = s.exists ? clonar(s.data()) : null;
+      emitirSiListo();
+    }, alError);
     db.doc('maestros/nocobisFlujo').onSnapshot(s => {
       datos.nocobisFlujo = s.exists ? clonar(s.data()) : null;
       emitirSiListo();
@@ -202,6 +208,9 @@
       async borrarCliente(id) { await escribir(() => db.doc('clientes/' + id).delete()); },
       async guardarBancos(lista) {
         await escribir(() => db.doc('maestros/bancos').set({ lista: clonar(lista), actualizado: new Date().toISOString(), actualizadoPor: usuarioId }));
+      },
+      async guardarChequesCfg(cfg) {
+        await escribir(() => db.doc('maestros/chequesConfig').set(Object.assign(clonar(cfg), { actualizado: new Date().toISOString(), actualizadoPor: usuarioId })));
       },
       async guardarNocobisFlujo(cfg) {
         await escribir(() => db.doc('maestros/nocobisFlujo').set(Object.assign(clonar(cfg), { actualizado: new Date().toISOString(), actualizadoPor: usuarioId })));

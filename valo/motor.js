@@ -3617,7 +3617,98 @@ try {
     return errores;
   }
 
-  const api = { razonDelArchivo, razonPorCuit,
+
+  // ------------------------------------------------------------ Descuento de cheques (eCheq)
+  const CUIT_VALO = '30576124275';
+  const digitosDe = v => String(v == null ? '' : v).replace(/\D/g, '');
+  // Fecha de la API ("2026-10-16", "2026-10-16T00:00:00", "16/10/2026") como dd/mm/aaaa.
+  function fechaEcheq(v) {
+    if (v instanceof Date && !isNaN(v)) return `${String(v.getDate()).padStart(2, '0')}/${String(v.getMonth() + 1).padStart(2, '0')}/${v.getFullYear()}`;
+    const t = String(v == null ? '' : v).trim();
+    let m = t.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (m) return `${m[3]}/${m[2]}/${m[1]}`;
+    m = t.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+    return m ? `${m[1].padStart(2, '0')}/${m[2].padStart(2, '0')}/${m[3]}` : t;
+  }
+  // Un cheque de la consulta, con nombres de campo uniformes. Si fue endosado a VALO, el beneficiario (el cliente que
+  // lo descuenta) es quien hizo el último endoso a VALO.
+  function normalizarEcheq(r) {
+    r = r || {};
+    const endosos = (Array.isArray(r.listEcheqEndorsementResponse) ? r.listEcheqEndorsementResponse : []).filter(e => e && digitosDe(e.beneficiarioDocumento) === CUIT_VALO);
+    const ult = endosos.reduce((a, b) => { if (!a) return b; const fa = Date.parse(a.fechaHora || '') || 0, fb = Date.parse(b.fechaHora || '') || 0;
+      return fb !== fa ? (fb > fa ? b : a) : (Number(b.idEndoso || -1) > Number(a.idEndoso || -1) ? b : a); }, null);
+    const banco = r.banco && typeof r.banco === 'object' ? r.banco : null;
+    const cmc7 = digitosDe(r.cmc7);
+    const txt = v => String(v == null ? '' : v).trim();
+    return {
+      banco: txt(banco ? (banco.descripcion || banco.nombre || banco.desc) : (r.bancoDesc || r.bankName || r.banco)),
+      bancoCodigo: txt(banco ? (banco.codigo || banco.id) : (r.bancoCodigo || r.bancoId || (/^\d+$/.test(txt(r.banco)) ? r.banco : ''))) || cmc7.slice(0, 3),
+      sucursal: txt(r.sucursal || r.branch),
+      chequeId: txt(r.chequeId || r.echeqId || r.checkId),
+      chequeNumero: txt(r.chequeNumero || r.checkNumber),
+      cmc7,
+      emisorCuit: txt(r.emisorCuit || r.issuerDocument),
+      emisorNombre: txt(r.emisorNombre || r.issuerName),
+      beneficiarioDocumento: txt(ult && ult.emisorDocumento) || txt(r.beneficiarioDocumento || r.beneficiaryDocument),
+      beneficiarioNombre: txt(ult && ult.emisorRazonSocial) || txt(r.beneficiarioNombre || r.beneficiaryName),
+      fechaPago: txt(r.fechaPago || r.paymentDate),
+      fechaEmision: txt(r.fechaEmision || r.issueDate),
+      monto: Number(r.monto != null ? r.monto : r.amount) || 0,
+      monedaDesc: txt(r.monedaDesc || r.currency),
+      estado: txt(r.estado || r.state || r.status),
+    };
+  }
+  // Lista de cheques de la respuesta del flujo de consulta (arreglo, o adentro de body / echeqsResponseArray…).
+  function echeqsDeRespuesta(x) {
+    if (Array.isArray(x)) return x;
+    for (const k of ['echeqsResponseArray', 'listEcheqsResponseArray', 'echeqs', 'value', 'body']) if (x && Array.isArray(x[k])) return x[k];
+    if (x && typeof x.body === 'string') { try { return echeqsDeRespuesta(JSON.parse(x.body)); } catch (e) { /* no JSON */ } }
+    if (x && x.body && typeof x.body === 'object') return echeqsDeRespuesta(x.body);
+    return [];
+  }
+  // Tabla de clientes COBIS (CUIT del beneficiario → código de cliente COBIS), como la Hoja2 del Excel de eCheqs:
+  // columna A CUIT, B código (con o sin encabezado; opcional C nombre).
+  function leerClientesCobis(filas) {
+    const out = new Map();
+    (filas || []).forEach(f => {
+      const cuit = digitosDe(f && f[0]), cod = digitosDe(f && f[1]);
+      if (cuit.length === 11 && cod) out.set(cuit, { cuit, codigo: cod, nombre: String((f[2] == null ? '' : f[2])).trim() });
+    });
+    return [...out.values()];
+  }
+  // Monto como lo escribe Excel en la interfaz (sin miles, punto decimal, sin ceros de más): 2112186.04
+  const montoCobis = n => String(Math.round((Number(n) || 0) * 100) / 100);
+  // Línea de la interfaz COBIS de un cheque (fórmula de la columna AD de la hoja MENU):
+  // cod|beneficiario|CUIT|cod|beneficiario|CUIT|hoy|fechaPago|N° cheque|banco|sucursal|1041|monto|fechaPago|CUIT emisor|emisor||||1|chequeId|
+  function lineaCobisEcheq(c, codigo, hoy) {
+    const suc = Number((String(c.sucursal || '').match(/^\s*(\d{1,4})/) || [])[1] || (c.cmc7 || '').slice(3, 6)) || '';
+    const banco = Number(c.bancoCodigo) || c.bancoCodigo || '';
+    const fp = fechaEcheq(c.fechaPago), limpio = v => String(v == null ? '' : v).replace(/[|\r\n]+/g, ' ').trim();
+    return [codigo, limpio(c.beneficiarioNombre), digitosDe(c.beneficiarioDocumento), codigo, limpio(c.beneficiarioNombre), digitosDe(c.beneficiarioDocumento),
+      fechaEcheq(hoy), fp, limpio(c.chequeNumero), banco, suc, '1041', montoCobis(c.monto), fp, digitosDe(c.emisorCuit), limpio(c.emisorNombre),
+      '', '', '', '1', limpio(c.chequeId)].join('|') + '|';
+  }
+  // Interfaz COBIS de varios cheques: las líneas y los cheques sin código de cliente (no van, como el IFERROR del Excel).
+  function interfazCobisEcheq(cheques, clientes, hoy) {
+    const cod = new Map((clientes || []).map(x => [digitosDe(x.cuit), String(x.codigo)]));
+    const lineas = [], sinCodigo = [];
+    (cheques || []).forEach(c => { const k = cod.get(digitosDe(c.beneficiarioDocumento)); if (k) lineas.push(lineaCobisEcheq(c, k, hoy || new Date())); else sinCodigo.push(c); });
+    return { lineas, sinCodigo, texto: lineas.join('\r\n') + (lineas.length ? '\r\n' : '') };
+  }
+  // Resultado de la aceptación de un cheque, a partir de la respuesta del flujo.
+  function resultadoAceptacion(j) {
+    if (!j || typeof j !== 'object') return { aceptado: false, mensaje: 'Respuesta vacía del flujo' };
+    const d = j.detalle && typeof j.detalle === 'object' ? j.detalle : {};
+    const textos = [];
+    const juntar = v => { if (!v) return; if (typeof v === 'string') textos.push(v); else if (Array.isArray(v)) v.forEach(juntar);
+      else if (typeof v === 'object') juntar(v.message || v.mensaje || v.description || v.descripcion || v.messageText || v.code); };
+    ['message', 'mensaje', 'messages', 'errors', 'error', 'description', 'descripcion'].forEach(k => juntar(d[k]));
+    const aceptado = j.aceptado === true;
+    let mensaje = [...new Set(textos.map(t => String(t).trim()).filter(Boolean))].join(' · ');
+    if (!mensaje) mensaje = aceptado ? 'Aceptado' : j.etapa === 'login' ? 'No se pudo ingresar al banco (login)' : j.mensaje || `No aceptado${j.estadoHttp ? ' (HTTP ' + j.estadoHttp + ')' : ''}`;
+    return { aceptado, mensaje, historico: j.historico !== false, fecha: j.fecha || '' };
+  }
+  const api = { normalizarEcheq, echeqsDeRespuesta, leerClientesCobis, lineaCobisEcheq, interfazCobisEcheq, resultadoAceptacion, fechaEcheq, razonDelArchivo, razonPorCuit,
     PROVINCIAS, FIJOS, COLS_REPORTE, FORMATOS, COLUMNAS_MONTO, CAMPOS_INTERFAZ,
     leerTxtMeli, bancoMeliDeTxt, bancosParaMeli,
     sqlExtraccionCartera, bookmarkletCartera, scriptPowerShellCartera, comandoTareaCartera, IMPORTES_CARTERA,
