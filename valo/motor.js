@@ -2560,12 +2560,12 @@
     return { concesion, vencimiento };
   }
 
-  function lineaNoCobis(mis, importe, fechas) {
+  function lineaNoCobis(mis, importe, fechas, tipoCredito = NO_COBIS.tipoCredito) {
     const centavos = Math.round(Number(importe) * 100);
     const codigo = String(mis).replace(/\D/g, '');
     if (!codigo || codigo.length > 10) throw new Error(`MIS inválido: ${mis}`);
     if (!(centavos >= 0) || String(centavos).length > 14) throw new Error(`Importe fuera de rango para el MIS ${mis}: ${importe}`);
-    return ceros(codigo, 10) + NO_COBIS.tipoCredito.padEnd(10, ' ') + ceros(NO_COBIS.tasa, 10) + ceros(centavos, 14)
+    return ceros(codigo, 10) + String(tipoCredito).slice(0, 10).padEnd(10, ' ') + ceros(NO_COBIS.tasa, 10) + ceros(centavos, 14)
       + ceros(0, 12) + ceros(0, 12) + ceros(NO_COBIS.moneda, 3) + NO_COBIS.modulo.padEnd(64, ' ')
       + fechaBarra(fechas.concesion) + fechaBarra(fechas.vencimiento) + NO_COBIS.operacionAjustada;
   }
@@ -2605,6 +2605,162 @@
     };
   }
 
+
+  // ------------------------------------------------ NO COBIS FCIC MELI (reporte de cupones + patrimonio del fondo)
+  // Reemplaza la planilla "No Cobis" (Power Query sobre el reporte de cupones + cubo FCIAbiertos) y la "Copia de
+  // 03-MARZO" (solapas PEGAR DATOS, DG y TXT DE NO COBIS): el patrimonio pesificado del fondo × 75 % se reparte entre
+  // los bancos según el peso de sus cheques en la cartera (importe actual) y se informa por CUIT de la lista DG.
+  const FCIC_MELI_INICIAL = {
+    fondo: 'MELIFCIC', porcentaje: 75, tipoCredito: 'FCICMELI',
+    // Solapa DG: CUIT, ente COBIS (Hoja3), nombre.
+    dg: [
+      ["30500010912", "1216", "BANCO DE LA NACION ARGENTINA"],
+      ["30500003193", "2520", "BANCO BBVA ARGENTINA S.A."],
+      ["30500008454", "911", "BANCO SANTANDER RIO S.A."],
+      ["30500010084", "2526", "BANCO MACRO S.A"],
+      ["30685376349", "16724", "TARJETA NARANJA SAU"],
+      ["33999242109", "2505", "BANCO DE LA PROVINCIA DE BUENOS AIRES"],
+      ["30500001735", "909", "BANCO DE GALICIA Y BUENOS AIRES S.A"],
+      ["30500006613", "2899", "BANCO PATAGONIA S.A"],
+      ["30709447846", "13614", "INDUSTRIAL AND COMERCIAL BANK OF CHINA (ARGENTINA) S.A.U"],
+      ["30999228565", "8859", "BANCO DE LA PROVINCIA DE CORDOBA S.A"],
+      ["30999032083", "644", "BANCO DE LA CIUDAD DE BS AS"],
+      ["33500005179", "1217", "BANCO SUPERVIELLE S.A."],
+      ["30692432661", "12374", "NUEVO BANCO DE SANTA FE SA"],
+      ["30590360763", "630", "Cencosud"],
+      ["30500012516", "9442", "BANCO DE LA PAMPA SA"],
+      ["30500011072", "2121", "BANCO HIPOTECARIO S.A."],
+      ["30500014047", "10492", "BANCO PROVINCIA DEL NEUQUEN S.A."],
+      ["30670157799", "9441", "NUEVO BANCO DEL CHACO SA"],
+      ["30500010602", "9608", "BANCO DE CORRIENTES SA"],
+      ["30571421352", "9695", "BANCO CREDICOOP COOPERATIVO LTDO"],
+      ["30500012990", "15670", "BANCO DEL  CHUBUT S.A."],
+      ["30500009442", "3001", "BANCO DE SAN JUAN S.A."],
+      ["33707995519", "8147", "NUEVO BANCO DE ENTRE RIOS SA"],
+      ["30697265895", "16996", "BANCO DE SERVICIOS FINANCIEROS CARREFOUR S.A.U"],
+      ["30604731018", "2493", "BANCO COMAFI SA"],
+      ["30671375900", "2993", "BANCO DE FORMOSA S.A."],
+      ["30575655781", "2494", "BANCO PROVINCIA DE TIERRA DEL FUEGO"],
+      ["30500098801", "11553", "BANCO DE SANTA CRUZ S.A."],
+      ["33999181819", "2533", "BANCO MUNICIPAL DE ROSARIO"],
+      ["30704960995", "11153", "BANCO DE SERVICIOS Y TRANSACCIONES S.A"],
+      ["30712331239", "17001", "BANCO BICA S.A"],
+      ["30677937560", "2509", "BANCO DEL SOL S.A."],
+      ["30685029959", "9670", "BANCO INDUSTRIAL S.A."],
+      ["30714195960", "17002", "BANCO COINAG S.A"],
+      ["33686664649", "3958", "BANCO DE SANTIAGO DEL ESTERO S.A"],
+      ["30534487491", "2524", "BANCO MERIDIAN S.A."],
+      ["30535610440", "2539", "BANCO ROELA SA"],
+      ["30542033637", "2986", "BANCO DE COMERCIO S.A"]
+    ].map(([cuit, ente, nombre]) => ({ cuit, ente, nombre })),
+    // Nombre del banco en el reporte de cupones → CUIT (columnas H:I de la planilla No Cobis).
+    bancos: [
+      ["Banco de la Nacion Argentina", "30500010912"],
+      ["BBVA BANCO FRANCES S.A.", "30500003193"],
+      ["BANCO SANTANDER RIO S.A.", "30500008454"],
+      ["Banco Macro S.A.", "30500010084"],
+      ["NARANJA", "30685376349"],
+      ["BANCO DE LA PROV.DE BS.AS.", "33999242109"],
+      ["BANCO DE GALICIA Y BUENOS AIRE", "30500001735"],
+      ["Banco Patagonia S.A.", "30500006613"],
+      ["ICBC", "30709447846"],
+      ["Banco de la Provincia de Córdoba S.A.", "30999228565"],
+      ["BANCO DE LA CIUDAD DE BS.AS.", "30999032083"],
+      ["Banco Supervielle S.A.", "33500005179"],
+      ["Nuevo Banco de Santa Fe S.A.", "30692432661"],
+      ["Cencosud", "30590360763"],
+      ["BANCO DE LA PAMPA SOC DE ECONO", "30500012516"],
+      ["Banco Hipotecario S.A.", "30500011072"],
+      ["BANCO PCIA DE NEUQUEN S.A.", "30500014047"],
+      ["NUEVO BCO.DEL CHACO S.A.", "30670157799"],
+      ["Banco de Corrientes S.A.", "30500010602"],
+      ["BANCO CREDICOOP COOP LIMITADO", "30571421352"],
+      ["BANCO DE CHUBUT S.A.", "30500012990"],
+      ["Banco de San Juan S.A.", "30500009442"],
+      ["NUEVO BCO.ENTRE RIOS S.A.", "33707995519"],
+      ["BANCO DE SERVICIOS FINANCIEROS", "30697265895"],
+      ["Banco Comafi S.A.", "30604731018"],
+      ["Banco de Formosa S.A.", "30671375900"],
+      ["BCO PCIA DE TIERRA DEL FUEGO", "30575655781"],
+      ["Banco de Santa Cruz S.A.", "30500098801"],
+      ["Banco Municipal de Rosario", "33999181819"],
+      ["Banco de Servicios y Transacciones S.A.", "30704960995"],
+      ["Banco Bica S.A.", "30712331239"],
+      ["Banco del Sol", "30677937560"],
+      ["Banco Industrial S.A.", "30685029959"],
+      ["Banco Coinag S.A.", "30714195960"],
+      ["BANCO DE SANTIAGO DEL ESTERO SA", "33686664649"],
+      ["Banco Meridian", "30534487491"],
+      ["Banco Roela", "30535610440"],
+      ["Banco de Comercio S.A.", "30542033637"],
+      ["BANCO DE LA PROV. DE CORDOBA", "30999228565"]
+    ].map(([nombre, cuit]) => ({ nombre, cuit })),
+  };
+  // Feriados nacionales (aaaa-mm-dd) para los días hábiles.
+  const FERIADOS_AR = ['2026-01-01', '2026-02-16', '2026-02-17', '2026-03-23', '2026-03-24', '2026-04-02', '2026-04-03', '2026-05-01', '2026-05-25',
+    '2026-06-15', '2026-06-20', '2026-07-09', '2026-07-10', '2026-08-17', '2026-10-12', '2026-11-23', '2026-12-07', '2026-12-08', '2026-12-25',
+    '2027-01-01', '2027-02-08', '2027-02-09', '2027-03-24', '2027-03-25', '2027-03-26', '2027-04-02', '2027-05-01', '2027-05-25', '2027-06-20',
+    '2027-07-09', '2027-12-08', '2027-12-25'];
+  const esHabil = (d, feriados) => d.getDay() !== 0 && d.getDay() !== 6 && !(feriados || FERIADOS_AR).includes(claveDia(d));
+  function diaHabilAnterior(fecha, feriados = FERIADOS_AR) {
+    const d = new Date(fecha.getFullYear(), fecha.getMonth(), fecha.getDate() - 1);
+    while (!esHabil(d, feriados)) d.setDate(d.getDate() - 1);
+    return d;
+  }
+  // Concesión = día hábil anterior a hoy; vencimiento = último día hábil de ese mes, o del mes siguiente si coinciden.
+  function fechasFcicMeli(hoy = new Date(), feriados = FERIADOS_AR) {
+    return fechasNoCobis(diaHabilAnterior(hoy, feriados), feriados);
+  }
+  const claveBanco = t => normalizar(String(t || '')).replace(/[.,]/g, ' ').replace(/\s+/g, ' ').trim();
+  // Reporte de cupones (Reporte de Cheques de Pago Diferido, .xls): Fondo | Moneda | Descripción | Banco | Vencimiento |
+  // Fecha | Importe Nominal | Importe Actual | … Se toman las filas del fondo y se suma el importe actual por banco.
+  function leerReporteCupones(filas, fondo = 'MELIFCIC') {
+    const num = v => typeof v === 'number' ? v : Number(String(v == null ? '' : v).replace(/,/g, ''));
+    let iBanco = 3, iImporte = 7, iFecha = 5;
+    const enc = (filas || []).slice(0, 6).find(f => (f || []).some(c => /^banco$/i.test(String(c || '').trim())) && (f || []).some(c => /importe actual/i.test(String(c || ''))));
+    if (enc) { iBanco = enc.findIndex(c => /^banco$/i.test(String(c || '').trim())); iImporte = enc.findIndex(c => /importe actual/i.test(String(c || ''))); }
+    const porBanco = new Map();
+    let total = 0, cheques = 0, fecha = null;
+    (filas || []).forEach(f => {
+      if (!f || String(f[0] || '').trim().toUpperCase() !== String(fondo).toUpperCase()) return;
+      const v = num(f[iImporte]);
+      if (!isFinite(v)) return;
+      const banco = String(f[iBanco] || '').trim();
+      porBanco.set(banco, (porBanco.get(banco) || 0) + v);
+      total += v; cheques++;
+      if (!fecha && f[iFecha] != null && f[iFecha] !== '') fecha = f[iFecha];
+    });
+    const grupos = [...porBanco].map(([banco, monto]) => ({ banco, monto, porcentaje: total ? monto / total : 0 })).sort((a, b) => b.monto - a.monto);
+    return { grupos, total, cheques, fecha, fondo };
+  }
+  // Arma la solapa DG y el TXT. base = patrimonio pesificado × porcentaje. cfg = { dg, bancos, tipoCredito }.
+  function armarNoCobisFcic(rep, base, fechas, cfg = FCIC_MELI_INICIAL) {
+    const cuitDe = new Map((cfg.bancos || []).map(b => [claveBanco(b.nombre), String(b.cuit).replace(/\D/g, '')]));
+    const porCuit = new Map(), sinCuit = [];
+    rep.grupos.forEach(g => {
+      const cuit = cuitDe.get(claveBanco(g.banco));
+      if (!cuit) { sinCuit.push(g); return; }
+      const x = porCuit.get(cuit) || { porcentaje: 0, monto: 0, bancos: [] };
+      x.porcentaje += g.porcentaje; x.monto += g.monto; x.bancos.push(g.banco);
+      porCuit.set(cuit, x);
+    });
+    const enDg = new Set((cfg.dg || []).map(x => String(x.cuit).replace(/\D/g, '')));
+    // Bancos con cheques que no están en la lista DG: en la planilla quedaban afuera sin aviso.
+    const fueraDg = [...porCuit].filter(([c]) => !enDg.has(c)).map(([cuit, x]) => ({ cuit, bancos: x.bancos, monto: x.monto, saldo: round2(x.porcentaje * base) }));
+    const tipo = cfg.tipoCredito || 'FCICMELI';
+    const filas = (cfg.dg || []).map(x => {
+      const cuit = String(x.cuit).replace(/\D/g, ''), g = porCuit.get(cuit);
+      // Sin cheques de ese banco: saldo 0 (el SI.ERROR(…;0) de la columna C de DG).
+      const saldo = g ? round2(g.porcentaje * base) : 0;
+      const ente = String(x.ente || '').replace(/\D/g, '');
+      return { cuit, ente, nombre: x.nombre || (g ? g.bancos.join(', ') : ''), porcentaje: g ? g.porcentaje : 0, monto: g ? g.monto : 0, saldo, conDatos: !!g,
+        linea: ente ? lineaNoCobis(ente, saldo, fechas, tipo) : '' };
+    });
+    const validas = filas.filter(f => f.linea);
+    return { fechas, base, filas, sinCuit, fueraDg, sinEnte: filas.filter(f => !f.ente),
+      total: round2(validas.reduce((t, f) => t + f.saldo, 0)),
+      texto: validas.map(f => f.linea).join('\r\n') + (validas.length ? '\r\n' : '') };
+  }
   // ------------------------------------------------ NO COBIS por API (Orquestador de Riesgos)
   // Mismo contenido que el TXT, en el formato del endpoint POST /v1/nocobis/ingreso (una operación por MIS).
   function loteApiNoCobis(t) {
@@ -3748,7 +3904,7 @@ try {
     PROVINCIAS, FIJOS, COLS_REPORTE, FORMATOS, COLUMNAS_MONTO, CAMPOS_INTERFAZ,
     leerTxtMeli, bancoMeliDeTxt, bancosParaMeli,
     sqlExtraccionCartera, bookmarkletCartera, scriptPowerShellCartera, comandoTareaCartera, IMPORTES_CARTERA,
-    NO_COBIS, ultimoDiaHabil, fechasNoCobis, lineaNoCobis, txtNoCobis, loteApiNoCobis, scriptPowerShellNoCobis, scriptPowerShellProbarNoCobis, scriptPowerShellAgenteNoCobis, cmdEnvioNoCobis,
+    NO_COBIS, ultimoDiaHabil, fechasNoCobis, FCIC_MELI_INICIAL, FERIADOS_AR, diaHabilAnterior, fechasFcicMeli, leerReporteCupones, armarNoCobisFcic, lineaNoCobis, txtNoCobis, loteApiNoCobis, scriptPowerShellNoCobis, scriptPowerShellProbarNoCobis, scriptPowerShellAgenteNoCobis, cmdEnvioNoCobis,
     leerCartera, BASTANTEO_CATALOGO, BASTANTEO_CLAVES, BASTANTEO_EXTRA, leerPoderesOcr, leerAutoridadesOcr, COMPLIF_TIPOS, poderDesdeComplif, actaDesdeComplif, complifDeEmpresa, controlResumen, usoDelResumen, aplicarRevocatorias, poderesFirmantesD, presidentesDeActas, gruposDelUso, usoCompleto, tokensDe, combosDeClausula, poderDelPresidente, leerClienteBastanteo, cuitPorDni, formatoCuit, firmanteDe, firmantesSinPoder, jsonPoder, jsonBastanteoUnico, leerInventarioGarantias, INVENTARIOS_CONTABLES, INVENTARIO_DENOMINACION, INVENTARIO_FIRMAS, fechaReporteIso, fechaInventarioDesdeReporte, leerPadronDesdeInventarios, leerBaseEntes, unirPadron, armarInventariosContables, leerCom3500, leerTcApiBcra, elegirTipoCambio, numeroEnLetras, daxCarteraPowerBI, daxDiagnosticoPowerBI, daxSaldoDeuda, armarSaldoDeuda, daxSaldoDeudaDetalle, armarDeudaDetalle, leerFilasPowerBI, sugerirColumnaCartera, columnasNumericasCartera, agruparCartera, valoresDistintos, sqlCartera,
     leerCsv, encabezadosEjemplo, leerDefinicionInterfaz, sugerirColumna, detectarHojaInterfaz,
     normalizar, provinciaPorNombre, crearBuscadorBancoPorNombre, round2, aNumero, aFechaSerial, aCodigoBanco,
