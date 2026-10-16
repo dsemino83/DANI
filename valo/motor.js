@@ -2608,10 +2608,11 @@
 
   // ------------------------------------------------ NO COBIS FCIC MELI (reporte de cupones + patrimonio del fondo)
   // Reemplaza la planilla "No Cobis" (Power Query sobre el reporte de cupones + cubo FCIAbiertos) y la "Copia de
-  // 03-MARZO" (solapas PEGAR DATOS, DG y TXT DE NO COBIS): el patrimonio pesificado del fondo × 75 % se reparte entre
-  // los bancos según el peso de sus cheques en la cartera (importe actual) y se informa por CUIT de la lista DG.
+  // 03-MARZO" (solapas PEGAR DATOS, DG y TXT DE NO COBIS): el saldo contable de la cuenta 121049010 (cubo SaldosContables,
+  // día ayer hábil) se reparte entre los bancos según el peso de sus cheques en la cartera (importe actual) y se informa
+  // por CUIT de la lista DG.
   const FCIC_MELI_INICIAL = {
-    fondo: 'MELIFCIC', porcentaje: 75, tipoCredito: 'FCICMELI',
+    fondo: 'MELIFCIC', cuentaContable: '121049010', tipoCredito: 'FCICMELI',
     // Solapa DG: CUIT, ente COBIS (Hoja3), nombre.
     dg: [
       ["30500010912", "1216", "BANCO DE LA NACION ARGENTINA"],
@@ -2733,7 +2734,7 @@
     const grupos = [...porBanco].map(([banco, monto]) => ({ banco, monto, porcentaje: total ? monto / total : 0 })).sort((a, b) => b.monto - a.monto);
     return { grupos, total, cheques, fecha, fondo };
   }
-  // Arma la solapa DG y el TXT. base = patrimonio pesificado × porcentaje. cfg = { dg, bancos, tipoCredito }.
+  // Arma la solapa DG y el TXT. base = saldo de la cuenta 121049010. cfg = { dg, bancos, tipoCredito }.
   function armarNoCobisFcic(rep, base, fechas, cfg = FCIC_MELI_INICIAL) {
     const cuitDe = new Map((cfg.bancos || []).map(b => [claveBanco(b.nombre), String(b.cuit).replace(/\D/g, '')]));
     const porCuit = new Map(), sinCuit = [];
@@ -2759,7 +2760,8 @@
     const validas = filas.filter(f => f.linea);
     return { fechas, base, filas, sinCuit, fueraDg, sinEnte: filas.filter(f => !f.ente),
       total: round2(validas.reduce((t, f) => t + f.saldo, 0)),
-      texto: validas.map(f => f.linea).join('\r\n') + (validas.length ? '\r\n' : '') };
+      // Como el TXT que se sube a COBIS: líneas separadas por CRLF, sin salto después de la última.
+      texto: validas.map(f => f.linea).join('\r\n') };
   }
   // ------------------------------------------------ NO COBIS por API (Orquestador de Riesgos)
   // Mismo contenido que el TXT, en el formato del endpoint POST /v1/nocobis/ingreso (una operación por MIS).
