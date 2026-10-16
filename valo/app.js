@@ -3325,6 +3325,161 @@
     }
   });
 
+  // ============================================================ NO COBIS FCIC MELI
+  // Reporte de cupones (importe actual por banco) + patrimonio del fondo → solapa DG → TXT NO COBIS (FCICMELI).
+  const fcic = { rep: null, archivo: '', res: null };
+  const fcicCfg = () => Object.assign({}, M.FCIC_MELI_INICIAL, (datos() && datos().fcicMeliCfg) || {});
+  const fcicPuede = () => !!almacen && almacen.puedeEscribir !== false;
+  // Número escrito a mano: "306.638.098.912,04", "306638098912,04" o "306638098912.04".
+  const fcicNumero = t => { let s = String(t || '').trim().replace(/[$\s]/g, ''); if (!s) return NaN;
+    if (s.includes(',')) s = s.replace(/\./g, '').replace(',', '.'); else if ((s.match(/\./g) || []).length > 1) s = s.replace(/\./g, '');
+    return Number(s); };
+  const isoDe = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  const deIso = v => { const m = String(v || '').match(/^(\d{4})-(\d{2})-(\d{2})$/); return m ? new Date(+m[1], +m[2] - 1, +m[3]) : null; };
+  const fBarra = d => d ? `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}` : '';
+
+  function fcicFechasHoy() {
+    const f = M.fechasFcicMeli(new Date());
+    $('fcicConcesion').value = isoDe(f.concesion); $('fcicVto').value = isoDe(f.vencimiento);
+  }
+  fcicFechasHoy();
+  $('btnFcicFechas').addEventListener('click', () => { fcicFechasHoy(); fcicInvalidar(); });
+  // Al cambiar la concesión a mano, el vencimiento se recalcula con la misma regla.
+  $('fcicConcesion').addEventListener('change', () => {
+    const c = deIso($('fcicConcesion').value);
+    if (c) $('fcicVto').value = isoDe(M.fechasNoCobis(c, M.FERIADOS_AR).vencimiento);
+    fcicInvalidar();
+  });
+  $('fcicVto').addEventListener('change', fcicInvalidar);
+
+  function fcicBase() {
+    const p = fcicNumero($('fcicPatrimonio').value), pct = fcicNumero($('fcicPct').value);
+    // Sin redondear, como la celda C6 de la planilla (patrimonio × 0,75): cada saldo se redondea después.
+    return isFinite(p) && p > 0 && isFinite(pct) && pct > 0 ? p * pct / 100 : NaN;
+  }
+  function fcicInvalidar() {
+    fcic.res = null;
+    const b = fcicBase();
+    $('fcicBase').textContent = isFinite(b) ? '$ ' + fmtMonto(b) : '—';
+    $('fcicPctTxt').textContent = $('fcicPct').value || '75';
+    $('btnFcicArmar').disabled = !(fcic.rep && isFinite(b) && deIso($('fcicConcesion').value) && deIso($('fcicVto').value));
+    $('btnFcicTxt').disabled = $('btnFcicExcel').disabled = true;
+    $('fcicTabla').innerHTML = ''; $('fcicKpis').innerHTML = ''; $('fcicEstado').innerHTML = '';
+  }
+  ['fcicPatrimonio', 'fcicPct'].forEach(id => $(id).addEventListener('input', fcicInvalidar));
+
+  $('fcicArchivo').addEventListener('change', async e => {
+    const f = e.target.files[0];
+    if (!f) return;
+    try {
+      const hojas = await leerHojas(f);
+      const cfg = fcicCfg();
+      // La hoja con más filas del fondo (el reporte trae una sola).
+      const rep = hojas.map(h => M.leerReporteCupones(h.filas, cfg.fondo)).sort((a, b) => b.cheques - a.cheques)[0];
+      if (!rep || !rep.cheques) throw new Error(`No se encontraron cheques del fondo ${cfg.fondo} (columna Fondo) con importe actual.`);
+      fcic.rep = rep; fcic.archivo = f.name;
+      $('fcicReporte').innerHTML = aviso('ok', `<b>${esc(f.name)}</b>: ${fmtEntero(rep.cheques)} cheques del fondo ${esc(rep.fondo)} · ${rep.grupos.length} bancos · importe actual total $ ${fmtMonto(rep.total)}`
+        + (rep.fecha ? ` · fecha del reporte ${esc(rep.fecha instanceof Date ? fBarra(rep.fecha) : String(rep.fecha))}` : ''));
+    } catch (err) {
+      fcic.rep = null;
+      $('fcicReporte').innerHTML = aviso('bad', esc(err.message || err));
+    }
+    fcicInvalidar();
+  });
+
+  $('btnFcicArmar').addEventListener('click', () => {
+    const fechas = { concesion: deIso($('fcicConcesion').value), vencimiento: deIso($('fcicVto').value) };
+    if (fechas.vencimiento < fechas.concesion) return informar('Fechas', 'El vencimiento no puede ser anterior a la concesión.');
+    try { fcic.res = M.armarNoCobisFcic(fcic.rep, fcicBase(), fechas, fcicCfg()); }
+    catch (err) { return informar('No se pudo armar el TXT', esc(err.message || err)); }
+    renderFcic();
+  });
+
+  function renderFcic() {
+    const r = fcic.res;
+    if (!r) return;
+    const avisos = [];
+    if (r.sinCuit.length) avisos.push(aviso('bad', `<b>${r.sinCuit.length} banco(s) del reporte sin CUIT</b> (su parte no va al TXT): `
+      + r.sinCuit.map(g => `${esc(g.banco)} ($ ${fmtMonto(g.monto)}, ${(g.porcentaje * 100).toFixed(4)} %)`).join('; ') + '. Cargalos en <b>Nombres de bancos</b> y volvé a armar.'));
+    if (r.fueraDg.length) avisos.push(aviso('bad', `<b>${r.fueraDg.length} banco(s) con cheques que no están en la lista DG</b> (no van al TXT): `
+      + r.fueraDg.map(x => `${esc(x.bancos.join(', '))} — CUIT ${esc(M.formatoCuit(x.cuit))}, saldo $ ${fmtMonto(x.saldo)}`).join('; ') + '. Agregalos a la lista DG con su ente.'));
+    if (r.sinEnte.length) avisos.push(aviso('bad', `<b>${r.sinEnte.length} CUIT de la lista DG sin ente COBIS</b> (no van al TXT): ` + r.sinEnte.map(f => esc(M.formatoCuit(f.cuit))).join(', ')));
+    const repartido = r.filas.reduce((t, f) => t + f.saldo, 0);
+    if (!avisos.length) avisos.push(aviso('ok', `TXT listo: ${r.filas.filter(f => f.linea).length} líneas (${r.filas.filter(f => f.conDatos).length} bancos con cheques, el resto en 0).`));
+    $('fcicEstado').innerHTML = avisos.join('');
+    $('fcicKpis').innerHTML = [['Monto a distribuir', '$ ' + fmtMonto(r.base)], ['Total del TXT', '$ ' + fmtMonto(r.total)],
+      ['Diferencia (redondeo / sin informar)', '$ ' + fmtMonto(Math.round((r.base - repartido) * 100) / 100 || 0)],
+      ['Concesión / vencimiento', `${fBarra(r.fechas.concesion)} → ${fBarra(r.fechas.vencimiento)}`]]
+      .map(([t, v]) => `<div class="kpi"><b>${v}</b><span>${t}</span></div>`).join('');
+    $('fcicTabla').innerHTML = '<table><thead><tr><th>Ente</th><th>CUIT</th><th>Banco</th><th class="num">Importe actual cheques</th><th class="num">%</th><th class="num">Saldo de capital</th><th>Línea TXT</th></tr></thead><tbody>'
+      + r.filas.map(f => `<tr${f.conDatos ? '' : ' style="color:var(--muted)"'}><td>${esc(f.ente) || '<span class="chip bad">sin ente</span>'}</td><td>${esc(M.formatoCuit(f.cuit))}</td><td>${esc(f.nombre)}</td>`
+        + `<td class="num">${f.conDatos ? fmtMonto(f.monto) : ''}</td><td class="num">${f.conDatos ? (f.porcentaje * 100).toFixed(4) : '0'}</td><td class="num">${fmtMonto(f.saldo)}</td>`
+        + `<td style="font-family:monospace;font-size:11px">${esc(f.linea)}</td></tr>`).join('') + '</tbody></table>';
+    $('btnFcicTxt').disabled = !r.texto;
+    $('btnFcicExcel').disabled = false;
+  }
+  // Nombre como en la solapa FORMATO: fideico_nocobis_aaaammdd.txt (fecha de hoy).
+  $('btnFcicTxt').addEventListener('click', () => {
+    if (!fcic.res || !fcic.res.texto) return;
+    const h = new Date();
+    descargar(`fideico_nocobis_${h.getFullYear()}${String(h.getMonth() + 1).padStart(2, '0')}${String(h.getDate()).padStart(2, '0')}.txt`, fcic.res.texto, true);
+  });
+  $('btnFcicExcel').addEventListener('click', () => {
+    const r = fcic.res; if (!r) return;
+    const dg = [['Ultimo dia habil del mes', fBarra(r.fechas.concesion)], ['vto de producto', fBarra(r.fechas.vencimiento)], ['Monto a distribuir', r.base], [],
+      ['Ente', 'CUIT', 'Banco', 'Importe actual cheques', 'Porcentaje', 'Saldo de capital', 'Línea TXT']]
+      .concat(r.filas.map(f => [Number(f.ente) || '', Number(f.cuit), f.nombre, f.conDatos ? f.monto : 0, f.porcentaje, f.saldo, f.linea]));
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(dg), 'DG');
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['Banco', 'Monto', 'Porcentaje']].concat(fcic.rep.grupos.map(g => [g.banco, g.monto, g.porcentaje]))), 'Reporte por banco');
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(r.filas.filter(f => f.linea).map(f => [f.linea])), 'TXT DE NO COBIS');
+    descargarLibro(`NoCobis_FCIC_MELI_${isoDe(r.fechas.concesion).replace(/-/g, '')}.xlsx`, wb);
+  });
+
+  // ---- lista DG y nombres de bancos (base compartida)
+  function renderFcicCfg() {
+    const c = fcicCfg();
+    $('fcicCfgEstado').innerHTML = `<span class="chip gris">${c.dg.length} CUIT · ${c.bancos.length} nombres</span>`;
+    const quitar = (tipo, k) => `<button class="btn chico peligro" type="button" data-fcic-quitar="${tipo}" data-k="${esc(k)}" ${fcicPuede() ? '' : 'disabled'}>Quitar</button>`;
+    $('fcicDgTabla').innerHTML = '<table><thead><tr><th>Ente</th><th>CUIT</th><th>Nombre</th><th></th></tr></thead><tbody>'
+      + c.dg.map(x => `<tr><td>${esc(x.ente) || '<span class="chip bad">sin ente</span>'}</td><td>${esc(M.formatoCuit(x.cuit))}</td><td>${esc(x.nombre || '')}</td><td>${quitar('dg', x.cuit)}</td></tr>`).join('') + '</tbody></table>';
+    $('fcicBcoTabla').innerHTML = '<table><thead><tr><th>Nombre en el reporte</th><th>CUIT</th><th></th></tr></thead><tbody>'
+      + c.bancos.map(x => `<tr><td>${esc(x.nombre)}</td><td>${esc(M.formatoCuit(x.cuit))}</td><td>${quitar('banco', x.nombre)}</td></tr>`).join('') + '</tbody></table>';
+    ['btnFcicDgAgregar', 'btnFcicBcoAgregar', 'btnFcicCfgRestaurar'].forEach(id => { $(id).disabled = !fcicPuede(); });
+  }
+  async function guardarFcicCfg(cambios, ok) {
+    if (!fcicPuede()) return informar('Solo lectura', 'Tu acceso es de solo lectura.');
+    const c = fcicCfg();
+    const r = await intentar(() => almacen.guardarFcicMeliCfg({ dg: c.dg, bancos: c.bancos, porcentaje: c.porcentaje, fondo: c.fondo, tipoCredito: c.tipoCredito, ...cambios }), ok);
+    if (r && fcic.res) $('btnFcicArmar').click();
+    return r;
+  }
+  $('btnFcicDgAgregar').addEventListener('click', () => {
+    const cuit = $('fcicDgCuit').value.replace(/\D/g, ''), ente = $('fcicDgEnte').value.replace(/\D/g, ''), nombre = $('fcicDgNombre').value.trim();
+    if (cuit.length !== 11 || !ente) return informar('Datos incompletos', 'Cargá un CUIT de 11 dígitos y el ente COBIS.');
+    const dg = fcicCfg().dg.filter(x => String(x.cuit) !== cuit).concat([{ cuit, ente, nombre }]);
+    guardarFcicCfg({ dg }, 'Lista DG actualizada').then(() => ['fcicDgCuit', 'fcicDgEnte', 'fcicDgNombre'].forEach(id => { $(id).value = ''; }));
+  });
+  $('btnFcicBcoAgregar').addEventListener('click', () => {
+    const nombre = $('fcicBcoNombre').value.trim(), cuit = $('fcicBcoCuit').value.replace(/\D/g, '');
+    if (!nombre || cuit.length !== 11) return informar('Datos incompletos', 'Cargá el nombre tal como figura en el reporte y un CUIT de 11 dígitos.');
+    const k = M.normalizar(nombre);
+    const bancos = fcicCfg().bancos.filter(x => M.normalizar(x.nombre) !== k).concat([{ nombre, cuit }]);
+    guardarFcicCfg({ bancos }, 'Nombre de banco guardado').then(() => ['fcicBcoNombre', 'fcicBcoCuit'].forEach(id => { $(id).value = ''; }));
+  });
+  $('btnFcicCfgRestaurar').addEventListener('click', async () => {
+    if (await confirmar('Volver a la carga inicial', 'Se reemplazan la lista DG y los nombres de bancos por los de las planillas originales.', 'Restaurar', true))
+      guardarFcicCfg({ dg: M.FCIC_MELI_INICIAL.dg, bancos: M.FCIC_MELI_INICIAL.bancos }, 'Carga inicial restaurada');
+  });
+  $('fcicCfg').addEventListener('click', async e => {
+    const b = e.target.closest('[data-fcic-quitar]');
+    if (!b) return;
+    const c = fcicCfg(), k = b.dataset.k;
+    if (!(await confirmar('Quitar', `¿Quitar <b>${esc(b.dataset.fcicQuitar === 'dg' ? M.formatoCuit(k) : k)}</b>?`, 'Quitar', true))) return;
+    if (b.dataset.fcicQuitar === 'dg') guardarFcicCfg({ dg: c.dg.filter(x => String(x.cuit) !== k) }, 'Quitado de la lista DG');
+    else guardarFcicCfg({ bancos: c.bancos.filter(x => x.nombre !== k) }, 'Nombre quitado');
+  });
+
   // ============================================================ DESCUENTO DE CHEQUES (eCheq)
   // Consulta de eCheqs (el mismo flujo de la gestión ALYC), interfaz COBIS y aceptación de a un cheque por llamada al
   // flujo "Aceptar echeq desde VALO": así cada resultado se ve en la grilla apenas responde el banco y un corte no deja
@@ -3728,6 +3883,7 @@
     if (cartera) renderCartera(); else renderExtraccion();
     renderHistorial();
     renderChequesCfg();
+    renderFcicCfg();
     actualizarFormulario();
     aplicarPermisos();
   }
