@@ -1749,7 +1749,7 @@
   const GRUPO_EQUIV = { 1: 'A', I: 'A', 2: 'B', II: 'B', 3: 'C', III: 'C', 4: 'D', IV: 'D', 5: 'E', V: 'E', 6: 'F', VI: 'F' };
   const grupoComparable = g => GRUPO_EQUIV[g] || g;
   const comboComparable = c => c.split('+').map(grupoComparable).sort().join('+');
-  function controlResumen(unico, cliente, actas) {
+  function controlResumen(unico, cliente, actas, revocados) {
     const firmantes = (cliente && cliente.firmantes) || [];
     const presidentes = (actas ? presidentesDeActas(actas) : []).concat(((cliente && cliente.presidentes) || []).map(n => ({ nombre_completo: n })));
     const textoDe = (f, res) => `${res.texto || ''} ${f.observacion || ''}`;
@@ -1785,12 +1785,23 @@
     Object.keys(equiv).forEach(g => { if (gruposPoder.has(equiv[g])) delete equiv[g]; });
     const trad = g => equiv[g] || grupoComparable(g);
     const tradCombo = c => c.split('+').map(trad).sort().join('+');
+    // Grupos propios (de una sola persona) que el resumen pone en otro grupo: Bartolucci es el grupo B del poder y el
+    // resumen lo pone en el A, así que para todos el B+A del poder es A+A.
+    const unaPersona = g => new Set(unico.estructuras_de_firma.filter(e => e.grupo === g).flatMap(e => e.apoderados)).size <= 1;
+    const propioComo = {};
+    base.forEach(({ est, res }) => {
+      if (!res.grupo) return;
+      [...new Set(est.map(e => e.grupo))].forEach(g => {
+        if (!g || grupoComparable(g) === grupoComparable(res.grupo) || !unaPersona(g)) return;
+        propioComo[g] = propioComo[g] && propioComo[g] !== grupoComparable(res.grupo) ? null : grupoComparable(res.grupo);
+      });
+    });
     return base.map(({ f, est, res, apo }) => {
       const fila = { nombre: f.nombre, ident: f.cuit || f.dni, resumen: res.texto || '', monto_hasta: f.monto_hasta, puntos: [] };
       if (!est.length) {
         fila.sinPoder = true;
         fila.puntos.push(f.revocado ? { punto: 'Poder', ok: true, resumen: 'REVOCADO', poder: 'Sin poder vigente (revocado)' }
-          : { punto: 'Poder', ok: false, resumen: res.texto || '—', poder: 'No figura como apoderado en los poderes' });
+          : { punto: 'Poder', ok: false, resumen: res.texto || '—', poder: (r => r ? `Revocado: ${r}. No figura en los poderes vigentes` : 'No figura como apoderado en los poderes')(revocacionDe(f, revocados)) });
         return fila;
       }
       if (f.revocado) fila.puntos.push({ punto: 'Poder', ok: false, resumen: 'REVOCADO', poder: 'Tiene un poder vigente', detalle: 'el resumen lo da por revocado pero el poder sigue vigente' });
@@ -1825,12 +1836,17 @@
         : { punto: 'Uso de firma', ok: !resTipos.length ? null : !faltaTipo.length, resumen: resTipos.join(' / ') || '—', poder: tipos.join(' / ') || '—' });
       // Si el poder no asigna grupos, la letra la pone la página (por las facultades): no se compara.
       const grupoAuto = est.every(e => e.grupoAutomatico);
+      // Grupos "propios" del firmante en el poder: tienen solo a él ("Bartolucci (B) con cualquiera del grupo A", o un poder
+      // solo para él sin grupos). El resumen suele ponerlo en el grupo con el que firma ("A CONJUNTA A+A"): su B+A es A+A.
+      const propiosPoder = res.grupo ? grupos.filter(g => grupoComparable(g) !== grupoComparable(res.grupo) && unaPersona(g)) : [];
       if (res.grupo) {
         const usados = grupos.filter(g => equiv[g] && equiv[g] !== g);
         const otros = apo && unico.otrosGrupos && unico.otrosGrupos[apo.numero_de_identificacion] ? [...unico.otrosGrupos[apo.numero_de_identificacion]] : [];
         const okOtro = !grupos.map(trad).includes(grupoComparable(res.grupo)) && otros.map(trad).includes(grupoComparable(res.grupo));
         const ok = grupos.includes(res.grupo) || grupos.map(trad).includes(grupoComparable(res.grupo)) || grupos.map(grupoComparable).includes(grupoComparable(res.grupo)) || okOtro;
         fila.puntos.push(grupoAuto ? { punto: 'Grupo', ok: null, resumen: res.grupo, poder: `No aplica: el poder no asigna grupos (letra ${grupos.join(', ')} puesta según las facultades)` }
+          : !ok && propiosPoder.length === grupos.length ? { punto: 'Grupo', ok: null, resumen: res.grupo, poder: grupos.join(', '),
+            detalle: `en el poder tiene un grupo propio (solo él: ${grupos.join(', ')}); el resumen lo pone en el grupo ${res.grupo}` }
           : ok && usados.length && !grupos.includes(res.grupo) ? { punto: 'Grupo', ok: /^[A-Z]$/.test(usados[0]) ? null : true, resumen: res.grupo, poder: grupos.join(', '),
             detalle: 'el resumen nombra ' + usados.map(g => `"${equiv[g]}" al grupo ${g} del poder`).join(' y ') }
           : okOtro ? { punto: 'Grupo', ok: true, resumen: res.grupo, poder: grupos.join(', ') + ' (y ' + otros.join(', ') + ' en otro poder)' }
@@ -1852,14 +1868,20 @@
         const podT = grupoAuto ? [...new Set(combos.map(forma))] : [...new Set(combos.map(tradCombo))];
         const podD = grupoAuto ? podT : [...new Set(combos.map(comboComparable))];
         const difs = pc => resC.filter(c => !pc.includes(c)).length;
-        const podC = difs(podD) < difs(podT) ? podD : podT;
+        // Con sus grupos propios leídos como el grupo del resumen (B+A → A+A).
+        const como = x => propiosPoder.includes(x) ? grupoComparable(res.grupo) : propioComo[x] || trad(x);
+        const podP = !grupoAuto && combos.some(c => c.split('+').some(x => propiosPoder.includes(x) || propioComo[x])) ? [...new Set(combos.map(c => c.split('+').map(como).sort().join('+')))] : null;
+        let podC = difs(podD) < difs(podT) ? podD : podT;
+        const extra = pc => pc.filter(c => !resC.includes(c)).length;
+        if (podP && (difs(podP) < difs(podC) || (difs(podP) === difs(podC) && extra(podP) < extra(podC)))) podC = podP;
         // Lo que el poder da aunque hoy no haya firmantes para armarlo (B+C sin nadie del grupo C) no es un "sobrante".
-        const podNo = grupoAuto ? [] : combosSinFirmantes.map(podC === podD ? comboComparable : tradCombo);
+        const podNo = grupoAuto ? [] : podC === podP ? [] : combosSinFirmantes.map(podC === podD ? comboComparable : tradCombo);
         const sobran = resC.filter(c => !podC.includes(c) && !podNo.includes(c)), faltan = podC.filter(c => !resC.includes(c));
         // Que el poder dé más combinaciones que las que lista el resumen no es un error: el resumen es más restrictivo.
         fila.puntos.push({ punto: 'Firmas conjuntas', ok: sobran.length ? false : faltan.length ? null : true, resumen: res.combinaciones.join('; ') || '—',
           poder: (combos.join('; ') || '—') + (grupoAuto && combos.length ? ` (${podC.join(', ')}; letra puesta según las facultades)` : ''),
-          detalle: [sobran.length ? 'el resumen incluye ' + sobran.join(', ') + ' que el poder no da' : '', faltan.length ? (sobran.length ? 'el poder también da ' : 'el resumen es más restrictivo: el poder también da ') + faltan.join(', ') : ''].filter(Boolean).join('; ') });
+          detalle: [sobran.length ? 'el resumen incluye ' + sobran.join(', ') + ' que el poder no da' : '', faltan.length ? (sobran.length ? 'el poder también da ' : 'el resumen es más restrictivo: el poder también da ') + faltan.join(', ') : '',
+            podC === podP ? 'grupo de una sola persona leído como el grupo donde la pone el resumen: ' + [...new Set(combos.flatMap(c => c.split('+')).filter(x => propiosPoder.includes(x) || propioComo[x]))].map(x => x + ' = ' + (propiosPoder.includes(x) ? grupoComparable(res.grupo) : propioComo[x])).join(', ') : ''].filter(Boolean).join('; ') });
       }
       // Firma conjunta: el límite del poder es para la firma individual, así que no se controla.
       const limiteRes = f.monto_hasta && f.monto_hasta < 99999999 ? f.monto_hasta : res.limite || null;
@@ -2264,6 +2286,20 @@
     return { vigentes, anulados, quitados, avisos };
   }
 
+  // Un firmante sin poder vigente que figuraba en un poder revocado (anulado entero o revocación parcial que lo quitó):
+  // "figuraba en el poder del 2019-07-31 (esc. 132), revocado por el poder del 2024-12-17". revocados = { anulados, quitados }.
+  function revocacionDe(f, revocados) {
+    if (!revocados) return '';
+    const etq = p => `${p.fecha_emision || 's/f'}${p.deed_number ? ' (esc. ' + p.deed_number + ')' : ''}`;
+    const casos = [];
+    (revocados.quitados || []).forEach(q => { if (q.apoderado && firmanteDe(q.apoderado, [f])) casos.push({ p: q.poder, motivo: q.motivo }); });
+    (revocados.anulados || []).forEach(a => { if (a.poder && (a.poder.apoderados || []).some(x => firmanteDe(x, [f]))) casos.push({ p: a.poder, motivo: a.motivo }); });
+    if (!casos.length) return '';
+    casos.sort((x, y) => String(y.p.fecha_emision || '').localeCompare(String(x.p.fecha_emision || '')));
+    // El más reciente: es el que lo dejó sin poder.
+    return `figuraba en el poder del ${etq(casos[0].p)}, ${casos[0].motivo || 'revocado'}`;
+  }
+
   // Firmantes de la planilla que no aparecen como apoderados en ningún poder.
   function firmantesSinPoder(poderes, firmantes) {
     // Un firmante repetido en la planilla (con CUIT y con DNI) cuenta como usado si cualquiera de sus renglones coincide.
@@ -2524,12 +2560,12 @@
     return { concesion, vencimiento };
   }
 
-  function lineaNoCobis(mis, importe, fechas) {
+  function lineaNoCobis(mis, importe, fechas, tipoCredito = NO_COBIS.tipoCredito) {
     const centavos = Math.round(Number(importe) * 100);
     const codigo = String(mis).replace(/\D/g, '');
     if (!codigo || codigo.length > 10) throw new Error(`MIS inválido: ${mis}`);
     if (!(centavos >= 0) || String(centavos).length > 14) throw new Error(`Importe fuera de rango para el MIS ${mis}: ${importe}`);
-    return ceros(codigo, 10) + NO_COBIS.tipoCredito.padEnd(10, ' ') + ceros(NO_COBIS.tasa, 10) + ceros(centavos, 14)
+    return ceros(codigo, 10) + String(tipoCredito).slice(0, 10).padEnd(10, ' ') + ceros(NO_COBIS.tasa, 10) + ceros(centavos, 14)
       + ceros(0, 12) + ceros(0, 12) + ceros(NO_COBIS.moneda, 3) + NO_COBIS.modulo.padEnd(64, ' ')
       + fechaBarra(fechas.concesion) + fechaBarra(fechas.vencimiento) + NO_COBIS.operacionAjustada;
   }
@@ -2569,6 +2605,164 @@
     };
   }
 
+
+  // ------------------------------------------------ NO COBIS FCIC MELI (reporte de cupones + patrimonio del fondo)
+  // Reemplaza la planilla "No Cobis" (Power Query sobre el reporte de cupones + cubo FCIAbiertos) y la "Copia de
+  // 03-MARZO" (solapas PEGAR DATOS, DG y TXT DE NO COBIS): el saldo contable de la cuenta 121049010 (cubo SaldosContables,
+  // día ayer hábil) se reparte entre los bancos según el peso de sus cheques en la cartera (importe actual) y se informa
+  // por CUIT de la lista DG.
+  const FCIC_MELI_INICIAL = {
+    fondo: 'MELIFCIC', cuentaContable: '121049010', tipoCredito: 'FCICMELI',
+    // Solapa DG: CUIT, ente COBIS (Hoja3), nombre.
+    dg: [
+      ["30500010912", "1216", "BANCO DE LA NACION ARGENTINA"],
+      ["30500003193", "2520", "BANCO BBVA ARGENTINA S.A."],
+      ["30500008454", "911", "BANCO SANTANDER RIO S.A."],
+      ["30500010084", "2526", "BANCO MACRO S.A"],
+      ["30685376349", "16724", "TARJETA NARANJA SAU"],
+      ["33999242109", "2505", "BANCO DE LA PROVINCIA DE BUENOS AIRES"],
+      ["30500001735", "909", "BANCO DE GALICIA Y BUENOS AIRES S.A"],
+      ["30500006613", "2899", "BANCO PATAGONIA S.A"],
+      ["30709447846", "13614", "INDUSTRIAL AND COMERCIAL BANK OF CHINA (ARGENTINA) S.A.U"],
+      ["30999228565", "8859", "BANCO DE LA PROVINCIA DE CORDOBA S.A"],
+      ["30999032083", "644", "BANCO DE LA CIUDAD DE BS AS"],
+      ["33500005179", "1217", "BANCO SUPERVIELLE S.A."],
+      ["30692432661", "12374", "NUEVO BANCO DE SANTA FE SA"],
+      ["30590360763", "630", "Cencosud"],
+      ["30500012516", "9442", "BANCO DE LA PAMPA SA"],
+      ["30500011072", "2121", "BANCO HIPOTECARIO S.A."],
+      ["30500014047", "10492", "BANCO PROVINCIA DEL NEUQUEN S.A."],
+      ["30670157799", "9441", "NUEVO BANCO DEL CHACO SA"],
+      ["30500010602", "9608", "BANCO DE CORRIENTES SA"],
+      ["30571421352", "9695", "BANCO CREDICOOP COOPERATIVO LTDO"],
+      ["30500012990", "15670", "BANCO DEL  CHUBUT S.A."],
+      ["30500009442", "3001", "BANCO DE SAN JUAN S.A."],
+      ["33707995519", "8147", "NUEVO BANCO DE ENTRE RIOS SA"],
+      ["30697265895", "16996", "BANCO DE SERVICIOS FINANCIEROS CARREFOUR S.A.U"],
+      ["30604731018", "2493", "BANCO COMAFI SA"],
+      ["30671375900", "2993", "BANCO DE FORMOSA S.A."],
+      ["30575655781", "2494", "BANCO PROVINCIA DE TIERRA DEL FUEGO"],
+      ["30500098801", "11553", "BANCO DE SANTA CRUZ S.A."],
+      ["33999181819", "2533", "BANCO MUNICIPAL DE ROSARIO"],
+      ["30704960995", "11153", "BANCO DE SERVICIOS Y TRANSACCIONES S.A"],
+      ["30712331239", "17001", "BANCO BICA S.A"],
+      ["30677937560", "2509", "BANCO DEL SOL S.A."],
+      ["30685029959", "9670", "BANCO INDUSTRIAL S.A."],
+      ["30714195960", "17002", "BANCO COINAG S.A"],
+      ["33686664649", "3958", "BANCO DE SANTIAGO DEL ESTERO S.A"],
+      ["30534487491", "2524", "BANCO MERIDIAN S.A."],
+      ["30535610440", "2539", "BANCO ROELA SA"],
+      ["30542033637", "2986", "BANCO DE COMERCIO S.A"]
+    ].map(([cuit, ente, nombre]) => ({ cuit, ente, nombre })),
+    // Nombre del banco en el reporte de cupones → CUIT (columnas H:I de la planilla No Cobis).
+    bancos: [
+      ["Banco de la Nacion Argentina", "30500010912"],
+      ["BBVA BANCO FRANCES S.A.", "30500003193"],
+      ["BANCO SANTANDER RIO S.A.", "30500008454"],
+      ["Banco Macro S.A.", "30500010084"],
+      ["NARANJA", "30685376349"],
+      ["BANCO DE LA PROV.DE BS.AS.", "33999242109"],
+      ["BANCO DE GALICIA Y BUENOS AIRE", "30500001735"],
+      ["Banco Patagonia S.A.", "30500006613"],
+      ["ICBC", "30709447846"],
+      ["Banco de la Provincia de Córdoba S.A.", "30999228565"],
+      ["BANCO DE LA CIUDAD DE BS.AS.", "30999032083"],
+      ["Banco Supervielle S.A.", "33500005179"],
+      ["Nuevo Banco de Santa Fe S.A.", "30692432661"],
+      ["Cencosud", "30590360763"],
+      ["BANCO DE LA PAMPA SOC DE ECONO", "30500012516"],
+      ["Banco Hipotecario S.A.", "30500011072"],
+      ["BANCO PCIA DE NEUQUEN S.A.", "30500014047"],
+      ["NUEVO BCO.DEL CHACO S.A.", "30670157799"],
+      ["Banco de Corrientes S.A.", "30500010602"],
+      ["BANCO CREDICOOP COOP LIMITADO", "30571421352"],
+      ["BANCO DE CHUBUT S.A.", "30500012990"],
+      ["Banco de San Juan S.A.", "30500009442"],
+      ["NUEVO BCO.ENTRE RIOS S.A.", "33707995519"],
+      ["BANCO DE SERVICIOS FINANCIEROS", "30697265895"],
+      ["Banco Comafi S.A.", "30604731018"],
+      ["Banco de Formosa S.A.", "30671375900"],
+      ["BCO PCIA DE TIERRA DEL FUEGO", "30575655781"],
+      ["Banco de Santa Cruz S.A.", "30500098801"],
+      ["Banco Municipal de Rosario", "33999181819"],
+      ["Banco de Servicios y Transacciones S.A.", "30704960995"],
+      ["Banco Bica S.A.", "30712331239"],
+      ["Banco del Sol", "30677937560"],
+      ["Banco Industrial S.A.", "30685029959"],
+      ["Banco Coinag S.A.", "30714195960"],
+      ["BANCO DE SANTIAGO DEL ESTERO SA", "33686664649"],
+      ["Banco Meridian", "30534487491"],
+      ["Banco Roela", "30535610440"],
+      ["Banco de Comercio S.A.", "30542033637"],
+      ["BANCO DE LA PROV. DE CORDOBA", "30999228565"]
+    ].map(([nombre, cuit]) => ({ nombre, cuit })),
+  };
+  // Feriados nacionales (aaaa-mm-dd) para los días hábiles.
+  const FERIADOS_AR = ['2026-01-01', '2026-02-16', '2026-02-17', '2026-03-23', '2026-03-24', '2026-04-02', '2026-04-03', '2026-05-01', '2026-05-25',
+    '2026-06-15', '2026-06-20', '2026-07-09', '2026-07-10', '2026-08-17', '2026-10-12', '2026-11-23', '2026-12-07', '2026-12-08', '2026-12-25',
+    '2027-01-01', '2027-02-08', '2027-02-09', '2027-03-24', '2027-03-25', '2027-03-26', '2027-04-02', '2027-05-01', '2027-05-25', '2027-06-20',
+    '2027-07-09', '2027-12-08', '2027-12-25'];
+  const esHabil = (d, feriados) => d.getDay() !== 0 && d.getDay() !== 6 && !(feriados || FERIADOS_AR).includes(claveDia(d));
+  function diaHabilAnterior(fecha, feriados = FERIADOS_AR) {
+    const d = new Date(fecha.getFullYear(), fecha.getMonth(), fecha.getDate() - 1);
+    while (!esHabil(d, feriados)) d.setDate(d.getDate() - 1);
+    return d;
+  }
+  // Concesión = día hábil anterior a hoy; vencimiento = último día hábil de ese mes, o del mes siguiente si coinciden.
+  function fechasFcicMeli(hoy = new Date(), feriados = FERIADOS_AR) {
+    return fechasNoCobis(diaHabilAnterior(hoy, feriados), feriados);
+  }
+  const claveBanco = t => normalizar(String(t || '')).replace(/[.,]/g, ' ').replace(/\s+/g, ' ').trim();
+  // Reporte de cupones (Reporte de Cheques de Pago Diferido, .xls): Fondo | Moneda | Descripción | Banco | Vencimiento |
+  // Fecha | Importe Nominal | Importe Actual | … Se toman las filas del fondo y se suma el importe actual por banco.
+  function leerReporteCupones(filas, fondo = 'MELIFCIC') {
+    const num = v => typeof v === 'number' ? v : Number(String(v == null ? '' : v).replace(/,/g, ''));
+    let iBanco = 3, iImporte = 7, iFecha = 5;
+    const enc = (filas || []).slice(0, 6).find(f => (f || []).some(c => /^banco$/i.test(String(c || '').trim())) && (f || []).some(c => /importe actual/i.test(String(c || ''))));
+    if (enc) { iBanco = enc.findIndex(c => /^banco$/i.test(String(c || '').trim())); iImporte = enc.findIndex(c => /importe actual/i.test(String(c || ''))); }
+    const porBanco = new Map();
+    let total = 0, cheques = 0, fecha = null;
+    (filas || []).forEach(f => {
+      if (!f || String(f[0] || '').trim().toUpperCase() !== String(fondo).toUpperCase()) return;
+      const v = num(f[iImporte]);
+      if (!isFinite(v)) return;
+      const banco = String(f[iBanco] || '').trim();
+      porBanco.set(banco, (porBanco.get(banco) || 0) + v);
+      total += v; cheques++;
+      if (!fecha && f[iFecha] != null && f[iFecha] !== '') fecha = f[iFecha];
+    });
+    const grupos = [...porBanco].map(([banco, monto]) => ({ banco, monto, porcentaje: total ? monto / total : 0 })).sort((a, b) => b.monto - a.monto);
+    return { grupos, total, cheques, fecha, fondo };
+  }
+  // Arma la solapa DG y el TXT. base = saldo de la cuenta 121049010. cfg = { dg, bancos, tipoCredito }.
+  function armarNoCobisFcic(rep, base, fechas, cfg = FCIC_MELI_INICIAL) {
+    const cuitDe = new Map((cfg.bancos || []).map(b => [claveBanco(b.nombre), String(b.cuit).replace(/\D/g, '')]));
+    const porCuit = new Map(), sinCuit = [];
+    rep.grupos.forEach(g => {
+      const cuit = cuitDe.get(claveBanco(g.banco));
+      if (!cuit) { sinCuit.push(g); return; }
+      const x = porCuit.get(cuit) || { porcentaje: 0, monto: 0, bancos: [] };
+      x.porcentaje += g.porcentaje; x.monto += g.monto; x.bancos.push(g.banco);
+      porCuit.set(cuit, x);
+    });
+    const enDg = new Set((cfg.dg || []).map(x => String(x.cuit).replace(/\D/g, '')));
+    // Bancos con cheques que no están en la lista DG: en la planilla quedaban afuera sin aviso.
+    const fueraDg = [...porCuit].filter(([c]) => !enDg.has(c)).map(([cuit, x]) => ({ cuit, bancos: x.bancos, monto: x.monto, saldo: round2(x.porcentaje * base) }));
+    const tipo = cfg.tipoCredito || 'FCICMELI';
+    const filas = (cfg.dg || []).map(x => {
+      const cuit = String(x.cuit).replace(/\D/g, ''), g = porCuit.get(cuit);
+      // Sin cheques de ese banco: saldo 0 (el SI.ERROR(…;0) de la columna C de DG).
+      const saldo = g ? round2(g.porcentaje * base) : 0;
+      const ente = String(x.ente || '').replace(/\D/g, '');
+      return { cuit, ente, nombre: x.nombre || (g ? g.bancos.join(', ') : ''), porcentaje: g ? g.porcentaje : 0, monto: g ? g.monto : 0, saldo, conDatos: !!g,
+        linea: ente ? lineaNoCobis(ente, saldo, fechas, tipo) : '' };
+    });
+    const validas = filas.filter(f => f.linea);
+    return { fechas, base, filas, sinCuit, fueraDg, sinEnte: filas.filter(f => !f.ente),
+      total: round2(validas.reduce((t, f) => t + f.saldo, 0)),
+      // Como el TXT que se sube a COBIS: líneas separadas por CRLF, sin salto después de la última.
+      texto: validas.map(f => f.linea).join('\r\n') };
+  }
   // ------------------------------------------------ NO COBIS por API (Orquestador de Riesgos)
   // Mismo contenido que el TXT, en el formato del endpoint POST /v1/nocobis/ingreso (una operación por MIS).
   function loteApiNoCobis(t) {
@@ -3617,11 +3811,102 @@ try {
     return errores;
   }
 
-  const api = { razonDelArchivo, razonPorCuit,
+
+  // ------------------------------------------------------------ Descuento de cheques (eCheq)
+  const CUIT_VALO = '30576124275';
+  const digitosDe = v => String(v == null ? '' : v).replace(/\D/g, '');
+  // Fecha de la API ("2026-10-16", "2026-10-16T00:00:00", "16/10/2026") como dd/mm/aaaa.
+  function fechaEcheq(v) {
+    if (v instanceof Date && !isNaN(v)) return `${String(v.getDate()).padStart(2, '0')}/${String(v.getMonth() + 1).padStart(2, '0')}/${v.getFullYear()}`;
+    const t = String(v == null ? '' : v).trim();
+    let m = t.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (m) return `${m[3]}/${m[2]}/${m[1]}`;
+    m = t.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+    return m ? `${m[1].padStart(2, '0')}/${m[2].padStart(2, '0')}/${m[3]}` : t;
+  }
+  // Un cheque de la consulta, con nombres de campo uniformes. Si fue endosado a VALO, el beneficiario (el cliente que
+  // lo descuenta) es quien hizo el último endoso a VALO.
+  function normalizarEcheq(r) {
+    r = r || {};
+    const endosos = (Array.isArray(r.listEcheqEndorsementResponse) ? r.listEcheqEndorsementResponse : []).filter(e => e && digitosDe(e.beneficiarioDocumento) === CUIT_VALO);
+    const ult = endosos.reduce((a, b) => { if (!a) return b; const fa = Date.parse(a.fechaHora || '') || 0, fb = Date.parse(b.fechaHora || '') || 0;
+      return fb !== fa ? (fb > fa ? b : a) : (Number(b.idEndoso || -1) > Number(a.idEndoso || -1) ? b : a); }, null);
+    const banco = r.banco && typeof r.banco === 'object' ? r.banco : null;
+    const cmc7 = digitosDe(r.cmc7);
+    const txt = v => String(v == null ? '' : v).trim();
+    return {
+      banco: txt(banco ? (banco.descripcion || banco.nombre || banco.desc) : (r.bancoDesc || r.bankName || r.banco)),
+      bancoCodigo: txt(banco ? (banco.codigo || banco.id) : (r.bancoCodigo || r.bancoId || (/^\d+$/.test(txt(r.banco)) ? r.banco : ''))) || cmc7.slice(0, 3),
+      sucursal: txt(r.sucursal || r.branch),
+      chequeId: txt(r.chequeId || r.echeqId || r.checkId),
+      chequeNumero: txt(r.chequeNumero || r.checkNumber),
+      cmc7,
+      emisorCuit: txt(r.emisorCuit || r.issuerDocument),
+      emisorNombre: txt(r.emisorNombre || r.issuerName),
+      beneficiarioDocumento: txt(ult && ult.emisorDocumento) || txt(r.beneficiarioDocumento || r.beneficiaryDocument),
+      beneficiarioNombre: txt(ult && ult.emisorRazonSocial) || txt(r.beneficiarioNombre || r.beneficiaryName),
+      fechaPago: txt(r.fechaPago || r.paymentDate),
+      fechaEmision: txt(r.fechaEmision || r.issueDate),
+      monto: Number(r.monto != null ? r.monto : r.amount) || 0,
+      monedaDesc: txt(r.monedaDesc || r.currency),
+      estado: txt(r.estado || r.state || r.status),
+    };
+  }
+  // Lista de cheques de la respuesta del flujo de consulta (arreglo, o adentro de body / echeqsResponseArray…).
+  function echeqsDeRespuesta(x) {
+    if (Array.isArray(x)) return x;
+    for (const k of ['echeqsResponseArray', 'listEcheqsResponseArray', 'echeqs', 'value', 'body']) if (x && Array.isArray(x[k])) return x[k];
+    if (x && typeof x.body === 'string') { try { return echeqsDeRespuesta(JSON.parse(x.body)); } catch (e) { /* no JSON */ } }
+    if (x && x.body && typeof x.body === 'object') return echeqsDeRespuesta(x.body);
+    return [];
+  }
+  // Tabla de clientes COBIS (CUIT del beneficiario → código de cliente COBIS), como la Hoja2 del Excel de eCheqs:
+  // columna A CUIT, B código (con o sin encabezado; opcional C nombre).
+  function leerClientesCobis(filas) {
+    const out = new Map();
+    (filas || []).forEach(f => {
+      const cuit = digitosDe(f && f[0]), cod = digitosDe(f && f[1]);
+      if (cuit.length === 11 && cod) out.set(cuit, { cuit, codigo: cod, nombre: String((f[2] == null ? '' : f[2])).trim() });
+    });
+    return [...out.values()];
+  }
+  // Monto como lo escribe Excel en la interfaz (sin miles, punto decimal, sin ceros de más): 2112186.04
+  const montoCobis = n => String(Math.round((Number(n) || 0) * 100) / 100);
+  // Línea de la interfaz COBIS de un cheque (fórmula de la columna AD de la hoja MENU):
+  // cod|beneficiario|CUIT|cod|beneficiario|CUIT|hoy|fechaPago|N° cheque|banco|sucursal|1041|monto|fechaPago|CUIT emisor|emisor||||1|chequeId|
+  function lineaCobisEcheq(c, codigo, hoy) {
+    const suc = Number((String(c.sucursal || '').match(/^\s*(\d{1,4})/) || [])[1] || (c.cmc7 || '').slice(3, 6)) || '';
+    const banco = Number(c.bancoCodigo) || c.bancoCodigo || '';
+    const fp = fechaEcheq(c.fechaPago), limpio = v => String(v == null ? '' : v).replace(/[|\r\n]+/g, ' ').trim();
+    return [codigo, limpio(c.beneficiarioNombre), digitosDe(c.beneficiarioDocumento), codigo, limpio(c.beneficiarioNombre), digitosDe(c.beneficiarioDocumento),
+      fechaEcheq(hoy), fp, limpio(c.chequeNumero), banco, suc, '1041', montoCobis(c.monto), fp, digitosDe(c.emisorCuit), limpio(c.emisorNombre),
+      '', '', '', '1', limpio(c.chequeId)].join('|') + '|';
+  }
+  // Interfaz COBIS de varios cheques: las líneas y los cheques sin código de cliente (no van, como el IFERROR del Excel).
+  function interfazCobisEcheq(cheques, clientes, hoy) {
+    const cod = new Map((clientes || []).map(x => [digitosDe(x.cuit), String(x.codigo)]));
+    const lineas = [], sinCodigo = [];
+    (cheques || []).forEach(c => { const k = cod.get(digitosDe(c.beneficiarioDocumento)); if (k) lineas.push(lineaCobisEcheq(c, k, hoy || new Date())); else sinCodigo.push(c); });
+    return { lineas, sinCodigo, texto: lineas.join('\r\n') + (lineas.length ? '\r\n' : '') };
+  }
+  // Resultado de la aceptación de un cheque, a partir de la respuesta del flujo.
+  function resultadoAceptacion(j) {
+    if (!j || typeof j !== 'object') return { aceptado: false, mensaje: 'Respuesta vacía del flujo' };
+    const d = j.detalle && typeof j.detalle === 'object' ? j.detalle : {};
+    const textos = [];
+    const juntar = v => { if (!v) return; if (typeof v === 'string') textos.push(v); else if (Array.isArray(v)) v.forEach(juntar);
+      else if (typeof v === 'object') juntar(v.message || v.mensaje || v.description || v.descripcion || v.messageText || v.code); };
+    ['message', 'mensaje', 'messages', 'errors', 'error', 'description', 'descripcion'].forEach(k => juntar(d[k]));
+    const aceptado = j.aceptado === true;
+    let mensaje = [...new Set(textos.map(t => String(t).trim()).filter(Boolean))].join(' · ');
+    if (!mensaje) mensaje = aceptado ? 'Aceptado' : j.etapa === 'login' ? 'No se pudo ingresar al banco (login)' : j.mensaje || `No aceptado${j.estadoHttp ? ' (HTTP ' + j.estadoHttp + ')' : ''}`;
+    return { aceptado, mensaje, historico: j.historico !== false, fecha: j.fecha || '' };
+  }
+  const api = { revocacionDe, normalizarEcheq, echeqsDeRespuesta, leerClientesCobis, lineaCobisEcheq, interfazCobisEcheq, resultadoAceptacion, fechaEcheq, razonDelArchivo, razonPorCuit,
     PROVINCIAS, FIJOS, COLS_REPORTE, FORMATOS, COLUMNAS_MONTO, CAMPOS_INTERFAZ,
     leerTxtMeli, bancoMeliDeTxt, bancosParaMeli,
     sqlExtraccionCartera, bookmarkletCartera, scriptPowerShellCartera, comandoTareaCartera, IMPORTES_CARTERA,
-    NO_COBIS, ultimoDiaHabil, fechasNoCobis, lineaNoCobis, txtNoCobis, loteApiNoCobis, scriptPowerShellNoCobis, scriptPowerShellProbarNoCobis, scriptPowerShellAgenteNoCobis, cmdEnvioNoCobis,
+    NO_COBIS, ultimoDiaHabil, fechasNoCobis, FCIC_MELI_INICIAL, FERIADOS_AR, diaHabilAnterior, fechasFcicMeli, leerReporteCupones, armarNoCobisFcic, lineaNoCobis, txtNoCobis, loteApiNoCobis, scriptPowerShellNoCobis, scriptPowerShellProbarNoCobis, scriptPowerShellAgenteNoCobis, cmdEnvioNoCobis,
     leerCartera, BASTANTEO_CATALOGO, BASTANTEO_CLAVES, BASTANTEO_EXTRA, leerPoderesOcr, leerAutoridadesOcr, COMPLIF_TIPOS, poderDesdeComplif, actaDesdeComplif, complifDeEmpresa, controlResumen, usoDelResumen, aplicarRevocatorias, poderesFirmantesD, presidentesDeActas, gruposDelUso, usoCompleto, tokensDe, combosDeClausula, poderDelPresidente, leerClienteBastanteo, cuitPorDni, formatoCuit, firmanteDe, firmantesSinPoder, jsonPoder, jsonBastanteoUnico, leerInventarioGarantias, INVENTARIOS_CONTABLES, INVENTARIO_DENOMINACION, INVENTARIO_FIRMAS, fechaReporteIso, fechaInventarioDesdeReporte, leerPadronDesdeInventarios, leerBaseEntes, unirPadron, armarInventariosContables, leerCom3500, leerTcApiBcra, elegirTipoCambio, numeroEnLetras, daxCarteraPowerBI, daxDiagnosticoPowerBI, daxSaldoDeuda, armarSaldoDeuda, daxSaldoDeudaDetalle, armarDeudaDetalle, leerFilasPowerBI, sugerirColumnaCartera, columnasNumericasCartera, agruparCartera, valoresDistintos, sqlCartera,
     leerCsv, encabezadosEjemplo, leerDefinicionInterfaz, sugerirColumna, detectarHojaInterfaz,
     normalizar, provinciaPorNombre, crearBuscadorBancoPorNombre, round2, aNumero, aFechaSerial, aCodigoBanco,

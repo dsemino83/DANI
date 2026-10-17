@@ -145,6 +145,7 @@
     if (mas) { const enMas = [...mas.options].some(o => o.value && o.value === vista); mas.value = enMas ? vista : ''; mas.classList.toggle('activa', enMas); }
     if (vista === 'cartera') alAbrirCartera();
     if (vista === 'deuda') alAbrirDeuda();
+    if (vista === 'fcic') alAbrirFcic();
   }
   document.querySelectorAll('nav button').forEach(b => b.addEventListener('click', () => irA(b.dataset.vista)));
   $('navMas').addEventListener('change', e => { if (e.target.value) irA(e.target.value); });
@@ -2348,7 +2349,7 @@
       power_attorney_type: p.power_attorney_type || 'Poder Especial para Operaciones Bancarias' }));
     const sinPoder = M.firmantesSinPoder(poderes, cliente.firmantes).filter(f => !f.revocado);
     const unico = M.jsonBastanteoUnico(jsons, Object.assign({}, cliente, { sinPoder }));
-    fila.control = M.controlResumen(unico, cliente, r.actas);
+    fila.control = M.controlResumen(unico, cliente, r.actas, rv);
     fila.diferencias = fila.control.flatMap(f => f.puntos.filter(p => p.ok === false).map(p => Object.assign({ firmante: f.nombre, ident: f.ident, resumenTexto: f.resumen }, p)));
     fila.sinPoder = sinPoder.map(f => f.nombre);
     fila.noIncluidos = [...new Set(poderes.flatMap(p => p.apoderados).filter(a => !M.firmanteDe(a, cliente.firmantes)).map(a => a.nombre_completo))];
@@ -2555,6 +2556,7 @@
     // Revocatorias: los poderes anteriores a uno que revoca quedan anulados.
     const rv = M.aplicarRevocatorias(todos);
     bast.anulados = rv.anulados;
+    bast.quitados = rv.quitados || [];
     bast.avisosRev = rv.avisos || [];
     // Firmante "D" en el resumen = presidente con todas las facultades (si no está en ningún poder).
     const dd = M.poderesFirmantesD(bast.cliente, rv.vigentes, bast.actas);
@@ -2624,7 +2626,8 @@
     const sp = hay ? sinPoder() : [];
     if (sp.length) estado += aviso('warn', `<b>${sp.length} firmante${sp.length > 1 ? 's' : ''} de la planilla sin poder en el PDF.</b> Quedan cargados en el JSON único, sin grupo y con una advertencia. Revisá si falta el poder.`) +
       `<div class="tabla-caja" style="margin-bottom:10px"><table><thead><tr><th>Nombre</th><th>CUIT</th><th>Situación</th></tr></thead><tbody>` +
-      sp.map(f => `<tr><td>${esc(f.nombre)}</td><td>${f.cuit ? esc(M.formatoCuit(f.cuit)) : 'DNI ' + esc(f.dni) + ' (sin CUIT)'}</td><td><span class="chip warn">en la planilla, sin poder</span></td></tr>`).join('') + '</tbody></table></div>';
+      sp.map(f => { const rev = M.revocacionDe(f, { anulados: bast.anulados, quitados: bast.quitados });
+        return `<tr><td>${esc(f.nombre)}</td><td>${f.cuit ? esc(M.formatoCuit(f.cuit)) : 'DNI ' + esc(f.dni) + ' (sin CUIT)'}</td><td>${rev ? `<span class="chip bad">revocado</span> <span style="white-space:normal">${esc(rev)}</span>` : '<span class="chip warn">en la planilla, sin poder</span>'}</td></tr>`; }).join('') + '</tbody></table></div>';
     $('bastEstado').innerHTML = estado;
     renderBastUnico();
     renderControlResumen();
@@ -2709,7 +2712,7 @@
   // Control del resumen (Excel) contra los poderes, firmante por firmante: uso de firma, grupo, conjuntas y límite.
   function renderControlResumen() {
     if (!bast.poderes.length || !bast.cliente || !bast.cliente.firmantes.length) { $('bastControl').innerHTML = ''; return; }
-    const filas = M.controlResumen(jsonUnico(), bast.cliente, bast.actas);
+    const filas = M.controlResumen(jsonUnico(), bast.cliente, bast.actas, { anulados: bast.anulados, quitados: bast.quitados });
     const marca = ok => (ok === true ? '<b style="color:var(--ok)">✓</b>' : ok === false ? '<b style="color:var(--bad)">✗</b>' : '<span class="sub">—</span>');
     const conDif = filas.filter(f => f.puntos.some(p => p.ok === false));
     const orden = conDif.concat(filas.filter(f => !conDif.includes(f)));
@@ -3323,6 +3326,563 @@
     }
   });
 
+  // ============================================================ NO COBIS FCIC MELI
+  // Reporte de cupones (importe actual por banco) + patrimonio del fondo → solapa DG → TXT NO COBIS (FCICMELI).
+  const fcic = { rep: null, archivo: '', res: null };
+  const fcicCfg = () => Object.assign({}, M.FCIC_MELI_INICIAL, (datos() && datos().fcicMeliCfg) || {});
+  const fcicPuede = () => !!almacen && almacen.puedeEscribir !== false;
+  // Número escrito a mano: "306.638.098.912,04", "306638098912,04" o "306638098912.04".
+  const fcicNumero = t => { let s = String(t || '').trim().replace(/[$\s]/g, ''); if (!s) return NaN;
+    if (s.includes(',')) s = s.replace(/\./g, '').replace(',', '.'); else if ((s.match(/\./g) || []).length > 1) s = s.replace(/\./g, '');
+    return Number(s); };
+  const isoDe = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  const deIso = v => { const m = String(v || '').match(/^(\d{4})-(\d{2})-(\d{2})$/); return m ? new Date(+m[1], +m[2] - 1, +m[3]) : null; };
+  const fBarra = d => d ? `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}` : '';
+
+  function fcicFechasHoy() {
+    const f = M.fechasFcicMeli(new Date());
+    $('fcicConcesion').value = isoDe(f.concesion); $('fcicVto').value = isoDe(f.vencimiento);
+  }
+  fcicFechasHoy();
+  $('btnFcicFechas').addEventListener('click', () => { fcicFechasHoy(); fcicInvalidar(); fcicSaldoAuto(true); });
+  // Al abrir la pantalla: saldo del día hábil anterior (la concesión por defecto), si hay conexión y el campo está vacío.
+  function fcicSaldoAuto(siempre) {
+    const cf = fcicCfg(), f = datos().nocobisFlujo || {};
+    if (!(cf.saldoUrl && cf.saldoClave) && !(f.pbiUrl && f.pbiClave)) return;
+    if (!siempre && $('fcicPatrimonio').value.trim()) return;
+    $('btnFcicSaldoPbi').click();
+  }
+  function alAbrirFcic() { fcicSaldoAuto(false); }
+  // Al cambiar la concesión a mano, el vencimiento se recalcula con la misma regla.
+  $('fcicConcesion').addEventListener('change', () => {
+    const c = deIso($('fcicConcesion').value);
+    if (c) $('fcicVto').value = isoDe(M.fechasNoCobis(c, M.FERIADOS_AR).vencimiento);
+    fcicInvalidar();
+  });
+  $('fcicVto').addEventListener('change', fcicInvalidar);
+
+  function fcicBase() {
+    // Saldo de la cuenta 121049010 (celda C7 de la planilla No Cobis): se reparte tal cual, cada saldo se redondea después.
+    const p = fcicNumero($('fcicPatrimonio').value);
+    return isFinite(p) && p > 0 ? p : NaN;
+  }
+  function fcicInvalidar() {
+    fcic.res = null;
+    const b = fcicBase();
+    $('fcicBase').textContent = isFinite(b) ? '$ ' + fmtMonto(b) : '—';
+    $('btnFcicArmar').disabled = !(fcic.rep && isFinite(b) && deIso($('fcicConcesion').value) && deIso($('fcicVto').value));
+    $('btnFcicTxt').disabled = $('btnFcicExcel').disabled = true;
+    $('fcicTabla').innerHTML = ''; $('fcicKpis').innerHTML = ''; $('fcicEstado').innerHTML = '';
+  }
+  $('fcicPatrimonio').addEventListener('input', () => { $('fcicSaldoEstado').innerHTML = ''; fcicInvalidar(); });
+  // Saldo de la cuenta 121049010 desde el modelo semántico de Power BI (tabla SaldoCuenta121049010, importada del cubo
+  // SaldosContables). Va por el flujo de Power BI de Cartera con "modelo": "saldosContables" (ver powerautomate/POWERBI.md).
+  $('btnFcicSaldoPbi').addEventListener('click', async () => {
+    // Flujo propio (recibe solo la fecha y arma la consulta) o, si no está, el de Power BI de Cartera con modelo = saldosContables.
+    const f = datos().nocobisFlujo || {}, cf = fcicCfg();
+    const propio = !!(cf.saldoUrl && cf.saldoClave);
+    if (!propio && (!f.pbiUrl || !f.pbiClave)) return informar('Falta la conexión', 'Cargá el flujo <b>VALO Saldo cuenta 121049010</b> en <b>Lista DG y nombres de bancos</b> (abajo).');
+    const c = deIso($('fcicConcesion').value) || M.diaHabilAnterior(new Date());
+    const dax = `EVALUATE TOPN ( 1, FILTER ( SaldoCuenta121049010, SaldoCuenta121049010[Fecha] <= DATE ( ${c.getFullYear()}, ${c.getMonth() + 1}, ${c.getDate()} ) ), SaldoCuenta121049010[Fecha], DESC )`;
+    $('fcicSaldoEstado').innerHTML = aviso('warn', 'Consultando Power BI…');
+    $('btnFcicSaldoPbi').disabled = true;
+    try {
+      const j = propio ? await llamarFlujo({ fecha: isoDe(c) }, { url: cf.saldoUrl, clave: cf.saldoClave })
+        : await llamarFlujo({ accion: 'consultar', modelo: 'saldosContables', consulta: dax }, { url: f.pbiUrl, clave: f.pbiClave });
+      if (j && j.ok === false) throw new Error(j.mensaje || 'El flujo informó un error.');
+      const filas = M.leerFilasPowerBI(j).datos;
+      if (!filas.length) throw new Error(`El modelo no tiene saldo hasta el ${fBarra(c)}.`);
+      const saldo = Number(filas[0].Saldo), fecha = new Date(filas[0].Fecha);
+      // Patrimonio del fondo (tabla PatrimonioFondo1897, un valor: el del último día hábil del modelo), si la consulta lo trae.
+      const kPat = Object.keys(filas[0]).find(k => /patrimonio/i.test(k));
+      const patrimonio = kPat ? Number(String(filas[0][kPat]).replace(/[^\d.,-]/g, '').replace(/,(?=\d{3}\b)/g, '').replace(',', '.')) : NaN;
+      if (!isFinite(saldo)) throw new Error('La respuesta no trae la columna Saldo: revisar que el flujo consulte el modelo de saldos (modelo = saldosContables).');
+      $('fcicPatrimonio').value = saldo.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      const igual = !isNaN(fecha) && isoDe(new Date(fecha.getUTCFullYear(), fecha.getUTCMonth(), fecha.getUTCDate())) === isoDe(c);
+      fcicInvalidar();
+      $('fcicSaldoEstado').innerHTML = aviso(igual ? 'ok' : 'warn', `Saldo de Power BI al ${isNaN(fecha) ? '?' : fBarra(new Date(fecha.getUTCFullYear(), fecha.getUTCMonth(), fecha.getUTCDate()))}: $ ${fmtMonto(saldo)}`
+        + (igual ? '' : ` — <b>no hay saldo del ${fBarra(c)}</b>: se tomó el último anterior. Revisá que el modelo esté actualizado.`)
+        + (isFinite(patrimonio) && patrimonio > 0 ? `<br>Patrimonio pesificado del fondo (último día hábil del modelo): $ ${fmtMonto(patrimonio)} · el saldo es el <b>${(saldo / patrimonio * 100).toFixed(2).replace(".", ",")} %</b>` : ''));
+    } catch (e) {
+      $('fcicSaldoEstado').innerHTML = aviso('bad', esc(e.message || e));
+    } finally { $('btnFcicSaldoPbi').disabled = false; }
+  });
+
+  $('fcicArchivo').addEventListener('change', async e => {
+    const f = e.target.files[0];
+    if (!f) return;
+    try {
+      const hojas = await leerHojas(f);
+      const cfg = fcicCfg();
+      // La hoja con más filas del fondo (el reporte trae una sola).
+      const rep = hojas.map(h => M.leerReporteCupones(h.filas, cfg.fondo)).sort((a, b) => b.cheques - a.cheques)[0];
+      if (!rep || !rep.cheques) throw new Error(`No se encontraron cheques del fondo ${cfg.fondo} (columna Fondo) con importe actual.`);
+      fcic.rep = rep; fcic.archivo = f.name;
+      $('fcicReporte').innerHTML = aviso('ok', `<b>${esc(f.name)}</b>: ${fmtEntero(rep.cheques)} cheques del fondo ${esc(rep.fondo)} · ${rep.grupos.length} bancos · importe actual total $ ${fmtMonto(rep.total)}`
+        + (rep.fecha ? ` · fecha del reporte ${esc(rep.fecha instanceof Date ? fBarra(rep.fecha) : String(rep.fecha))}` : ''));
+    } catch (err) {
+      fcic.rep = null;
+      $('fcicReporte').innerHTML = aviso('bad', esc(err.message || err));
+    }
+    fcicInvalidar();
+  });
+
+  $('btnFcicArmar').addEventListener('click', () => {
+    const fechas = { concesion: deIso($('fcicConcesion').value), vencimiento: deIso($('fcicVto').value) };
+    if (fechas.vencimiento < fechas.concesion) return informar('Fechas', 'El vencimiento no puede ser anterior a la concesión.');
+    try { fcic.res = M.armarNoCobisFcic(fcic.rep, fcicBase(), fechas, fcicCfg()); }
+    catch (err) { return informar('No se pudo armar el TXT', esc(err.message || err)); }
+    renderFcic();
+  });
+
+  function renderFcic() {
+    const r = fcic.res;
+    if (!r) return;
+    const avisos = [];
+    if (r.sinCuit.length) avisos.push(aviso('bad', `<b>${r.sinCuit.length} banco(s) del reporte sin CUIT</b> (su parte no va al TXT): `
+      + r.sinCuit.map(g => `${esc(g.banco)} ($ ${fmtMonto(g.monto)}, ${(g.porcentaje * 100).toFixed(4)} %)`).join('; ') + '. Cargalos en <b>Nombres de bancos</b> y volvé a armar.'));
+    if (r.fueraDg.length) avisos.push(aviso('bad', `<b>${r.fueraDg.length} banco(s) con cheques que no están en la lista DG</b> (no van al TXT): `
+      + r.fueraDg.map(x => `${esc(x.bancos.join(', '))} — CUIT ${esc(M.formatoCuit(x.cuit))}, saldo $ ${fmtMonto(x.saldo)}`).join('; ') + '. Agregalos a la lista DG con su ente.'));
+    if (r.sinEnte.length) avisos.push(aviso('bad', `<b>${r.sinEnte.length} CUIT de la lista DG sin ente COBIS</b> (no van al TXT): ` + r.sinEnte.map(f => esc(M.formatoCuit(f.cuit))).join(', ')));
+    const repartido = r.filas.reduce((t, f) => t + f.saldo, 0);
+    if (!avisos.length) avisos.push(aviso('ok', `TXT listo: ${r.filas.filter(f => f.linea).length} líneas (${r.filas.filter(f => f.conDatos).length} bancos con cheques, el resto en 0).`));
+    $('fcicEstado').innerHTML = avisos.join('');
+    $('fcicKpis').innerHTML = [['Monto a distribuir', '$ ' + fmtMonto(r.base)], ['Total del TXT', '$ ' + fmtMonto(r.total)],
+      ['Diferencia (redondeo / sin informar)', '$ ' + fmtMonto(Math.round((r.base - repartido) * 100) / 100 || 0)],
+      ['Concesión / vencimiento', `${fBarra(r.fechas.concesion)} → ${fBarra(r.fechas.vencimiento)}`]]
+      .map(([t, v]) => `<div class="kpi"><b>${v}</b><span>${t}</span></div>`).join('');
+    $('fcicTabla').innerHTML = '<table><thead><tr><th>Ente</th><th>CUIT</th><th>Banco</th><th class="num">Importe actual cheques</th><th class="num">%</th><th class="num">Saldo de capital</th><th>Línea TXT</th></tr></thead><tbody>'
+      + r.filas.map(f => `<tr${f.conDatos ? '' : ' style="color:var(--muted)"'}><td>${esc(f.ente) || '<span class="chip bad">sin ente</span>'}</td><td>${esc(M.formatoCuit(f.cuit))}</td><td>${esc(f.nombre)}</td>`
+        + `<td class="num">${f.conDatos ? fmtMonto(f.monto) : ''}</td><td class="num">${f.conDatos ? (f.porcentaje * 100).toFixed(4) : '0'}</td><td class="num">${fmtMonto(f.saldo)}</td>`
+        + `<td style="font-family:monospace;font-size:11px">${esc(f.linea)}</td></tr>`).join('') + '</tbody></table>';
+    $('btnFcicTxt').disabled = !r.texto;
+    $('btnFcicExcel').disabled = false;
+  }
+  // Nombre como en la solapa FORMATO: fideico_nocobis_aaaammdd.txt (fecha de hoy).
+  $('btnFcicTxt').addEventListener('click', () => {
+    if (!fcic.res || !fcic.res.texto) return;
+    const h = new Date();
+    descargar(`fideico_nocobis_${h.getFullYear()}${String(h.getMonth() + 1).padStart(2, '0')}${String(h.getDate()).padStart(2, '0')}.txt`, fcic.res.texto, true);
+  });
+  $('btnFcicExcel').addEventListener('click', () => {
+    const r = fcic.res; if (!r) return;
+    const dg = [['Ultimo dia habil del mes', fBarra(r.fechas.concesion)], ['vto de producto', fBarra(r.fechas.vencimiento)], ['Saldo cuenta 121049010', r.base], [],
+      ['Ente', 'CUIT', 'Banco', 'Importe actual cheques', 'Porcentaje', 'Saldo de capital', 'Línea TXT']]
+      .concat(r.filas.map(f => [Number(f.ente) || '', Number(f.cuit), f.nombre, f.conDatos ? f.monto : 0, f.porcentaje, f.saldo, f.linea]));
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(dg), 'DG');
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['Banco', 'Monto', 'Porcentaje']].concat(fcic.rep.grupos.map(g => [g.banco, g.monto, g.porcentaje]))), 'Reporte por banco');
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(r.filas.filter(f => f.linea).map(f => [f.linea])), 'TXT DE NO COBIS');
+    descargarLibro(`NoCobis_FCIC_MELI_${isoDe(r.fechas.concesion).replace(/-/g, '')}.xlsx`, wb);
+  });
+
+  // ---- lista DG y nombres de bancos (base compartida)
+  function renderFcicCfg() {
+    const c = fcicCfg();
+    $('fcicCfgEstado').innerHTML = `<span class="chip gris">${c.dg.length} CUIT · ${c.bancos.length} nombres</span>`;
+    const quitar = (tipo, k) => `<button class="btn chico peligro" type="button" data-fcic-quitar="${tipo}" data-k="${esc(k)}" ${fcicPuede() ? '' : 'disabled'}>Quitar</button>`;
+    $('fcicDgTabla').innerHTML = '<table><thead><tr><th>Ente</th><th>CUIT</th><th>Nombre</th><th></th></tr></thead><tbody>'
+      + c.dg.map(x => `<tr><td>${esc(x.ente) || '<span class="chip bad">sin ente</span>'}</td><td>${esc(M.formatoCuit(x.cuit))}</td><td>${esc(x.nombre || '')}</td><td>${quitar('dg', x.cuit)}</td></tr>`).join('') + '</tbody></table>';
+    $('fcicBcoTabla').innerHTML = '<table><thead><tr><th>Nombre en el reporte</th><th>CUIT</th><th></th></tr></thead><tbody>'
+      + c.bancos.map(x => `<tr><td>${esc(x.nombre)}</td><td>${esc(M.formatoCuit(x.cuit))}</td><td>${quitar('banco', x.nombre)}</td></tr>`).join('') + '</tbody></table>';
+    ['btnFcicDgAgregar', 'btnFcicBcoAgregar', 'btnFcicCfgRestaurar', 'btnFcicSaldoGuardar'].forEach(id => { $(id).disabled = !fcicPuede(); });
+    if (document.activeElement !== $('fcicSaldoUrl')) $('fcicSaldoUrl').value = c.saldoUrl || '';
+    if (document.activeElement !== $('fcicSaldoClave')) $('fcicSaldoClave').value = c.saldoClave || '';
+  }
+  async function guardarFcicCfg(cambios, ok) {
+    if (!fcicPuede()) return informar('Solo lectura', 'Tu acceso es de solo lectura.');
+    const c = fcicCfg();
+    const r = await intentar(() => almacen.guardarFcicMeliCfg({ dg: c.dg, bancos: c.bancos, fondo: c.fondo, tipoCredito: c.tipoCredito,
+      saldoUrl: c.saldoUrl || '', saldoClave: c.saldoClave || '', ...cambios }), ok);
+    if (r && fcic.res) $('btnFcicArmar').click();
+    return r;
+  }
+  $('btnFcicSaldoGuardar').addEventListener('click', () => {
+    const saldoUrl = $('fcicSaldoUrl').value.trim();
+    if (saldoUrl && !/^https:\/\/\S+$/i.test(saldoUrl)) return informar('Dirección inválida', 'La dirección del flujo tiene que empezar con <code>https://</code>.');
+    guardarFcicCfg({ saldoUrl, saldoClave: $('fcicSaldoClave').value }, 'Conexión del saldo guardada');
+  });
+  $('btnFcicDgAgregar').addEventListener('click', () => {
+    const cuit = $('fcicDgCuit').value.replace(/\D/g, ''), ente = $('fcicDgEnte').value.replace(/\D/g, ''), nombre = $('fcicDgNombre').value.trim();
+    if (cuit.length !== 11 || !ente) return informar('Datos incompletos', 'Cargá un CUIT de 11 dígitos y el ente COBIS.');
+    const dg = fcicCfg().dg.filter(x => String(x.cuit) !== cuit).concat([{ cuit, ente, nombre }]);
+    guardarFcicCfg({ dg }, 'Lista DG actualizada').then(() => ['fcicDgCuit', 'fcicDgEnte', 'fcicDgNombre'].forEach(id => { $(id).value = ''; }));
+  });
+  $('btnFcicBcoAgregar').addEventListener('click', () => {
+    const nombre = $('fcicBcoNombre').value.trim(), cuit = $('fcicBcoCuit').value.replace(/\D/g, '');
+    if (!nombre || cuit.length !== 11) return informar('Datos incompletos', 'Cargá el nombre tal como figura en el reporte y un CUIT de 11 dígitos.');
+    const k = M.normalizar(nombre);
+    const bancos = fcicCfg().bancos.filter(x => M.normalizar(x.nombre) !== k).concat([{ nombre, cuit }]);
+    guardarFcicCfg({ bancos }, 'Nombre de banco guardado').then(() => ['fcicBcoNombre', 'fcicBcoCuit'].forEach(id => { $(id).value = ''; }));
+  });
+  $('btnFcicCfgRestaurar').addEventListener('click', async () => {
+    if (await confirmar('Volver a la carga inicial', 'Se reemplazan la lista DG y los nombres de bancos por los de las planillas originales.', 'Restaurar', true))
+      guardarFcicCfg({ dg: M.FCIC_MELI_INICIAL.dg, bancos: M.FCIC_MELI_INICIAL.bancos }, 'Carga inicial restaurada');
+  });
+  $('fcicCfg').addEventListener('click', async e => {
+    const b = e.target.closest('[data-fcic-quitar]');
+    if (!b) return;
+    const c = fcicCfg(), k = b.dataset.k;
+    if (!(await confirmar('Quitar', `¿Quitar <b>${esc(b.dataset.fcicQuitar === 'dg' ? M.formatoCuit(k) : k)}</b>?`, 'Quitar', true))) return;
+    if (b.dataset.fcicQuitar === 'dg') guardarFcicCfg({ dg: c.dg.filter(x => String(x.cuit) !== k) }, 'Quitado de la lista DG');
+    else guardarFcicCfg({ bancos: c.bancos.filter(x => x.nombre !== k) }, 'Nombre quitado');
+  });
+
+  // ============================================================ DESCUENTO DE CHEQUES (eCheq)
+  // Consulta de eCheqs (el mismo flujo de la gestión ALYC), interfaz COBIS y aceptación de a un cheque por llamada al
+  // flujo "Aceptar echeq desde VALO": así cada resultado se ve en la grilla apenas responde el banco y un corte no deja
+  // un lote a medias sin saber qué pasó.
+  const chq = { filas: [], sel: new Set(), res: new Map(), corriendo: false, detener: false, consultado: false };
+  const CHQ_COLS = [['banco', 'Banco'], ['sucursal', 'Sucursal'], ['chequeId', 'Cheque ID'], ['chequeNumero', 'N.º cheque'], ['emisorCuit', 'CUIT emisor'],
+    ['emisorNombre', 'Emisor'], ['beneficiarioDocumento', 'CUIT beneficiario'], ['beneficiarioNombre', 'Beneficiario'], ['cobis', 'Código COBIS'],
+    ['fechaPago', 'Fecha pago'], ['monto', 'Monto'], ['monedaDesc', 'Moneda']];
+  const chqCfg = () => (datos() && datos().chequesCfg) || {};
+  const chqClientes = () => Array.isArray(chqCfg().clientes) ? chqCfg().clientes : [];
+  const chqCodigo = c => { const d = String(c.beneficiarioDocumento || '').replace(/\D/g, ''); const x = chqClientes().find(k => k.cuit === d); return x ? x.codigo : ''; };
+  const chqPuede = () => !!almacen && almacen.puedeEscribir !== false;
+  const chqMonto = l => l.reduce((s, c) => s + (Number(c.monto) || 0), 0);
+
+  function chqVisibles() {
+    const q = $('chqBuscar').value.trim().toLowerCase(), ce = $('chqCuitEmisor').value.replace(/\D/g, ''), cb = $('chqCuitBenef').value.replace(/\D/g, '');
+    return chq.filas.filter(c => (!q || CHQ_COLS.some(([k]) => String(k === 'cobis' ? chqCodigo(c) : c[k] == null ? '' : c[k]).toLowerCase().includes(q)))
+      && (!ce || String(c.emisorCuit).replace(/\D/g, '').includes(ce)) && (!cb || String(c.beneficiarioDocumento).replace(/\D/g, '').includes(cb)));
+  }
+  const chqSeleccionados = () => chq.filas.filter(c => chq.sel.has(c.chequeId));
+  // Seleccionados que ya pasaron por la aceptación (con su resultado): son los que van a la constancia.
+  const chqConResultado = () => chqSeleccionados().filter(c => ['ok', 'ko', 'duda'].includes((chq.res.get(c.chequeId) || {}).estado))
+    .map(c => Object.assign({}, c, chq.res.get(c.chequeId)));
+
+  function renderCheques() {
+    const vis = chqVisibles(), sel = chqSeleccionados();
+    const acept = [...chq.res.values()].filter(r => r.estado === 'ok').length, rech = [...chq.res.values()].filter(r => r.estado === 'ko' || r.estado === 'duda').length;
+    $('chqKpis').innerHTML = chq.consultado ? [['Visibles', fmtEntero(vis.length)], ['Importe visible', '$ ' + fmtMonto(chqMonto(vis))],
+      ['Seleccionados', fmtEntero(sel.length)], ['Importe seleccionado', '$ ' + fmtMonto(chqMonto(sel))]]
+      .concat(chq.res.size ? [['Aceptados / no aceptados', `${fmtEntero(acept)} / ${fmtEntero(rech)}`]] : [])
+      .map(([t, v]) => `<div class="kpi"><b>${v}</b><span>${t}</span></div>`).join('') : '';
+    $('btnChqExportar').disabled = !vis.length;
+    $('btnChqCobis').disabled = !sel.length || chq.corriendo;
+    // Solo se envían a aceptar los seleccionados que todavía no se enviaron (o que el banco rechazó).
+    $('btnChqAceptar').disabled = !sel.some(c => !chqBloqueado(c)) || chq.corriendo || !chqPuede();
+    $('btnChqPdf').disabled = chq.corriendo || !chqConResultado().length;
+    $('btnChqConsultar').disabled = chq.corriendo;
+    if (!chq.consultado) { $('chqTabla').innerHTML = '<div class="vacio">Pulsá <b>Consultar cheques</b> para traer los eCheqs.</div>'; return; }
+    if (!vis.length) { $('chqTabla').innerHTML = '<div class="vacio">No hay cheques' + (chq.filas.length ? ' con esos filtros' : '') + '.</div>'; return; }
+    const todos = vis.length && vis.every(c => chq.sel.has(c.chequeId));
+    const est = r => !r ? '' : r.estado === 'ok' ? '<span class="chip ok">Aceptado</span>' : r.estado === 'ko' ? '<span class="chip bad">No aceptado</span>'
+      : r.estado === 'duda' ? '<span class="chip warn">Sin respuesta</span>' : r.estado === 'enviando' ? '<span class="chip warn">Aceptando…</span>' : '<span class="chip gris">En cola</span>';
+    $('chqTabla').innerHTML = `<table><thead><tr><th><input type="checkbox" id="chqTodos" ${todos ? 'checked' : ''} ${chq.corriendo ? 'disabled' : ''} aria-label="Seleccionar visibles"></th>`
+      + CHQ_COLS.map(([k, t]) => `<th${k === 'monto' ? ' class="num"' : ''}>${t}</th>`).join('') + '<th>Aceptación</th><th>Detalle</th></tr></thead><tbody>'
+      + vis.map(c => {
+        const r = chq.res.get(c.chequeId), s = chq.sel.has(c.chequeId), cod = chqCodigo(c);
+        const cls = r && r.estado === 'ok' ? 'chq-ok' : r && (r.estado === 'ko' || r.estado === 'duda') ? 'chq-ko' : r && r.estado === 'enviando' ? 'chq-enc' : s ? 'chq-sel' : '';
+        return `<tr class="${cls}"><td><input type="checkbox" class="chqPick" data-id="${esc(c.chequeId)}" ${s ? 'checked' : ''} ${chq.corriendo ? 'disabled' : ''} title="${chqBloqueado(c) ? 'Ya enviado a aceptar: se puede elegir para la interfaz COBIS y la constancia, no se vuelve a aceptar' : ''}"></td>`
+          + CHQ_COLS.map(([k]) => k === 'monto' ? `<td class="num">${fmtMonto(c.monto)}</td>` : k === 'cobis' ? `<td>${cod ? esc(cod) : '<span class="chip warn">sin código</span>'}</td>`
+            : k === 'fechaPago' ? `<td>${esc(M.fechaEcheq(c.fechaPago))}</td>` : `<td>${esc(c[k])}</td>`).join('')
+          + `<td>${est(r)}</td><td style="white-space:normal;min-width:220px">${r && r.mensaje ? esc(r.mensaje) : ''}</td></tr>`;
+      }).join('') + '</tbody></table>';
+  }
+  // Un cheque ya aceptado (o con resultado dudoso) no se puede volver a enviar sin consultar de nuevo.
+  const chqBloqueado = c => { const r = chq.res.get(c.chequeId); return !!r && (r.estado === 'ok' || r.estado === 'duda'); };
+
+  $('chqTabla').addEventListener('change', e => {
+    if (e.target.id === 'chqTodos') {
+      chqVisibles().forEach(c => e.target.checked ? chq.sel.add(c.chequeId) : chq.sel.delete(c.chequeId));
+    } else if (e.target.classList.contains('chqPick')) {
+      e.target.checked ? chq.sel.add(e.target.dataset.id) : chq.sel.delete(e.target.dataset.id);
+    } else return;
+    renderCheques();
+  });
+  ['chqBuscar', 'chqCuitEmisor', 'chqCuitBenef'].forEach(id => $(id).addEventListener('input', renderCheques));
+
+  // ---- conexión y clientes COBIS (base compartida)
+  function renderChequesCfg() {
+    const f = chqCfg();
+    if (document.activeElement !== $('chqUrlConsulta')) $('chqUrlConsulta').value = f.consultaUrl || '';
+    if (document.activeElement !== $('chqUrlAceptar')) $('chqUrlAceptar').value = f.aceptarUrl || '';
+    if (document.activeElement !== $('chqClave')) $('chqClave').value = f.clave || '';
+    const listo = !!(f.consultaUrl && f.aceptarUrl && f.clave);
+    $('chqConexionEstado').innerHTML = listo ? '<span class="chip ok">configurada</span>' : '<span class="chip warn">falta configurar</span>';
+    if (!listo && !$('chqConexion').dataset.abierto) { $('chqConexion').open = true; $('chqConexion').dataset.abierto = '1'; }
+    const cl = chqClientes();
+    $('chqClientesEstado').innerHTML = `<span class="chip gris">${fmtEntero(cl.length)}</span>`;
+    $('chqCliTabla').innerHTML = cl.length ? '<table><thead><tr><th>CUIT</th><th>Código COBIS</th><th>Nombre</th><th></th></tr></thead><tbody>'
+      + cl.map(x => `<tr><td>${esc(M.formatoCuit(x.cuit))}</td><td>${esc(x.codigo)}</td><td>${esc(x.nombre || '')}</td><td><button class="btn chico peligro" type="button" data-chq-borrar="${esc(x.cuit)}" ${chqPuede() ? '' : 'disabled'}>Quitar</button></td></tr>`).join('')
+      + '</tbody></table>' : '<div class="vacio">Sin clientes COBIS: importá la Hoja2 del Excel de eCheqs o agregalos a mano.</div>';
+    ['btnChqConexion', 'btnChqCliAgregar'].forEach(id => { $(id).disabled = !chqPuede(); });
+    renderCheques();
+  }
+  async function guardarChqCfg(cambios, ok) {
+    if (!chqPuede()) return informar('Solo lectura', 'Tu acceso es de solo lectura.');
+    return intentar(() => almacen.guardarChequesCfg(Object.assign({}, chqCfg(), cambios)), ok);
+  }
+  $('btnChqConexion').addEventListener('click', () => {
+    const consultaUrl = $('chqUrlConsulta').value.trim(), aceptarUrl = $('chqUrlAceptar').value.trim(), clave = $('chqClave').value;
+    const malo = [consultaUrl, aceptarUrl].find(u => u && !/^https:\/\/[^\s]+$/i.test(u));
+    if (malo) return informar('Dirección inválida', 'Las direcciones de los flujos tienen que empezar con <code>https://</code>.');
+    guardarChqCfg({ consultaUrl, aceptarUrl, clave }, 'Conexión guardada');
+  });
+  async function guardarChqClientes(lista, ok) {
+    const m = new Map(chqClientes().map(x => [x.cuit, x]));
+    lista.forEach(x => m.set(x.cuit, Object.assign({}, m.get(x.cuit), x)));
+    await guardarChqCfg({ clientes: [...m.values()].sort((a, b) => String(a.nombre || a.cuit).localeCompare(String(b.nombre || b.cuit))) }, ok);
+  }
+  $('btnChqCliAgregar').addEventListener('click', () => {
+    const l = M.leerClientesCobis([[$('chqCliCuit').value, $('chqCliCodigo').value, $('chqCliNombre').value]]);
+    if (!l.length) return informar('Datos incompletos', 'Cargá un CUIT de 11 dígitos y el código COBIS.');
+    guardarChqClientes(l, 'Cliente COBIS guardado').then(() => { ['chqCliCuit', 'chqCliCodigo', 'chqCliNombre'].forEach(id => { $(id).value = ''; }); });
+  });
+  $('chqCliArchivo').addEventListener('change', async e => {
+    const f = e.target.files[0]; e.target.value = '';
+    if (!f) return;
+    try {
+      const hojas = await leerHojas(f);
+      // La hoja con más pares CUIT / código (en el Excel de eCheqs, Hoja2).
+      const mejor = hojas.map(h => M.leerClientesCobis(h.filas)).sort((a, b) => b.length - a.length)[0] || [];
+      if (!mejor.length) return informar('Sin datos', 'No se encontraron filas con CUIT (columna A) y código COBIS (columna B).');
+      if (await confirmar('Importar clientes COBIS', `Se agregan o actualizan <b>${fmtEntero(mejor.length)}</b> clientes (CUIT → código).`, 'Importar'))
+        await guardarChqClientes(mejor, `${mejor.length} clientes COBIS importados`);
+    } catch (err) { informar('No se pudo leer el archivo', esc(err.message || err)); }
+  });
+  $('btnChqCliExportar').addEventListener('click', () => {
+    const ws = XLSX.utils.aoa_to_sheet([['CUIT', 'Código COBIS', 'Nombre']].concat(chqClientes().map(x => [Number(x.cuit), Number(x.codigo), x.nombre || ''])));
+    const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'Clientes COBIS');
+    descargarLibro('Clientes_COBIS_eCheq.xlsx', wb);
+  });
+  $('chqCliTabla').addEventListener('click', async e => {
+    const b = e.target.closest('[data-chq-borrar]');
+    if (!b) return;
+    if (await confirmar('Quitar cliente COBIS', `¿Quitar el CUIT <b>${esc(M.formatoCuit(b.dataset.chqBorrar))}</b>?`, 'Quitar', true))
+      guardarChqCfg({ clientes: chqClientes().filter(x => x.cuit !== b.dataset.chqBorrar) }, 'Cliente quitado');
+  });
+
+  // ---- llamadas a los flujos
+  async function chqPost(url, cuerpo, conClave, segundos) {
+    if (!/^https:\/\//i.test(url || '')) throw new Error('Falta configurar la dirección del flujo (Conexión con los flujos de Power Automate).');
+    const ctl = new AbortController(), reloj = setTimeout(() => ctl.abort(), (segundos || 120) * 1000);
+    let r;
+    try {
+      // El flujo de consulta es el mismo de la gestión ALYC (JSON); el de aceptación lleva la clave y va como texto
+      // (sin pedido previo de CORS), como el flujo NO COBIS.
+      r = await fetch(url, conClave ? { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=UTF-8' }, body: JSON.stringify(Object.assign({ clave: chqCfg().clave }, cuerpo)), signal: ctl.signal }
+        : { method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'application/json' }, body: JSON.stringify(cuerpo), signal: ctl.signal });
+    } catch (e) {
+      const err = new Error(e.name === 'AbortError' ? 'El flujo no respondió a tiempo' : 'No se pudo llamar al flujo (' + (e.message || e) + ')');
+      err.sinRespuesta = true; throw err;
+    } finally { clearTimeout(reloj); }
+    const texto = await r.text();
+    let j = null;
+    try { j = JSON.parse(texto); } catch (e) { /* no JSON */ }
+    if (r.status === 401) throw new Error((j && j.mensaje) || 'El flujo rechazó la clave compartida.');
+    if (!r.ok && !(j && j.chequeId)) { const err = new Error(`El flujo respondió HTTP ${r.status}: ${(j && j.mensaje) || texto.slice(0, 200)}`); err.sinRespuesta = r.status === 502 || r.status === 504; throw err; }
+    if (!j) throw new Error('El flujo respondió algo que no es JSON: ' + texto.slice(0, 200));
+    return j;
+  }
+  $('btnChqConsultar').addEventListener('click', async () => {
+    $('chqEstado').innerHTML = '';
+    $('btnChqConsultar').disabled = true;
+    chqEspera('Consultando eCheqs…', 'Esperando la respuesta del banco.');
+    try {
+      const j = await chqPost(chqCfg().consultaUrl, {}, false, 150);
+      const vistos = new Set();
+      chq.filas = M.echeqsDeRespuesta(j).map(M.normalizarEcheq).filter(c => c.chequeId && !vistos.has(c.chequeId) && vistos.add(c.chequeId));
+      chq.sel = new Set([...chq.sel].filter(id => vistos.has(id)));
+      chq.res = new Map([...chq.res].filter(([id, r]) => vistos.has(id) && r.estado !== 'ok'));
+      chq.consultado = true;
+      $('chqEstado').innerHTML = aviso('ok', `Consulta: ${fmtEntero(chq.filas.length)} cheques por $ ${fmtMonto(chqMonto(chq.filas))}.`);
+    } catch (e) {
+      $('chqEstado').innerHTML = aviso('bad', esc(e.message || e));
+    } finally { chqEspera(null); $('btnChqConsultar').disabled = false; renderCheques(); }
+  });
+  $('btnChqExportar').addEventListener('click', () => {
+    const vis = chqVisibles();
+    const aoa = [CHQ_COLS.map(c => c[1]).concat(['Aceptación', 'Detalle'])].concat(vis.map(c => { const r = chq.res.get(c.chequeId);
+      return CHQ_COLS.map(([k]) => k === 'monto' ? Number(c.monto) || 0 : k === 'cobis' ? chqCodigo(c) : k === 'fechaPago' ? M.fechaEcheq(c.fechaPago) : c[k])
+        .concat([r ? ({ ok: 'Aceptado', ko: 'No aceptado', duda: 'Sin respuesta' }[r.estado] || '') : '', r ? r.mensaje || '' : '']); }));
+    const ws = XLSX.utils.aoa_to_sheet(aoa);
+    const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'eCheqs');
+    descargarLibro(`Descuento_cheques_${new Date().toISOString().slice(0, 10)}.xlsx`, wb);
+  });
+
+  // ---- interfaz COBIS (formato de la columna AD de la hoja MENU del Excel de eCheqs)
+  let chqCobis = null;
+  $('btnChqCobis').addEventListener('click', () => {
+    // Los no aceptados no van a la interfaz.
+    const lista = chqSeleccionados().filter(c => { const r = chq.res.get(c.chequeId); return !r || r.estado === 'ok' || r.estado === 'cola'; });
+    chqCobis = M.interfazCobisEcheq(lista, chqClientes(), new Date());
+    const fuera = chqSeleccionados().length - lista.length;
+    $('chqCobisAviso').innerHTML = (chqCobis.sinCodigo.length ? aviso('warn', `<b>${chqCobis.sinCodigo.length} cheque(s) sin código COBIS</b> (no van a la interfaz): `
+      + esc([...new Set(chqCobis.sinCodigo.map(c => `${c.beneficiarioNombre} (${c.beneficiarioDocumento})`))].join(', ')) + '. Cargá el CUIT en <b>Clientes COBIS</b>.') : '')
+      + (fuera ? aviso('warn', `${fuera} cheque(s) seleccionados no fueron aceptados y quedaron afuera.`) : '')
+      + aviso(chqCobis.lineas.length ? 'ok' : 'bad', `${fmtEntero(chqCobis.lineas.length)} líneas para COBIS, de los ${fmtEntero(chqSeleccionados().length)} cheques seleccionados.`);
+    $('chqCobisTabla').innerHTML = chqCobis.lineas.length ? '<table><thead><tr><th>#</th><th>Línea</th></tr></thead><tbody>'
+      + chqCobis.lineas.map((l, i) => `<tr><td class="num">${i + 1}</td><td style="font-family:monospace">${esc(l)}</td></tr>`).join('') + '</tbody></table>' : '';
+    $('btnChqCobisTxt').disabled = !chqCobis.lineas.length;
+    $('chqCobisCard').classList.remove('oculto');
+    $('chqCobisCard').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  });
+  $('btnChqCobisTxt').addEventListener('click', () => {
+    if (!chqCobis || !chqCobis.lineas.length) return;
+    const d = new Date(), f = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
+    descargar(`COBIS_echeq_${f}.txt`, chqCobis.texto, true);
+  });
+  $('btnChqCobisCerrar').addEventListener('click', () => $('chqCobisCard').classList.add('oculto'));
+
+  // ---- espera: el isotipo del banco gira mientras se espera la respuesta del flujo
+  function chqEspera(titulo, detalle, opc) {
+    opc = opc || {};
+    const caja = $('chqEspera');
+    if (!titulo) { caja.classList.add('oculto'); return; }
+    if (!$('chqGiro').src) $('chqGiro').src = window.VALO_ISOTIPO_PNG || '';
+    $('chqEsperaTitulo').textContent = titulo;
+    $('chqEsperaDetalle').textContent = detalle || '';
+    const conAvance = opc.total != null;
+    $('chqEsperaBarra').parentNode.classList.toggle('oculto', !conAvance);
+    $('chqEsperaCuentas').classList.toggle('oculto', !conAvance);
+    if (conAvance) {
+      $('chqEsperaBarra').style.width = Math.round((opc.hechos || 0) / Math.max(opc.total, 1) * 100) + '%';
+      $('chqEsperaCuentas').innerHTML = `${opc.hechos || 0} de ${opc.total} · <span style="color:var(--ok)">aceptados ${opc.acept || 0}</span> · <span style="color:var(--bad)">no aceptados ${opc.noAcept || 0}</span>`;
+    }
+    $('chqEsperaLista').innerHTML = (opc.lista || []).slice().reverse().map(x => `<li><span class="chip ${x.estado === 'ok' ? 'ok' : x.estado === 'duda' ? 'warn' : 'bad'}">${x.estado === 'ok' ? 'Aceptado' : x.estado === 'duda' ? 'Sin respuesta' : 'No aceptado'}</span> `
+      + `${esc(x.chequeNumero || x.chequeId)} · ${esc(x.beneficiarioNombre)} · $ ${esc(fmtMonto(x.monto))}${x.estado === 'ok' ? '' : ' — ' + esc(x.mensaje || '')}</li>`).join('');
+    $('chqEsperaLista').classList.toggle('oculto', !(opc.lista || []).length);
+    $('btnChqDetener').classList.toggle('oculto', !opc.detener);
+    caja.classList.remove('oculto');
+  }
+
+  // ---- constancia PDF de la última tanda de aceptaciones
+  async function chqConstanciaPdf() {
+    // Solo los cheques seleccionados que tienen resultado de aceptación.
+    const items = chqConResultado();
+    if (!items.length) return informar('Sin cheques para la constancia', 'Seleccioná cheques que ya hayas enviado a aceptar.');
+    const u = chq.ultima || {};
+    const t = { items, inicio: u.inicio || new Date(), fin: u.fin || new Date(), usuario: u.usuario || almacen.email || '', pendientes: 0 };
+    try {
+      await cargarLibreria('jspdf'); await cargarLibreria('autotable');
+      const doc = new window.jspdf.jsPDF({ unit: 'mm', format: 'a4', orientation: 'landscape' });
+      const W = doc.internal.pageSize.getWidth(), H = doc.internal.pageSize.getHeight(), M0 = 12;
+      const acept = t.items.filter(x => x.estado === 'ok'), noAcept = t.items.filter(x => x.estado !== 'ok');
+      const fh = d => d.toLocaleString('es-AR', { dateStyle: 'short', timeStyle: 'medium' });
+      if (window.VALO_LOGO_PNG) doc.addImage(window.VALO_LOGO_PNG, 'PNG', M0, 8, 42, 14);
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(16); doc.setTextColor(...MARCA.rojoRgb);
+      doc.text('Constancia de aceptación de eCheqs', W - M0, 15, { align: 'right' });
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(...MARCA.grisRgb);
+      doc.text('Descuento de cheques', W - M0, 20.5, { align: 'right' });
+      doc.setDrawColor(...MARCA.rojoRgb); doc.setLineWidth(0.6); doc.line(M0, 25, W - M0, 25);
+      // Datos de la tanda en recuadros.
+      const datosT = [['Inicio', fh(t.inicio)], ['Fin', fh(t.fin || new Date())], ['Usuario', t.usuario || '—'],
+        ['Cheques', String(t.items.length)],
+        ['Aceptados', `${acept.length} · $ ${fmtMonto(chqMonto(acept))}`], ['No aceptados', `${noAcept.length} · $ ${fmtMonto(chqMonto(noAcept))}`]];
+      const anchoC = (W - 2 * M0 - 5 * 3) / 6;
+      datosT.forEach(([k, v], i) => {
+        const x = M0 + i * (anchoC + 3);
+        doc.setDrawColor(215); doc.setLineWidth(0.2); doc.setFillColor(248, 248, 249); doc.roundedRect(x, 29, anchoC, 13, 1.5, 1.5, 'FD');
+        doc.setFontSize(7); doc.setTextColor(...MARCA.grisRgb); doc.text(k.toUpperCase(), x + 2.5, 33.5);
+        doc.setFont('helvetica', 'bold'); doc.setFontSize(9); doc.setTextColor(30); doc.text(doc.splitTextToSize(v, anchoC - 5)[0], x + 2.5, 39);
+        doc.setFont('helvetica', 'normal');
+      });
+      const filas = t.items.map((x, i) => [i + 1, x.hora || '', x.chequeId, x.chequeNumero, x.beneficiarioNombre, M.formatoCuit(x.beneficiarioDocumento) || x.beneficiarioDocumento,
+        x.emisorNombre, M.fechaEcheq(x.fechaPago), fmtMonto(x.monto), x.estado === 'ok' ? 'ACEPTADO' : x.estado === 'duda' ? 'SIN RESPUESTA' : 'NO ACEPTADO', x.estado === 'ok' ? '' : x.mensaje || '']);
+      doc.autoTable({
+        startY: 47, margin: { left: M0, right: M0, bottom: 16 },
+        head: [['#', 'Hora', 'Cheque ID', 'N.º cheque', 'Beneficiario', 'CUIT beneficiario', 'Emisor', 'Fecha pago', 'Monto', 'Resultado', 'Detalle']],
+        body: filas,
+        foot: [['', '', '', '', '', '', '', 'Total aceptado', fmtMonto(chqMonto(acept)), `${acept.length} de ${t.items.length}`, '']],
+        styles: { font: 'helvetica', fontSize: 7.5, cellPadding: 1.6, overflow: 'linebreak', textColor: 40 },
+        headStyles: { fillColor: MARCA.grisRgb, textColor: 255, fontStyle: 'bold' },
+        footStyles: { fillColor: [242, 242, 243], textColor: 30, fontStyle: 'bold' },
+        alternateRowStyles: { fillColor: [248, 248, 249] },
+        columnStyles: { 0: { halign: 'right', cellWidth: 7 }, 1: { cellWidth: 14 }, 8: { halign: 'right' }, 9: { fontStyle: 'bold' }, 10: { cellWidth: 52 } },
+        didParseCell: d => { if (d.section === 'body' && d.column.index === 9) d.cell.styles.textColor = t.items[d.row.index].estado === 'ok' ? [29, 122, 70] : [163, 20, 31]; },
+      });
+      const n = doc.getNumberOfPages();
+      for (let p = 1; p <= n; p++) {
+        doc.setPage(p);
+        doc.setDrawColor(...MARCA.rojoRgb); doc.setLineWidth(0.4); doc.line(M0, H - 11, W - M0, H - 11);
+        doc.setFontSize(7.5); doc.setTextColor(...MARCA.grisRgb);
+        doc.text(`Banco de Valores S.A. · Generado el ${fh(new Date())}`, M0, H - 7);
+        doc.text(`Página ${p} de ${n}`, W - M0, H - 7, { align: 'right' });
+      }
+      const d = t.inicio, f = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}_${String(d.getHours()).padStart(2, '0')}${String(d.getMinutes()).padStart(2, '0')}`;
+      await descargar(`Constancia_aceptacion_echeqs_${f}.pdf`, doc.output('blob'), true);
+    } catch (e) { informar('No se pudo generar la constancia', esc(e.message || e)); }
+  }
+  $('btnChqPdf').addEventListener('click', chqConstanciaPdf);
+
+  // ---- aceptación
+  function chqProgreso(hechos, total, texto) {
+    $('chqProgreso').classList.toggle('oculto', !total);
+    $('chqProgresoBarra').style.width = total ? Math.round(hechos / total * 100) + '%' : '0';
+    $('chqProgresoTexto').textContent = texto || '';
+  }
+  $('btnChqDetener').addEventListener('click', () => { chq.detener = true; $('btnChqDetener').disabled = true; $('btnChqDetener').textContent = 'Deteniendo…'; $('chqProgresoTexto').textContent += ' · deteniendo después del cheque en curso…'; });
+  $('btnChqAceptar').addEventListener('click', async () => {
+    const cfg = chqCfg();
+    if (!cfg.aceptarUrl || !cfg.clave) return informar('Falta la conexión', 'Configurá el flujo de aceptación y la clave en <b>Conexión con los flujos de Power Automate</b>.');
+    const lista = chqSeleccionados().filter(c => !chqBloqueado(c));
+    if (!lista.length) return;
+    const sinCod = lista.filter(c => !chqCodigo(c)).length;
+    const ok = await confirmar('Aceptar eCheqs', `Se van a <b>aceptar ${fmtEntero(lista.length)} eCheq(s)</b> por <b>$ ${fmtMonto(chqMonto(lista))}</b> en el banco. La aceptación no se puede deshacer.`
+      + (sinCod ? `<p>${sinCod} de ellos no tienen código COBIS (se aceptan igual, pero no van a la interfaz hasta que cargues el código).</p>` : ''), 'Aceptar cheques', true);
+    if (!ok) return;
+    chq.corriendo = true; chq.detener = false;
+    lista.forEach(c => chq.res.set(c.chequeId, { estado: 'cola' }));
+    $('btnChqDetener').disabled = false; $('btnChqDetener').textContent = 'Detener después de este cheque';
+    chq.ultima = { inicio: new Date(), fin: null, usuario: almacen.email || '', items: [], pendientes: 0 };
+    $('chqEstado').innerHTML = '';
+    let hechos = 0, acept = 0, noAcept = 0;
+    const resultados = [];
+    renderCheques();
+    // De a uno: cada llamada ingresa al banco, acepta y registra en el histórico. Sin reintentos automáticos (un
+    // reintento después de un corte podría aceptar dos veces): lo que queda "sin respuesta" se verifica en el banco.
+    for (const c of lista) {
+      if (chq.detener) break;
+      chq.res.set(c.chequeId, { estado: 'enviando' });
+      chqProgreso(hechos, lista.length, `Aceptando ${hechos + 1} de ${lista.length}: ${c.chequeNumero || c.chequeId} · ${c.beneficiarioNombre} · $ ${fmtMonto(c.monto)}`);
+      chqEspera(`Aceptando eCheq ${hechos + 1} de ${lista.length}`, `${c.chequeNumero || c.chequeId} · ${c.beneficiarioNombre} · $ ${fmtMonto(c.monto)}`,
+        { hechos, total: lista.length, acept, noAcept, lista: chq.ultima.items, detener: !chq.detener });
+      renderCheques();
+      let r;
+      try {
+        const j = await chqPost(cfg.aceptarUrl, { accion: 'aceptar', cheque: { chequeId: c.chequeId, chequeNumero: c.chequeNumero, beneficiarioDocumento: c.beneficiarioDocumento,
+          beneficiarioNombre: c.beneficiarioNombre, fechaPago: M.fechaEcheq(c.fechaPago), monto: Number(c.monto) || 0 } }, true, 115);
+        const a = M.resultadoAceptacion(j);
+        r = { estado: a.aceptado ? 'ok' : 'ko', mensaje: a.mensaje + (a.historico ? '' : ' · no se pudo registrar en el histórico de SharePoint'), fecha: a.fecha };
+      } catch (e) {
+        r = e.sinRespuesta ? { estado: 'duda', mensaje: `${e.message}: verificá en el banco si quedó aceptado antes de volver a enviarlo.` } : { estado: 'ko', mensaje: e.message || String(e) };
+        if (/clave/i.test(r.mensaje)) chq.detener = true;
+      }
+      r.hora = new Date().toLocaleTimeString('es-AR', { hour12: false });
+      chq.res.set(c.chequeId, r);
+      if (r.estado === 'ok') { acept++; chq.sel.delete(c.chequeId); } else noAcept++;
+      hechos++;
+      resultados.push({ chequeId: c.chequeId, chequeNumero: c.chequeNumero, beneficiarioNombre: c.beneficiarioNombre, beneficiarioDocumento: c.beneficiarioDocumento,
+        fechaPago: M.fechaEcheq(c.fechaPago), monto: fmtMonto(c.monto), estado: { ok: 'ACEPTADO', ko: 'NO ACEPTADO', duda: 'SIN RESPUESTA' }[r.estado], detalle: r.mensaje, aceptado: r.estado === 'ok' });
+      chq.ultima.items.push(Object.assign({}, c, { estado: r.estado, mensaje: r.mensaje, hora: new Date().toLocaleTimeString('es-AR', { hour12: false }) }));
+      chqProgreso(hechos, lista.length, `${hechos} de ${lista.length} · aceptados ${acept} · no aceptados ${noAcept}`);
+      renderCheques();
+    }
+    lista.filter(c => (chq.res.get(c.chequeId) || {}).estado === 'cola').forEach(c => chq.res.delete(c.chequeId));
+    // Los aceptados vuelven a quedar seleccionados para armar la interfaz COBIS.
+    lista.filter(c => (chq.res.get(c.chequeId) || {}).estado === 'ok').forEach(c => chq.sel.add(c.chequeId));
+    chq.corriendo = false;
+    chq.ultima.fin = new Date(); chq.ultima.pendientes = lista.length - hechos;
+    let avisoNotif = '';
+    if (resultados.length) {
+      chqEspera('Enviando el aviso por Teams y correo…', `${acept} aceptados · ${noAcept} no aceptados`, { hechos, total: lista.length, acept, noAcept, lista: chq.ultima.items });
+      try {
+        const n = await chqPost(cfg.aceptarUrl, { accion: 'notificar', resultados, aceptados: acept, rechazados: noAcept, usuario: almacen.email || '' }, true, 110);
+        avisoNotif = n.teams === false || n.correo === false ? ` Aviso: ${n.teams === false ? 'no se pudo avisar por Teams' : ''}${n.teams === false && n.correo === false ? ' ni ' : ''}${n.correo === false ? 'no se pudo enviar el correo' : ''}.`
+          : ' Se avisó por Teams y correo.';
+      } catch (e) { avisoNotif = ' No se pudo enviar el aviso por Teams / correo: ' + (e.message || e) + '.'; }
+    }
+    chqEspera(null);
+    chqProgreso(hechos, lista.length, `Terminado: ${hechos} de ${lista.length} · aceptados ${acept} · no aceptados ${noAcept}`);
+    $('chqEstado').innerHTML = aviso(noAcept ? 'warn' : 'ok', `Aceptación terminada: <b>${acept}</b> aceptados, <b>${noAcept}</b> no aceptados${hechos < lista.length ? `, ${lista.length - hechos} sin enviar (detenido)` : ''}.${esc(avisoNotif)}`
+      + (acept ? ' Los aceptados quedaron seleccionados: <b>Interfaz COBIS</b> arma el archivo.' : '') + ' La constancia en PDF se descargó (botón <b>Constancia PDF</b> para volver a bajarla).');
+    renderCheques();
+    if (chq.ultima.items.length) chqConstanciaPdf();
+  });
+
   // ============================================================ RESPALDO (solo modo local)
 
   $('btnRespaldo').addEventListener('click', () => {
@@ -3370,6 +3930,8 @@
     renderBancosMeli();
     if (cartera) renderCartera(); else renderExtraccion();
     renderHistorial();
+    renderChequesCfg();
+    renderFcicCfg();
     actualizarFormulario();
     aplicarPermisos();
   }
