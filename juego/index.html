@@ -1304,6 +1304,24 @@
     estado.esperandoVoz = true;
     var pasoQueHabla = i;
     hablar(p.l1 + ' ' + p.l2, p.id).then(function () { if (estado.paso === pasoQueHabla) estado.esperandoVoz = false; });
+    // Mientras se cepilla, se baja el próximo paso (video, primer cuadro y voz) para que el
+    // cambio sea inmediato cuando dice «sí».
+    setTimeout(function () { precargarPaso(i + 1); }, 1500);
+  }
+  var precargados = {};
+  function precargar(url) {
+    if (precargados[url] || !window.fetch) return;
+    precargados[url] = true;
+    try { fetch(url, { cache: 'force-cache' }).then(function (r) { return r.blob(); }).catch(function () { precargados[url] = false; }); } catch (e) {}
+  }
+  function precargarPaso(i) {
+    if (i >= PASOS.length) { precargar(carpetaAudio() + 'terminar.mp3'); precargar(carpetaAudio() + 'final.mp3'); return; }
+    var v = CARPETA_VIDEOS + (escenario() === 'hotel' ? 'hotel/' : '') + PASOS[i].id;
+    var prueba = document.createElement('video');
+    precargar(v + '.jpg');
+    precargar(v + (prueba.canPlayType && prueba.canPlayType('video/mp4') ? '.mp4' : '.webm'));
+    precargar(carpetaAudio() + PASOS[i].id + '.mp3');
+    precargar(carpetaAudio() + 'seguir.mp3');
   }
 
   // Manchitas de sarro que se van limpiando con el tiempo del paso.
@@ -1456,6 +1474,7 @@
   function empezarMision() {
     ponerVideo($('video-mision'), videoEscenario('mision'), $('svg-mision'), '.fondo, #sd-mision');
     agarre = null;
+    precargarPaso(0);
     $('mision-1').textContent = '¡Hola! Soy Superdiente.';
     $('mision-2').textContent = '¡Agarrá tu cepillo de dientes y apretá el botón para empezar!';
     $('pista-cepillo').style.display = '';
@@ -1533,7 +1552,7 @@
             if (estado.pantalla === 'paso' && estado.paso === pasoTerminado) siguiente();
           }, 800);
         });
-    }, 700);
+    }, 300);
   }
 
   function siguiente() {
