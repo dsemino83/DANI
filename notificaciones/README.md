@@ -2,7 +2,8 @@
 
 Página de tareas con audios y temporizador, con los mismos fondos que Misión: Dientes Limpios.
 
-- **Primera vez:** pide el nombre y el fondo; el nombre aparece en el saludo de la pantalla principal.
+- **Primera vez:** pide el nombre, si es nene o nena y el fondo; el nombre aparece en el título y en el saludo.
+- **Nene o nena:** cambia la ilustración del inicio (Rami o la nena, en los dos fondos). Las de la nena (`fondos/nina-*.jpg`) se generaron con OpenArt (Seedream 4.5) a partir de una foto y del inicio de Superdiente, y se animaron con PixVerse V6 (`fondos/nina-*.mp4`, bucle ida y vuelta como los de Superdiente).
 - **Fondos:** «Baño» y «Hotel de monstruos» (los videos de inicio de Superdiente). Se cambian con la ruedita.
 - **Acceso directo** a Superdiente arriba a la izquierda (`../juego/`).
 - **Tareas:** agregar, editar y borrar. Se guardan en el celular (IndexedDB), con sus audios.
