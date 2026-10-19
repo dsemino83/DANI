@@ -98,3 +98,54 @@ el área de trabajo y el modelo ya están cargados). **Guardar** y **Probar**.
 | *Power BI login HTTP 400/401* | client id o secret mal copiados, o el secret venció |
 | *HTTP 401/403 … PowerBINotAuthorizedException* | la aplicación no está en el área de trabajo o falta habilitar las API para service principals |
 | *statement timeout* | consulta larga: `alter role authenticated set statement_timeout = '120s'; notify pgrst, 'reload config';` |
+
+## Segundo modelo: saldo de la cuenta 121049010 (NO COBIS FCIC MELI)
+
+La pantalla **NO COBIS FCIC MELI → Traer saldo de Power BI** usa el mismo flujo, pero manda `"modelo": "saldosContables"`
+y una consulta DAX sobre la tabla `SaldoCuenta121049010` (columnas `Fecha` y `Saldo`, importada del cubo SaldosContables
+de `dmbi2019as` / `BVDW`, cuenta 121049010).
+
+1. Publicar el modelo (modo **Importar**) y configurar en el servicio de Power BI el **gateway** (origen Analysis Services
+   `dmbi2019as`) y la **actualización programada** diaria.
+2. En el flujo, dentro de **Si es verdadero** y antes de `Consulta`, agregar una **Condición**:
+   `outputs('Pedido')?['modelo']` *es igual a* `saldosContables`.
+   - **Si es verdadero**: **Power BI → Ejecutar una consulta en un conjunto de datos** (área de trabajo y conjunto de datos
+     del modelo nuevo, texto `outputs('Pedido')?['consulta']`), renombrada `ConsultaSaldos`, y una **Respuesta** `200`
+     (mismos encabezados) con cuerpo `body('ConsultaSaldos')?['firstTableRows']`.
+   - **Si no**: mover ahí las acciones de siempre (`Consulta` y sus dos Respuestas).
+
+### Alternativa recomendada: flujo propio "VALO Saldo cuenta 121049010"
+
+Paquete importable (se entrega aparte, no está en el repositorio). Recibe `{ "clave", "fecha": "aaaa-mm-dd" }`, valida la
+clave, arma él mismo la consulta DAX (la página no manda DAX) y consulta el modelo **NoCobis FCIC MELI** del área de
+trabajo **Patrimonios**. Devuelve las filas (`firstTableRows`) con `Fecha` y `Saldo`.
+En la página: **NO COBIS FCIC MELI → Lista DG y nombres de bancos → Flujo "VALO Saldo cuenta 121049010"** (dirección +
+clave) → **Guardar conexión**. Si está cargado, el botón **Traer saldo de Power BI** usa este flujo; si no, el de Cartera.
+
+## Tercera tabla: cuenta → CUIT (Inventarios, cuenta 131.804.015)
+
+El reporte `ccusosob` no trae CUIT ni ente. La tabla `CuentasClientes` del modelo **CUENTA CUIT** (área de
+trabajo **Patrimonios**) los toma del cubo **PasivasComercial** (`dmbi2019as` / `BVDW`), igual que la tabla dinámica
+Cuenta Numero × Cliente Documento del Excel, pero con todos los estados de cuenta. La cuenta va sin guiones:
+`3-001-0000001560-0` del ccusosob = `300100000015600` del cubo.
+
+Consulta en blanco → Editor avanzado → nombre **CuentasClientes**:
+
+```
+let
+    Origen = AnalysisServices.Database("dmbi2019as", "BVDW", [Query="SELECT [Measures].[# Registros] ON COLUMNS,#(lf)       NON EMPTY [Cuenta].[Cuenta Numero].[Cuenta Numero].MEMBERS * [Cuenta].[Cuenta Estado].[Cuenta Estado].MEMBERS * [Cliente].[Cliente Documento].[Cliente Documento].MEMBERS * [Cliente].[Cliente Numero].[Cliente Numero].MEMBERS * [Cliente].[Cliente Nombre].[Cliente Nombre].MEMBERS ON ROWS#(lf)FROM [PasivasComercial]#(lf)", Implementation="2.0"]),
+    Columnas = Table.SelectColumns(Origen, {"[Cuenta].[Cuenta Numero].[Cuenta Numero].[MEMBER_CAPTION]", "[Cuenta].[Cuenta Estado].[Cuenta Estado].[MEMBER_CAPTION]", "[Cliente].[Cliente Documento].[Cliente Documento].[MEMBER_CAPTION]", "[Cliente].[Cliente Numero].[Cliente Numero].[MEMBER_CAPTION]", "[Cliente].[Cliente Nombre].[Cliente Nombre].[MEMBER_CAPTION]"}),
+    Nombres = Table.RenameColumns(Columnas, {{"[Cuenta].[Cuenta Numero].[Cuenta Numero].[MEMBER_CAPTION]", "Cuenta"}, {"[Cuenta].[Cuenta Estado].[Cuenta Estado].[MEMBER_CAPTION]", "Estado"}, {"[Cliente].[Cliente Documento].[Cliente Documento].[MEMBER_CAPTION]", "CUIT"}, {"[Cliente].[Cliente Numero].[Cliente Numero].[MEMBER_CAPTION]", "Ente"}, {"[Cliente].[Cliente Nombre].[Cliente Nombre].[MEMBER_CAPTION]", "Nombre"}}),
+    Tipos = Table.TransformColumnTypes(Nombres, {{"Cuenta", type text}, {"Estado", type text}, {"CUIT", type text}, {"Ente", type text}, {"Nombre", type text}}),
+    Unicos = Table.Distinct(Tipos)
+in
+    Unicos
+```
+
+Cerrar y aplicar → Publicar en **Patrimonios** → en el servicio, Configuración del modelo → Conexiones de puerta de enlace → DMBI2019AS y actualización programada diaria.
+
+Flujo **VALO Cuentas y clientes** (paquete aparte, no está en el repositorio): recibe `{ "clave" }`, valida la clave y
+ejecuta una consulta DAX fija sobre `CuentasClientes`; devuelve `Cuenta`, `CUIT`, `Ente`, `Nombre` y `Estado`.
+En la página: **Inventarios → Entes, CUIT y fechas → Cuenta → CUIT desde Power BI** (dirección + clave) → **Guardar
+conexión**. Al cargar un `ccusosob` se consulta sola. Orden del CUIT: lo cargado a mano por cuenta → Power BI → base de
+entes por nombre → inventarios anteriores.
