@@ -3350,14 +3350,21 @@
     const cf = fcicCfg(), f = datos().nocobisFlujo || {};
     if (!(cf.saldoUrl && cf.saldoClave) && !(f.pbiUrl && f.pbiClave)) return;
     if (!siempre && $('fcicPatrimonio').value.trim()) return;
+    // Si hay una consulta en curso, se repite al terminar (con la fecha que quedó).
+    if ($('btnFcicSaldoPbi').disabled) { fcic.otraVez = true; return; }
     $('btnFcicSaldoPbi').click();
   }
   function alAbrirFcic() { fcicSaldoAuto(false); }
   // Al cambiar la concesión a mano, el vencimiento se recalcula con la misma regla.
+  function fcicSetConcesion(c) {
+    $('fcicConcesion').value = isoDe(c);
+    $('fcicVto').value = isoDe(M.fechasNoCobis(c, M.FERIADOS_AR).vencimiento);
+    fcicInvalidar();
+    fcicSaldoAuto(true);   // el saldo de esa fecha
+  }
   $('fcicConcesion').addEventListener('change', () => {
     const c = deIso($('fcicConcesion').value);
-    if (c) $('fcicVto').value = isoDe(M.fechasNoCobis(c, M.FERIADOS_AR).vencimiento);
-    fcicInvalidar();
+    if (c) fcicSetConcesion(c); else fcicInvalidar();
   });
   $('fcicVto').addEventListener('change', fcicInvalidar);
 
@@ -3410,7 +3417,10 @@
           + (fPat && !isNaN(fecha) && isoDe(diaUtc(fPat)) !== isoDe(diaUtc(fecha)) ? ' — <b>el patrimonio es de otra fecha que el saldo</b>' : '') : ''));
     } catch (e) {
       $('fcicSaldoEstado').innerHTML = aviso('bad', esc(e.message || e));
-    } finally { $('btnFcicSaldoPbi').disabled = false; }
+    } finally {
+      $('btnFcicSaldoPbi').disabled = false;
+      if (fcic.otraVez) { fcic.otraVez = false; $('btnFcicSaldoPbi').click(); }
+    }
   });
 
   $('fcicArchivo').addEventListener('change', async e => {
@@ -3423,6 +3433,9 @@
       const rep = hojas.map(h => M.leerReporteCupones(h.filas, cfg.fondo)).sort((a, b) => b.cheques - a.cheques)[0];
       if (!rep || !rep.cheques) throw new Error(`No se encontraron cheques del fondo ${cfg.fondo} (columna Fondo) con importe actual.`);
       fcic.rep = rep; fcic.archivo = f.name;
+      // La concesión es la fecha del reporte (como en la planilla: reporte del 23/09 → concesión 23/09).
+      const fr = rep.fecha instanceof Date ? rep.fecha : (m => m ? new Date(+m[3], +m[2] - 1, +m[1]) : null)(String(rep.fecha || '').match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/));
+      if (fr && !isNaN(fr) && isoDe(fr) !== $('fcicConcesion').value) setTimeout(() => fcicSetConcesion(fr), 0);
       $('fcicReporte').innerHTML = aviso('ok', `<b>${esc(f.name)}</b>: ${fmtEntero(rep.cheques)} cheques del fondo ${esc(rep.fondo)} · ${rep.grupos.length} bancos · importe actual total $ ${fmtMonto(rep.total)}`
         + (rep.fecha ? ` · fecha del reporte ${esc(rep.fecha instanceof Date ? fBarra(rep.fecha) : String(rep.fecha))}` : ''));
     } catch (err) {
