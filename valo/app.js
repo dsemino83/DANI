@@ -1537,7 +1537,8 @@
         // Los reportes vienen en UTF-8; si no, en Windows-1252 (Ñ y acentos).
         let texto = new TextDecoder('utf-8').decode(buf);
         if (texto.includes('\ufffd')) texto = new TextDecoder('windows-1252').decode(buf);
-        const leido = M.leerInventarioGarantias(texto, f.name);
+        // ccusosob (uso de acuerdos de cuentas corrientes) → cuenta 131.804.015; el resto, reportes de garantías.
+        const leido = /ccusosob/i.test(f.name) || /ccusosob\.sqr/.test(texto.slice(0, 5000)) ? M.leerUsoAcuerdos(texto, f.name) : M.leerInventarioGarantias(texto, f.name);
         const i = inventario.findIndex(x => x.nombre === f.name);
         if (i > -1) inventario.splice(i, 1, { nombre: f.name, leido }); else inventario.push({ nombre: f.name, leido });
       } catch (e) { errores.push(esc(e.message || e)); }
@@ -1545,7 +1546,7 @@
     renderInventario(errores);
   }
 
-  const filasInventario = () => inventario.flatMap(x => x.leido.filas);
+  const filasInventario = () => inventario.filter(x => !x.leido.usoAcuerdos).flatMap(x => x.leido.filas);
   function filasInventarioFiltradas() {
     const pref = $('invPref').value, mon = $('invMoneda').value, ori = $('invOrigen').value, q = M.normalizar($('invBuscar').value);
     return filasInventario().filter(f => (!pref || (pref === 'S') === f.preferida) && (!mon || f.monedaDesc === mon) && (!ori || f.origen === ori)
@@ -1556,6 +1557,12 @@
     let html = errores.map(e => aviso('bad', e)).join('');
     html += inventario.map((x, i) => {
       const l = x.leido, malos = l.controles.filter(c => !c.ok);
+      if (l.usoAcuerdos) {
+        const conInt = l.filas.filter(f => f.moneda === 80 && (f.contratado || f.excedido)).length;
+        return `<p class="sub" style="margin:6px 0"><b>${esc(x.nombre)}</b> · Uso de acuerdos (131.804.015) · ${esc(l.oficinas.join(', '))} · proceso ${esc(fechaAr(l.fecha))} · ${fmtEntero(conInt)} usos con interés contratado o excedido · ` +
+          (malos.length ? `<span class="chip bad">${malos.length} cuentas no coinciden con su total de intereses</span>` : `<span class="chip ok">totales por cuenta OK</span>`) +
+          ` <a href="#" data-quitar-inv="${i}">Quitar</a></p>`;
+      }
       return `<p class="sub" style="margin:6px 0"><b>${esc(x.nombre)}</b> · ${esc(l.origen)} · al ${esc(l.fecha)} · ${fmtEntero(l.filas.length)} garantías · ` +
         (l.controles.length ? (malos.length ? `<span class="chip bad">${malos.length} subtotales no coinciden</span>` : `<span class="chip ok">subtotales del reporte OK</span>`) : '') +
         ` <a href="#" data-quitar-inv="${i}">Quitar</a></p>`;
@@ -1652,7 +1659,25 @@
   const padronInv = () => datos().padronInventario || { entes: {}, nombres: {}, garantias: {} };
   const fechaAr = iso => (iso ? iso.split('-').reverse().join('/') : '');
   const numeroTc = () => { const v = String($('invTc').value).trim(); if (!v) return null; const n = Number(/,/.test(v) ? v.replace(/\./g, '').replace(',', '.') : v); return n > 0 ? n : null; };
-  const reportesInv = () => inventario.filter(x => /garhi(con|sin)/i.test(x.leido.reporte + ' ' + x.nombre));
+  const reportesInv = () => inventario.filter(x => !x.leido.usoAcuerdos && /garhi(con|sin)/i.test(x.leido.reporte + ' ' + x.nombre));
+  const usosInv = () => inventario.filter(x => x.leido.usoAcuerdos).sort((a, b) => a.nombre.localeCompare(b.nombre)).flatMap(x => x.leido.filas)
+    .map((f, k) => Object.assign({ orden: k }, f)).sort((a, b) => a.oficinaNro - b.oficinaNro || a.orden - b.orden);
+  // ccusosob no trae ente: el CUIT se busca por el nombre (18 caracteres) en la base de entes, una vez por nombre.
+  const cuitsNombreCache = {};
+  const nombresPedidos = new Set();
+  let nombresBuscando = false;
+  async function completarCuitsPorNombre(nombres) {
+    if (!almacen || typeof almacen.buscarEntesPorNombre !== 'function' || nombresBuscando) return;
+    const faltan = [...new Set(nombres)].filter(n => n && !nombresPedidos.has(n));
+    if (!faltan.length) return;
+    nombresBuscando = true;
+    try {
+      Object.assign(cuitsNombreCache, await almacen.buscarEntesPorNombre(faltan));
+      faltan.forEach(n => nombresPedidos.add(n));
+    } catch (e) { $('invBaseEstado').textContent = '· no se pudo consultar la base (' + (e.message || e) + ')'; }
+    nombresBuscando = false;
+    renderInvContable();
+  }
   // Base de entes (CUIT por código de ente): se consultan solo los entes de los reportes cargados.
   const entesCache = {};
   const entesPedidos = new Set();
@@ -1685,10 +1710,16 @@
       await guardarPadron(p => filas.filter(f => usados.has(f.ente)).forEach(f => { const e = p.entes[f.ente] || (p.entes[f.ente] = { cuit: '', historial: [] }); e.cuit = f.cuit; if (f.nombre) e.nombre = f.nombre; }));
     }
   }
+  // Cada inventario lleva disponible = si se cargó su reporte (garhicon/garhisin o ccusosob).
   function inventariosContables() {
-    const filas = reportesInv().flatMap(x => x.leido.filas);
+    const filas = reportesInv().flatMap(x => x.leido.filas), usos = usosInv();
     if (filas.length) completarEntes(filas.map(f => f.cliente));
-    return filas.length ? M.armarInventariosContables(filas, padronInv(), entesCache) : [];
+    if (!filas.length && !usos.length) return [];
+    const p = padronInv();
+    const inv = M.armarInventariosContables(filas, p, entesCache, usos, { cuitsPorNombre: cuitsNombreCache });
+    const cc = inv.find(i => i.def.fuente === 'ccusosob');
+    if (cc) completarCuitsPorNombre(cc.filas.filter(f => f.faltaCuit).map(f => f.concepto));
+    return inv.map(i => Object.assign(i, { disponible: i.def.fuente === 'ccusosob' ? usos.length > 0 : filas.length > 0 }));
   }
   $('btnInvBaseSubir').addEventListener('click', () => $('archivoBaseEntes').click());
   $('archivoBaseEntes').addEventListener('change', async e => {
@@ -1722,10 +1753,10 @@
 
   let tcAutoPara = '';
   function renderInvContable() {
-    const reps = reportesInv();
-    $('cardInvContable').classList.toggle('oculto', !reps.length);
-    if (!reps.length) return;
-    if (!$('invFecha').value) $('invFecha').value = M.fechaInventarioDesdeReporte(reps.map(x => M.fechaReporteIso(x.leido.fecha)).filter(Boolean).sort().pop() || '');
+    const reps = reportesInv(), ccs = inventario.filter(x => x.leido.usoAcuerdos);
+    $('cardInvContable').classList.toggle('oculto', !reps.length && !ccs.length);
+    if (!reps.length && !ccs.length) return;
+    if (!$('invFecha').value) $('invFecha').value = M.fechaInventarioDesdeReporte(reps.map(x => M.fechaReporteIso(x.leido.fecha)).concat(ccs.map(x => x.leido.fecha)).filter(Boolean).sort().pop() || '');
     const p = padronInv();
     // TC guardado: solo si es del mes del inventario; si no, se busca solo (una vez por fecha de inventario).
     const mesInv = $('invFecha').value.slice(0, 7);
@@ -1736,12 +1767,13 @@
       tcAutoPara = $('invFecha').value;
       if (invTcLista.some(x => x.fecha.slice(0, 7) === mesInv)) elegirTcDelInventario(); else setTimeout(() => buscarTcAutomatico(false), 0);
     }
-    const faltaGarhi = ['garhicon', 'garhisin'].filter(r => !reps.some(x => new RegExp(r, 'i').test(x.leido.reporte + ' ' + x.nombre)));
+    const faltaGarhi = reps.length ? ['garhicon', 'garhisin'].filter(r => !reps.some(x => new RegExp(r, 'i').test(x.leido.reporte + ' ' + x.nombre))) : [];
     const inv = inventariosContables();
     const tc = numeroTc();
     let html = faltaGarhi.length ? aviso('warn', `Falta el reporte <b>${faltaGarhi.join(' y ')}</b>: los inventarios quedan incompletos.`) : '';
-    html += `<div class="tabla-caja"><table><thead><tr><th>Cuenta</th><th>Inventario</th><th class="num">Garantías</th><th class="num">Total moneda</th><th class="num">Total $</th><th>Faltan</th><th></th></tr></thead><tbody>` +
+    html += `<div class="tabla-caja"><table><thead><tr><th>Cuenta</th><th>Inventario</th><th class="num">Filas</th><th class="num">Total moneda</th><th class="num">Total $</th><th>Faltan</th><th></th></tr></thead><tbody>` +
       inv.map((i, k) => {
+        if (!i.disponible) return '';
         const usd = i.def.moneda === 'USD';
         const pesos = usd ? (tc ? M.round2(i.total * tc) : null) : i.total;
         const sinCuit = i.filas.filter(f => f.faltaCuit).length, sinFecha = i.def.columnas.includes('fecha') ? i.filas.filter(f => f.faltaFecha).length : 0;
@@ -1750,9 +1782,36 @@
           `<td>${sinCuit ? `<span class="chip warn">${sinCuit} sin CUIT</span> ` : ''}${sinFecha ? `<span class="chip warn">${sinFecha} sin fecha</span>` : ''}${!sinCuit && !sinFecha ? '<span class="chip ok">completo</span>' : ''}</td>` +
           `<td style="white-space:nowrap"><button class="btn" type="button" data-inv-excel="${k}">Excel</button> <button class="btn" type="button" data-inv-pdf="${k}">PDF</button></td></tr>`;
       }).join('') + '</tbody></table></div>';
+    html += avisoUsoAcuerdos(inv.find(i => i.def.fuente === 'ccusosob' && i.disponible), ccs);
     $('invContableResumen').innerHTML = html;
-    renderFaltantes(inv);
+    renderFaltantes(inv.filter(i => i.disponible));
   }
+
+  // 131.804.015: control contra el TOTAL GENERAL del reporte (es acumulado: el del último archivo cubre todas las oficinas)
+  // y cuentas con usos de más de un año, que se pueden sacar del inventario (queda guardado).
+  function avisoUsoAcuerdos(i, ccs) {
+    if (!i) return '';
+    const gen = ccs.flatMap(x => x.leido.generales).filter(g => g.moneda === 80).map(g => M.round2(g.contratado + g.excedido)).sort((a, b) => b - a)[0];
+    const usos = usosInv().filter(u => u.moneda === 80), todo = M.round2(usos.reduce((a, u) => a + u.contratado + u.excedido, 0));
+    const usd = usosInv().filter(u => u.moneda !== 80 && (u.contratado || u.excedido));
+    let html = '';
+    if (gen != null) html += Math.abs(gen - todo) < 0.01
+      ? aviso('ok', `131.804.015: los usos suman $ ${fmtMonto(todo)} = interés contratado + excedido del TOTAL GENERAL del reporte.`)
+      : aviso('warn', `131.804.015: los usos suman $ ${fmtMonto(todo)} y el TOTAL GENERAL del reporte (contratado + excedido) es $ ${fmtMonto(gen)}. ¿Falta el archivo de alguna oficina?`);
+    if (usd.length) html += aviso('warn', `Hay ${usd.length} usos en otra moneda con interés: no van a la 131.804.015 (solo pesos).`);
+    const excl = new Set(i.excluidos.map(x => x.cuenta));
+    const lista = i.antiguos.concat(i.excluidos.filter(x => !i.antiguos.some(a => a.cuenta === x.cuenta)));
+    if (lista.length) html += `<div class="aviso warn" style="margin-top:8px"><b>Cuentas con usos de más de un año</b> (o sacadas a mano). Marcá las que no van al inventario:` +
+      lista.map(x => `<label style="display:block;margin-top:4px"><input type="checkbox" data-cc-excluir="${esc(x.cuenta)}" ${excl.has(x.cuenta) ? 'checked' : ''} data-escribe> ` +
+        `${esc(x.nombre)} · ${esc(x.cuenta)} · ${fmtEntero(x.usos)} usos · $ ${fmtMonto(x.importe)}${excl.has(x.cuenta) ? ' <span class="chip gris">fuera del inventario</span>' : ''}</label>`).join('') + '</div>';
+    return html;
+  }
+  $('invContableResumen').addEventListener('change', e => {
+    const c = e.target.closest('[data-cc-excluir]');
+    if (!c) return;
+    const cuenta = c.dataset.ccExcluir, excluir = c.checked;
+    guardarPadron(p => { p.cuentasCC = p.cuentasCC || {}; p.cuentasCC[cuenta] = Object.assign({}, p.cuentasCC[cuenta], { excluir }); }).then(() => renderInvContable());
+  });
 
   // Entes y fechas: por defecto solo los entes sin CUIT; el filtro permite ver las garantías sin fecha o todos los entes.
   function renderFaltantes(inv) {
@@ -1778,7 +1837,7 @@
         : '<p class="sub">No hay garantías sin fecha.</p>';
     } else {
       const lista = (modo === 'todos' ? [...entes.values()] : sinCuit).filter(e => pasa(e.ente, e.nombre, e.cuit))
-        .sort((a, b) => (b.faltaCuit - a.faltaCuit) || Number(a.ente) - Number(b.ente));
+        .sort((a, b) => (b.faltaCuit - a.faltaCuit) || (Number(a.ente) - Number(b.ente)) || String(a.ente).localeCompare(String(b.ente)));
       html = lista.length ? `<table><thead><tr><th>Ente</th><th>Nombre</th><th>CUIT</th><th>Cuentas</th></tr></thead><tbody>` +
         lista.map(e => `<tr><td>${esc(e.ente)}</td><td><input data-ente-nombre="${esc(e.ente)}" value="${esc(e.nombre)}" style="min-width:240px" data-escribe></td>` +
           `<td><input data-padron-cuit="${esc(e.ente)}" value="${esc(e.cuit || '')}" placeholder="11 dígitos" inputmode="numeric" style="max-width:130px" data-escribe></td><td class="sub">${esc([...e.cuentas].join(', '))}</td></tr>`).join('') + '</tbody></table>'
@@ -1803,7 +1862,9 @@
       if (cuit && cuit.length !== 11) { toast('El CUIT tiene que tener 11 dígitos'); return; }
       const ente = c.dataset.padronCuit, fila = c.closest('tr');
       const nombre = fila ? ((fila.querySelector('[data-ente-nombre]') || {}).value || '').trim() : '';
-      if (cuit) guardarEntesBase([{ ente, cuit, nombre }]).then(() => renderInvContable(), err => informar('No se pudo guardar', esc(err.message || err)));
+      // Cuenta corriente (131.804.015, sin ente): el CUIT queda en el padrón por número de cuenta.
+      if (cuit && /^\d-\d{3}-\d{10}-\d$/.test(ente)) guardarPadron(p => { p.cuentasCC = p.cuentasCC || {}; p.cuentasCC[ente] = Object.assign({}, p.cuentasCC[ente], { cuit, nombre }); }).then(() => renderInvContable());
+      else if (cuit) guardarEntesBase([{ ente, cuit, nombre }]).then(() => renderInvContable(), err => informar('No se pudo guardar', esc(err.message || err)));
     }
     if (f) guardarPadron(p => { p.garantias[f.dataset.padronFecha] = Object.assign({}, p.garantias[f.dataset.padronFecha], { fecha: f.value }); });
   });
@@ -1812,7 +1873,8 @@
     const files = [...e.target.files]; e.target.value = '';
     try {
       let nuevo = { entes: {}, nombres: {}, garantias: {} };
-      for (const f of files) nuevo = M.unirPadron(nuevo, M.leerPadronDesdeInventarios(await leerHojas(f)));
+      for (const f of files) nuevo = M.unirPadron(nuevo, /\.pdf$/i.test(f.name) ? M.leerPadronDesdeLineasPdf(await lineasPdf(await f.arrayBuffer()))
+        : M.leerPadronDesdeInventarios(await leerHojas(f)));
       const n = Object.keys(nuevo.entes).length, m = Object.keys(nuevo.nombres).length;
       if (!n && !m) throw new Error('No se encontraron columnas CUIT (y Ente/Fecha) en esos archivos.');
       await guardarPadron(p => { const u = M.unirPadron(p, nuevo); Object.assign(p, u); });
@@ -1920,7 +1982,7 @@
   function datosInventario(i) {
     const usd = i.def.moneda === 'USD', tc = numeroTc();
     if (usd && !tc) throw new Error(`Falta el tipo de cambio para ${i.def.cuenta}: traelo del BCRA, subí com3500.xls o escribilo.`);
-    const etiquetas = { ente: 'Ente', fecha: 'Fecha', concepto: 'Concepto', cuit: 'CUIT', importe: usd ? 'Importe U$S' : 'Importe $' };
+    const etiquetas = { ente: 'Ente', fecha: 'Fecha', concepto: 'Concepto', cuit: 'CUIT', tipo: 'Tipo de Descubierto', importe: usd ? 'Importe U$S' : 'Importe $' };
     const cols = i.def.columnas;
     const totalPesos = usd ? M.round2(i.total * tc) : i.total;
     return { i, usd, tc, tcFecha: $('invTcFecha').value, cols, encabezados: cols.map(c => etiquetas[c]),
@@ -1933,7 +1995,7 @@
     const { i, usd, cols } = d;
     const ws = wb.addWorksheet(i.def.id, { pageSetup: { paperSize: 9, orientation: 'portrait', fitToPage: true, fitToWidth: 1, fitToHeight: 0, margins: { left: 0.5, right: 0.5, top: 0.6, bottom: 0.6, header: 0.3, footer: 0.3 } },
       views: [{ showGridLines: false }] });
-    const anchos = { ente: 10, fecha: 12, concepto: 52, cuit: 15, importe: 20 };
+    const anchos = { ente: 10, fecha: 12, concepto: 52, cuit: 15, tipo: 20, importe: 20 };
     ws.columns = cols.map(c => ({ width: anchos[c] }));
     const n = cols.length, ultima = String.fromCharCode(64 + n);
     const rojo = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF' + MARCA.rojo } };
@@ -1941,11 +2003,11 @@
     const fino = { style: 'thin', color: { argb: 'FFD0D0D2' } };
     ws.addImage(logoId, { tl: { col: 0, row: 0 }, ext: { width: 180, height: 60 } });
     ws.getRow(1).height = 22; ws.getRow(2).height = 22; ws.getRow(3).height = 16;
-    ws.mergeCells(`C1:${ultima}1`); ws.getCell('C1').value = 'Inventario de Garantías';
+    ws.mergeCells(`C1:${ultima}1`); ws.getCell('C1').value = i.def.encabezado || 'Inventario de Garantías';
     ws.getCell('C1').font = { bold: true, size: 14, color: { argb: 'FF' + MARCA.rojo } }; ws.getCell('C1').alignment = { horizontal: 'right', vertical: 'middle' };
     ws.mergeCells(`C2:${ultima}2`); ws.getCell('C2').value = `${i.def.titulo} · Inventario contable al ${fechaAr(d.fecha)}`;
     ws.getCell('C2').font = { size: 10, color: { argb: 'FF' + MARCA.gris } }; ws.getCell('C2').alignment = { horizontal: 'right', vertical: 'middle' };
-    const info = [['Número de Cuenta', 'Denominación'], [i.def.cuenta, M.INVENTARIO_DENOMINACION], [i.def.contra, ''], ['Sector', 'Activas'], ['Inventario contable al', d.fecha ? fechaExcel(d.fecha) : '']];
+    const info = [['Número de Cuenta', 'Denominación'], [i.def.cuenta, i.def.denominacion || M.INVENTARIO_DENOMINACION], [i.def.contra, ''], ['Sector', 'Activas'], ['Inventario contable al', d.fecha ? fechaExcel(d.fecha) : '']];
     info.forEach((r, k) => {
       const fila = 5 + k;
       ws.getCell(`A${fila}`).value = r[0];
@@ -1970,6 +2032,7 @@
         if (col === 'importe') c.numFmt = '#,##0.00';
         if (col === 'cuit') c.numFmt = '0';
         if (col === 'ente') c.alignment = { horizontal: 'left' };
+        if (col === 'tipo') c.alignment = { horizontal: 'center' };
         c.border = { bottom: fino };
         if (k % 2) c.fill = gris;
       });
@@ -2024,14 +2087,14 @@
     const W = doc.internal.pageSize.getWidth(), M0 = 14;
     doc.addImage(window.VALO_LOGO_PNG, 'PNG', M0, 10, 48, 16);
     doc.setFont('helvetica', 'bold'); doc.setFontSize(14); doc.setTextColor(...MARCA.rojoRgb);
-    doc.text('Inventario de Garantías', W - M0, 16, { align: 'right' });
+    doc.text(i.def.encabezado || 'Inventario de Garantías', W - M0, 16, { align: 'right' });
     doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(...MARCA.grisRgb);
     doc.text(`${i.def.titulo} · Inventario contable al ${fechaAr(d.fecha)}`, W - M0, 22, { align: 'right' });
     doc.setDrawColor(...MARCA.rojoRgb); doc.setLineWidth(0.6); doc.line(M0, 30, W - M0, 30);
     doc.autoTable({
       startY: 34, theme: 'plain', margin: { left: M0, right: M0 },
       head: [['Número de Cuenta', 'Denominación', 'Sector', 'Inventario contable al']],
-      body: [[`${i.def.cuenta}\n${i.def.contra}`, M.INVENTARIO_DENOMINACION, 'Activas', fechaAr(d.fecha)]],
+      body: [[`${i.def.cuenta}\n${i.def.contra}`, i.def.denominacion || M.INVENTARIO_DENOMINACION, 'Activas', fechaAr(d.fecha)]],
       headStyles: { fillColor: MARCA.rojoRgb, textColor: 255, fontStyle: 'bold', fontSize: 9 }, bodyStyles: { fontSize: 9 },
     });
     const derecha = cols.map(c => c === 'importe');
@@ -2047,8 +2110,8 @@
       headStyles: { fillColor: MARCA.rojoRgb, textColor: 255, fontStyle: 'bold', fontSize: 8.5 },
       bodyStyles: { fontSize: 8, textColor: 30 }, alternateRowStyles: { fillColor: [242, 242, 243] },
       footStyles: { fillColor: 255, textColor: MARCA.rojoRgb, fontStyle: 'bold', fontSize: 8.5, lineWidth: { top: 0.3 }, lineColor: MARCA.grisRgb },
-      columnStyles: Object.fromEntries(cols.map((c, j) => [j, { halign: derecha[j] ? 'right' : 'left', cellWidth: c === 'concepto' ? 'auto' : c === 'importe' ? 32 : c === 'cuit' ? 24 : c === 'fecha' ? 20 : 14 }])),
-      didParseCell: h => { if (h.section === 'head' && derecha[h.column.index]) h.cell.styles.halign = 'right'; },
+      columnStyles: Object.fromEntries(cols.map((c, j) => [j, { halign: derecha[j] ? 'right' : c === 'tipo' ? 'center' : 'left', cellWidth: c === 'concepto' ? 'auto' : c === 'importe' ? 32 : c === 'cuit' ? 24 : c === 'tipo' ? 32 : c === 'fecha' ? 20 : 14 }])),
+      didParseCell: h => { if (h.section === 'head' && derecha[h.column.index]) h.cell.styles.halign = 'right'; if (h.section === 'head' && cols[h.column.index] === 'tipo') h.cell.styles.halign = 'center'; },
     });
     let y = doc.lastAutoTable.finalY + 8;
     const H = doc.internal.pageSize.getHeight();
@@ -2091,7 +2154,8 @@
   async function exportarInventarios(tipo, indices) {
     const inv = inventariosContables();
     const lista = indices.map(k => inv[k]);
-    const nombre = lista.length === 1 ? `Inventario_${lista[0].def.id}_${sufijoFecha()}` : `Inventarios_garantias_${sufijoFecha()}`;
+    if (!lista.length) return;
+    const nombre = lista.length === 1 ? `Inventario_${lista[0].def.id}_${sufijoFecha()}` : `Inventarios_${lista.every(i => i.def.fuente !== 'ccusosob') ? 'garantias' : 'contables'}_${sufijoFecha()}`;
     try {
       if (tipo === 'excel') await descargarExcelInventarios(lista, nombre + '.xlsx');
       else await descargarPdfInventarios(lista, nombre + '.pdf');
@@ -2102,8 +2166,9 @@
     if (x) exportarInventarios('excel', [Number(x.dataset.invExcel)]);
     if (p) exportarInventarios('pdf', [Number(p.dataset.invPdf)]);
   });
-  $('btnInvTodosExcel').addEventListener('click', () => exportarInventarios('excel', M.INVENTARIOS_CONTABLES.map((d, k) => k)));
-  $('btnInvTodosPdf').addEventListener('click', () => exportarInventarios('pdf', M.INVENTARIOS_CONTABLES.map((d, k) => k)));
+  const indicesDisponibles = () => inventariosContables().map((i, k) => (i.disponible ? k : -1)).filter(k => k > -1);
+  $('btnInvTodosExcel').addEventListener('click', () => exportarInventarios('excel', indicesDisponibles()));
+  $('btnInvTodosPdf').addEventListener('click', () => exportarInventarios('pdf', indicesDisponibles()));
 
   // ============================================================ BASTANTEO DE FIRMANTES
   // PDF (resumen OCR) + Excel del cliente → un JSON por poder. Todo en el navegador; nada se guarda.

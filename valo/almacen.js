@@ -63,6 +63,11 @@
       async contarEntes() { return Object.keys(datos.entesBase || {}).length; },
       async buscarCuitPorDni(dnis) { const r = {}; const v = Object.values(datos.entesBase || {}).map(x => x[0]); dnis.forEach(d => { const d8 = String(d).padStart(8, '0'); const c = v.find(x => String(x).slice(2, 10) === d8); if (c) r[d] = c; }); return r; },
       async buscarEntes(lista) { const b = datos.entesBase || {}, r = {}; lista.forEach(e => { if (b[e]) r[e] = { cuit: b[e][0], nombre: b[e][1] }; }); return r; },
+      async buscarEntesPorNombre(nombres) {
+        const vals = Object.values(datos.entesBase || {}), r = {};
+        nombres.forEach(n => { const k = String(n).trim().toUpperCase(); const c = new Set(vals.filter(v => String(v[1] || '').toUpperCase().startsWith(k)).map(v => v[0])); if (k.length >= 4 && c.size === 1) r[n] = [...c][0]; });
+        return r;
+      },
       async guardarEntes(filas) { datos.entesBase = datos.entesBase || {}; filas.forEach(f => { datos.entesBase[String(f.ente)] = [f.cuit, f.nombre || '']; }); if (!guardar()) throw new Error('No entra en el almacenamiento de este navegador.'); ev.emitir(); },
       async registrarEnvio(e) { datos.envios.push(Object.assign({ id: nuevoId() }, clonar(e))); datos.envios = datos.envios.slice(-50); cambiar(); },
       async registrarCartera(r) { datos.carteraHist = (datos.carteraHist || []).concat([Object.assign({ id: nuevoId() }, clonar(r))]).slice(-100); cambiar(); },
@@ -494,6 +499,20 @@
           const { data, error } = await sb.from('entes').select('ente,cuit,nombre').in('ente', unicos.slice(i, i + 200));
           if (error) throw new Error(error.message);
           (data || []).forEach(x => { r[x.ente] = { cuit: x.cuit, nombre: x.nombre }; });
+        }
+        return r;
+      },
+      // CUIT por nombre (los reportes que no traen ente, como ccusosob, cortan el nombre a 18 caracteres): entes cuyo
+      // nombre empieza igual; solo si todos tienen el mismo CUIT.
+      async buscarEntesPorNombre(nombres) {
+        const r = {}, lista = [...new Set(nombres.map(n => String(n).trim()).filter(n => n.length >= 4))];
+        for (let i = 0; i < lista.length; i += 8) {
+          await Promise.all(lista.slice(i, i + 8).map(async n => {
+            const { data, error } = await sb.from('entes').select('cuit').ilike('nombre', n.replace(/[\\%_]/g, '\\$&') + '%').limit(5);
+            if (error) throw new Error(error.message);
+            const c = new Set((data || []).map(x => x.cuit));
+            if (c.size === 1) r[n] = [...c][0];
+          }));
         }
         return r;
       },
