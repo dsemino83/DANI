@@ -834,6 +834,64 @@
     return { reporte, titulo, fecha, origen, filas, controles: diferencias };
   }
 
+  // ------------------------------------------------------------ USO DE ACUERDOS (ccusosob.sqr, libro de deudores)
+  // Reporte de cuentas corrientes por oficina (ccusosob_<fecha>_ofN.lis). Detalle: CUENTA · NOMBRE (18 car.) · TIPO
+  // (O / C1 / C2…) · LIMITE · TASA · FECHA USO · TOTAL UTILIZADO · INT.CONTRATADO · INT.EXEDIDO · INT.LIQUIDADO · ESTADO…
+  // La cuenta y el nombre vienen solo en el primer uso de cada cuenta. Los intereses se ubican por la columna donde
+  // termina el importe (el nombre puede traer caracteres de dos bytes que corren la línea uno o dos lugares).
+  function leerUsoAcuerdos(texto, nombreArchivo = '') {
+    const lineas = String(texto).replace(/\r/g, '').split('\n');
+    const num = v => Number(String(v).replace(/,/g, ''));
+    let fecha = '', oficina = '', oficinaNro = 0, moneda = '', cuenta = '', nombre = '', ultima = null;
+    const filas = [], totalesCuenta = [], generales = [];
+    const iso = t => { const m = String(t || '').match(/(\d{2})\/(\d{2})\/(\d{4})/); return m ? `${m[3]}-${m[2]}-${m[1]}` : ''; };
+    for (const l of lineas) {
+      if (!fecha) { const m = l.match(/FEC\. PROCESO:\s*(\d{2}\/\d{2}\/\d{4})/); if (m) fecha = iso(m[1]); }
+      const o = l.match(/^OFICINA:\s*(.+?)\s*\((\d+)\)/);
+      if (o) { oficina = o[1].trim(); oficinaNro = Number(o[2]); continue; }
+      const mo = l.match(/^MONEDA:\s*(.+?)\s*\((\d+)\)/);
+      if (mo) { moneda = Number(mo[2]); continue; }
+      const a = l.match(/^ (\d-\d{3}-\d{10}-\d)\s/);
+      const d = l.match(/^(.*?)\s+(\S+)\s+(?:-?[\d,]+\.\d{2}\s+)?-?\d+\.\d{4}\s+(\d{2}\/\d{2}\/\d{4})\s/);
+      if (d && (a || /^\s{30,}\S/.test(l))) {
+        if (a) { cuenta = a[1]; nombre = d[1].slice(a[0].length).trim(); }
+        if (!cuenta) continue;
+        let contratado = 0, excedido = 0, liquidado = 0;
+        for (const m of l.matchAll(/-?[\d,]+\.\d{2}(?![\d.])/g)) {
+          const fin = m.index + m[0].length;
+          if (fin >= 124 && fin <= 142) contratado += num(m[0]);
+          else if (fin >= 143 && fin <= 162) excedido += num(m[0]);
+          else if (fin >= 163 && fin <= 182) liquidado += num(m[0]);
+        }
+        const resto = l.match(/\s([A-Z])\s+\d{2}\/\d{2}\/\d{4}/);
+        ultima = { cuenta, nombre, tipo: d[2], fechaUso: iso(d[3]), contratado: round2(contratado), excedido: round2(excedido), liquidado: round2(liquidado),
+          estado: resto ? resto[1] : '', moneda, oficina, oficinaNro, archivo: nombreArchivo };
+        filas.push(ultima);
+        continue;
+      }
+      // Total de intereses de cada cuenta (contratado · excedido · liquidado): sirve de control del detalle.
+      const t = l.match(/TOTAL INTERESES:/);
+      if (t && cuenta) {
+        let c = 0, e = 0;
+        for (const m of l.matchAll(/-?[\d,]+\.\d{2}(?![\d.])/g)) {
+          const fin = m.index + m[0].length;
+          if (fin >= 124 && fin <= 142) c += num(m[0]); else if (fin >= 143 && fin <= 162) e += num(m[0]);
+        }
+        totalesCuenta.push({ cuenta, moneda, intereses: round2(c + e) });
+        continue;
+      }
+      const g = l.match(/TOTAL GENERAL:\s+(-?[\d,]+\.\d{2})\s+(-?[\d,]+\.\d{2})\s+(-?[\d,]+\.\d{2})/);
+      if (g) generales.push({ moneda, contratado: num(g[1]), excedido: num(g[2]), liquidado: num(g[3]) });
+    }
+    if (!filas.length && !generales.length) throw new Error(`${nombreArchivo || 'El archivo'} no tiene usos de acuerdos (se espera el reporte ccusosob, LIBRO DE DEUDORES).`);
+    filas.forEach(f => { f.fechaProceso = fecha; });
+    const porCuenta = new Map();
+    filas.forEach(f => { const k = f.cuenta + '|' + f.moneda; porCuenta.set(k, round2((porCuenta.get(k) || 0) + f.contratado + f.excedido)); });
+    const malos = totalesCuenta.filter(t => Math.abs((porCuenta.get(t.cuenta + '|' + t.moneda) || 0) - t.intereses) >= 0.01);
+    return { reporte: 'ccusosob', usoAcuerdos: true, fecha, origen: 'Uso de acuerdos (cuentas corrientes)', oficinas: [...new Set(filas.map(f => f.oficina))],
+      filas, controles: totalesCuenta.map(t => ({ cuenta: t.cuenta, ok: !malos.includes(t) })), generales };
+  }
+
   // ------------------------------------------------------------ INVENTARIOS CONTABLES DE GARANTÍAS
   // A partir de garhicon + garhisin se arman los inventarios por cuenta (modelo: Inventarios_ejemplos.xlsx).
   // moneda 'USD': importe en dólares (monto moneda orig.) × tipo de cambio Com. A 3500; 'ARS': monto en pesos.
@@ -848,6 +906,10 @@
       moneda: 'ARS', filtro: f => f.moneda === 80 && f.preferida, columnas: ['ente', 'concepto', 'cuit', 'importe'] },
     { id: '711.025.090.8', cuenta: '711.025.090.8', contra: '721.084.090.3', titulo: 'No preferidas en pesos',
       moneda: 'ARS', filtro: f => f.moneda === 80 && !f.preferida, columnas: ['fecha', 'ente', 'concepto', 'cuit', 'importe'] },
+    // Desde el reporte de uso de acuerdos (ccusosob): interés contratado + interés excedido de cada uso en pesos.
+    { id: '131.804.015', cuenta: '131.804.015.0', contra: '131804015', titulo: 'Intereses devengados a cobrar cuentas corrientes',
+      denominacion: 'Intereses devengados a cobrar cuentas corrientes', encabezado: 'Inventario de Intereses', fuente: 'ccusosob',
+      moneda: 'ARS', columnas: ['concepto', 'cuit', 'tipo', 'importe'] },
   ];
   const INVENTARIO_DENOMINACION = 'Garantía Valor Actualizado';
   const INVENTARIO_FIRMAS = [
@@ -915,6 +977,18 @@
     return padron;
   }
 
+  // Inventarios anteriores en PDF (renglones "NOMBRE  CUIT  …"): nombre → CUIT, para los reportes que no traen el ente.
+  function leerPadronDesdeLineasPdf(lineas) {
+    const nombres = {};
+    (lineas || []).forEach(l => {
+      const m = String(l || '').match(/^(.*?[A-Za-zÁÉÍÓÚÑáéíóúñ].*?)\s+(\d{11})(?:\s|$)/);
+      if (!m) return;
+      const n = normalizar(m[1].replace(/^\d+\s+/, ''));
+      if (n && !/^(cuit|concepto|total)/.test(n)) nombres[n] = m[2];
+    });
+    return { entes: {}, nombres, garantias: {} };
+  }
+
   // Base de entes desde Excel: personas jurídicas (legal_name, tax_id_number, external_code), personas humanas
   // (first_name, last_name, second_last_name, tax_id_number, external_code) o una planilla simple Ente / CUIT / Nombre.
   // Solo se guardan ente, CUIT y nombre.
@@ -958,7 +1032,9 @@
   }
 
   // Arma los inventarios. padron.garantias[codigo] = {fecha, cuit, concepto} (lo cargado a mano) manda sobre el resto.
-  function armarInventariosContables(filas, padron = {}, base = {}) {
+  // usos: filas de leerUsoAcuerdos (cuenta 131.804.015). padron.cuentasCC[cuenta] = {cuit, nombre, excluir} (cargado a mano);
+  // opciones.cuitsPorNombre: {nombre del reporte: cuit} encontrado en la base de entes.
+  function armarInventariosContables(filas, padron = {}, base = {}, usos = [], opciones = {}) {
     const entes = padron.entes || {}, garantias = padron.garantias || {}, nombres = padron.nombres || {};
     const cuitPorNombre = desc => {
       const n = normalizar(desc);
@@ -968,6 +1044,7 @@
       return k ? nombres[k] : '';
     };
     return INVENTARIOS_CONTABLES.map(def => {
+      if (def.fuente === 'ccusosob') return inventarioUsoAcuerdos(def, usos, padron, cuitPorNombre, opciones);
       const elegidas = filas.filter(f => def.filtro(f)).map(f => Object.assign({}, f, { importe: round2(def.moneda === 'USD' ? f.montoOrigen : f.montoPesos) }))
         .filter(f => f.importe !== 0);
       // Fecha por ente: si el inventario anterior tiene una sola garantía de ese ente, esa fecha; si tiene varias,
@@ -999,6 +1076,26 @@
       }).sort((a, b) => (a.fecha || '9999').localeCompare(b.fecha || '9999') || String(a.concepto).localeCompare(String(b.concepto)));
       return { def, filas: filasInv, total: round2(filasInv.reduce((a, f) => a + f.importe, 0)) };
     });
+  }
+
+  function inventarioUsoAcuerdos(def, usos, padron, cuitPorNombre, opciones) {
+    const cuentas = padron.cuentasCC || {}, porNombre = opciones.cuitsPorNombre || {};
+    const proceso = usos.map(u => u.fechaProceso).filter(Boolean).sort().pop() || '';
+    const limite = proceso ? `${Number(proceso.slice(0, 4)) - 1}${proceso.slice(4)}` : '';
+    const conInteres = usos.filter(u => u.moneda === 80 && round2(u.contratado + u.excedido) !== 0);
+    const antiguo = u => !!(limite && u.fechaUso && u.fechaUso < limite);
+    // Cuentas que se sacan a mano (ej. intereses viejos de una entidad en liquidación): se informan aparte.
+    const excluidos = conInteres.filter(u => (cuentas[u.cuenta] || {}).excluir);
+    const filasInv = conInteres.filter(u => !excluidos.includes(u)).map(u => {
+      const m = cuentas[u.cuenta] || {};
+      const cuit = m.cuit || porNombre[u.nombre] || cuitPorNombre(u.nombre);
+      return { codigo: u.cuenta, ente: u.cuenta, cuentaCC: true, concepto: u.nombre, descripcion: m.nombre || u.nombre, cuit, tipo: u.tipo,
+        importe: round2(u.contratado + u.excedido), fechaUso: u.fechaUso, antiguo: antiguo(u), oficina: u.oficina, faltaCuit: !cuit, faltaFecha: false };
+    });
+    const resumen = lista => [...lista.reduce((m, u) => m.set(u.cuenta, { cuenta: u.cuenta, nombre: u.nombre,
+      importe: round2(((m.get(u.cuenta) || {}).importe || 0) + u.contratado + u.excedido), usos: ((m.get(u.cuenta) || {}).usos || 0) + 1 }), new Map()).values()];
+    return { def, filas: filasInv, total: round2(filasInv.reduce((a, f) => a + f.importe, 0)), excluidos: resumen(excluidos),
+      antiguos: resumen(conInteres.filter(antiguo)), fechaProceso: proceso };
   }
 
   // Com. A 3500 del BCRA (com3500.xls): filas con una fecha y el tipo de cambio de referencia.
@@ -3907,7 +4004,7 @@ try {
     leerTxtMeli, bancoMeliDeTxt, bancosParaMeli,
     sqlExtraccionCartera, bookmarkletCartera, scriptPowerShellCartera, comandoTareaCartera, IMPORTES_CARTERA,
     NO_COBIS, ultimoDiaHabil, fechasNoCobis, FCIC_MELI_INICIAL, FERIADOS_AR, diaHabilAnterior, fechasFcicMeli, leerReporteCupones, armarNoCobisFcic, lineaNoCobis, txtNoCobis, loteApiNoCobis, scriptPowerShellNoCobis, scriptPowerShellProbarNoCobis, scriptPowerShellAgenteNoCobis, cmdEnvioNoCobis,
-    leerCartera, BASTANTEO_CATALOGO, BASTANTEO_CLAVES, BASTANTEO_EXTRA, leerPoderesOcr, leerAutoridadesOcr, COMPLIF_TIPOS, poderDesdeComplif, actaDesdeComplif, complifDeEmpresa, controlResumen, usoDelResumen, aplicarRevocatorias, poderesFirmantesD, presidentesDeActas, gruposDelUso, usoCompleto, tokensDe, combosDeClausula, poderDelPresidente, leerClienteBastanteo, cuitPorDni, formatoCuit, firmanteDe, firmantesSinPoder, jsonPoder, jsonBastanteoUnico, leerInventarioGarantias, INVENTARIOS_CONTABLES, INVENTARIO_DENOMINACION, INVENTARIO_FIRMAS, fechaReporteIso, fechaInventarioDesdeReporte, leerPadronDesdeInventarios, leerBaseEntes, unirPadron, armarInventariosContables, leerCom3500, leerTcApiBcra, elegirTipoCambio, numeroEnLetras, daxCarteraPowerBI, daxDiagnosticoPowerBI, daxSaldoDeuda, armarSaldoDeuda, daxSaldoDeudaDetalle, armarDeudaDetalle, leerFilasPowerBI, sugerirColumnaCartera, columnasNumericasCartera, agruparCartera, valoresDistintos, sqlCartera,
+    leerCartera, BASTANTEO_CATALOGO, BASTANTEO_CLAVES, BASTANTEO_EXTRA, leerPoderesOcr, leerAutoridadesOcr, COMPLIF_TIPOS, poderDesdeComplif, actaDesdeComplif, complifDeEmpresa, controlResumen, usoDelResumen, aplicarRevocatorias, poderesFirmantesD, presidentesDeActas, gruposDelUso, usoCompleto, tokensDe, combosDeClausula, poderDelPresidente, leerClienteBastanteo, cuitPorDni, formatoCuit, firmanteDe, firmantesSinPoder, jsonPoder, jsonBastanteoUnico, leerInventarioGarantias, leerUsoAcuerdos, leerPadronDesdeLineasPdf, INVENTARIOS_CONTABLES, INVENTARIO_DENOMINACION, INVENTARIO_FIRMAS, fechaReporteIso, fechaInventarioDesdeReporte, leerPadronDesdeInventarios, leerBaseEntes, unirPadron, armarInventariosContables, leerCom3500, leerTcApiBcra, elegirTipoCambio, numeroEnLetras, daxCarteraPowerBI, daxDiagnosticoPowerBI, daxSaldoDeuda, armarSaldoDeuda, daxSaldoDeudaDetalle, armarDeudaDetalle, leerFilasPowerBI, sugerirColumnaCartera, columnasNumericasCartera, agruparCartera, valoresDistintos, sqlCartera,
     leerCsv, encabezadosEjemplo, leerDefinicionInterfaz, sugerirColumna, detectarHojaInterfaz,
     normalizar, provinciaPorNombre, crearBuscadorBancoPorNombre, round2, aNumero, aFechaSerial, aCodigoBanco,
     fechaDDMMYY, fechaYYYYMMDD, fechaLegible, hoyDDMMYY,
