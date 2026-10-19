@@ -1662,6 +1662,47 @@
   const reportesInv = () => inventario.filter(x => !x.leido.usoAcuerdos && /garhi(con|sin)/i.test(x.leido.reporte + ' ' + x.nombre));
   const usosInv = () => inventario.filter(x => x.leido.usoAcuerdos).sort((a, b) => a.nombre.localeCompare(b.nombre)).flatMap(x => x.leido.filas)
     .map((f, k) => Object.assign({ orden: k }, f)).sort((a, b) => a.oficinaNro - b.oficinaNro || a.orden - b.orden);
+  // Cuenta → CUIT desde Power BI (flujo "VALO Cuentas y clientes", tabla CuentasClientes del cubo PasivasComercial).
+  // Se consulta una vez por sesión al cargar un ccusosob; la dirección y la clave quedan en el padrón.
+  const cuentasPbi = { mapa: null, buscando: false, intentado: false };
+  const cuentasPbiCfg = () => padronInv().cuentasPbi || {};
+  async function traerCuentasPbi(manual) {
+    const c = cuentasPbiCfg();
+    if (cuentasPbi.buscando) return;
+    if (!c.url || !c.clave) { if (manual) informar('Falta la conexión', 'Cargá la dirección y la clave del flujo "VALO Cuentas y clientes" y guardala.'); return; }
+    cuentasPbi.buscando = true; cuentasPbi.intentado = true;
+    $('invPbiEstado').innerHTML = '<p class="sub">Consultando cuentas en Power BI…</p>';
+    try {
+      const j = await llamarFlujo({}, { url: c.url, clave: c.clave });
+      const filas = Array.isArray(j) ? j : (j.firstTableRows || j.filas || []);
+      cuentasPbi.mapa = M.leerCuentasPowerBI(filas);
+      const n = Object.keys(cuentasPbi.mapa).length;
+      $('invPbiEstado').innerHTML = aviso(n ? 'ok' : 'warn', n ? `Power BI: ${fmtEntero(n)} cuentas con CUIT.` : 'Power BI respondió sin cuentas: revisá la tabla CuentasClientes del modelo.');
+    } catch (e) { $('invPbiEstado').innerHTML = aviso('bad', 'No se pudieron traer las cuentas de Power BI: ' + esc(e.message || e)); }
+    cuentasPbi.buscando = false;
+    renderInvContable();
+  }
+  function cuentasPbiAuto() {
+    if (cuentasPbi.intentado || cuentasPbi.buscando) return;
+    const c = cuentasPbiCfg();
+    if (c.url && c.clave) setTimeout(() => traerCuentasPbi(false), 0);
+  }
+  function mostrarCuentasPbiCfg() {
+    const c = cuentasPbiCfg();
+    if (document.activeElement !== $('invPbiUrl')) $('invPbiUrl').value = c.url || '';
+    if (document.activeElement !== $('invPbiClave')) $('invPbiClave').value = c.clave || '';
+  }
+  $('btnInvPbiGuardar').addEventListener('click', async () => {
+    const url = $('invPbiUrl').value.trim(), clave = $('invPbiClave').value;
+    if (url && !/^https:\/\/\S+$/i.test(url)) return informar('Dirección inválida', 'La dirección del flujo tiene que empezar con <code>https://</code>.');
+    await guardarPadron(p => { p.cuentasPbi = { url, clave }; });
+    toast('Conexión guardada');
+    cuentasPbi.intentado = false; cuentasPbi.mapa = null;
+    if (url && clave && usosInv().length) traerCuentasPbi(true);
+  });
+  $('btnInvPbiTraer').addEventListener('click', () => traerCuentasPbi(true));
+  $('detInvPadron').addEventListener('toggle', () => { if ($('detInvPadron').open) mostrarCuentasPbiCfg(); });
+
   // ccusosob no trae ente: el CUIT se busca por el nombre (18 caracteres) en la base de entes, una vez por nombre.
   const cuitsNombreCache = {};
   const nombresPedidos = new Set();
@@ -1716,7 +1757,8 @@
     if (filas.length) completarEntes(filas.map(f => f.cliente));
     if (!filas.length && !usos.length) return [];
     const p = padronInv();
-    const inv = M.armarInventariosContables(filas, p, entesCache, usos, { cuitsPorNombre: cuitsNombreCache });
+    if (usos.length) cuentasPbiAuto();
+    const inv = M.armarInventariosContables(filas, p, entesCache, usos, { cuitsPorNombre: cuitsNombreCache, cuentasPbi: cuentasPbi.mapa });
     const cc = inv.find(i => i.def.fuente === 'ccusosob');
     if (cc) completarCuitsPorNombre(cc.filas.filter(f => f.faltaCuit).map(f => f.concepto));
     return inv.map(i => Object.assign(i, { disponible: i.def.fuente === 'ccusosob' ? usos.length > 0 : filas.length > 0 }));
