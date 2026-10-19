@@ -1,0 +1,16 @@
+Asunto: RE: Consultas diseño de archivos Créditos y Cuotas – VALO
+
+Buenas tardes, Roberto:
+
+Te reenvío los dos documentos con las consultas respondidas. Las respuestas están en azul, marcadas como "RESPUESTA:", debajo de cada pregunta.
+
+En resumen:
+- La cesión es a Valor Descontado y se cede la cuota entera. La pre-cabecera del archivo de Créditos es: CAP,INTADEV,IVAINT,CAPADESC,INTADESC,TD
+- El Interés devengado no vencido (INTDEVNOVENC) no se informa.
+- El Valor Descontado es el valor presente de cada cuota, calculado con la Tasa de Descuento y la fecha de cálculo que les informamos en cada lote. El Interés a Descuento es la diferencia entre el importe de la cuota y su valor descontado.
+
+Para que les sirva de referencia, incluí ejemplos de los archivos de otra cartera del mismo tipo, con los datos personales ocultos.
+
+Cualquier duda, quedamos a disposición.
+
+Saludos.
