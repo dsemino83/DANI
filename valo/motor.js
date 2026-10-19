@@ -1109,15 +1109,24 @@
     const antiguo = u => !!(limite && u.fechaUso && u.fechaUso < limite);
     // Cuentas que se sacan a mano (ej. intereses viejos de una entidad en liquidación): se informan aparte.
     const excluidos = conInteres.filter(u => (cuentas[u.cuenta] || {}).excluir);
-    const filasInv = conInteres.filter(u => !excluidos.includes(u)).map(u => {
+    const porUso = conInteres.filter(u => !excluidos.includes(u)).map(u => {
       const m = cuentas[u.cuenta] || {};
       const cuit = m.cuit || clienteDeCuenta(opciones.cuentasPbi, u.cuenta, u.nombre).cuit || porNombre[u.nombre] || cuitPorNombre(u.nombre);
       return { codigo: u.cuenta, ente: u.cuenta, cuentaCC: true, concepto: u.nombre, descripcion: m.nombre || u.nombre, cuit, tipo: u.tipo,
         importe: round2(u.contratado + u.excedido), fechaUso: u.fechaUso, antiguo: antiguo(u), oficina: u.oficina, faltaCuit: !cuit, faltaFecha: false };
     });
+    // Una fila por cliente (CUIT; sin CUIT, por cuenta) y tipo de descubierto, en el orden en que aparece en el reporte.
+    const grupos = new Map();
+    porUso.forEach(f => {
+      const k = (f.cuit || f.codigo) + '|' + f.tipo;
+      const g = grupos.get(k);
+      if (!g) grupos.set(k, Object.assign({}, f, { usos: 1, cuentas: [f.codigo] }));
+      else { g.importe = round2(g.importe + f.importe); g.usos++; if (!g.cuentas.includes(f.codigo)) g.cuentas.push(f.codigo); }
+    });
+    const filasInv = [...grupos.values()];
     const resumen = lista => [...lista.reduce((m, u) => m.set(u.cuenta, { cuenta: u.cuenta, nombre: u.nombre,
       importe: round2(((m.get(u.cuenta) || {}).importe || 0) + u.contratado + u.excedido), usos: ((m.get(u.cuenta) || {}).usos || 0) + 1 }), new Map()).values()];
-    return { def, filas: filasInv, total: round2(filasInv.reduce((a, f) => a + f.importe, 0)), excluidos: resumen(excluidos),
+    return { def, filas: filasInv, usos: porUso.length, total: round2(filasInv.reduce((a, f) => a + f.importe, 0)), excluidos: resumen(excluidos),
       antiguos: resumen(conInteres.filter(antiguo)), fechaProceso: proceso };
   }
 

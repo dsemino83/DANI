@@ -124,7 +124,7 @@ clave) → **Guardar conexión**. Si está cargado, el botón **Traer saldo de P
 
 ## Tercera tabla: cuenta → CUIT (Inventarios, cuenta 131.804.015)
 
-El reporte `ccusosob` no trae CUIT ni ente. La tabla `CuentasClientes` del mismo modelo **NoCobis FCIC MELI** (área de
+El reporte `ccusosob` no trae CUIT ni ente. La tabla `CuentasClientes` del modelo **CUENTA CUIT** (área de
 trabajo **Patrimonios**) los toma del cubo **PasivasComercial** (`dmbi2019as` / `BVDW`), igual que la tabla dinámica
 Cuenta Numero × Cliente Documento del Excel, pero con todos los estados de cuenta. La cuenta va sin guiones:
 `3-001-0000001560-0` del ccusosob = `300100000015600` del cubo.
@@ -142,7 +142,7 @@ in
     Unicos
 ```
 
-Cerrar y aplicar → Publicar en **Patrimonios** → **Reemplazar** (la puerta de enlace se mantiene).
+Cerrar y aplicar → Publicar en **Patrimonios** → en el servicio, Configuración del modelo → Conexiones de puerta de enlace → DMBI2019AS y actualización programada diaria.
 
 Flujo **VALO Cuentas y clientes** (paquete aparte, no está en el repositorio): recibe `{ "clave" }`, valida la clave y
 ejecuta una consulta DAX fija sobre `CuentasClientes`; devuelve `Cuenta`, `CUIT`, `Ente`, `Nombre` y `Estado`.
