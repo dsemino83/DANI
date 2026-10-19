@@ -1033,6 +1033,7 @@
 
   // Arma los inventarios. padron.garantias[codigo] = {fecha, cuit, concepto} (lo cargado a mano) manda sobre el resto.
   // usos: filas de leerUsoAcuerdos (cuenta 131.804.015). padron.cuentasCC[cuenta] = {cuit, nombre, excluir} (cargado a mano);
+  // opciones.cuentasPbi: leerCuentasPowerBI (cuenta → cliente, del cubo PasivasComercial);
   // opciones.cuitsPorNombre: {nombre del reporte: cuit} encontrado en la base de entes.
   function armarInventariosContables(filas, padron = {}, base = {}, usos = [], opciones = {}) {
     const entes = padron.entes || {}, garantias = padron.garantias || {}, nombres = padron.nombres || {};
@@ -1078,6 +1079,28 @@
     });
   }
 
+  // Filas de la consulta de Power BI (tabla CuentasClientes: Cuenta, CUIT, Ente, Nombre, Estado) → { cuenta: [clientes] }.
+  // La cuenta va sin guiones: 3-001-0000001560-0 del ccusosob = 300100000015600 del cubo.
+  function leerCuentasPowerBI(filas) {
+    const r = {};
+    (filas || []).forEach(f => {
+      const x = {};
+      Object.entries(f || {}).forEach(([k, v]) => { x[normalizar(String(k).replace(/^.*\[(.+)\]$/, '$1'))] = v; });
+      const cuenta = String(x.cuenta == null ? '' : x.cuenta).replace(/\D/g, ''), cuit = String(x.cuit == null ? '' : x.cuit).replace(/\D/g, '');
+      if (!cuenta || cuit.length !== 11) return;
+      const ente = String(x.ente == null ? '' : x.ente).replace(/\.0+$/, '').trim();
+      (r[cuenta] || (r[cuenta] = [])).push({ cuit, ente, nombre: String(x.nombre || '').trim(), estado: String(x.estado || '').trim() });
+    });
+    return r;
+  }
+  // Cliente de una cuenta: si hay varios (cotitulares), el que tiene el nombre del reporte; si no, el de la cuenta activa.
+  function clienteDeCuenta(mapa, cuenta, nombre) {
+    const lista = (mapa || {})[String(cuenta).replace(/\D/g, '')] || [];
+    if (lista.length < 2) return lista[0] || {};
+    const n = normalizar(nombre);
+    return lista.find(c => n && normalizar(c.nombre).startsWith(n)) || lista.find(c => /activa/i.test(c.estado)) || lista[0];
+  }
+
   function inventarioUsoAcuerdos(def, usos, padron, cuitPorNombre, opciones) {
     const cuentas = padron.cuentasCC || {}, porNombre = opciones.cuitsPorNombre || {};
     const proceso = usos.map(u => u.fechaProceso).filter(Boolean).sort().pop() || '';
@@ -1088,7 +1111,7 @@
     const excluidos = conInteres.filter(u => (cuentas[u.cuenta] || {}).excluir);
     const filasInv = conInteres.filter(u => !excluidos.includes(u)).map(u => {
       const m = cuentas[u.cuenta] || {};
-      const cuit = m.cuit || porNombre[u.nombre] || cuitPorNombre(u.nombre);
+      const cuit = m.cuit || clienteDeCuenta(opciones.cuentasPbi, u.cuenta, u.nombre).cuit || porNombre[u.nombre] || cuitPorNombre(u.nombre);
       return { codigo: u.cuenta, ente: u.cuenta, cuentaCC: true, concepto: u.nombre, descripcion: m.nombre || u.nombre, cuit, tipo: u.tipo,
         importe: round2(u.contratado + u.excedido), fechaUso: u.fechaUso, antiguo: antiguo(u), oficina: u.oficina, faltaCuit: !cuit, faltaFecha: false };
     });
@@ -4004,7 +4027,7 @@ try {
     leerTxtMeli, bancoMeliDeTxt, bancosParaMeli,
     sqlExtraccionCartera, bookmarkletCartera, scriptPowerShellCartera, comandoTareaCartera, IMPORTES_CARTERA,
     NO_COBIS, ultimoDiaHabil, fechasNoCobis, FCIC_MELI_INICIAL, FERIADOS_AR, diaHabilAnterior, fechasFcicMeli, leerReporteCupones, armarNoCobisFcic, lineaNoCobis, txtNoCobis, loteApiNoCobis, scriptPowerShellNoCobis, scriptPowerShellProbarNoCobis, scriptPowerShellAgenteNoCobis, cmdEnvioNoCobis,
-    leerCartera, BASTANTEO_CATALOGO, BASTANTEO_CLAVES, BASTANTEO_EXTRA, leerPoderesOcr, leerAutoridadesOcr, COMPLIF_TIPOS, poderDesdeComplif, actaDesdeComplif, complifDeEmpresa, controlResumen, usoDelResumen, aplicarRevocatorias, poderesFirmantesD, presidentesDeActas, gruposDelUso, usoCompleto, tokensDe, combosDeClausula, poderDelPresidente, leerClienteBastanteo, cuitPorDni, formatoCuit, firmanteDe, firmantesSinPoder, jsonPoder, jsonBastanteoUnico, leerInventarioGarantias, leerUsoAcuerdos, leerPadronDesdeLineasPdf, INVENTARIOS_CONTABLES, INVENTARIO_DENOMINACION, INVENTARIO_FIRMAS, fechaReporteIso, fechaInventarioDesdeReporte, leerPadronDesdeInventarios, leerBaseEntes, unirPadron, armarInventariosContables, leerCom3500, leerTcApiBcra, elegirTipoCambio, numeroEnLetras, daxCarteraPowerBI, daxDiagnosticoPowerBI, daxSaldoDeuda, armarSaldoDeuda, daxSaldoDeudaDetalle, armarDeudaDetalle, leerFilasPowerBI, sugerirColumnaCartera, columnasNumericasCartera, agruparCartera, valoresDistintos, sqlCartera,
+    leerCartera, BASTANTEO_CATALOGO, BASTANTEO_CLAVES, BASTANTEO_EXTRA, leerPoderesOcr, leerAutoridadesOcr, COMPLIF_TIPOS, poderDesdeComplif, actaDesdeComplif, complifDeEmpresa, controlResumen, usoDelResumen, aplicarRevocatorias, poderesFirmantesD, presidentesDeActas, gruposDelUso, usoCompleto, tokensDe, combosDeClausula, poderDelPresidente, leerClienteBastanteo, cuitPorDni, formatoCuit, firmanteDe, firmantesSinPoder, jsonPoder, jsonBastanteoUnico, leerInventarioGarantias, leerUsoAcuerdos, leerCuentasPowerBI, clienteDeCuenta, leerPadronDesdeLineasPdf, INVENTARIOS_CONTABLES, INVENTARIO_DENOMINACION, INVENTARIO_FIRMAS, fechaReporteIso, fechaInventarioDesdeReporte, leerPadronDesdeInventarios, leerBaseEntes, unirPadron, armarInventariosContables, leerCom3500, leerTcApiBcra, elegirTipoCambio, numeroEnLetras, daxCarteraPowerBI, daxDiagnosticoPowerBI, daxSaldoDeuda, armarSaldoDeuda, daxSaldoDeudaDetalle, armarDeudaDetalle, leerFilasPowerBI, sugerirColumnaCartera, columnasNumericasCartera, agruparCartera, valoresDistintos, sqlCartera,
     leerCsv, encabezadosEjemplo, leerDefinicionInterfaz, sugerirColumna, detectarHojaInterfaz,
     normalizar, provinciaPorNombre, crearBuscadorBancoPorNombre, round2, aNumero, aFechaSerial, aCodigoBanco,
     fechaDDMMYY, fechaYYYYMMDD, fechaLegible, hoyDDMMYY,
