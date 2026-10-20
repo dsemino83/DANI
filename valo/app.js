@@ -2905,11 +2905,15 @@
     $('bastV1Avisos').innerHTML = (!conLetras && $('bastFuenteGrupos').value === 'planilla' ? aviso('warn', 'La planilla no designa grupos con letra: se usan los grupos de los poderes (o los armados por agrupamiento).') : '') +
       (ren.length ? aviso('ok', 'Grupos de la planilla: ' + ren.map(([a, b]) => `${esc(a)} del poder → ${esc(b)}`).join(' · ')) : '') +
       (j.avisos.length ? aviso('warn', j.avisos.map(esc).join('<br>')) : '') +
+      (M.validarJsonBastanteo(j).length ? aviso('bad', '<b>No cumple las reglas del sistema:</b><br>' + M.validarJsonBastanteo(j).map(esc).join('<br>')) : aviso('ok', 'Cumple las reglas del sistema (quorum, grupos y firmantes).')) +
       `<p class="sub">${j.apoderados.length} apoderados · ${j.reglasFirma.length} reglas de firma</p>`;
     mostrarCorrecciones();
   }
   $('bastFuenteGrupos').addEventListener('change', () => { renderV1Avisos(); if (!$('bastUnicoJson').classList.contains('oculto')) $('bastUnicoJson').textContent = JSON.stringify(jsonV1(), null, 2); });
-  $('btnBastUnico').addEventListener('click', () => { const j = jsonV1(); descargar(nombreBast(j.empresa.razonSocial), JSON.stringify(j, null, 2), true); });
+  $('btnBastUnico').addEventListener('click', () => {
+    const j = jsonV1(), err = M.validarJsonBastanteo(j);
+    if (err.length && !confirm(`El JSON no cumple ${err.length} regla(s) del sistema:\n\n${err.slice(0, 8).join('\n')}\n\n¿Descargarlo igual?`)) return;
+    descargar(nombreBast(j.empresa.razonSocial), JSON.stringify(j, null, 2), true); });
   $('btnBastUnicoVer').addEventListener('click', () => { const pre = $('bastUnicoJson'); pre.textContent = JSON.stringify(jsonV1(), null, 2); pre.classList.toggle('oculto'); });
   $('btnBastDetalle').addEventListener('click', () => { const u = jsonUnico(); descargar(nombreBast(u.razon_social, '_detalle'), JSON.stringify(u, null, 2), true); });
   // Marcar corrección: se guarda el JSON generado, el corregido y el comentario (colección bastanteoCorrecciones).
