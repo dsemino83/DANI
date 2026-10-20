@@ -2737,6 +2737,7 @@
         return `<tr><td>${esc(f.nombre)}</td><td>${f.cuit ? esc(M.formatoCuit(f.cuit)) : 'DNI ' + esc(f.dni) + ' (sin CUIT)'}</td><td>${rev ? `<span class="chip bad">revocado</span> <span style="white-space:normal">${esc(rev)}</span>` : '<span class="chip warn">en la planilla, sin poder</span>'}</td></tr>`; }).join('') + '</tbody></table></div>';
     $('bastEstado').innerHTML = estado;
     renderBastUnico();
+    renderV1Avisos();
     renderControlResumen();
     $('bastPoderes').innerHTML = bast.poderes.map((p, i) => {
       const ed = bast.ediciones[i] || {};
@@ -2849,17 +2850,78 @@
       u.estructuras_de_firma.map(e => `<tr><td><b>${esc(e.grupo)}</b></td><td>${esc(e.tipo_de_firma || '')}</td><td>${esc((e.combinaciones || []).join('; '))}${e.combinaciones_sin_firmantes ? `<div style="color:var(--muted);font-size:12px" title="El poder la permite, pero no hay firmantes suficientes en la planilla">sin firmantes: ${esc(e.combinaciones_sin_firmantes.join('; '))}</div>` : ''}</td><td>${esc(u.apoderados.filter(a => e.apoderados.includes(a.numero_de_identificacion)).map(a => a.nombre_completo).join(', '))}</td>` +
         `<td class="num">${Object.values(e.facultades).filter(Boolean).length}</td><td>${esc(e.escrituras.join(', '))}</td><td style="min-width:260px">${diferencia(e)}</td></tr>`).join('') + '</tbody></table></div>';
   }
-  $('btnBastUnico').addEventListener('click', () => {
-    const u = jsonUnico();
-    descargar(`BASTANTEO_${String(u.razon_social || 'cliente').replace(/[^A-Za-z0-9]+/g, '_').replace(/^_|_$/g, '').slice(0, 50)}.json`, JSON.stringify(u, null, 2), true);
+  // JSON de bastanteo (formato 1.0). Grupos de la planilla o de los poderes (Complif / PDF).
+  const nombreBast = (razon, sufijo = '') => `BASTANTEO_${String(razon || 'cliente').replace(/[^A-Za-z0-9]+/g, '_').replace(/^_|_$/g, '').slice(0, 50)}${sufijo}.json`;
+  function jsonV1() {
+    const conLetras = bast.cliente && bast.cliente.firmantes.some(f => f.uso && f.uso.grupo);
+    return M.jsonBastanteoV1(jsonUnico(), bast.cliente, { fuente: conLetras ? $('bastFuenteGrupos').value : 'complif' });
+  }
+  function renderV1Avisos() {
+    if (!bast.poderes.length) { $('bastV1Avisos').innerHTML = ''; return; }
+    const j = jsonV1(), conLetras = bast.cliente && bast.cliente.firmantes.some(f => f.uso && f.uso.grupo);
+    const ren = Object.entries(j.renombre).filter(([a, b]) => a !== b);
+    $('bastV1Avisos').innerHTML = (!conLetras && $('bastFuenteGrupos').value === 'planilla' ? aviso('warn', 'La planilla no designa grupos con letra: se usan los grupos de los poderes (o los armados por agrupamiento).') : '') +
+      (ren.length ? aviso('ok', 'Grupos de la planilla: ' + ren.map(([a, b]) => `${esc(a)} del poder → ${esc(b)}`).join(' · ')) : '') +
+      (j.avisos.length ? aviso('warn', j.avisos.map(esc).join('<br>')) : '') +
+      `<p class="sub">${j.apoderados.length} apoderados · ${j.reglasFirma.length} reglas de firma</p>`;
+    mostrarCorrecciones();
+  }
+  $('bastFuenteGrupos').addEventListener('change', () => { renderV1Avisos(); if (!$('bastUnicoJson').classList.contains('oculto')) $('bastUnicoJson').textContent = JSON.stringify(jsonV1(), null, 2); });
+  $('btnBastUnico').addEventListener('click', () => { const j = jsonV1(); descargar(nombreBast(j.empresa.razonSocial), JSON.stringify(j, null, 2), true); });
+  $('btnBastUnicoVer').addEventListener('click', () => { const pre = $('bastUnicoJson'); pre.textContent = JSON.stringify(jsonV1(), null, 2); pre.classList.toggle('oculto'); });
+  $('btnBastDetalle').addEventListener('click', () => { const u = jsonUnico(); descargar(nombreBast(u.razon_social, '_detalle'), JSON.stringify(u, null, 2), true); });
+  // Marcar corrección: se guarda el JSON generado, el corregido y el comentario (colección bastanteoCorrecciones).
+  $('btnBastMarcar').addEventListener('click', () => {
+    $('bastCorrJson').value = JSON.stringify(jsonV1(), null, 2);
+    $('bastCorrComentario').value = '';
+    $('bastCorreccion').classList.remove('oculto');
+    $('bastCorrComentario').focus();
   });
-  $('btnBastUnicoVer').addEventListener('click', () => { const pre = $('bastUnicoJson'); pre.textContent = JSON.stringify(jsonUnico(), null, 2); pre.classList.toggle('oculto'); });
+  $('btnBastCorrCerrar').addEventListener('click', () => $('bastCorreccion').classList.add('oculto'));
+  $('btnBastCorrGuardar').addEventListener('click', async () => {
+    let corregido;
+    try { corregido = JSON.parse($('bastCorrJson').value); } catch (e) { return informar('JSON inválido', 'El JSON corregido no se puede leer: ' + esc(e.message)); }
+    const comentario = $('bastCorrComentario').value.trim();
+    const generado = jsonV1();
+    if (!comentario && JSON.stringify(corregido) === JSON.stringify(generado)) return toast('Escribí qué estaba mal o corregí el JSON');
+    try {
+      await almacen.guardarCorreccionBastanteo({ cuit: String(generado.empresa.cuit || '').replace(/\D/g, ''), razonSocial: generado.empresa.razonSocial, comentario,
+        fuenteGrupos: $('bastFuenteGrupos').value, origen: bast.pdf || '', planilla: bast.xls || '', generado, corregido, detalle: jsonUnico() });
+      $('bastCorreccion').classList.add('oculto');
+      toast('Corrección guardada');
+      correccionesCache.cuit = null;
+      mostrarCorrecciones();
+    } catch (e) { informar('No se pudo guardar', esc(e.message || e)); }
+  });
+  // Correcciones guardadas de la misma empresa: se puede bajar la versión corregida.
+  const correccionesCache = { cuit: null, lista: [] };
+  async function mostrarCorrecciones() {
+    if (!bast.poderes.length || !almacen || typeof almacen.correccionesBastanteo !== 'function') { $('bastCorrecciones').innerHTML = ''; return; }
+    const cuit = String(jsonUnico().cuit_empresa || '').replace(/\D/g, '');
+    if (!cuit) { $('bastCorrecciones').innerHTML = ''; return; }
+    if (correccionesCache.cuit !== cuit) {
+      correccionesCache.cuit = cuit;
+      try { correccionesCache.lista = await almacen.correccionesBastanteo(cuit); } catch (e) { correccionesCache.lista = []; }
+    }
+    const l = correccionesCache.lista;
+    $('bastCorrecciones').innerHTML = l.length ? aviso('warn', `<b>Hay ${l.length} corrección${l.length > 1 ? 'es' : ''} guardada${l.length > 1 ? 's' : ''} de esta empresa.</b>` +
+      l.slice(0, 5).map((c, k) => `<div style="margin-top:4px">${esc(String(c.creado || '').slice(0, 10).split('-').reverse().join('/'))} · ${esc(c.comentario || 'sin comentario')} ` +
+        `<a href="#" data-bast-corr="${k}">Descargar la versión corregida</a></div>`).join('')) : '';
+  }
+  $('bastCorrecciones').addEventListener('click', e => {
+    const a = e.target.closest('[data-bast-corr]');
+    if (!a) return;
+    e.preventDefault();
+    const c = correccionesCache.lista[Number(a.dataset.bastCorr)];
+    if (c && c.corregido) descargar(nombreBast(c.razonSocial, '_corregido'), JSON.stringify(c.corregido, null, 2), true);
+  });
   $('btnBastLimpiar').addEventListener('click', () => {
     $('cmpEstado').innerHTML = ''; $('cmpCuit').value = ''; $('cmpNombre').value = ''; cmp.crudo = null;
     Object.assign(bast, { pdf: null, xls: null, poderes: [], poderesTodos: [], poderPresidente: null, avisoPresidente: '', actas: [], otrosPoderes: [], edPorPoder: {}, cliente: null, ediciones: [], cuitsBase: {} });
     $('bastPdfNombre').textContent = 'Arrastrá el PDF o hacé clic';
     $('bastXlsNombre').textContent = 'Arrastrá el Excel o hacé clic';
     $('bastUnicoJson').classList.add('oculto');
+    $('bastCorreccion').classList.add('oculto');
     renderBastanteo();
     toast('Bastanteo limpio: cargá los archivos del próximo cliente');
   });

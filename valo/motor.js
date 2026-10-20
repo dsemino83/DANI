@@ -2661,6 +2661,110 @@
     };
   }
 
+  // ------------------------------------------------------------ JSON DE BASTANTEO (formato 1.0: empresa / apoderados / reglasFirma)
+  // Se arma desde el JSON único. Grupos: los que designa la planilla del cliente (letra del uso de firma del resumen,
+  // "B CONJUNTA B+B; B+C"); con opciones.fuente = 'complif', los de los poderes (Complif / PDF). Sin letra en el poder, los
+  // grupos ya vienen armados por agrupamiento (mismo tipo de firma y facultades). Reglas: firma individual → Individual,
+  // quorum 0; conjunta entre integrantes del mismo grupo (A+A) → ConjuntaIndistinta, quorum 1; entre grupos distintos
+  // (A+B) → Conjunta, quorum = firmas que se suman a la primera. Circuitos = códigos del catálogo de cada facultad.
+  const CIRCUITO_DE_CLAVE = Object.fromEntries(BASTANTEO_CATALOGO.map(c => [c[2], c[0]]));
+  const PARTICULAS_APELLIDO = /^(DE|DEL|LA|LAS|LOS|DI|DA|VAN|VON|MC|MAC|SAN|SANTA)$/;
+  // "BREA, RICARDO CESAR JOSE" → apellido BREA; sin coma, el apellido es la primera palabra (con "DE LA", "DEL"…).
+  function separarNombre(completo) {
+    const t = String(completo || '').replace(/\s+/g, ' ').trim();
+    if (!t) return { apellido: '', nombre: '', seguro: false };
+    if (t.includes(',')) { const [a, ...n] = t.split(','); return { apellido: a.trim(), nombre: n.join(',').trim(), seguro: true }; }
+    const p = t.split(' ');
+    // "Eduardo Fortunato AMIRANTE": el apellido es lo que está en mayúsculas al final.
+    const mayus = w => /[A-ZÁÉÍÓÚÑ]{2}/.test(w) && w === w.toUpperCase();
+    if (p.some(w => !mayus(w) && /[a-záéíóúñ]/.test(w)) && mayus(p[p.length - 1])) {
+      let i = p.length - 1;
+      while (i > 0 && (mayus(p[i - 1]) || PARTICULAS_APELLIDO.test(p[i - 1].toUpperCase()))) i--;
+      if (i > 0) return { apellido: p.slice(i).join(' '), nombre: p.slice(0, i).join(' '), seguro: true };
+    }
+    // "Sebastian Roig" (nombre y apellido en ese orden): el apellido es la última palabra (con "de la", "del"…).
+    if (p.length > 1 && p.every(w => !mayus(w))) {
+      let i = p.length - 1;
+      while (i > 1 && PARTICULAS_APELLIDO.test(p[i - 1].toUpperCase())) i--;
+      return { apellido: p.slice(i).join(' '), nombre: p.slice(0, i).join(' '), seguro: p.length === 2 };
+    }
+    let k = 0;
+    while (k < p.length - 2 && PARTICULAS_APELLIDO.test(p[k].toUpperCase())) k++;
+    return { apellido: p.slice(0, k + 1).join(' '), nombre: p.slice(k + 1).join(' '), seguro: p.length <= 1 };
+  }
+  function jsonBastanteoV1(unico, cliente, opciones = {}) {
+    const fuente = opciones.fuente === 'complif' ? 'complif' : 'planilla';
+    const firmantes = (cliente && cliente.firmantes) || [];
+    const avisos = [];
+    const idTexto = id => String(id == null ? '' : id).replace(/\D/g, '');
+    const firmanteDeId = a => {
+      const d = idTexto(a.numero_de_identificacion);
+      return firmanteDe({ dni: d.length === 11 ? d.slice(2, 10).replace(/^0+/, '') : d, cuit: d.length === 11 ? d : '', nombre_completo: a.nombre_completo }, firmantes);
+    };
+    const apoderadosU = (unico.apoderados || []).filter(a => a.grupo);
+    const planillaDe = new Map(apoderadosU.map(a => [a.numero_de_identificacion, firmanteDeId(a)]));
+    // Letra del poder → letra de la planilla: todos los integrantes del grupo que están en la planilla con una letra
+    // tienen que coincidir; si no, queda la del poder y se avisa.
+    const renombre = {};
+    if (fuente === 'planilla') {
+      const porGrupo = {};
+      (unico.estructuras_de_firma || []).forEach(e => (e.apoderados || []).forEach(id => {
+        const f = planillaDe.get(id), l = f && f.uso && f.uso.grupo;
+        if (l) (porGrupo[e.grupo] = porGrupo[e.grupo] || new Set()).add(l);
+      }));
+      Object.entries(porGrupo).forEach(([g, ls]) => {
+        if (ls.size === 1) renombre[g] = [...ls][0];
+        else avisos.push(`El grupo ${g} de los poderes tiene en la planilla firmantes de los grupos ${[...ls].sort().join(', ')}: cada uno va con la letra de la planilla y las reglas quedan con la del poder.`);
+      });
+    }
+    const ren = g => renombre[g] || g;
+    const reglas = new Map();
+    (unico.estructuras_de_firma || []).forEach(e => {
+      const circuitos = Object.entries(e.facultades || {}).filter(([k, v]) => v && CIRCUITO_DE_CLAVE[k]).map(([k]) => CIRCUITO_DE_CLAVE[k]).sort();
+      const agregar = (tipo, quorum, grupos, extra = {}, combo = '') => {
+        // Misma regla (tipo, quorum, grupos y monto) desde varios grupos del poder: se juntan los circuitos.
+        const k = [tipo, quorum, grupos.join(','), extra.monto || ''].join('|');
+        if (reglas.has(k)) { const r = reglas.get(k); r.circuitos = [...new Set(r.circuitos.concat(circuitos))].sort(); return; }
+        const descripcion = tipo === 'Individual' ? `Grupo ${grupos[0]} - firma individual`
+          : tipo === 'ConjuntaIndistinta' ? `Grupo ${grupos[0]} - firma conjunta ${combo}` : `Firma conjunta ${combo}`;
+        reglas.set(k, Object.assign({ tipo, quorum, moneda: null, monto: null, descripcion, circuitos, grupos, firmantes: [] }, extra));
+      };
+      if (e.firma_individual && !e.firma_conjunta) {
+        // Límite de la firma individual escrito en la planilla ("H/ $ 50.000.000"), si es el mismo para todo el grupo.
+        const lim = fuente === 'planilla' ? [...new Set((e.apoderados || []).map(id => { const f = planillaDe.get(id); return f && f.uso && f.uso.limite ? `${f.uso.limite}|${f.uso.limiteTexto}` : ''; }))] : [];
+        const extra = lim.length === 1 && lim[0] ? { monto: Number(lim[0].split('|')[0]), moneda: /U\$S|USD|US\$/.test(lim[0]) ? 'USD' : 'ARS' } : {};
+        agregar('Individual', 0, [ren(e.grupo)], extra);
+        return;
+      }
+      const combos = (e.combinaciones && e.combinaciones.length ? e.combinaciones : [`${e.grupo}+${e.grupo}`]).map(c => c.split('+').map(ren));
+      combos.forEach(ls => {
+        const unicos = [...new Set(ls)].sort();
+        agregar(unicos.length === 1 ? 'ConjuntaIndistinta' : 'Conjunta', ls.length - 1, unicos, {}, ls.slice().sort().join('+'));
+      });
+    });
+    const apoderados = apoderadosU.map(a => {
+      const f = planillaDe.get(a.numero_de_identificacion);
+      const n = separarNombre((f && /,/.test(f.nombre) ? f.nombre : '') || a.nombre_completo || (f && f.nombre));
+      if (!n.seguro) avisos.push(`${a.nombre_completo}: apellido "${n.apellido}" (revisar).`);
+      const id = idTexto(a.numero_de_identificacion) || idTexto(f && f.cuit);
+      if (!id) avisos.push(`${a.nombre_completo}: sin CUIT/CUIL.`);
+      // Con la planilla, la letra que le da a la persona manda; si no tiene, la del poder (o la del agrupamiento).
+      const propia = fuente === 'planilla' && f && f.uso && f.uso.grupo;
+      return { cuitCuil: id.length === 11 ? formatoCuit(id) : id, nombre: n.nombre, apellido: n.apellido, estado: 'Activa',
+        grupos: propia ? [propia] : [...new Set(String(a.grupo).split(',').map(x => ren(x.trim())).filter(Boolean))].sort() };
+    });
+    const json = {
+      version: '1.0',
+      empresa: { cuit: formatoCuit(unico.cuit_empresa), razonSocial: unico.razon_social || null, estado: 'Activa' },
+      apoderados,
+      reglasFirma: [...reglas.values()].map((r, i) => Object.assign({ referencia: `regla-${i + 1}` }, r)),
+    };
+    // Avisos y grupos renombrados: para la pantalla, no se exportan.
+    Object.defineProperty(json, 'avisos', { value: avisos, enumerable: false });
+    Object.defineProperty(json, 'renombre', { value: renombre, enumerable: false });
+    return json;
+  }
+
   // ------------------------------------------------------------ TXT NO COBIS
   // Diseño (hoja "NO COBIS" del archivo de inventario Payway), 156 caracteres por línea, una por ente (MIS):
   // código cliente = MIS (10, ceros a la izq.) · tipo de crédito CCASR (10, espacios a la der.) · tasa 0100000000 (10)
@@ -4036,7 +4140,7 @@ try {
     leerTxtMeli, bancoMeliDeTxt, bancosParaMeli,
     sqlExtraccionCartera, bookmarkletCartera, scriptPowerShellCartera, comandoTareaCartera, IMPORTES_CARTERA,
     NO_COBIS, ultimoDiaHabil, fechasNoCobis, FCIC_MELI_INICIAL, FERIADOS_AR, diaHabilAnterior, fechasFcicMeli, leerReporteCupones, armarNoCobisFcic, lineaNoCobis, txtNoCobis, loteApiNoCobis, scriptPowerShellNoCobis, scriptPowerShellProbarNoCobis, scriptPowerShellAgenteNoCobis, cmdEnvioNoCobis,
-    leerCartera, BASTANTEO_CATALOGO, BASTANTEO_CLAVES, BASTANTEO_EXTRA, leerPoderesOcr, leerAutoridadesOcr, COMPLIF_TIPOS, poderDesdeComplif, actaDesdeComplif, complifDeEmpresa, controlResumen, usoDelResumen, aplicarRevocatorias, poderesFirmantesD, presidentesDeActas, gruposDelUso, usoCompleto, tokensDe, combosDeClausula, poderDelPresidente, leerClienteBastanteo, cuitPorDni, formatoCuit, firmanteDe, firmantesSinPoder, jsonPoder, jsonBastanteoUnico, leerInventarioGarantias, leerUsoAcuerdos, leerCuentasPowerBI, clienteDeCuenta, leerPadronDesdeLineasPdf, INVENTARIOS_CONTABLES, INVENTARIO_DENOMINACION, INVENTARIO_FIRMAS, fechaReporteIso, fechaInventarioDesdeReporte, leerPadronDesdeInventarios, leerBaseEntes, unirPadron, armarInventariosContables, leerCom3500, leerTcApiBcra, elegirTipoCambio, numeroEnLetras, daxCarteraPowerBI, daxDiagnosticoPowerBI, daxSaldoDeuda, armarSaldoDeuda, daxSaldoDeudaDetalle, armarDeudaDetalle, leerFilasPowerBI, sugerirColumnaCartera, columnasNumericasCartera, agruparCartera, valoresDistintos, sqlCartera,
+    leerCartera, BASTANTEO_CATALOGO, BASTANTEO_CLAVES, BASTANTEO_EXTRA, leerPoderesOcr, leerAutoridadesOcr, COMPLIF_TIPOS, poderDesdeComplif, actaDesdeComplif, complifDeEmpresa, controlResumen, usoDelResumen, aplicarRevocatorias, poderesFirmantesD, presidentesDeActas, gruposDelUso, usoCompleto, tokensDe, combosDeClausula, poderDelPresidente, leerClienteBastanteo, cuitPorDni, formatoCuit, firmanteDe, firmantesSinPoder, jsonPoder, jsonBastanteoUnico, jsonBastanteoV1, separarNombre, leerInventarioGarantias, leerUsoAcuerdos, leerCuentasPowerBI, clienteDeCuenta, leerPadronDesdeLineasPdf, INVENTARIOS_CONTABLES, INVENTARIO_DENOMINACION, INVENTARIO_FIRMAS, fechaReporteIso, fechaInventarioDesdeReporte, leerPadronDesdeInventarios, leerBaseEntes, unirPadron, armarInventariosContables, leerCom3500, leerTcApiBcra, elegirTipoCambio, numeroEnLetras, daxCarteraPowerBI, daxDiagnosticoPowerBI, daxSaldoDeuda, armarSaldoDeuda, daxSaldoDeudaDetalle, armarDeudaDetalle, leerFilasPowerBI, sugerirColumnaCartera, columnasNumericasCartera, agruparCartera, valoresDistintos, sqlCartera,
     leerCsv, encabezadosEjemplo, leerDefinicionInterfaz, sugerirColumna, detectarHojaInterfaz,
     normalizar, provinciaPorNombre, crearBuscadorBancoPorNombre, round2, aNumero, aFechaSerial, aCodigoBanco,
     fechaDDMMYY, fechaYYYYMMDD, fechaLegible, hoyDDMMYY,
