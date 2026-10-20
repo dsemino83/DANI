@@ -1,0 +1,19 @@
+Asunto: RE: Consultas diseño de archivos Créditos y Cuotas – VALO
+
+Buenas tardes, Roberto:
+
+Te reenvío los dos documentos con las consultas respondidas. Las respuestas están en azul, marcadas como "RESPUESTA:", debajo de cada pregunta.
+
+También te adjunto un Excel de ejemplo con un crédito armado en los dos archivos (Créditos y Cuotas), con las fórmulas del cálculo del valor descontado, para que lo usen de referencia al armar la interfaz.
+
+En resumen:
+- La cesión es a Valor Descontado y se cede la cuota entera. La pre-cabecera del archivo de Créditos es: CAP,INTADEV,IVAINT,CAPADESC,INTADESC,TD
+- El Interés devengado no vencido (INTDEVNOVENC) no se informa.
+- La Tasa de Descuento (TD) es una tasa efectiva anual y, junto con la fecha de liquidación, la informamos nosotros en cada lote. En el ejemplo: tasa nominal 47%, TEA 58.59%, fecha de liquidación 03/08/2026.
+- Valor Descontado de cada cuota = (Capital + Interés) × (1 + TD/100) ^ (−días entre el vencimiento de la cuota y la fecha de liquidación / 365). El IVA no se descuenta.
+- Interés a Descuento = Capital + Interés − Valor Descontado.
+- En el archivo de Créditos, Valor Descontado e Interés a Descuento son la suma de todas las cuotas del crédito.
+
+Cualquier duda, quedamos a disposición.
+
+Saludos.
