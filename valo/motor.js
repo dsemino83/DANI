@@ -2375,9 +2375,20 @@
       p.complementarioDe = true;
     });
   }
-  function aplicarRevocatorias(poderes) {
-    const revocan = poderes.filter(revocaPoder);
-    if (!revocan.length) { const vigentes = poderes.slice(); heredarComplementarios(vigentes); return { vigentes, anulados: [], quitados: [], avisos: [] }; }
+  // opciones.ignorar: claves (claveRevocatoria) de poderes cuya revocatoria no se aplica (excepción cargada a mano, por
+  // ejemplo cuando Complif marca como revocatorio un poder que no lo es).
+  const claveRevocatoria = p => `${p.fecha_emision || ''}|${String(p.deed_number || '').replace(/\D/g, '')}`;
+  function aplicarRevocatorias(poderes, opciones = {}) {
+    const ignorar = new Set(opciones.ignorar || []);
+    // Se puede volver a correr con otras excepciones: cada poder recupera los apoderados que tenía antes de las
+    // revocaciones parciales.
+    poderes.forEach(p => {
+      if (!p._apoderadosOriginales) Object.defineProperty(p, '_apoderadosOriginales', { value: (p.apoderados || []).slice(), writable: true, enumerable: false });
+      else p.apoderados = p._apoderadosOriginales.slice();
+    });
+    const ignorados = poderes.filter(p => revocaPoder(p) && ignorar.has(claveRevocatoria(p)));
+    const revocan = poderes.filter(p => revocaPoder(p) && !ignorar.has(claveRevocatoria(p)));
+    if (!revocan.length) { const vigentes = poderes.slice(); heredarComplementarios(vigentes); return { vigentes, anulados: [], quitados: [], avisos: [], revocan, ignorados }; }
     const anulados = [], quitados = [], avisos = [];
     const vigentes = poderes.filter(p => {
       for (const r of revocan) {
@@ -2397,22 +2408,22 @@
         const parcial = /parcial|[uú]nicamente\s+(con\s+)?respecto|s[oó]lo\s+(con\s+)?respecto|en\s+cuanto\s+a/i.test(tr) || listados.length > 0 || (nombrados.length && nombrados.length < p.apoderados.length);
         if (parcial) {
           if (!nombrados.length) continue;
-          nombrados.forEach(a => quitados.push({ apoderado: a, poder: p, motivo: `revocado por el poder del ${r.fecha_emision}` }));
+          nombrados.forEach(a => quitados.push({ apoderado: a, poder: p, revocante: r, motivo: `revocado por el poder del ${r.fecha_emision}` }));
           p.apoderados = p.apoderados.filter(a => !nombrados.includes(a));
-          if (!p.apoderados.length) { anulados.push({ poder: p, motivo: `revocación parcial del ${r.fecha_emision}: no le quedan apoderados` }); return false; }
+          if (!p.apoderados.length) { anulados.push({ poder: p, revocante: r, motivo: `revocación parcial del ${r.fecha_emision}: no le quedan apoderados` }); return false; }
           continue;
         }
         if (RE_EBANVAL.test(textoPoder(r)) && !RE_EBANVAL.test(textoPoder(p))) continue;
-        anulados.push({ poder: p, motivo: `revocado por el poder del ${r.fecha_emision}` });
+        anulados.push({ poder: p, revocante: r, motivo: `revocado por el poder del ${r.fecha_emision}` });
         return false;
       }
       const a = p.alcance || {};
       // Solo revoca (no tiene usos de firma propios): no otorga facultades. Si trae usos, otorga aunque Complif diga "new: false".
-      if (revocaPoder(p) && !otorga(p)) { anulados.push({ poder: p, motivo: 'revocatoria: no otorga facultades' }); return false; }
+      if (revocaPoder(p) && !ignorar.has(claveRevocatoria(p)) && !otorga(p)) { anulados.push({ poder: p, motivo: 'revocatoria: no otorga facultades' }); return false; }
       return true;
     });
     heredarComplementarios(vigentes);
-    return { vigentes, anulados, quitados, avisos };
+    return { vigentes, anulados, quitados, avisos, revocan, ignorados };
   }
 
   // Un firmante sin poder vigente que figuraba en un poder revocado (anulado entero o revocación parcial que lo quitó):
@@ -4140,7 +4151,7 @@ try {
     leerTxtMeli, bancoMeliDeTxt, bancosParaMeli,
     sqlExtraccionCartera, bookmarkletCartera, scriptPowerShellCartera, comandoTareaCartera, IMPORTES_CARTERA,
     NO_COBIS, ultimoDiaHabil, fechasNoCobis, FCIC_MELI_INICIAL, FERIADOS_AR, diaHabilAnterior, fechasFcicMeli, leerReporteCupones, armarNoCobisFcic, lineaNoCobis, txtNoCobis, loteApiNoCobis, scriptPowerShellNoCobis, scriptPowerShellProbarNoCobis, scriptPowerShellAgenteNoCobis, cmdEnvioNoCobis,
-    leerCartera, BASTANTEO_CATALOGO, BASTANTEO_CLAVES, BASTANTEO_EXTRA, leerPoderesOcr, leerAutoridadesOcr, COMPLIF_TIPOS, poderDesdeComplif, actaDesdeComplif, complifDeEmpresa, controlResumen, usoDelResumen, aplicarRevocatorias, poderesFirmantesD, presidentesDeActas, gruposDelUso, usoCompleto, tokensDe, combosDeClausula, poderDelPresidente, leerClienteBastanteo, cuitPorDni, formatoCuit, firmanteDe, firmantesSinPoder, jsonPoder, jsonBastanteoUnico, jsonBastanteoV1, separarNombre, leerInventarioGarantias, leerUsoAcuerdos, leerCuentasPowerBI, clienteDeCuenta, leerPadronDesdeLineasPdf, INVENTARIOS_CONTABLES, INVENTARIO_DENOMINACION, INVENTARIO_FIRMAS, fechaReporteIso, fechaInventarioDesdeReporte, leerPadronDesdeInventarios, leerBaseEntes, unirPadron, armarInventariosContables, leerCom3500, leerTcApiBcra, elegirTipoCambio, numeroEnLetras, daxCarteraPowerBI, daxDiagnosticoPowerBI, daxSaldoDeuda, armarSaldoDeuda, daxSaldoDeudaDetalle, armarDeudaDetalle, leerFilasPowerBI, sugerirColumnaCartera, columnasNumericasCartera, agruparCartera, valoresDistintos, sqlCartera,
+    leerCartera, BASTANTEO_CATALOGO, BASTANTEO_CLAVES, BASTANTEO_EXTRA, leerPoderesOcr, leerAutoridadesOcr, COMPLIF_TIPOS, poderDesdeComplif, actaDesdeComplif, complifDeEmpresa, controlResumen, usoDelResumen, aplicarRevocatorias, claveRevocatoria, poderesFirmantesD, presidentesDeActas, gruposDelUso, usoCompleto, tokensDe, combosDeClausula, poderDelPresidente, leerClienteBastanteo, cuitPorDni, formatoCuit, firmanteDe, firmantesSinPoder, jsonPoder, jsonBastanteoUnico, jsonBastanteoV1, separarNombre, leerInventarioGarantias, leerUsoAcuerdos, leerCuentasPowerBI, clienteDeCuenta, leerPadronDesdeLineasPdf, INVENTARIOS_CONTABLES, INVENTARIO_DENOMINACION, INVENTARIO_FIRMAS, fechaReporteIso, fechaInventarioDesdeReporte, leerPadronDesdeInventarios, leerBaseEntes, unirPadron, armarInventariosContables, leerCom3500, leerTcApiBcra, elegirTipoCambio, numeroEnLetras, daxCarteraPowerBI, daxDiagnosticoPowerBI, daxSaldoDeuda, armarSaldoDeuda, daxSaldoDeudaDetalle, armarDeudaDetalle, leerFilasPowerBI, sugerirColumnaCartera, columnasNumericasCartera, agruparCartera, valoresDistintos, sqlCartera,
     leerCsv, encabezadosEjemplo, leerDefinicionInterfaz, sugerirColumna, detectarHojaInterfaz,
     normalizar, provinciaPorNombre, crearBuscadorBancoPorNombre, round2, aNumero, aFechaSerial, aCodigoBanco,
     fechaDDMMYY, fechaYYYYMMDD, fechaLegible, hoyDDMMYY,
