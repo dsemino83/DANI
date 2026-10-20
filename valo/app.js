@@ -2736,7 +2736,7 @@
     if (bast.cuitsBase[dni]) return { cuit: bast.cuitsBase[dni], fuente: 'base de entes' };
     return { cuit: '', fuente: '' };
   }
-  function jsonDe(i) {
+  function jsonDe(i, todosApoderados = false) {
     const ed = bast.ediciones[i];
     const cuits = {};
     const p = bast.poderes[i];
@@ -2747,7 +2747,7 @@
       if ((ed.cuits || {})[d]) cuits[d] = ed.cuits[d];
       else if (!(firmantes && M.firmanteDe(x, firmantes)) && bast.cuitsBase[d]) cuits[d] = bast.cuitsBase[d];
     });
-    return M.jsonPoder(p, bast.cliente, Object.assign({}, ed, { cuits }));
+    return M.jsonPoder(p, bast.cliente, Object.assign({}, ed, { cuits, todosApoderados }));
   }
 
   function renderBastanteo() {
@@ -2858,7 +2858,7 @@
   });
   // Un solo JSON con todos los poderes, agrupando apoderados por tipo de firma y facultades.
   const sinPoder = () => (bast.cliente ? M.firmantesSinPoder(bast.poderes, bast.cliente.firmantes).filter(f => !f.revocado) : []);
-  function jsonUnico() { return M.jsonBastanteoUnico(bast.poderes.map((p, i) => jsonDe(i)), bast.cliente && Object.assign({}, bast.cliente, { sinPoder: sinPoder() })); }
+  function jsonUnico(todosApoderados = false) { return M.jsonBastanteoUnico(bast.poderes.map((p, i) => jsonDe(i, todosApoderados)), bast.cliente && Object.assign({}, bast.cliente, { sinPoder: sinPoder() })); }
   // Control del resumen (Excel) contra los poderes, firmante por firmante: uso de firma, grupo, conjuntas y límite.
   function renderControlResumen() {
     if (!bast.poderes.length || !bast.cliente || !bast.cliente.firmantes.length) { $('bastControl').innerHTML = ''; return; }
@@ -2896,7 +2896,8 @@
   const nombreBast = (razon, sufijo = '') => `BASTANTEO_${String(razon || 'cliente').replace(/[^A-Za-z0-9]+/g, '_').replace(/^_|_$/g, '').slice(0, 50)}${sufijo}.json`;
   function jsonV1() {
     const conLetras = bast.cliente && bast.cliente.firmantes.some(f => f.uso && f.uso.grupo);
-    return M.jsonBastanteoV1(jsonUnico(), bast.cliente, { fuente: conLetras ? $('bastFuenteGrupos').value : 'complif' });
+    const todos = $('bastTodosApod').checked;
+    return M.jsonBastanteoV1(jsonUnico(todos), bast.cliente, { jsons: bast.poderes.map((p, i) => jsonDe(i, todos)), fuente: conLetras ? $('bastFuenteGrupos').value : 'complif' });
   }
   function renderV1Avisos() {
     if (!bast.poderes.length) { $('bastV1Avisos').innerHTML = ''; return; }
@@ -2909,6 +2910,7 @@
       `<p class="sub">${j.apoderados.length} apoderados · ${j.reglasFirma.length} reglas de firma</p>`;
     mostrarCorrecciones();
   }
+  $('bastTodosApod').addEventListener('change', () => { renderV1Avisos(); if (!$('bastUnicoJson').classList.contains('oculto')) $('bastUnicoJson').textContent = JSON.stringify(jsonV1(), null, 2); });
   $('bastFuenteGrupos').addEventListener('change', () => { renderV1Avisos(); if (!$('bastUnicoJson').classList.contains('oculto')) $('bastUnicoJson').textContent = JSON.stringify(jsonV1(), null, 2); });
   $('btnBastUnico').addEventListener('click', () => {
     const j = jsonV1(), err = M.validarJsonBastanteo(j);
