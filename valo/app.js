@@ -3595,7 +3595,7 @@
     const b = fcicBase();
     $('fcicBase').textContent = isFinite(b) ? '$ ' + fmtMonto(b) : '—';
     $('btnFcicArmar').disabled = !(fcic.rep && isFinite(b) && deIso($('fcicConcesion').value) && deIso($('fcicVto').value));
-    $('btnFcicTxt').disabled = $('btnFcicExcel').disabled = true;
+    $('btnFcicTxt').disabled = $('btnFcicTxtRed').disabled = $('btnFcicExcel').disabled = true;
     $('fcicTabla').innerHTML = ''; $('fcicKpis').innerHTML = ''; $('fcicEstado').innerHTML = '';
   }
   $('fcicPatrimonio').addEventListener('input', () => { $('fcicSaldoEstado').innerHTML = ''; fcicInvalidar(); });
@@ -3690,15 +3690,82 @@
       + r.filas.map(f => `<tr${f.conDatos ? '' : ' style="color:var(--muted)"'}><td>${esc(f.ente) || '<span class="chip bad">sin ente</span>'}</td><td>${esc(M.formatoCuit(f.cuit))}</td><td>${esc(f.nombre)}</td>`
         + `<td class="num">${f.conDatos ? fmtMonto(f.monto) : ''}</td><td class="num">${f.conDatos ? (f.porcentaje * 100).toFixed(4) : '0'}</td><td class="num">${fmtMonto(f.saldo)}</td>`
         + `<td style="font-family:monospace;font-size:11px">${esc(f.linea)}</td></tr>`).join('') + '</tbody></table>';
-    $('btnFcicTxt').disabled = !r.texto;
+    $('btnFcicTxt').disabled = $('btnFcicTxtRed').disabled = !r.texto;
     $('btnFcicExcel').disabled = false;
   }
   // Nombre como en la solapa FORMATO: fideico_nocobis_aaaammdd.txt (fecha de hoy).
+  const fcicNombreTxt = () => { const h = new Date(); return `fideico_nocobis_${h.getFullYear()}${String(h.getMonth() + 1).padStart(2, '0')}${String(h.getDate()).padStart(2, '0')}.txt`; };
   $('btnFcicTxt').addEventListener('click', () => {
     if (!fcic.res || !fcic.res.texto) return;
-    const h = new Date();
-    descargar(`fideico_nocobis_${h.getFullYear()}${String(h.getMonth() + 1).padStart(2, '0')}${String(h.getDate()).padStart(2, '0')}.txt`, fcic.res.texto, true);
+    descargar(fcicNombreTxt(), fcic.res.texto, true);
   });
+  // Guardar también en la carpeta de red \\dmbi2019db\comercial. El navegador no puede escribir en una ruta por su
+  // cuenta: la carpeta se elige una vez (Edge / Chrome) y queda recordada en este navegador; después se pide permiso
+  // de escritura cuando hace falta.
+  const CARPETA_FCIC = '\\\\dmbi2019db\\comercial';
+  const carpetasDb = () => new Promise((ok, mal) => {
+    const r = indexedDB.open('valo-carpetas', 1);
+    r.onupgradeneeded = () => r.result.createObjectStore('h');
+    r.onsuccess = () => ok(r.result); r.onerror = () => mal(r.error);
+  });
+  const carpetasSesion = {};
+  async function carpetaGuardada(clave) {
+    if (carpetasSesion[clave]) return carpetasSesion[clave];
+    try { const db = await carpetasDb(); return await new Promise(ok => { const q = db.transaction('h').objectStore('h').get(clave); q.onsuccess = () => ok(q.result || null); q.onerror = () => ok(null); }); }
+    catch (e) { return null; }
+  }
+  async function recordarCarpeta(clave, h) {
+    carpetasSesion[clave] = h;
+    try { const db = await carpetasDb(); await new Promise(ok => { const t = db.transaction('h', 'readwrite'); t.objectStore('h').put(h, clave); t.oncomplete = ok; t.onerror = ok; }); } catch (e) { /* queda solo para esta vez */ }
+  }
+  async function elegirCarpetaFcic() {
+    await informar('Elegí la carpeta de red', `En la ventana que se abre, escribí <b>${esc(CARPETA_FCIC)}</b> en la barra de dirección, entrá a la carpeta y tocá <b>Seleccionar carpeta</b> (y después <b>Permitir</b> / <b>Ver archivos</b>). Queda recordada en este navegador.`);
+    const h = await window.showDirectoryPicker({ id: 'fcicComercial', mode: 'readwrite' });
+    if (!/^comercial$/i.test(h.name) && !confirm(`Elegiste la carpeta "${h.name}", no "comercial". ¿Usarla igual?`)) return null;
+    await recordarCarpeta('fcicComercial', h);
+    return h;
+  }
+  async function mostrarCarpetaFcic() {
+    if (!window.showDirectoryPicker) { $('fcicCarpetaEstado').textContent = 'Para guardar en la carpeta de red usá Edge o Chrome (fuera de claude.ai).'; return; }
+    const h = await carpetaGuardada('fcicComercial');
+    $('fcicCarpetaEstado').innerHTML = h ? `Carpeta de red: <b>${esc(h.name)}</b> · <a href="#" id="fcicCambiarCarpeta">cambiar</a>` : `La primera vez que guardes en ${esc(CARPETA_FCIC)} se te pide elegir la carpeta.`;
+  }
+  $('fcicCarpetaEstado').addEventListener('click', async e => {
+    if (!e.target.closest('#fcicCambiarCarpeta')) return;
+    e.preventDefault();
+    try { await elegirCarpetaFcic(); } catch (err) { if (err.name !== 'AbortError') informar('No se pudo elegir la carpeta', esc(err.message || err)); }
+    mostrarCarpetaFcic();
+  });
+  $('btnFcicTxtRed').addEventListener('click', async () => {
+    if (!fcic.res || !fcic.res.texto) return;
+    const nombre = fcicNombreTxt(), texto = fcic.res.texto;
+    if (!window.showDirectoryPicker) {
+      descargar(nombre, texto, true);
+      return informar('No se pudo guardar en la carpeta de red', `Este navegador no permite que la página escriba en carpetas. Se descargó <b>${esc(nombre)}</b>: copialo a ${esc(CARPETA_FCIC)}, o abrí la página en Edge / Chrome (desde el sitio, no dentro de claude.ai).`);
+    }
+    try {
+      // Primero la carpeta (el permiso necesita el clic), después la descarga.
+      let h = await carpetaGuardada('fcicComercial');
+      if (h && (await h.queryPermission({ mode: 'readwrite' })) !== 'granted' && (await h.requestPermission({ mode: 'readwrite' })) !== 'granted') h = null;
+      if (!h) h = await elegirCarpetaFcic();
+      if (!h) return;
+      let existe = false;
+      try { await h.getFileHandle(nombre); existe = true; } catch (e) { /* no existe */ }
+      if (existe && !confirm(`Ya hay un ${nombre} en ${h.name}. ¿Reemplazarlo?`)) return;
+      const f = await h.getFileHandle(nombre, { create: true });
+      const w = await f.createWritable();
+      await w.write(new Blob([texto], { type: 'text/plain;charset=utf-8' }));
+      await w.close();
+      toast(`Guardado en ${h.name}\\${nombre}`);
+      $('fcicEstado').innerHTML = aviso('ok', `TXT guardado en <b>${esc(CARPETA_FCIC)}\\${esc(nombre)}</b> (carpeta elegida: ${esc(h.name)}) y descargado.`);
+      mostrarCarpetaFcic();
+      descargar(nombre, texto, true);
+    } catch (e) {
+      if (e.name === 'AbortError') return;
+      informar('No se pudo guardar en la carpeta de red', `${esc(e.message || e)}<br>Revisá que tengas acceso de escritura a ${esc(CARPETA_FCIC)}. Podés usar <b>Descargar TXT</b> y copiarlo a mano.`);
+    }
+  });
+  mostrarCarpetaFcic();
   $('btnFcicExcel').addEventListener('click', () => {
     const r = fcic.res; if (!r) return;
     const dg = [['Ultimo dia habil del mes', fBarra(r.fechas.concesion)], ['vto de producto', fBarra(r.fechas.vencimiento)], ['Saldo cuenta 121049010', r.base], [],
