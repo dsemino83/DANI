@@ -2692,10 +2692,12 @@
   // Se arma desde el JSON único. Grupos: los que designa la planilla del cliente (letra del uso de firma del resumen,
   // "B CONJUNTA B+B; B+C"); con opciones.fuente = 'complif', los de los poderes (Complif / PDF). Sin letra en el poder, los
   // grupos ya vienen armados por agrupamiento (mismo tipo de firma y facultades). Reglas:
-  //  - firma individual → Individual: una regla por firmante (su CUIT en firmantes, sin grupos), quorum 1 (no juega);
-  //  - dos cualesquiera de un grupo (A+A) → ConjuntaIndistinta [A], quorum 1 (firmas que se suman a la primera);
-  //  - dos cualesquiera de varios grupos (A+A, A+B y B+B) → ConjuntaIndistinta [A, B], quorum 1;
-  //  - uno de cada grupo (A+B) → Conjunta [A, B], quorum = firmas de cada grupo (1); A+A+B+B → Conjunta, quorum 2.
+  // (Como en producción: en ConjuntaIndistinta el quorum es el total de firmas; en Conjunta, las firmas de cada grupo.)
+  //  - firma individual de un grupo → ConjuntaIndistinta [A], quorum 1; de varios grupos ("A y/o B") → [A, B], quorum 1;
+  //    de una persona sin grupo → Individual con su CUIT en firmantes, quorum 1 (no juega);
+  //  - dos cualesquiera de un grupo (A+A) → ConjuntaIndistinta [A], quorum 2;
+  //  - dos cualesquiera de varios grupos (A+A, A+B y B+B) → ConjuntaIndistinta [A, B], quorum 2;
+  //  - uno de cada grupo (A+B) → Conjunta [A, B], quorum 1; A+A+B+B → Conjunta, quorum 2.
   // Circuitos = códigos del catálogo de cada facultad.
   const CIRCUITO_DE_CLAVE = Object.fromEntries(BASTANTEO_CATALOGO.map(c => [c[2], c[0]]));
   // Circuitos que el sistema de destino tiene con dos códigos (van los dos juntos).
@@ -2715,7 +2717,7 @@
     'norma octavio omar oscar osvaldo pablo pamela patricia patricio paula paulina pedro pilar rafael ramiro ramon raquel raul ricardo roberto ' +
     'rocio rodolfo rodrigo rolando romina rosa rosana ruben sabrina salvador samuel sandra sandro santiago sebastian sergio silvia silvina ' +
     'sofia solange soledad sonia susana tatiana teresa tomas valentin valeria vanesa veronica vicente victor victoria virginia virignia walter ' +
-    'yamila ximena justo fortunato analia veronica estefania gisella nahuel thiago tobias bautista valentina').split(' '));
+    'yamila ximena martha marta oriana irena clotilde justo fortunato analia veronica estefania gisella nahuel thiago tobias bautista valentina').split(' '));
   const esNombrePila = w => NOMBRES_PILA.has(normalizar(w));
   // "BREA, RICARDO CESAR JOSE" → apellido BREA; sin coma, el apellido es la primera palabra (con "DE LA", "DEL"…).
   // otro: el mismo nombre en otro orden (la planilla suele traer "APELLIDO NOMBRE" y el poder "NOMBRE APELLIDO"): el
@@ -2726,6 +2728,15 @@
     if (t.includes(',')) { const [a, ...n] = t.split(','); return { apellido: a.trim(), nombre: n.join(',').trim(), seguro: true }; }
     const p = t.split(' ');
     const o = String(otro || '').replace(/,/g, ' ').replace(/\s+/g, ' ').trim().split(' ').filter(Boolean);
+    // El otro trae el apellido en mayúsculas ("Estefania DE ROSA"): esas palabras, juntas en este nombre, son el apellido.
+    const may = w => /[A-ZÁÉÍÓÚÑ]{2}/.test(w) && w === w.toUpperCase();
+    if (o.some(w => /[a-záéíóúñ]/.test(w)) && o.some(may)) {
+      const ap = o.filter(may).map(normalizar).join(' ');
+      for (let i = 0; i < p.length; i++) for (let k = p.length; k > i; k--) {
+        if (p.slice(i, k).map(normalizar).join(' ') === ap && (i === 0 || k === p.length) && k - i < p.length)
+          return { apellido: p.slice(i, k).join(' '), nombre: p.slice(0, i).concat(p.slice(k)).join(' '), seguro: true };
+      }
+    }
     if (o.length === p.length && normalizar(o.join(' ')) !== normalizar(t)) {
       for (let k = p.length - 1; k >= 1; k--) {
         const fin = p.slice(k).map(normalizar).join(' ');
@@ -2829,15 +2840,20 @@
         const k = [tipo, quorum, grupos.join(','), firmantes.join(','), extra.monto || ''].join('|');
         if (reglas.has(k)) { const r = reglas.get(k); r.circuitos = [...new Set(r.circuitos.concat(circuitos))].sort(); return; }
         const descripcion = tipo === 'Individual' ? `Firma individual - ${combo}`
-          : tipo === 'ConjuntaIndistinta' ? (grupos.length > 1 ? `Firma conjunta: ${combo}` : `Grupo ${grupos[0]} - firma conjunta ${combo}`) : `Firma conjunta ${combo}`;
+          : tipo === 'ConjuntaIndistinta' ? (combo === 'individual' ? `Grupo ${grupos.join(' y/o ')} - firma individual` : grupos.length > 1 ? `Firma conjunta: ${combo}` : `Grupo ${grupos[0]} - firma conjunta ${combo}`) : `Firma conjunta ${combo}`;
         reglas.set(k, Object.assign({ tipo, quorum, moneda: null, monto: null, descripcion, circuitos, grupos, firmantes }, extra));
       };
       if (e.firma_individual && !e.firma_conjunta) {
         // Límite de la firma individual escrito en la planilla ("H/ $ 50.000.000"), si es el mismo para todo el grupo.
         const lim = fuente === 'planilla' ? [...new Set((e.apoderados || []).map(id => { const f = planillaDe.get(id); return f && f.uso && f.uso.limite ? `${f.uso.limite}|${f.uso.limiteTexto}` : ''; }))] : [];
         const extra = lim.length === 1 && lim[0] ? { monto: Number(lim[0].split('|')[0]), moneda: /U\$S|USD|US\$/.test(lim[0]) ? 'USD' : 'ARS' } : {};
-        // Una regla por firmante: el sistema de destino pide un firmante en la regla individual.
-        (e.apoderados || []).forEach(id => {
+        // Firma individual de un grupo: ConjuntaIndistinta con quorum 1 (una firma de cualquiera del grupo). Las personas
+        // sin grupo van como Individual con su CUIT (el sistema pide un firmante en la regla individual).
+        const grupoDe = id => { const f = planillaDe.get(id), a = apoderadosU.find(x => x.numero_de_identificacion === id);
+          return (fuente === 'planilla' && f && f.uso && f.uso.grupo) || (a && ren(String(a.grupo).split(',')[0].trim())) || ''; };
+        const conGrupo = [...new Set((e.apoderados || []).map(grupoDe).filter(Boolean))].sort();
+        if (conGrupo.length) agregar('ConjuntaIndistinta', 1, conGrupo, extra, 'individual');
+        (e.apoderados || []).filter(id => !grupoDe(id)).forEach(id => {
           const a = apoderadosU.find(x => x.numero_de_identificacion === id);
           if (!a) return;
           const f = planillaDe.get(id), d = idTexto(id) || idTexto(f && f.cuit);
@@ -2853,12 +2869,12 @@
       const parejas = gs.flatMap((a, i) => gs.slice(i).map(b => `${a}+${b}`));
       const claves = new Set(combos.map(ls => ls.join('+')));
       if (gs.length > 1 && parejas.every(p => claves.has(p))) {
-        agregar('ConjuntaIndistinta', 1, gs, {}, `dos cualesquiera de ${gs.join(' y/o ')}`);
+        agregar('ConjuntaIndistinta', 2, gs, {}, `dos cualesquiera de ${gs.join(' y/o ')}`);
         combos = combos.filter(ls => ls.length !== 2);
       }
       combos.forEach(ls => {
         const unicos = [...new Set(ls)].sort();
-        if (unicos.length === 1) { agregar('ConjuntaIndistinta', ls.length - 1, unicos, {}, ls.join('+')); return; }
+        if (unicos.length === 1) { agregar('ConjuntaIndistinta', ls.length, unicos, {}, ls.join('+')); return; }
         // Uno (o n) de cada grupo: quorum = firmas por grupo.
         const cuenta = unicos.map(g => ls.filter(x => x === g).length);
         if (new Set(cuenta).size > 1) avisos.push(`La combinación ${ls.join('+')} pide distinta cantidad de firmas por grupo: va como Conjunta con quorum ${Math.max(...cuenta)} (revisar).`);
@@ -2867,7 +2883,8 @@
     });
     const apoderados = apoderadosU.map(a => {
       const f = planillaDe.get(a.numero_de_identificacion);
-      const n = f && /,/.test(f.nombre) ? separarNombre(f.nombre) : separarNombre(a.nombre_completo || (f && f.nombre), f && f.nombre);
+      // Nombre completo del Excel (la planilla manda); el del poder ayuda a saber cuál es el apellido.
+      const n = f && f.nombre ? separarNombre(f.nombre, a.nombre_completo) : separarNombre(a.nombre_completo);
       if (!n.seguro) avisos.push(`${a.nombre_completo}: apellido "${n.apellido}" (revisar).`);
       const id = idTexto(a.numero_de_identificacion) || idTexto(f && f.cuit);
       if (!id) avisos.push(`${a.nombre_completo}: sin CUIT/CUIL.`);
