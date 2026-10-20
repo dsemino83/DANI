@@ -2676,7 +2676,7 @@
   // Se arma desde el JSON único. Grupos: los que designa la planilla del cliente (letra del uso de firma del resumen,
   // "B CONJUNTA B+B; B+C"); con opciones.fuente = 'complif', los de los poderes (Complif / PDF). Sin letra en el poder, los
   // grupos ya vienen armados por agrupamiento (mismo tipo de firma y facultades). Reglas:
-  //  - firma individual → Individual, quorum 0;
+  //  - firma individual → Individual: una regla por firmante (su CUIT en firmantes, sin grupos), quorum 1 (no juega);
   //  - dos cualesquiera de un grupo (A+A) → ConjuntaIndistinta [A], quorum 1 (firmas que se suman a la primera);
   //  - dos cualesquiera de varios grupos (A+A, A+B y B+B) → ConjuntaIndistinta [A, B], quorum 1;
   //  - uno de cada grupo (A+B) → Conjunta [A, B], quorum = firmas de cada grupo (1); A+A+B+B → Conjunta, quorum 2.
@@ -2708,6 +2708,27 @@
     while (k < p.length - 2 && PARTICULAS_APELLIDO.test(p[k].toUpperCase())) k++;
     return { apellido: p.slice(0, k + 1).join(' '), nombre: p.slice(k + 1).join(' '), seguro: p.length <= 1 };
   }
+  // Reglas de negocio del sistema de destino: Conjunta / ConjuntaIndistinta con quorum entero > 0; ConjuntaIndistinta con
+  // al menos 1 grupo; Conjunta con al menos 2; Individual con un firmante. Grupos y firmantes tienen que existir.
+  function validarJsonBastanteo(j) {
+    const errores = [];
+    const grupos = new Set((j.apoderados || []).flatMap(a => a.grupos || []));
+    const cuits = new Set((j.apoderados || []).map(a => a.cuitCuil));
+    (j.reglasFirma || []).forEach(r => {
+      const q = `${r.referencia} (${r.tipo})`;
+      if (!['Individual', 'Conjunta', 'ConjuntaIndistinta'].includes(r.tipo)) errores.push(`${q}: tipo desconocido.`);
+      if (/Conjunta/.test(r.tipo) && !(Number.isInteger(r.quorum) && r.quorum > 0)) errores.push(`${q}: el quorum tiene que ser un entero mayor a 0.`);
+      if (r.tipo === 'ConjuntaIndistinta' && !(r.grupos || []).length) errores.push(`${q}: tiene que tener al menos 1 grupo.`);
+      if (r.tipo === 'Conjunta' && (r.grupos || []).length < 2) errores.push(`${q}: tiene que tener al menos 2 grupos.`);
+      if (r.tipo === 'Individual' && (r.firmantes || []).length !== 1) errores.push(`${q}: tiene que tener un firmante.`);
+      (r.grupos || []).filter(g => !grupos.has(g)).forEach(g => errores.push(`${q}: el grupo ${g} no tiene apoderados.`));
+      (r.firmantes || []).filter(c => !cuits.has(c)).forEach(c => errores.push(`${q}: el firmante ${c} no está entre los apoderados.`));
+      if (!(r.circuitos || []).length) errores.push(`${q}: no tiene circuitos.`);
+    });
+    if (!(j.apoderados || []).length) errores.push('No hay apoderados.');
+    (j.apoderados || []).filter(a => !a.cuitCuil).forEach(a => errores.push(`${a.apellido}, ${a.nombre}: sin CUIT/CUIL.`));
+    return errores;
+  }
   function jsonBastanteoV1(unico, cliente, opciones = {}) {
     const fuente = opciones.fuente === 'complif' ? 'complif' : 'planilla';
     const firmantes = (cliente && cliente.firmantes) || [];
@@ -2738,19 +2759,26 @@
     (unico.estructuras_de_firma || []).forEach(e => {
       const circuitos = [...new Set(Object.entries(e.facultades || {}).filter(([k, v]) => v && CIRCUITO_DE_CLAVE[k])
         .flatMap(([k]) => [CIRCUITO_DE_CLAVE[k]].concat(CIRCUITOS_GEMELOS[CIRCUITO_DE_CLAVE[k]] || [])))].sort();
-      const agregar = (tipo, quorum, grupos, extra = {}, combo = '') => {
-        // Misma regla (tipo, quorum, grupos y monto) desde varios grupos del poder: se juntan los circuitos.
-        const k = [tipo, quorum, grupos.join(','), extra.monto || ''].join('|');
+      const agregar = (tipo, quorum, grupos, extra = {}, combo = '', firmantes = []) => {
+        // Misma regla (tipo, quorum, grupos, firmante y monto) desde varios grupos del poder: se juntan los circuitos.
+        const k = [tipo, quorum, grupos.join(','), firmantes.join(','), extra.monto || ''].join('|');
         if (reglas.has(k)) { const r = reglas.get(k); r.circuitos = [...new Set(r.circuitos.concat(circuitos))].sort(); return; }
-        const descripcion = tipo === 'Individual' ? `Grupo ${grupos[0]} - firma individual`
+        const descripcion = tipo === 'Individual' ? `Firma individual - ${combo}`
           : tipo === 'ConjuntaIndistinta' ? (grupos.length > 1 ? `Firma conjunta: ${combo}` : `Grupo ${grupos[0]} - firma conjunta ${combo}`) : `Firma conjunta ${combo}`;
-        reglas.set(k, Object.assign({ tipo, quorum, moneda: null, monto: null, descripcion, circuitos, grupos, firmantes: [] }, extra));
+        reglas.set(k, Object.assign({ tipo, quorum, moneda: null, monto: null, descripcion, circuitos, grupos, firmantes }, extra));
       };
       if (e.firma_individual && !e.firma_conjunta) {
         // Límite de la firma individual escrito en la planilla ("H/ $ 50.000.000"), si es el mismo para todo el grupo.
         const lim = fuente === 'planilla' ? [...new Set((e.apoderados || []).map(id => { const f = planillaDe.get(id); return f && f.uso && f.uso.limite ? `${f.uso.limite}|${f.uso.limiteTexto}` : ''; }))] : [];
         const extra = lim.length === 1 && lim[0] ? { monto: Number(lim[0].split('|')[0]), moneda: /U\$S|USD|US\$/.test(lim[0]) ? 'USD' : 'ARS' } : {};
-        agregar('Individual', 0, [ren(e.grupo)], extra);
+        // Una regla por firmante: el sistema de destino pide un firmante en la regla individual.
+        (e.apoderados || []).forEach(id => {
+          const a = apoderadosU.find(x => x.numero_de_identificacion === id);
+          if (!a) return;
+          const f = planillaDe.get(id), d = idTexto(id) || idTexto(f && f.cuit);
+          if (!d) return;
+          agregar('Individual', 1, [], extra, a.nombre_completo, [d.length === 11 ? formatoCuit(d) : d]);
+        });
         return;
       }
       let combos = [...new Map((e.combinaciones && e.combinaciones.length ? e.combinaciones : [`${e.grupo}+${e.grupo}`])
@@ -4170,7 +4198,7 @@ try {
     leerTxtMeli, bancoMeliDeTxt, bancosParaMeli,
     sqlExtraccionCartera, bookmarkletCartera, scriptPowerShellCartera, comandoTareaCartera, IMPORTES_CARTERA,
     NO_COBIS, ultimoDiaHabil, fechasNoCobis, FCIC_MELI_INICIAL, FERIADOS_AR, diaHabilAnterior, fechasFcicMeli, leerReporteCupones, armarNoCobisFcic, lineaNoCobis, txtNoCobis, loteApiNoCobis, scriptPowerShellNoCobis, scriptPowerShellProbarNoCobis, scriptPowerShellAgenteNoCobis, cmdEnvioNoCobis,
-    leerCartera, BASTANTEO_CATALOGO, BASTANTEO_CLAVES, BASTANTEO_EXTRA, leerPoderesOcr, leerAutoridadesOcr, COMPLIF_TIPOS, poderDesdeComplif, actaDesdeComplif, complifDeEmpresa, controlResumen, usoDelResumen, aplicarRevocatorias, claveRevocatoria, poderesFirmantesD, presidentesDeActas, gruposDelUso, usoCompleto, tokensDe, combosDeClausula, poderDelPresidente, leerClienteBastanteo, cuitPorDni, formatoCuit, firmanteDe, firmantesSinPoder, jsonPoder, jsonBastanteoUnico, jsonBastanteoV1, separarNombre, leerInventarioGarantias, leerUsoAcuerdos, leerCuentasPowerBI, clienteDeCuenta, leerPadronDesdeLineasPdf, INVENTARIOS_CONTABLES, INVENTARIO_DENOMINACION, INVENTARIO_FIRMAS, fechaReporteIso, fechaInventarioDesdeReporte, leerPadronDesdeInventarios, leerBaseEntes, unirPadron, armarInventariosContables, leerCom3500, leerTcApiBcra, elegirTipoCambio, numeroEnLetras, daxCarteraPowerBI, daxDiagnosticoPowerBI, daxSaldoDeuda, armarSaldoDeuda, daxSaldoDeudaDetalle, armarDeudaDetalle, leerFilasPowerBI, sugerirColumnaCartera, columnasNumericasCartera, agruparCartera, valoresDistintos, sqlCartera,
+    leerCartera, BASTANTEO_CATALOGO, BASTANTEO_CLAVES, BASTANTEO_EXTRA, leerPoderesOcr, leerAutoridadesOcr, COMPLIF_TIPOS, poderDesdeComplif, actaDesdeComplif, complifDeEmpresa, controlResumen, usoDelResumen, aplicarRevocatorias, claveRevocatoria, poderesFirmantesD, presidentesDeActas, gruposDelUso, usoCompleto, tokensDe, combosDeClausula, poderDelPresidente, leerClienteBastanteo, cuitPorDni, formatoCuit, firmanteDe, firmantesSinPoder, jsonPoder, jsonBastanteoUnico, jsonBastanteoV1, validarJsonBastanteo, separarNombre, leerInventarioGarantias, leerUsoAcuerdos, leerCuentasPowerBI, clienteDeCuenta, leerPadronDesdeLineasPdf, INVENTARIOS_CONTABLES, INVENTARIO_DENOMINACION, INVENTARIO_FIRMAS, fechaReporteIso, fechaInventarioDesdeReporte, leerPadronDesdeInventarios, leerBaseEntes, unirPadron, armarInventariosContables, leerCom3500, leerTcApiBcra, elegirTipoCambio, numeroEnLetras, daxCarteraPowerBI, daxDiagnosticoPowerBI, daxSaldoDeuda, armarSaldoDeuda, daxSaldoDeudaDetalle, armarDeudaDetalle, leerFilasPowerBI, sugerirColumnaCartera, columnasNumericasCartera, agruparCartera, valoresDistintos, sqlCartera,
     leerCsv, encabezadosEjemplo, leerDefinicionInterfaz, sugerirColumna, detectarHojaInterfaz,
     normalizar, provinciaPorNombre, crearBuscadorBancoPorNombre, round2, aNumero, aFechaSerial, aCodigoBanco,
     fechaDDMMYY, fechaYYYYMMDD, fechaLegible, hoyDDMMYY,
