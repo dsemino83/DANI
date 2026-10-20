@@ -2675,10 +2675,15 @@
   // ------------------------------------------------------------ JSON DE BASTANTEO (formato 1.0: empresa / apoderados / reglasFirma)
   // Se arma desde el JSON único. Grupos: los que designa la planilla del cliente (letra del uso de firma del resumen,
   // "B CONJUNTA B+B; B+C"); con opciones.fuente = 'complif', los de los poderes (Complif / PDF). Sin letra en el poder, los
-  // grupos ya vienen armados por agrupamiento (mismo tipo de firma y facultades). Reglas: firma individual → Individual,
-  // quorum 0; conjunta entre integrantes del mismo grupo (A+A) → ConjuntaIndistinta, quorum 1; entre grupos distintos
-  // (A+B) → Conjunta, quorum = firmas que se suman a la primera. Circuitos = códigos del catálogo de cada facultad.
+  // grupos ya vienen armados por agrupamiento (mismo tipo de firma y facultades). Reglas:
+  //  - firma individual → Individual, quorum 0;
+  //  - dos cualesquiera de un grupo (A+A) → ConjuntaIndistinta [A], quorum 1 (firmas que se suman a la primera);
+  //  - dos cualesquiera de varios grupos (A+A, A+B y B+B) → ConjuntaIndistinta [A, B], quorum 1;
+  //  - uno de cada grupo (A+B) → Conjunta [A, B], quorum = firmas de cada grupo (1); A+A+B+B → Conjunta, quorum 2.
+  // Circuitos = códigos del catálogo de cada facultad.
   const CIRCUITO_DE_CLAVE = Object.fromEntries(BASTANTEO_CATALOGO.map(c => [c[2], c[0]]));
+  // Circuitos que el sistema de destino tiene con dos códigos (van los dos juntos).
+  const CIRCUITOS_GEMELOS = { TRF_ENTRE_CTAS_EMP: ['TRF_ENTRE_CUENTAS_EM'] };
   const PARTICULAS_APELLIDO = /^(DE|DEL|LA|LAS|LOS|DI|DA|VAN|VON|MC|MAC|SAN|SANTA)$/;
   // "BREA, RICARDO CESAR JOSE" → apellido BREA; sin coma, el apellido es la primera palabra (con "DE LA", "DEL"…).
   function separarNombre(completo) {
@@ -2731,13 +2736,14 @@
     const ren = g => renombre[g] || g;
     const reglas = new Map();
     (unico.estructuras_de_firma || []).forEach(e => {
-      const circuitos = Object.entries(e.facultades || {}).filter(([k, v]) => v && CIRCUITO_DE_CLAVE[k]).map(([k]) => CIRCUITO_DE_CLAVE[k]).sort();
+      const circuitos = [...new Set(Object.entries(e.facultades || {}).filter(([k, v]) => v && CIRCUITO_DE_CLAVE[k])
+        .flatMap(([k]) => [CIRCUITO_DE_CLAVE[k]].concat(CIRCUITOS_GEMELOS[CIRCUITO_DE_CLAVE[k]] || [])))].sort();
       const agregar = (tipo, quorum, grupos, extra = {}, combo = '') => {
         // Misma regla (tipo, quorum, grupos y monto) desde varios grupos del poder: se juntan los circuitos.
         const k = [tipo, quorum, grupos.join(','), extra.monto || ''].join('|');
         if (reglas.has(k)) { const r = reglas.get(k); r.circuitos = [...new Set(r.circuitos.concat(circuitos))].sort(); return; }
         const descripcion = tipo === 'Individual' ? `Grupo ${grupos[0]} - firma individual`
-          : tipo === 'ConjuntaIndistinta' ? `Grupo ${grupos[0]} - firma conjunta ${combo}` : `Firma conjunta ${combo}`;
+          : tipo === 'ConjuntaIndistinta' ? (grupos.length > 1 ? `Firma conjunta: ${combo}` : `Grupo ${grupos[0]} - firma conjunta ${combo}`) : `Firma conjunta ${combo}`;
         reglas.set(k, Object.assign({ tipo, quorum, moneda: null, monto: null, descripcion, circuitos, grupos, firmantes: [] }, extra));
       };
       if (e.firma_individual && !e.firma_conjunta) {
@@ -2747,10 +2753,23 @@
         agregar('Individual', 0, [ren(e.grupo)], extra);
         return;
       }
-      const combos = (e.combinaciones && e.combinaciones.length ? e.combinaciones : [`${e.grupo}+${e.grupo}`]).map(c => c.split('+').map(ren));
+      let combos = [...new Map((e.combinaciones && e.combinaciones.length ? e.combinaciones : [`${e.grupo}+${e.grupo}`])
+        .map(c => c.split('+').map(ren).sort()).map(ls => [ls.join('+'), ls])).values()];
+      // Todas las parejas posibles entre los grupos (A+A, A+B, B+B): dos cualesquiera de esos grupos.
+      const gs = [...new Set(combos.flat())].sort();
+      const parejas = gs.flatMap((a, i) => gs.slice(i).map(b => `${a}+${b}`));
+      const claves = new Set(combos.map(ls => ls.join('+')));
+      if (gs.length > 1 && parejas.every(p => claves.has(p))) {
+        agregar('ConjuntaIndistinta', 1, gs, {}, `dos cualesquiera de ${gs.join(' y/o ')}`);
+        combos = combos.filter(ls => ls.length !== 2);
+      }
       combos.forEach(ls => {
         const unicos = [...new Set(ls)].sort();
-        agregar(unicos.length === 1 ? 'ConjuntaIndistinta' : 'Conjunta', ls.length - 1, unicos, {}, ls.slice().sort().join('+'));
+        if (unicos.length === 1) { agregar('ConjuntaIndistinta', ls.length - 1, unicos, {}, ls.join('+')); return; }
+        // Uno (o n) de cada grupo: quorum = firmas por grupo.
+        const cuenta = unicos.map(g => ls.filter(x => x === g).length);
+        if (new Set(cuenta).size > 1) avisos.push(`La combinación ${ls.join('+')} pide distinta cantidad de firmas por grupo: va como Conjunta con quorum ${Math.max(...cuenta)} (revisar).`);
+        agregar('Conjunta', Math.max(...cuenta), unicos, {}, ls.join('+'));
       });
     });
     const apoderados = apoderadosU.map(a => {
