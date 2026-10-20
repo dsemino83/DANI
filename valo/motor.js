@@ -2447,6 +2447,21 @@
     return (firmantes || []).filter(f => !aps.some(a => firmanteDe(a, [f])));
   }
 
+  // Poder con apoderados en grupos con letra (A, B, C) y usos de firma que hablan de "Grupo 1 / Grupo 2" (Complif):
+  // el 1 es la primera letra, el 2 la segunda… ("2 apoderados del GRUPO 1" = A+A). Si los apoderados ya tienen grupos
+  // con número, no se toca.
+  function alinearGruposNumerados(poder) {
+    const letras = [...new Set((poder.apoderados || []).map(a => letraGrupo(a.grupo)).filter(Boolean))].sort();
+    if (!letras.length || letras.some(l => /^\d+$/.test(l))) return poder.usos;
+    const cambia = x => (/^\d+$/.test(x) && letras[Number(x) - 1] ? letras[Number(x) - 1] : x);
+    const tieneNumeros = u => [u.grupo, ...(u.grupos || []), ...(u.combinaciones || []).flatMap(c => String(c).split('+'))].some(x => /^\d+$/.test(String(x || '')));
+    return (poder.usos || []).map(u => (!tieneNumeros(u) ? u : Object.assign({}, u, {
+      grupo: u.grupo ? cambia(String(u.grupo)) : u.grupo,
+      grupos: u.grupos ? u.grupos.map(x => cambia(String(x))) : u.grupos,
+      combinaciones: u.combinaciones ? [...new Set(u.combinaciones.map(c => String(c).split('+').map(cambia).sort().join('+')))] : u.combinaciones,
+    })));
+  }
+
   // Arma el JSON de un poder. edicion: { deed_number, board_resolution_power_attorney, power_attorney_type, cuits: {dni: cuit} }.
   function jsonPoder(poder, cliente, edicion = {}) {
     const cuits = edicion.cuits || {};
@@ -2457,7 +2472,8 @@
       return c ? Number(String(c).replace(/\D/g, '')) : (dni ? Number(dni) : null);
     };
     // Con planilla: solo van los apoderados que están en ella.
-    const apoderados = firmantes ? poder.apoderados.filter(a => firmanteDe(a, firmantes)) : poder.apoderados;
+    // (edicion.todosApoderados: van todos los del poder, también los que no están en la planilla.)
+    const apoderados = firmantes && !edicion.todosApoderados ? poder.apoderados.filter(a => firmanteDe(a, firmantes)) : poder.apoderados;
     const marcas = (cliente && cliente.marcas) || {};
     return {
       deed_number: edicion.deed_number || null,
@@ -2471,7 +2487,7 @@
       cuit_empresa: formatoCuit(poder.cuit_empresa),
       otorgante: { numero_de_identificacion: ident(poder.otorgante.dni), nombre_completo: poder.otorgante.nombre_completo || null, fecha_nacimiento: poder.otorgante.fecha_nacimiento || null },
       apoderados: apoderados.map(a => ({ numero_de_identificacion: ident(a.dni, a), nombre_completo: a.nombre_completo, grupo: a.grupo || null })),
-      estructuras_de_firma: poder.usos.map((u, n) => {
+      estructuras_de_firma: alinearGruposNumerados(poder).map((u, n) => {
         const ed = (edicion.facultades || [])[n] || {};
         // Si el uso es de un grupo y el poder asigna grupos, el uso vale solo para los apoderados de ese grupo.
         const comb = expandirComodines(u.combinaciones && u.combinaciones.length ? u.combinaciones : combinacionesPorGrupos(u, poder.apoderados), poder.apoderados);
@@ -2685,12 +2701,39 @@
   // Circuitos que el sistema de destino tiene con dos códigos (van los dos juntos).
   const CIRCUITOS_GEMELOS = { TRF_ENTRE_CTAS_EMP: ['TRF_ENTRE_CUENTAS_EM'] };
   const PARTICULAS_APELLIDO = /^(DE|DEL|LA|LAS|LOS|DI|DA|VAN|VON|MC|MAC|SAN|SANTA)$/;
+  // Nombres de pila frecuentes: en "CARLOS MODESTO AGUIAR MARTINEZ" los primeros que son nombres van a nombre y el resto
+  // (aunque sean dos palabras) a apellido.
+  const NOMBRES_PILA = new Set(('adrian adriana agustin agustina alan alberto alejandra alejandro alfredo alicia ana andrea andres angel angela angeles ' +
+    'anibal antonio ariel armando augusto aurora beatriz belen benjamin bernardo blanca bruno camila carina carla carlos carmen carolina catalina ' +
+    'cecilia cesar claudia claudio clara constanza cristian cristina dalma damian daniel daniela dario david debora diana diego dolores domingo ' +
+    'eduardo elena elias eliana elisa elsa emanuel emilia emiliano emilio enrique ernesto esteban estefania eugenia eugenio evangelina ezequiel ' +
+    'fabian fabiana fabio facundo federico felipe fernanda fernando florencia francisco franco gabriel gabriela gaston gerardo german gisela ' +
+    'gonzalo graciela guadalupe guillermo gustavo hector hernan horacio hugo ignacio ines irene isabel ismael ivan jaime javier jesus joaquin ' +
+    'jorge jose josefina juan juana julia julian juliana julieta julio karina laura leandro leonardo leonel lorena lourdes lucas lucia luciana ' +
+    'luciano lucila luis luisa lujan magdalena manuel marcela marcelo marcos marco margarita maria mariana mariano maricel marina mario marta ' +
+    'martin martina matias mauricio maximiliano melisa mercedes micaela miguel milagros miriam modesto monica natalia nelson nicolas noelia norberto ' +
+    'norma octavio omar oscar osvaldo pablo pamela patricia patricio paula paulina pedro pilar rafael ramiro ramon raquel raul ricardo roberto ' +
+    'rocio rodolfo rodrigo rolando romina rosa rosana ruben sabrina salvador samuel sandra sandro santiago sebastian sergio silvia silvina ' +
+    'sofia solange soledad sonia susana tatiana teresa tomas valentin valeria vanesa veronica vicente victor victoria virginia virignia walter ' +
+    'yamila ximena justo fortunato analia veronica estefania gisella nahuel thiago tobias bautista valentina').split(' '));
+  const esNombrePila = w => NOMBRES_PILA.has(normalizar(w));
   // "BREA, RICARDO CESAR JOSE" → apellido BREA; sin coma, el apellido es la primera palabra (con "DE LA", "DEL"…).
-  function separarNombre(completo) {
+  // otro: el mismo nombre en otro orden (la planilla suele traer "APELLIDO NOMBRE" y el poder "NOMBRE APELLIDO"): el
+  // apellido son las últimas palabras de uno que son las primeras del otro.
+  function separarNombre(completo, otro) {
     const t = String(completo || '').replace(/\s+/g, ' ').trim();
     if (!t) return { apellido: '', nombre: '', seguro: false };
     if (t.includes(',')) { const [a, ...n] = t.split(','); return { apellido: a.trim(), nombre: n.join(',').trim(), seguro: true }; }
     const p = t.split(' ');
+    const o = String(otro || '').replace(/,/g, ' ').replace(/\s+/g, ' ').trim().split(' ').filter(Boolean);
+    if (o.length === p.length && normalizar(o.join(' ')) !== normalizar(t)) {
+      for (let k = p.length - 1; k >= 1; k--) {
+        const fin = p.slice(k).map(normalizar).join(' ');
+        // (Si lo que queda como apellido son nombres de pila y el nombre no tiene ninguno, el orden es el otro.)
+        if (normalizar(o.slice(0, p.length - k).join(' ')) === fin && !(p.slice(k).every(esNombrePila) && !p.slice(0, k).some(esNombrePila)))
+          return { apellido: p.slice(k).join(' '), nombre: p.slice(0, k).join(' '), seguro: true };
+      }
+    }
     // "Eduardo Fortunato AMIRANTE": el apellido es lo que está en mayúsculas al final.
     const mayus = w => /[A-ZÁÉÍÓÚÑ]{2}/.test(w) && w === w.toUpperCase();
     if (p.some(w => !mayus(w) && /[a-záéíóúñ]/.test(w)) && mayus(p[p.length - 1])) {
@@ -2698,6 +2741,14 @@
       while (i > 0 && (mayus(p[i - 1]) || PARTICULAS_APELLIDO.test(p[i - 1].toUpperCase()))) i--;
       if (i > 0) return { apellido: p.slice(i).join(' '), nombre: p.slice(0, i).join(' '), seguro: true };
     }
+    // Nombres de pila al principio ("ADRIÁN ALBERTO FANTÍN"): el resto es el apellido; al final ("ZAPATA JUAN CARLOS"):
+    // lo de adelante es el apellido.
+    let ini = 0;
+    while (ini < p.length - 1 && esNombrePila(p[ini])) ini++;
+    if (ini > 0) return { apellido: p.slice(ini).join(' '), nombre: p.slice(0, ini).join(' '), seguro: true };
+    let fin = p.length;
+    while (fin > 1 && esNombrePila(p[fin - 1])) fin--;
+    if (fin < p.length) return { apellido: p.slice(0, fin).join(' '), nombre: p.slice(fin).join(' '), seguro: true };
     // "Sebastian Roig" (nombre y apellido en ese orden): el apellido es la última palabra (con "de la", "del"…).
     if (p.length > 1 && p.every(w => !mayus(w))) {
       let i = p.length - 1;
@@ -2756,7 +2807,21 @@
     }
     const ren = g => renombre[g] || g;
     const reglas = new Map();
-    (unico.estructuras_de_firma || []).forEach(e => {
+    // Con los JSON de cada poder (opciones.jsons) y todos los usos conjuntos con combinaciones, cada regla sale del uso
+    // de firma exacto del poder (sus circuitos y sus combinaciones). Si no, de los grupos del JSON único.
+    const porUso = (opciones.jsons || []).flatMap(j => j.estructuras_de_firma || []);
+    const exacto = porUso.length && porUso.every(e => !e.firma_conjunta || (e.combinaciones || []).length);
+    // Apoderados del poder que no están en el JSON único (grupos sin usos de firma, p. ej. un grupo C): van igual.
+    if (opciones.jsons) {
+      const ya = new Set(apoderadosU.map(a => a.numero_de_identificacion));
+      opciones.jsons.flatMap(j => j.apoderados || []).forEach(a => {
+        if (ya.has(a.numero_de_identificacion) || !letraGrupo(a.grupo)) return;
+        ya.add(a.numero_de_identificacion);
+        apoderadosU.push({ numero_de_identificacion: a.numero_de_identificacion, nombre_completo: a.nombre_completo, grupo: letraGrupo(a.grupo) });
+        planillaDe.set(a.numero_de_identificacion, firmanteDeId(a));
+      });
+    }
+    (exacto ? porUso : unico.estructuras_de_firma || []).forEach(e => {
       const circuitos = [...new Set(Object.entries(e.facultades || {}).filter(([k, v]) => v && CIRCUITO_DE_CLAVE[k])
         .flatMap(([k]) => [CIRCUITO_DE_CLAVE[k]].concat(CIRCUITOS_GEMELOS[CIRCUITO_DE_CLAVE[k]] || [])))].sort();
       const agregar = (tipo, quorum, grupos, extra = {}, combo = '', firmantes = []) => {
@@ -2802,7 +2867,7 @@
     });
     const apoderados = apoderadosU.map(a => {
       const f = planillaDe.get(a.numero_de_identificacion);
-      const n = separarNombre((f && /,/.test(f.nombre) ? f.nombre : '') || a.nombre_completo || (f && f.nombre));
+      const n = f && /,/.test(f.nombre) ? separarNombre(f.nombre) : separarNombre(a.nombre_completo || (f && f.nombre), f && f.nombre);
       if (!n.seguro) avisos.push(`${a.nombre_completo}: apellido "${n.apellido}" (revisar).`);
       const id = idTexto(a.numero_de_identificacion) || idTexto(f && f.cuit);
       if (!id) avisos.push(`${a.nombre_completo}: sin CUIT/CUIL.`);
@@ -2815,7 +2880,9 @@
       version: '1.0',
       empresa: { cuit: formatoCuit(unico.cuit_empresa), razonSocial: unico.razon_social || null, estado: 'Activa' },
       apoderados,
-      reglasFirma: [...reglas.values()].map((r, i) => Object.assign({ referencia: `regla-${i + 1}` }, r)),
+      // Orden: conjuntas indistintas, conjuntas e individuales.
+      reglasFirma: [...reglas.values()].sort((a, b) => ['ConjuntaIndistinta', 'Conjunta', 'Individual'].indexOf(a.tipo) - ['ConjuntaIndistinta', 'Conjunta', 'Individual'].indexOf(b.tipo))
+        .map((r, i) => Object.assign({ referencia: `regla-${i + 1}` }, r)),
     };
     // Avisos y grupos renombrados: para la pantalla, no se exportan.
     Object.defineProperty(json, 'avisos', { value: avisos, enumerable: false });
