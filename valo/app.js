@@ -2439,7 +2439,7 @@
     if (!cliente.firmantes.length) { fila.estado = 'err'; fila.error = 'El Excel no tiene firmantes (no se encontró la tabla de firmantes)'; return fila; }
     // Sin razón social en el Excel: la del nombre del archivo (los poderes sin CUIT se encuentran por nombre).
     const r = M.complifDeEmpresa(docs, cliente.cuit, nombreCliente || fila.empresa.replace(/\s*-\s*(ex|cuenta)\b.*$/i, ''), { soloCuit });
-    const rv = M.aplicarRevocatorias(r.poderes);
+    const rv = M.aplicarRevocatorias(r.poderes, { ignorar: (excepBast.porCuit || {})[String(cliente.cuit || '').replace(/\D/g, '')] || [] });
     // Presidente / socio gerente (por acta, por el encabezado del resumen o "D" / "(Presidente)"): firma con todas las
     // facultades aunque no figure en los poderes.
     const presidencia = M.poderesFirmantesD(cliente, rv.vigentes, r.actas);
@@ -2485,6 +2485,7 @@
     mas.cerradas = fuentes.filter(f => /\.xlsx?$/i.test(f.nombre) && esCerrada(f.nombre)).length;
     if (!lista.length) { $('masEstado').innerHTML = aviso('warn', 'No hay archivos Excel para controlar.'); return; }
     Object.assign(mas, { filas: [], cancelar: false, corriendo: true });
+    await cargarExcepcionesBast();
     $('btnMasCancelar').disabled = false; $('btnMasExcel').disabled = true;
     const estado = t => { $('masEstado').innerHTML = `<p class="sub">${t}</p>`; };
     try {
@@ -2646,7 +2647,38 @@
   }
 
   // Ediciones por poder: escritura (por la fecha de emisión, entre las de la planilla), acta, tipo y CUIT de cada DNI.
+  // Excepciones de revocatorias (por CUIT de la empresa), guardadas en la base para todos.
+  const excepBast = { porCuit: null };
+  async function cargarExcepcionesBast() {
+    if (excepBast.porCuit) return;
+    try { excepBast.porCuit = (almacen && typeof almacen.excepcionesBastanteo === 'function') ? await almacen.excepcionesBastanteo() : {}; }
+    catch (e) { excepBast.porCuit = {}; }
+  }
+  const cuitEmpresaBast = poderes => String((bast.cliente && bast.cliente.cuit) || ((poderes || []).find(p => /\d{11}/.test(String(p.cuit_empresa || '').replace(/\D/g, ''))) || {}).cuit_empresa || '').replace(/\D/g, '');
+  async function cambiarExcepcionRev(clave, ignorar) {
+    const cuit = cuitEmpresaBast(bast.poderesTodos);
+    if (!cuit) return toast('No se sabe el CUIT de la empresa: cargá la planilla del cliente');
+    await cargarExcepcionesBast();
+    const l = new Set(excepBast.porCuit[cuit] || []);
+    if (ignorar) l.add(clave); else l.delete(clave);
+    excepBast.porCuit[cuit] = [...l];
+    if (!excepBast.porCuit[cuit].length) delete excepBast.porCuit[cuit];
+    try { await almacen.guardarExcepcionesBastanteo(excepBast.porCuit); toast(ignorar ? 'Revocatoria ignorada para esta empresa (queda guardado)' : 'Revocatoria aplicada de nuevo'); }
+    catch (e) { toast('Se aplica en esta sesión; no se pudo guardar: ' + (e.message || e)); }
+    prepararBastanteo();
+  }
+  $('bastEstado').addEventListener('click', e => {
+    const b = e.target.closest('[data-rev-ignorar], [data-rev-aplicar]');
+    if (!b) return;
+    if (b.dataset.revIgnorar != null) {
+      if (!confirm('¿Ignorar la revocatoria de este poder para esta empresa? Los poderes que anulaba vuelven a usarse en el bastanteo (y en el chequeo masivo).')) return;
+      cambiarExcepcionRev(b.dataset.revIgnorar, true);
+    } else cambiarExcepcionRev(b.dataset.revAplicar, false);
+  });
+
   async function prepararBastanteo() {
+    // Primero las excepciones (puede tardar): el estado del bastanteo se lee después, ya actualizado.
+    await cargarExcepcionesBast();
     // Se toman todos los poderes del PDF (sin filtrar por la empresa de la planilla).
     let todos = bast.poderesTodos || [];
     bast.avisoPresidente = '';
@@ -2660,8 +2692,10 @@
         bast.avisoPresidente = aviso('warn', `El PDF no tiene "Acreditación de Poderes": se toma al presidente del acta de designación (${esc(pp.fecha_emision || 's/f')}), ${quien}, que está en la planilla como apoderado, con <b>todas las facultades</b> y firma individual. Revisalo antes de usar el JSON.`);
       } else bast.avisoPresidente = aviso('bad', `El PDF no tiene "Acreditación de Poderes" y el presidente del acta, ${quien}, no figura en la planilla del cliente: no se arma el bastanteo.`);
     }
-    // Revocatorias: los poderes anteriores a uno que revoca quedan anulados.
-    const rv = M.aplicarRevocatorias(todos);
+    // Revocatorias: los poderes anteriores a uno que revoca quedan anulados (salvo las excepciones cargadas a mano).
+    const rv = M.aplicarRevocatorias(todos, { ignorar: excepBast.porCuit[cuitEmpresaBast(todos)] || [] });
+    bast.revocan = rv.revocan || [];
+    bast.ignorados = rv.ignorados || [];
     bast.anulados = rv.anulados;
     bast.quitados = rv.quitados || [];
     bast.avisosRev = rv.avisos || [];
@@ -2724,6 +2758,14 @@
     if ((bast.firmantesD || []).length) estado += aviso('warn', `<b>Presidente:</b> ${bast.firmantesD.map(p => esc(p.presidente.nombre_completo) + ' (grupo ' + esc(p.presidente.grupo) + ')').join(', ')} no está en los poderes; por el acta de directorio o el resumen ("D" / "Presidente") se lo toma como presidente con <b>todas las facultades</b> y firma individual.`);
     if ((bast.anulados || []).length) estado += aviso('warn', `<b>${bast.anulados.length} poder${bast.anulados.length > 1 ? 'es anulados' : ' anulado'} por revocatoria:</b> ` +
       bast.anulados.map(a => `${esc(a.poder.fecha_emision || 's/f')}${a.poder.deed_number ? ' (esc. ' + esc(a.poder.deed_number) + ')' : ''} — ${esc(a.motivo)}`).join(' · ') + '. No se usan en el bastanteo.');
+    // Revocatorias que se pueden ignorar a mano (excepción: Complif marcó como revocatorio un poder que no lo es).
+    const descPoder = p => `${esc(p.fecha_emision || 's/f')}${p.deed_number ? ' (esc. ' + esc(p.deed_number) + ')' : ''}`;
+    const efecto = (bast.revocan || []).map(r => ({ r, an: (bast.anulados || []).filter(a => a.revocante === r).length, qu: (bast.quitados || []).filter(q => q.revocante === r).length })).filter(x => x.an || x.qu);
+    if (efecto.length || (bast.ignorados || []).length) estado += `<div class="aviso warn"><b>Excepciones de revocatoria</b> (si Complif categorizó mal un poder):` +
+      efecto.map(x => `<div style="margin-top:4px">El poder del ${descPoder(x.r)} revoca: ${x.an ? x.an + ' poder' + (x.an > 1 ? 'es anulados' : ' anulado') : ''}${x.an && x.qu ? ', ' : ''}${x.qu ? x.qu + ' apoderado' + (x.qu > 1 ? 's quitados' : ' quitado') : ''}. ` +
+        `<button class="btn" type="button" data-rev-ignorar="${esc(M.claveRevocatoria(x.r))}" data-escribe>Ignorar esta revocatoria</button></div>`).join('') +
+      (bast.ignorados || []).map(p => `<div style="margin-top:4px"><span class="chip gris">excepción</span> La revocatoria del poder del ${descPoder(p)} está ignorada para esta empresa. ` +
+        `<button class="btn" type="button" data-rev-aplicar="${esc(M.claveRevocatoria(p))}" data-escribe>Volver a aplicarla</button></div>`).join('') + '</div>';
     (bast.avisosRev || []).forEach(a => { estado += aviso('warn', `<b>Revocatoria sin apoderados:</b> el poder del ${esc(a.poder.fecha_emision || 's/f')}${a.poder.deed_number ? ' (esc. ' + esc(a.poder.deed_number) + ')' : ''} ${esc(a.motivo)}.`); });
     if (hay && !bast.cliente) estado += aviso('warn', 'Falta la planilla del cliente: sin ella no se completan los CUIT de los firmantes ni la escritura, y se muestran todas las personas del PDF.');
     const otros = bast.otrosPoderes || [];
