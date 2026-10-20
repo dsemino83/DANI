@@ -3752,17 +3752,32 @@
       let existe = false;
       try { await h.getFileHandle(nombre); existe = true; } catch (e) { /* no existe */ }
       if (existe && !confirm(`Ya hay un ${nombre} en ${h.name}. ¿Reemplazarlo?`)) return;
-      const f = await h.getFileHandle(nombre, { create: true });
-      const w = await f.createWritable();
-      await w.write(new Blob([texto], { type: 'text/plain;charset=utf-8' }));
-      await w.close();
+      // El navegador escribe en un temporal (.crswap) y lo renombra; en carpetas de red eso puede fallar
+      // (InvalidStateError) si el archivo ya existe o quedó bloqueado: se borra y se vuelve a intentar una vez.
+      const escribir = async () => {
+        const f = await h.getFileHandle(nombre, { create: true });
+        const w = await f.createWritable({ keepExistingData: false });
+        try { await w.write(new Blob([texto], { type: 'text/plain;charset=utf-8' })); await w.close(); }
+        catch (e) { try { await w.abort(); } catch (x) { /* ya cerrado */ } throw e; }
+      };
+      try { await escribir(); }
+      catch (e) {
+        if (e.name !== 'InvalidStateError' && e.name !== 'NoModificationAllowedError') throw e;
+        try { await h.removeEntry(nombre); } catch (x) { /* no estaba o no se puede borrar */ }
+        try { await h.removeEntry(nombre + '.crswap'); } catch (x) { /* sin temporal */ }
+        await escribir();
+      }
       toast(`Guardado en ${h.name}\\${nombre}`);
       $('fcicEstado').innerHTML = aviso('ok', `TXT guardado en <b>${esc(CARPETA_FCIC)}\\${esc(nombre)}</b> (carpeta elegida: ${esc(h.name)}) y descargado.`);
       mostrarCarpetaFcic();
       descargar(nombre, texto, true);
     } catch (e) {
       if (e.name === 'AbortError') return;
-      informar('No se pudo guardar en la carpeta de red', `${esc(e.message || e)}<br>Revisá que tengas acceso de escritura a ${esc(CARPETA_FCIC)}. Podés usar <b>Descargar TXT</b> y copiarlo a mano.`);
+      descargar(nombre, texto, true);
+      const causa = e.name === 'InvalidStateError' || e.name === 'NoModificationAllowedError'
+        ? 'La carpeta no deja que el navegador termine de grabar el archivo: Edge/Chrome escriben primero un temporal (<i>.crswap</i>) y después lo renombran, y en esa carpeta compartida no se puede renombrar o borrar (permiso de <b>Modificar</b>), o el archivo está abierto / bloqueado. Pedí a sistemas permiso de Modificar sobre la carpeta, o cerrá el archivo si está abierto.'
+        : e.name === 'NotAllowedError' ? 'El navegador no dio permiso de escritura sobre la carpeta (tocá Permitir cuando lo pida).' : `Revisá que tengas acceso de escritura a ${esc(CARPETA_FCIC)}.`;
+      informar('No se pudo guardar en la carpeta de red', `<b>${esc(e.name || 'Error')}</b>: ${esc(e.message || e)}<br><br>${causa}<br><br>Se descargó <b>${esc(nombre)}</b> igual: copialo a ${esc(CARPETA_FCIC)}.`);
     }
   });
   mostrarCarpetaFcic();
