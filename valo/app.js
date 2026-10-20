@@ -3595,7 +3595,7 @@
     const b = fcicBase();
     $('fcicBase').textContent = isFinite(b) ? '$ ' + fmtMonto(b) : '—';
     $('btnFcicArmar').disabled = !(fcic.rep && isFinite(b) && deIso($('fcicConcesion').value) && deIso($('fcicVto').value));
-    $('btnFcicTxt').disabled = $('btnFcicTxtRed').disabled = $('btnFcicExcel').disabled = true;
+    $('btnFcicTxt').disabled = $('btnFcicExcelRed').disabled = $('btnFcicExcel').disabled = true;
     $('fcicTabla').innerHTML = ''; $('fcicKpis').innerHTML = ''; $('fcicEstado').innerHTML = '';
   }
   $('fcicPatrimonio').addEventListener('input', () => { $('fcicSaldoEstado').innerHTML = ''; fcicInvalidar(); });
@@ -3690,8 +3690,8 @@
       + r.filas.map(f => `<tr${f.conDatos ? '' : ' style="color:var(--muted)"'}><td>${esc(f.ente) || '<span class="chip bad">sin ente</span>'}</td><td>${esc(M.formatoCuit(f.cuit))}</td><td>${esc(f.nombre)}</td>`
         + `<td class="num">${f.conDatos ? fmtMonto(f.monto) : ''}</td><td class="num">${f.conDatos ? (f.porcentaje * 100).toFixed(4) : '0'}</td><td class="num">${fmtMonto(f.saldo)}</td>`
         + `<td style="font-family:monospace;font-size:11px">${esc(f.linea)}</td></tr>`).join('') + '</tbody></table>';
-    $('btnFcicTxt').disabled = $('btnFcicTxtRed').disabled = !r.texto;
-    $('btnFcicExcel').disabled = false;
+    $('btnFcicTxt').disabled = !r.texto;
+    $('btnFcicExcel').disabled = $('btnFcicExcelRed').disabled = false;
   }
   // Nombre como en la solapa FORMATO: fideico_nocobis_aaaammdd.txt (fecha de hoy).
   const fcicNombreTxt = () => { const h = new Date(); return `fideico_nocobis_${h.getFullYear()}${String(h.getMonth() + 1).padStart(2, '0')}${String(h.getDate()).padStart(2, '0')}.txt`; };
@@ -3736,11 +3736,14 @@
     try { await elegirCarpetaFcic(); } catch (err) { if (err.name !== 'AbortError') informar('No se pudo elegir la carpeta', esc(err.message || err)); }
     mostrarCarpetaFcic();
   });
-  $('btnFcicTxtRed').addEventListener('click', async () => {
-    if (!fcic.res || !fcic.res.texto) return;
-    const nombre = fcicNombreTxt(), texto = fcic.res.texto;
+  $('btnFcicExcelRed').addEventListener('click', async () => {
+    const libro = fcicLibro();
+    if (!libro) return;
+    const nombre = libro.nombre;
+    const contenido = new Blob([XLSX.write(libro.wb, { bookType: 'xlsx', type: 'array' })], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    const bajar = () => descargarLibro(libro.nombre, libro.wb);
     if (!window.showDirectoryPicker) {
-      descargar(nombre, texto, true);
+      bajar();
       return informar('No se pudo guardar en la carpeta de red', `Este navegador no permite que la página escriba en carpetas. Se descargó <b>${esc(nombre)}</b>: copialo a ${esc(CARPETA_FCIC)}, o abrí la página en Edge / Chrome (desde el sitio, no dentro de claude.ai).`);
     }
     try {
@@ -3757,7 +3760,7 @@
       const escribir = async () => {
         const f = await h.getFileHandle(nombre, { create: true });
         const w = await f.createWritable({ keepExistingData: false });
-        try { await w.write(new Blob([texto], { type: 'text/plain;charset=utf-8' })); await w.close(); }
+        try { await w.write(contenido); await w.close(); }
         catch (e) { try { await w.abort(); } catch (x) { /* ya cerrado */ } throw e; }
       };
       try { await escribir(); }
@@ -3768,12 +3771,12 @@
         await escribir();
       }
       toast(`Guardado en ${h.name}\\${nombre}`);
-      $('fcicEstado').innerHTML = aviso('ok', `TXT guardado en <b>${esc(CARPETA_FCIC)}\\${esc(nombre)}</b> (carpeta elegida: ${esc(h.name)}) y descargado.`);
+      $('fcicEstado').innerHTML = aviso('ok', `Excel guardado en <b>${esc(CARPETA_FCIC)}\\${esc(nombre)}</b> (carpeta elegida: ${esc(h.name)}) y descargado.`);
       mostrarCarpetaFcic();
-      descargar(nombre, texto, true);
+      bajar();
     } catch (e) {
       if (e.name === 'AbortError') return;
-      descargar(nombre, texto, true);
+      bajar();
       const causa = e.name === 'InvalidStateError' || e.name === 'NoModificationAllowedError'
         ? 'La carpeta no deja que el navegador termine de grabar el archivo: Edge/Chrome escriben primero un temporal (<i>.crswap</i>) y después lo renombran, y en esa carpeta compartida no se puede renombrar o borrar (permiso de <b>Modificar</b>), o el archivo está abierto / bloqueado. Pedí a sistemas permiso de Modificar sobre la carpeta, o cerrá el archivo si está abierto.'
         : e.name === 'NotAllowedError' ? 'El navegador no dio permiso de escritura sobre la carpeta (tocá Permitir cuando lo pida).' : `Revisá que tengas acceso de escritura a ${esc(CARPETA_FCIC)}.`;
@@ -3781,8 +3784,9 @@
     }
   });
   mostrarCarpetaFcic();
-  $('btnFcicExcel').addEventListener('click', () => {
-    const r = fcic.res; if (!r) return;
+  // Excel de detalle: solapas DG, Reporte por banco y TXT DE NO COBIS.
+  function fcicLibro() {
+    const r = fcic.res; if (!r) return null;
     const dg = [['Ultimo dia habil del mes', fBarra(r.fechas.concesion)], ['vto de producto', fBarra(r.fechas.vencimiento)], ['Saldo cuenta 121049010', r.base], [],
       ['Ente', 'CUIT', 'Banco', 'Importe actual cheques', 'Porcentaje', 'Saldo de capital', 'Línea TXT']]
       .concat(r.filas.map(f => [Number(f.ente) || '', Number(f.cuit), f.nombre, f.conDatos ? f.monto : 0, f.porcentaje, f.saldo, f.linea]));
@@ -3790,8 +3794,9 @@
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(dg), 'DG');
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['Banco', 'Monto', 'Porcentaje']].concat(fcic.rep.grupos.map(g => [g.banco, g.monto, g.porcentaje]))), 'Reporte por banco');
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(r.filas.filter(f => f.linea).map(f => [f.linea])), 'TXT DE NO COBIS');
-    descargarLibro(`NoCobis_FCIC_MELI_${isoDe(r.fechas.concesion).replace(/-/g, '')}.xlsx`, wb);
-  });
+    return { nombre: `NoCobis_FCIC_MELI_${isoDe(r.fechas.concesion).replace(/-/g, '')}.xlsx`, wb };
+  }
+  $('btnFcicExcel').addEventListener('click', () => { const l = fcicLibro(); if (l) descargarLibro(l.nombre, l.wb); });
 
   // ---- lista DG y nombres de bancos (base compartida)
   function renderFcicCfg() {
