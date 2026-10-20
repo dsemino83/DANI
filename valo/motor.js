@@ -2883,8 +2883,8 @@
     });
     const apoderados = apoderadosU.map(a => {
       const f = planillaDe.get(a.numero_de_identificacion);
-      // Nombre completo del Excel (la planilla manda); el del poder ayuda a saber cuál es el apellido.
-      const n = f && f.nombre ? separarNombre(f.nombre, a.nombre_completo) : separarNombre(a.nombre_completo);
+      // Nombre de Complif / del poder; el del Excel ayuda a saber cuál es el apellido.
+      const n = a.nombre_completo ? separarNombre(a.nombre_completo, f && f.nombre) : separarNombre(f && f.nombre);
       if (!n.seguro) avisos.push(`${a.nombre_completo}: apellido "${n.apellido}" (revisar).`);
       const id = idTexto(a.numero_de_identificacion) || idTexto(f && f.cuit);
       if (!id) avisos.push(`${a.nombre_completo}: sin CUIT/CUIL.`);
