@@ -66,7 +66,9 @@ El workflow `.github/workflows/home-banking-imagenes.yml` corre en cada push a `
 2. **Prueba de humo:** levanta el stack completo con Docker (bases, backend, frontend y Keycloak local) y verifica frontend, `config.json`, CSP, `/api/health`, que la API pida token, Keycloak y el esquema de la base.
 3. **Publicación** en Docker Hub, solo si las dos anteriores pasan: `docker.io/<usuario>/home-banking-valo` con los tags `backend-alyc`, `frontend-alyc` y `backend-<commit>` / `frontend-<commit>`.
 
-Requiere dos secretos en GitHub (Settings → Secrets and variables → Actions): `DOCKERHUB_USERNAME` y `DOCKERHUB_TOKEN` (access token de Docker Hub con permiso Read & Write). Conviene que el repositorio de Docker Hub sea **privado**.
+Requiere dos secretos en GitHub (Settings → Secrets and variables → Actions): `DOCKERHUB_USERNAME` y `DOCKERHUB_TOKEN` (access token de Docker Hub con permiso **Read & Write**; con Read-only la publicación falla con "insufficient scopes"). Conviene que el repositorio de Docker Hub sea **privado**.
+
+Paso a paso completo del despliegue en un servidor (certificado, SSO, actualizaciones, resguardo): [DESPLIEGUE.md](DESPLIEGUE.md).
 
 Para desplegar sin compilar, en el `.env` del servidor:
 

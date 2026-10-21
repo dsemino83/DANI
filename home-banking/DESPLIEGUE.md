@@ -1,0 +1,106 @@
+# Despliegue en un servidor con las imágenes de Docker Hub
+
+El servidor no compila nada: descarga las imágenes que publica GitHub Actions (`<usuario>/home-banking-valo`) y las levanta con `docker compose`. En el servidor solo quedan la configuración, los secretos y los datos.
+
+## 1. Requisitos del servidor
+
+- Linux (por ejemplo Ubuntu 22.04/24.04) con 2 vCPU, 4 GB de RAM y 20 GB de disco como mínimo.
+- **Docker Engine** con el plugin **compose**. En Ubuntu: `curl -fsSL https://get.docker.com | sh`.
+- **Entrada:** puerto **443** (HTTPS) abierto para los usuarios. No exponer ningún otro puerto.
+- **Salida HTTPS:** `api.bancodevalores.com` (producción) o `apihomo.bancodevalores.com` (homologación), el SSO de VALO (`ssohomo.valo.ar` o el de producción) y `registry-1.docker.io` (descarga de imágenes).
+
+## 2. Archivos de configuración
+
+El servidor necesita estos archivos del repositorio, no el código: `docker-compose.yml`, `.env.example`, `db/`, `keycloak/`, `scripts/` y la carpeta `frontend/certs/`. Lo más simple es clonar la rama:
+
+```sh
+git clone -b ALYC https://github.com/dsemino83/DANI.git
+cd DANI/home-banking
+```
+
+## 3. Certificado HTTPS
+
+- **Servidor real:** copiá el certificado y la llave del dominio, emitidos por VALO, como `frontend/certs/tls.crt` y `frontend/certs/tls.key`.
+- **Prueba:** el paso 4 genera uno autofirmado si no hay ninguno.
+
+## 4. Secretos
+
+```sh
+sh scripts/generar-secretos.sh
+```
+
+Crea las claves de las bases y la llave maestra que cifra la credencial del banco en `secrets/` (carpeta 700, archivos 644). **Guardalos en el resguardo de secretos de VALO**: sin la llave maestra no se puede descifrar la credencial guardada en la base.
+
+## 5. `.env`
+
+```sh
+cp .env.example .env
+```
+
+Valores a revisar:
+
+```env
+# Imágenes publicadas
+HB_IMAGEN=docker.io/<usuario-docker-hub>/home-banking-valo
+HB_VERSION=alyc                 # o un commit (p. ej. bea7a2e) para fijar la versión exacta
+
+# Banco
+BDV_AMBIENTE=prod               # homo | prod (define la URL del banco)
+BDV_SOLO_CONSULTAS=true         # true hasta validar; false habilita el envío de transferencias
+
+# SSO de VALO (Identidad tiene que crear los clientes; ver README)
+OIDC_ISSUER=https://ssohomo.valo.ar/valo/realms/staff
+OIDC_ORIGIN=https://ssohomo.valo.ar
+OIDC_CLIENT_ID=home-banking-web
+OIDC_AUDIENCE=home-banking-api
+OIDC_ROLES_CLIENT=home-banking-api
+KEYCLOAK_ADMIN_CLIENT_ID=home-banking-admin
+```
+
+El secret de la service account `home-banking-admin` que entregue Identidad va en `secrets/keycloak_admin_client_secret.txt`, sin salto de línea. En el cliente `home-banking-web`, Identidad tiene que registrar `https://<dominio-del-servidor>/*` como redirect URI y `https://<dominio-del-servidor>` como web origin.
+
+> El Keycloak local (`--profile dev`) es solo para probar en una PC: su realm acepta únicamente `https://localhost`. En un servidor con otro nombre el login no funciona; hay que usar el SSO de VALO.
+
+## 6. Descargar y levantar
+
+```sh
+docker login -u <usuario-docker-hub>     # repositorio privado: usar un token de solo lectura (Read-only)
+docker compose pull
+docker compose up -d
+docker compose ps                         # postgres, postgres-historico, backend, jobs y frontend en "healthy"
+```
+
+Después: `https://<dominio-del-servidor>` → entrar con un usuario del SSO que tenga el rol **administrador** → **Credenciales API** → cargar la credencial del banco → **Probar conexión**. Luego seguir con Empresas y Permisos, como en `PRUEBA-INTEGRADA.md`.
+
+## 7. Actualizar a una versión nueva
+
+Cada push a `ALYC` que pasa las pruebas publica `backend-alyc`/`frontend-alyc` y la versión fija `backend-<commit>`/`frontend-<commit>`.
+
+```sh
+# en .env: HB_VERSION=<commit nuevo>
+docker compose pull
+docker compose up -d                      # recrea solo lo que cambió; las bases y sus datos se mantienen
+```
+
+**Volver atrás:** poner el `HB_VERSION` anterior y repetir los dos comandos. Si una versión nueva cambió el esquema de la base, consultar antes de volver atrás.
+
+## 8. Resguardo de las bases
+
+Los datos viven en los volúmenes `pg_operativa` y `pg_historica`. Copia diaria, por ejemplo con cron a las 03:00:
+
+```sh
+docker compose exec -T postgres           pg_dump -U postgres -Fc homebanking      > /resguardo/operativa-$(date +%F).dump
+docker compose exec -T postgres-historico pg_dump -U postgres -Fc homebanking_hist > /resguardo/historica-$(date +%F).dump
+```
+
+Guardar también `secrets/` y `.env`. **`docker compose down -v` borra los volúmenes con todos los datos: no usarlo en el servidor.**
+
+## Problemas
+
+| Síntoma | Qué revisar |
+|---|---|
+| `pull access denied` o `unauthorized` en `docker compose pull` | Falta `docker login`, o el token no tiene acceso al repositorio privado |
+| Un servicio no llega a `healthy` | `docker compose logs <servicio>` |
+| `EACCES … /run/secrets/…` | Permisos de `secrets/`: `chmod 700 secrets && chmod 644 secrets/*.txt` |
+| El login vuelve a la pantalla de ingreso | Redirect URI y web origin del cliente `home-banking-web` en el SSO, y `OIDC_ISSUER` / `OIDC_ORIGIN` |
+| "Probar conexión" no conecta con el banco | Salida HTTPS del servidor hacia el host del banco, y el filtrado por IP del banco |
