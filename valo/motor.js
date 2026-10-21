@@ -2820,6 +2820,37 @@
     return { monto: null, moneda: null };
   }
 
+  // Tipo de cambio escrito en la planilla del cliente: "TIPO DE CAMBIO AL 11/01/2024: 834.5000", "TC: 9/11/2022 $166,50",
+  // "(según fecha 2/9/2026 - cotización $1511 - …)". Devuelve { tc, fecha (aaaa-mm-dd o ''), texto } o null.
+  function tcDePlanilla(hojas) {
+    const num = v => {
+      let t = String(v).trim();
+      if (/,/.test(t) && /\./.test(t)) t = t.replace(/\./g, '').replace(',', '.');
+      else if (/,/.test(t)) t = t.replace(',', '.');
+      else if (/^\d{1,3}(\.\d{3})+$/.test(t)) t = t.replace(/\./g, '');
+      return Number(t);
+    };
+    const iso = f => { const m = String(f || '').match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/); return m ? `${m[3]}-${ceros(m[2], 2)}-${ceros(m[1], 2)}` : ''; };
+    const pats = [
+      /TIPO\s+DE\s+CAMBIO(?:\s+(?:AL|DEL)?\s*(\d{1,2}\/\d{1,2}\/\d{4}))?\s*[:=]?\s*\$?\s*(\d[\d.,]*)/i,
+      /\bT\.?\s?C\.?\s*[:=]?\s*(\d{1,2}\/\d{1,2}\/\d{4})?\s*\$?\s*(\d[\d.,]*)/i,
+      /cotizaci[oó]n\s*(?:de\s*)?\$?\s*(\d[\d.,]*)/i,
+    ];
+    for (const h of hojas || []) for (const fila of h.filas || []) for (const c of fila || []) {
+      const t = String(c == null ? '' : c);
+      if (t.length < 4 || t.length > 2000) continue;
+      for (let k = 0; k < pats.length; k++) {
+        const m = t.match(pats[k]);
+        if (!m) continue;
+        const valor = num(k === 2 ? m[1] : m[2]);
+        if (!(valor > 1 && valor < 100000)) continue;
+        const fecha = k === 2 ? iso((t.match(/fecha\s*(\d{1,2}\/\d{1,2}\/\d{4})/i) || [])[1]) : iso(m[1]);
+        return { tc: valor, fecha, texto: t.trim().slice(0, 160) };
+      }
+    }
+    return null;
+  }
+
   // Optimización de reglas: se juntan las que, con los mismos circuitos, el mismo vencimiento y el mismo monto, dicen lo
   // mismo con otra forma:
   //  1. grupos con exactamente los mismos integrantes → un solo grupo (la primera letra);
@@ -4431,7 +4462,7 @@ try {
     leerTxtMeli, bancoMeliDeTxt, bancosParaMeli,
     sqlExtraccionCartera, bookmarkletCartera, scriptPowerShellCartera, comandoTareaCartera, IMPORTES_CARTERA,
     NO_COBIS, ultimoDiaHabil, fechasNoCobis, FCIC_MELI_INICIAL, FERIADOS_AR, diaHabilAnterior, fechasFcicMeli, leerReporteCupones, armarNoCobisFcic, lineaNoCobis, txtNoCobis, loteApiNoCobis, scriptPowerShellNoCobis, scriptPowerShellProbarNoCobis, scriptPowerShellAgenteNoCobis, cmdEnvioNoCobis,
-    leerCartera, BASTANTEO_CATALOGO, BASTANTEO_CLAVES, BASTANTEO_EXTRA, leerPoderesOcr, leerAutoridadesOcr, COMPLIF_TIPOS, poderDesdeComplif, actaDesdeComplif, complifDeEmpresa, controlResumen, usoDelResumen, aplicarRevocatorias, claveRevocatoria, poderesFirmantesD, presidentesDeActas, gruposDelUso, usoCompleto, tokensDe, combosDeClausula, poderDelPresidente, leerClienteBastanteo, cuitPorDni, formatoCuit, firmanteDe, firmantesSinPoder, jsonPoder, jsonBastanteoUnico, jsonBastanteoV1, optimizarReglas, montoDeTexto, validarJsonBastanteo, separarNombre, leerInventarioGarantias, leerUsoAcuerdos, leerCuentasPowerBI, clienteDeCuenta, leerPadronDesdeLineasPdf, INVENTARIOS_CONTABLES, INVENTARIO_DENOMINACION, INVENTARIO_FIRMAS, fechaReporteIso, fechaInventarioDesdeReporte, leerPadronDesdeInventarios, leerBaseEntes, unirPadron, armarInventariosContables, leerCom3500, leerTcApiBcra, elegirTipoCambio, numeroEnLetras, daxCarteraPowerBI, daxDiagnosticoPowerBI, daxSaldoDeuda, armarSaldoDeuda, daxSaldoDeudaDetalle, armarDeudaDetalle, leerFilasPowerBI, sugerirColumnaCartera, columnasNumericasCartera, agruparCartera, valoresDistintos, sqlCartera,
+    leerCartera, BASTANTEO_CATALOGO, BASTANTEO_CLAVES, BASTANTEO_EXTRA, leerPoderesOcr, leerAutoridadesOcr, COMPLIF_TIPOS, poderDesdeComplif, actaDesdeComplif, complifDeEmpresa, controlResumen, usoDelResumen, aplicarRevocatorias, claveRevocatoria, poderesFirmantesD, presidentesDeActas, gruposDelUso, usoCompleto, tokensDe, combosDeClausula, poderDelPresidente, leerClienteBastanteo, cuitPorDni, formatoCuit, firmanteDe, firmantesSinPoder, jsonPoder, jsonBastanteoUnico, jsonBastanteoV1, optimizarReglas, montoDeTexto, tcDePlanilla, validarJsonBastanteo, separarNombre, leerInventarioGarantias, leerUsoAcuerdos, leerCuentasPowerBI, clienteDeCuenta, leerPadronDesdeLineasPdf, INVENTARIOS_CONTABLES, INVENTARIO_DENOMINACION, INVENTARIO_FIRMAS, fechaReporteIso, fechaInventarioDesdeReporte, leerPadronDesdeInventarios, leerBaseEntes, unirPadron, armarInventariosContables, leerCom3500, leerTcApiBcra, elegirTipoCambio, numeroEnLetras, daxCarteraPowerBI, daxDiagnosticoPowerBI, daxSaldoDeuda, armarSaldoDeuda, daxSaldoDeudaDetalle, armarDeudaDetalle, leerFilasPowerBI, sugerirColumnaCartera, columnasNumericasCartera, agruparCartera, valoresDistintos, sqlCartera,
     leerCsv, encabezadosEjemplo, leerDefinicionInterfaz, sugerirColumna, detectarHojaInterfaz,
     normalizar, provinciaPorNombre, crearBuscadorBancoPorNombre, round2, aNumero, aFechaSerial, aCodigoBanco,
     fechaDDMMYY, fechaYYYYMMDD, fechaLegible, hoyDDMMYY,

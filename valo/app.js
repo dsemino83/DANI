@@ -2274,7 +2274,14 @@
   });
   zonaArchivo('zonaBastXls', 'archivoBastXls', async f => {
     try {
-      bast.cliente = M.leerClienteBastanteo(await leerHojas(f));
+      const hojasCli = await leerHojas(f);
+      bast.cliente = M.leerClienteBastanteo(hojasCli);
+      // Tipo de cambio de la planilla (si lo trae): se usa para los topes en dólares y pesos.
+      bast.cliente.tc = M.tcDePlanilla(hojasCli);
+      if (bast.cliente.tc) {
+        $('bastTc').value = String(bast.cliente.tc.tc).replace('.', ','); $('bastTcFecha').value = bast.cliente.tc.fecha || '';
+        $('bastTcEstado').innerHTML = aviso('ok', `TC de la planilla del cliente: <b>${esc(String(bast.cliente.tc.tc).replace('.', ','))}</b>${bast.cliente.tc.fecha ? ' del ' + esc(fechaAr(bast.cliente.tc.fecha)) : ''} <span class="sub">(“${esc(bast.cliente.tc.texto)}”)</span>.`);
+      } else { $('bastTc').value = ''; $('bastTcFecha').value = ''; $('bastTcEstado').innerHTML = ''; bastTcAuto = false; }
       bast.xls = f.name;
       await completarCuitFirmantes(bast.cliente.firmantes);
       // Los firmantes que traen CUIT y número de ente alimentan la base de entes (para planillas que traen solo el DNI).
@@ -2903,7 +2910,7 @@
   function renderV1Avisos() {
     if (!bast.poderes.length) { $('bastV1Avisos').innerHTML = ''; return; }
     const j = jsonV1();
-    if (!bastTcAuto && !bastTcActual() && j.reglasFirma.some(r => r.monto)) { bastTcAuto = true; setTimeout(() => traerTcBast(false), 0); }
+    if (!bastTcAuto && !bastTcActual() && !(bast.cliente && bast.cliente.tc) && j.reglasFirma.some(r => r.monto)) { bastTcAuto = true; setTimeout(() => traerTcBast(false), 0); }
     const conLetras = bast.cliente && bast.cliente.firmantes.some(f => f.uso && f.uso.grupo);
     const ren = Object.entries(j.renombre).filter(([a, b]) => a !== b);
     $('bastV1Avisos').innerHTML = (!conLetras && $('bastFuenteGrupos').value === 'planilla' ? aviso('warn', 'La planilla no designa grupos con letra: se usan los grupos de los poderes (o los armados por agrupamiento).') : '') +
@@ -2958,6 +2965,7 @@
       (manual ? `<br><span class="sub">${esc(errores.join(' · '))}</span>` : ''));
   }
   $('btnBastTcBcra').addEventListener('click', () => traerTcBast(true));
+  // (El TC de la planilla del cliente tiene prioridad: el del BCRA se busca solo si la planilla no lo trae.)
   $('btnBastTcArchivo').addEventListener('click', () => $('archivoBastCom3500').click());
   $('archivoBastCom3500').addEventListener('change', async e => {
     const f = e.target.files[0]; e.target.value = '';
