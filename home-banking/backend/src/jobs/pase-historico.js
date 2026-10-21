@@ -104,6 +104,6 @@ export async function ejecutarPase(log = console) {
   return resumen;
 }
 
-if (import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   console.log(await ejecutarPase());
 }

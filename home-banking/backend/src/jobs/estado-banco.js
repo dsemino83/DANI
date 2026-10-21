@@ -41,6 +41,33 @@ export async function sincronizarEstados(log = console) {
   return { revisadas: conId.length, cambios };
 }
 
+// Transferencias que quedaron en ENVIANDO (el proceso se cortó entre la aprobación y la
+// respuesta del banco). NUNCA se reenvían: si hay fila en envio_banco el pedido pudo
+// haber salido -> ENVIADA (incierta, a conciliar); si no la hay, nunca se llamó al
+// banco -> ERROR_API (no ejecutada). La fila se bloquea antes de mirar envio_banco para
+// no cruzarse con un envío en curso.
+export async function recuperarEnviando(minutos = 10) {
+  const { rows } = await operativa.query(
+    `SELECT id FROM transferencia WHERE estado = 'ENVIANDO' AND aprobado_en < now() - make_interval(mins => $1)`, [minutos]);
+  let n = 0;
+  for (const { id } of rows) {
+    await tx(operativa, async (c) => {
+      const t = (await c.query('SELECT id, estado FROM transferencia WHERE id = $1 FOR UPDATE', [id])).rows[0];
+      if (t?.estado !== 'ENVIANDO') return;
+      const salio = (await c.query('SELECT 1 FROM envio_banco WHERE transferencia_id = $1', [id])).rowCount === 1;
+      const nuevo = salio ? 'ENVIADA' : 'ERROR_API';
+      const detalle = salio
+        ? 'Sin respuesta registrada del banco: resultado incierto, conciliar con getTransfersStatus. No se reenvía.'
+        : 'Aprobada pero nunca se llamó al banco: no se ejecutó. No se reenvía; si corresponde, cargar una nueva.';
+      await c.query('UPDATE transferencia SET estado = $2, actualizado_en = now() WHERE id = $1 AND estado = \'ENVIANDO\'', [id, nuevo]);
+      await c.query('INSERT INTO transferencia_estado (transferencia_id, estado, usuario, detalle) VALUES ($1, $2, $3, $4)', [id, nuevo, 'Sistema', detalle]);
+      await auditarSistema(c, { tipo: 'Transferencias', accion: 'Recuperó transferencia interrumpida', detalle: `OP-${id} · ENVIANDO → ${nuevo}`, ref: { tipo: 'transferencia', id } });
+      n++;
+    });
+  }
+  return n;
+}
+
 // Vincula débitos con transferencias DEBITADA sin vínculo (misma cuenta, fecha e importe).
 export async function conciliarDebitos() {
   const { rows } = await operativa.query(
@@ -66,7 +93,7 @@ export async function conciliarDebitos() {
   return n;
 }
 
-if (import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const r = await sincronizarEstados();
   console.log('Estados:', r, 'Débitos vinculados:', await conciliarDebitos());
   await operativa.end();

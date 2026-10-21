@@ -92,16 +92,22 @@ class ClienteBdv {
     }
   }
 
-  // POST a una API privada. Si la sesión venció, renueva una vez y reintenta.
-  async llamar(ruta, body, { reintentar = true } = {}) {
+  // POST a una API privada. En consultas, si la sesión venció, renueva una vez y reintenta.
+  // En envíos de dinero (envio: true) NUNCA se reintenta, y todo lo que no sea un rechazo
+  // claro del banco (HTTP 5xx, respuesta ilegible) se marca sinRespuesta: resultado incierto.
+  async llamar(ruta, body, { reintentar = true, envio = false } = {}) {
     await this.sesion();
     const res = await this.fetch(`${this.base}/${ruta.replace(/^\//, '')}`, body, this.cookie, { sinRespuesta: true });
-    if ((res.status === 401 || res.status === 403) && reintentar) {
+    if ((res.status === 401 || res.status === 403) && reintentar && !envio) {
       this.invalidar();
       return this.llamar(ruta, body, { reintentar: false });
     }
+    if (res.status === 401 || res.status === 403) this.invalidar();
     const json = await res.json().catch(() => null);
-    if (!res.ok || json === null) throw new ErrorBanco(`El banco respondió HTTP ${res.status} en ${ruta}`, { http: res.status });
+    if (!res.ok || json === null) {
+      const incierto = envio && (res.status >= 500 || res.ok); // 4xx = rechazado antes de procesar
+      throw new ErrorBanco(`El banco respondió HTTP ${res.status} en ${ruta}${incierto ? ' (resultado incierto)' : ''}`, { http: res.status, sinRespuesta: incierto });
+    }
     return json;
   }
 }

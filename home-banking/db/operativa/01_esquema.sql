@@ -180,6 +180,40 @@ CREATE TRIGGER transferencia_estado_inmutable BEFORE UPDATE OR DELETE ON transfe
   FOR EACH ROW EXECUTE FUNCTION hb_solo_insercion();
 
 -- ---------------------------------------------------------------------------
+-- Nunca dos envíos al banco por la misma operación (independiente del código).
+-- 1) envio_banco: una fila por transferencia, insertada y confirmada ANTES de llamar
+--    a la API. La clave primaria impide un segundo envío aunque fallen todas las
+--    demás validaciones. Solo inserción; queda en la base operativa para siempre
+--    (el pase histórico no la toca), así que tampoco se reenvía algo archivado.
+-- 2) hb_transicion_valida: la base rechaza cualquier cambio de estado fuera del
+--    circuito; ninguna transferencia vuelve a PENDIENTE_APROBACION ni a ENVIANDO.
+-- ---------------------------------------------------------------------------
+CREATE TABLE envio_banco (
+  transferencia_id  bigint PRIMARY KEY,
+  api               text        NOT NULL,
+  aprobador         text        NOT NULL,
+  iniciado_en       timestamptz NOT NULL DEFAULT now()
+);
+CREATE TRIGGER envio_banco_inmutable BEFORE UPDATE OR DELETE ON envio_banco
+  FOR EACH ROW EXECUTE FUNCTION hb_solo_insercion();
+
+CREATE FUNCTION hb_transicion_valida() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+  IF NEW.estado = OLD.estado THEN RETURN NEW; END IF;
+  IF (OLD.estado, NEW.estado) IN (
+       ('PENDIENTE_APROBACION', 'ENVIANDO'), ('PENDIENTE_APROBACION', 'RECHAZADA'),
+       ('ENVIANDO', 'ENVIADA'), ('ENVIANDO', 'PEND_AUTORIZACION'), ('ENVIANDO', 'DEBITADA'),
+       ('ENVIANDO', 'ERROR_API'), ('ENVIANDO', 'RECHAZADA_BANCO'),
+       ('ENVIADA', 'PEND_AUTORIZACION'), ('ENVIADA', 'DEBITADA'), ('ENVIADA', 'RECHAZADA_BANCO'), ('ENVIADA', 'ERROR_API'),
+       ('PEND_AUTORIZACION', 'DEBITADA'), ('PEND_AUTORIZACION', 'RECHAZADA_BANCO')) THEN
+    RETURN NEW;
+  END IF;
+  RAISE EXCEPTION 'Transición de estado no permitida para OP-%: % -> %', OLD.id, OLD.estado, NEW.estado;
+END $$;
+CREATE TRIGGER transferencia_transicion BEFORE UPDATE OF estado ON transferencia
+  FOR EACH ROW EXECUTE FUNCTION hb_transicion_valida();
+
+-- ---------------------------------------------------------------------------
 -- Particiones mensuales: crea las del mes pasado a +2 meses (idempotente).
 -- La llama el job del pase histórico cada mes y una vez acá.
 -- ---------------------------------------------------------------------------

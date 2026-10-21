@@ -124,3 +124,17 @@ test('URL del banco según el ambiente: producción en api.bancodevalores.com', 
   delete process.env.BDV_URL_HOMO;
   assert.throws(() => urlBase('dev'));
 });
+
+test('un solo camino al banco: enviar() solo se usa dentro de enviarUnaVez', async () => {
+  const { readdirSync, readFileSync, statSync } = await import('node:fs');
+  const { join } = await import('node:path');
+  const archivos = (d) => readdirSync(d).flatMap((f) => (statSync(join(d, f)).isDirectory() ? archivos(join(d, f)) : f.endsWith('.js') ? [join(d, f)] : []));
+  const usos = archivos(new URL('../src', import.meta.url).pathname)
+    .filter((f) => !f.endsWith('bdv/transferencias.js'))
+    .filter((f) => /\benviar\s*\(/.test(readFileSync(f, 'utf8')));
+  assert.deepEqual(usos.map((f) => f.split('/src/')[1]), ['servicios/transferencias.js']);
+  const fuente = readFileSync(new URL('../src/servicios/transferencias.js', import.meta.url), 'utf8');
+  assert.equal(fuente.match(/\benviar\s*\(/g).length, 1, 'una sola llamada');
+  const cuerpo = fuente.slice(fuente.indexOf('export async function enviarUnaVez'), fuente.indexOf('export async function registrarResultado'));
+  assert.match(cuerpo, /INSERT INTO envio_banco[\s\S]*return enviar\(/, 'primero registra el envío, después llama al banco');
+});

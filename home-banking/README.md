@@ -90,12 +90,17 @@ SPA en JavaScript (módulos ES, sin paso de build) servida por Nginx, con las pa
 ## Reglas que hace cumplir el backend (no solo la pantalla)
 
 - **URL del banco según el ambiente**, nunca cargada a mano: `BDV_AMBIENTE=homo` usa `https://apihomo.bancodevalores.com/…` (la del PDF) y `BDV_AMBIENTE=prod` usa `https://api.bancodevalores.com/…`. Antes de cada login se verifica que la URL sea la del ambiente. `BDV_URL_HOMO` solo reemplaza la de homologación (simuladores); la de producción no se puede cambiar.
-- **Doble control:** quien carga no puede aprobar (validado en el backend y con `CHECK (aprobador <> creador)` en la base). La aprobación es un `UPDATE` condicional sobre `PENDIENTE_APROBACION`: dos aprobaciones simultáneas no pueden enviar dos veces.
+- **Doble control:** quien carga no puede aprobar (validado en el backend y con `CHECK (aprobador <> creador)` en la base).
+- **Nunca dos envíos al banco por la misma operación**, con cuatro barreras independientes:
+  1. La aprobación bloquea la fila y es un `UPDATE` condicional sobre `PENDIENTE_APROBACION`: de N aprobaciones simultáneas pasa una sola.
+  2. Antes de llamar al banco se confirma una fila en `envio_banco` (clave primaria = id de la transferencia, solo inserción). Si ya existe, no se envía. `enviarUnaVez` es el único camino a una API de transferencia (lo verifica una prueba).
+  3. Un trigger (`hb_transicion_valida`) rechaza cualquier cambio de estado fuera del circuito: nada vuelve a `PENDIENTE_APROBACION` ni a `ENVIANDO`.
+  4. Los envíos nunca se reintentan automáticamente (ni por sesión vencida). `ERROR_API` solo cuando es seguro que no se ejecutó (no conectó, 4xx, `success:false`); timeout, corte, 5xx o respuesta ilegible quedan `ENVIADA` (incierta) para conciliar.
+- **Transferencias interrumpidas:** el job `recuperar-enviando` (cada 5 minutos) toma las que quedaron en `ENVIANDO` más de 10 minutos. Con fila en `envio_banco` pasan a `ENVIADA` (incierta); sin ella, a `ERROR_API` (nunca salió). Nunca las reenvía.
 - **Las consultas no requieren aprobación; las operaciones sí.** Crear no toca el banco; solo aprobar envía.
 - **Permisos por empresa** en cada llamada: el banco devuelve todas las cuentas de VALO, así que el backend filtra por empresa activa y permiso Ver / Operar.
 - **Administrador de seguridad** sin acceso a saldos ni operaciones, aunque el token traiga roles de operación.
 - **Auditoría en la misma transacción** que cada acción; tablas de auditoría e historial de estados de solo inserción (trigger + permisos).
-- **Sin respuesta del banco tras enviar** (timeout): la transferencia queda `ENVIADA` sin reintento automático y se concilia con `getTransfersStatus`, para no duplicar pagos.
 - **Pase mensual a la base histórica** (día 1, 02:10): copia cada partición de más de 3 meses, verifica filas + hash y recién entonces la separa y elimina de la operativa. Si un mes tiene transferencias sin estado final, se omite y se reintenta el mes siguiente.
 
 ## Pruebas

@@ -4,7 +4,7 @@ import { auditar } from '../auditoria.js';
 import { conflicto, noEncontrado, prohibido, invalido } from '../errores.js';
 import { exigirCuenta } from '../permisos.js';
 import { cuentasPropias } from '../bdv/cliente.js';
-import { API_POR_TIPO, armarRequest, enviar } from '../bdv/transferencias.js';
+import { API_POR_TIPO, armarRequest, enviar } from '../bdv/transferencias.js'; // enviar: solo desde enviarUnaVez
 
 const apiCorta = (tipo) => API_POR_TIPO[tipo].split('/')[1];
 
@@ -70,14 +70,32 @@ async function tomarParaDecision(req, id, aprobar) {
   });
 }
 
+// ÚNICO camino hacia una API de transferencia. Antes de llamar al banco deja confirmada
+// una fila en envio_banco (clave primaria = id de la transferencia): si ya existe, la
+// operación ya salió (o está saliendo) y no se envía de nuevo, pase lo que pase.
+export async function enviarUnaVez(req, t) {
+  await tx(operativa, async (c) => {
+    const actual = (await c.query('SELECT estado FROM transferencia WHERE id = $1 FOR UPDATE', [t.id])).rows[0];
+    if (actual?.estado !== 'ENVIANDO') throw conflicto(`OP-${t.id} está en estado ${actual?.estado ?? 'inexistente'}: no se envía`);
+    try {
+      await c.query('INSERT INTO envio_banco (transferencia_id, api, aprobador) VALUES ($1, $2, $3)', [t.id, t.api, req.user.usuario]);
+    } catch (e) {
+      if (e.code === '23505') throw conflicto(`OP-${t.id} ya tiene un envío registrado: nunca se envía dos veces`);
+      throw e;
+    }
+  });
+  return enviar(t.tipo, t.request); // recién acá se conecta con el banco
+}
+
 // Registra el resultado del banco (estado final o pendiente) con auditoría.
+// Acepta ENVIADA por si el job ya la marcó como incierta mientras esperaba la respuesta.
 export async function registrarResultado(req, t, r) {
   await tx(operativa, async (c) => {
     const u = await c.query(
       `UPDATE transferencia SET estado = $2, transaction_id = $3, nro_control = $4, respuesta = $5, actualizado_en = now()
-        WHERE id = $1 AND estado = 'ENVIANDO'`,
+        WHERE id = $1 AND estado IN ('ENVIANDO', 'ENVIADA')`,
       [t.id, r.estado, r.transactionId, r.nroControl, r.respuesta ?? null]);
-    if (u.rowCount !== 1) throw new Error(`OP-${t.id}: no estaba en ENVIANDO al registrar la respuesta del banco`);
+    if (u.rowCount !== 1) throw new Error(`OP-${t.id}: no estaba en ENVIANDO/ENVIADA al registrar la respuesta del banco`);
     await c.query('INSERT INTO transferencia_estado (transferencia_id, estado, usuario, detalle) VALUES ($1, $2, $3, $4)',
       [t.id, r.estado, 'Banco de Valores', r.detalle ?? (r.transactionId ? `transactionId ${r.transactionId}` : '')]);
     await auditar(c, req, {
@@ -90,7 +108,7 @@ export async function registrarResultado(req, t, r) {
 
 export async function aprobar(req, id) {
   const t = await tomarParaDecision(req, id, true);
-  const r = await enviar(t.tipo, t.request); // recién acá se conecta con el banco
+  const r = await enviarUnaVez(req, t);
   await registrarResultado(req, t, r);
   return { id, estado: r.estado, transactionId: r.transactionId };
 }

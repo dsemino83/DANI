@@ -110,10 +110,12 @@ export function estadoDesdeBanco(item) {
   }
 }
 
+// Única llamada a una API de transferencia. Solo la usa enviarUnaVez (servicios/transferencias.js),
+// que antes deja registrado el envío en envio_banco: nunca llamar desde otro lado.
 export async function enviar(tipo, request) {
   const ruta = API_POR_TIPO[tipo];
   try {
-    const json = await bdv.llamar(ruta, request);
+    const json = await bdv.llamar(ruta, request, { reintentar: false, envio: true });
     return { ...estadoTrasEnvio(tipo, json), respuesta: json };
   } catch (e) {
     // Timeout o corte DESPUÉS de enviar: no sabemos si el banco la ejecutó. Queda ENVIADA
@@ -123,6 +125,7 @@ export async function enviar(tipo, request) {
     }
     // El banco respondió con error, o no se pudo conectar / iniciar sesión: no se ejecutó.
     if (e instanceof ErrorBanco) return { estado: 'ERROR_API', transactionId: null, nroControl: null, detalle: e.message, respuesta: { error: e.message, http: e.http } };
-    throw e;
+    // Cualquier otro error: no sabemos si llegó al banco, así que nunca se da por no enviada.
+    return { estado: 'ENVIADA', transactionId: null, nroControl: null, detalle: `Error inesperado (${e.message}); verificar con getTransfersStatus`, respuesta: { error: e.message } };
   }
 }

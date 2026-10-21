@@ -7,8 +7,8 @@ import { auditar } from '../auditoria.js';
 import { conflicto, invalido, noEncontrado, prohibido } from '../errores.js';
 import { cuentasHabilitadas, exigirCuenta } from '../permisos.js';
 import { consultarCbu, cuentasPropias } from '../bdv/cliente.js';
-import { armarRequest, enviar } from '../bdv/transferencias.js';
-import { crearPendiente, registrarResultado } from './transferencias.js';
+import { armarRequest } from '../bdv/transferencias.js';
+import { crearPendiente, enviarUnaVez, registrarResultado } from './transferencias.js';
 
 const COLUMNAS = ['tipo', 'cuenta_origen', 'destino', 'cuit', 'importe', 'concepto', 'titular', 'codigo_mep'];
 const TIPOS = { INMEDIATA: 'INMEDIATA', INTERNA: 'PROPIAS', PROPIAS: 'PROPIAS', TERCEROS: 'TERCEROS', MEP: 'MEP' };
@@ -167,7 +167,12 @@ export async function decidir(req, loteId, aprobarLote) {
   // Una llamada individual al banco por fila, secuencial para no saturar la sesión compartida.
   const resultados = [];
   for (const t of items) {
-    const r = await enviar(t.tipo, t.request);
+    let r;
+    try { r = await enviarUnaVez(req, t); } catch (e) {
+      if (e.status !== 409) throw e;
+      resultados.push({ id: t.id, estado: 'YA_ENVIADA', detalle: e.message }); // nunca se reenvía
+      continue;
+    }
     await registrarResultado(req, t, r);
     resultados.push({ id: t.id, estado: r.estado, transactionId: r.transactionId });
   }

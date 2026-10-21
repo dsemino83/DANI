@@ -7,13 +7,20 @@ export async function render(main, ctx) {
   let periodo = 'hoy', estadoF = '';
   const pendientes = h('div', {}, cargando()), aprobadas = h('div', {}, cargando());
 
+  // Doble clic o dos pestañas: el backend igual garantiza un solo envío; acá se evita el intento.
+  let enCurso = false;
   const decidir = async (ruta, texto, aprobar) => {
+    if (enCurso) return;
     if (!(await confirmar(aprobar ? 'Aprobar y enviar al banco' : 'Rechazar', texto, aprobar ? 'Aprobar y enviar' : 'Rechazar'))) return;
+    if (enCurso) return;
+    enCurso = true;
+    pendientes.querySelectorAll('button').forEach((b) => { b.disabled = true; });
     try {
       const r = await api(ruta, { method: 'POST' });
-      if (r.resultados) toast(`Lote ${r.loteId} procesado: ${r.resultados.map((x) => `OP-${x.id} ${ESTADOS[x.estado]?.[0] ?? x.estado}`).join(' · ')}`);
+      if (r.resultados) toast(`Lote ${r.loteId} procesado: ${r.resultados.map((x) => `OP-${x.id} ${x.estado === 'YA_ENVIADA' ? 'ya enviada (no se reenvía)' : ESTADOS[x.estado]?.[0] ?? x.estado}`).join(' · ')}`);
       else toast(aprobar ? `OP-${r.id} enviada al banco · ${ESTADOS[r.estado]?.[0] ?? r.estado}${r.transactionId ? ` · transactionId ${r.transactionId}` : ''}` : `OP-${r.id} rechazada: no se envía al banco.`, r.estado === 'ERROR_API');
     } catch (e) { error(e); }
+    enCurso = false;
     await Promise.all([cargarPendientes(), cargarAprobadas()]);
   };
   const acciones = (x, ruta, etiqueta) => (x.propia

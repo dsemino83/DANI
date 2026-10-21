@@ -10,7 +10,7 @@ GRANT USAGE ON SCHEMA public TO hb_app;
 GRANT SELECT, INSERT, UPDATE, DELETE ON empresa, cuenta_empresa, permiso_empresa, credencial_api,
       lote, lote_fila, debito_transferencia TO hb_app;
 GRANT SELECT, INSERT, UPDATE ON transferencia TO hb_app;          -- sin DELETE
-GRANT SELECT, INSERT ON transferencia_estado, auditoria TO hb_app; -- solo inserción
+GRANT SELECT, INSERT ON transferencia_estado, auditoria, envio_banco TO hb_app; -- solo inserción
 GRANT SELECT ON pase_historico TO hb_app;
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO hb_app;
 -- Las particiones nuevas heredan los permisos de la tabla madre al consultarse por ella.
