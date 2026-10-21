@@ -2984,7 +2984,16 @@
     const reglas = new Map();
     // Con los JSON de cada poder (opciones.jsons) y todos los usos conjuntos con combinaciones, cada regla sale del uso
     // de firma exacto del poder (sus circuitos y sus combinaciones). Si no, de los grupos del JSON único.
-    const porUso = (opciones.jsons || []).flatMap(j => j.estructuras_de_firma || []);
+    // Firma individual restringida ("únicamente verificar saldos y endosar cheques", "solo para endoso para depósito",
+    // E-BANVAL) en un poder con firma conjunta: no es una regla aparte (igual que en el JSON único); se avisa.
+    const porUso = (opciones.jsons || []).flatMap(j => {
+      const conConjunta = (j.estructuras_de_firma || []).some(e => e.firma_conjunta);
+      return (j.estructuras_de_firma || []).filter(e => {
+        const restringida = conConjunta && e.firma_individual && !e.firma_conjunta && USO_RESTRINGIDO.test(`${e.estructura_de_firma || ''} ${e.limitaciones || ''}`);
+        if (restringida) avisos.push(`No va como regla la firma individual restringida del poder${j.deed_number ? ' esc. ' + j.deed_number : ''}: "${String(e.estructura_de_firma || e.limitaciones || '').slice(0, 140)}".`);
+        return !restringida;
+      });
+    });
     const exacto = porUso.length && porUso.every(e => !e.firma_conjunta || (e.combinaciones || []).length);
     // Apoderados del poder que no están en el JSON único (grupos sin usos de firma, p. ej. un grupo C): van igual.
     if (opciones.jsons) {
@@ -3089,7 +3098,7 @@
         .map((r, i) => Object.assign({ referencia: `regla-${i + 1}` }, r)),
     };
     // Avisos y grupos renombrados: para la pantalla, no se exportan.
-    Object.defineProperty(json, 'avisos', { value: avisos, enumerable: false });
+    Object.defineProperty(json, 'avisos', { value: [...new Set(avisos)], enumerable: false });
     Object.defineProperty(json, 'renombre', { value: renombre, enumerable: false });
     Object.defineProperty(json, 'unificaciones', { value: opt.notas, enumerable: false });
     return json;
