@@ -2457,7 +2457,7 @@
       if (pres && M.firmanteDe(pres.presidente, cliente.firmantes)) poderes = [pres];
     }
     fila.poderes = rv.vigentes.length;
-    const motivoSin = rv.anulados.length ? `Los ${rv.anulados.length} poderes de Complif quedaron anulados por revocatorias` : r.actas.length ? 'Solo hay actas de designación en Complif' : 'Sin poderes en Complif';
+    const motivoSin = rv.anulados.length ? `Los ${rv.anulados.length} poderes de Complif quedaron anulados (${rv.anulados.every(a => a.vencido) ? 'vencidos' : rv.anulados.some(a => a.vencido) ? 'revocatorias o vencidos' : 'revocatorias'})` : r.actas.length ? 'Solo hay actas de designación en Complif' : 'Sin poderes en Complif';
     if (!poderes.length) { fila.estado = 'sinpod'; fila.error = motivoSin; return fila; }
     const jsons = poderes.map(p => M.jsonPoder(p, cliente, { deed_number: p.deed_number || '', board_resolution_power_attorney: p.board_resolution_power_attorney || '',
       power_attorney_type: p.power_attorney_type || 'Poder Especial para Operaciones Bancarias' }));
@@ -2763,7 +2763,7 @@
     let estado = '';
     estado += bast.avisoPresidente || '';
     if ((bast.firmantesD || []).length) estado += aviso('warn', `<b>Presidente:</b> ${bast.firmantesD.map(p => esc(p.presidente.nombre_completo) + ' (grupo ' + esc(p.presidente.grupo) + ')').join(', ')} no está en los poderes; por el acta de directorio o el resumen ("D" / "Presidente") se lo toma como presidente con <b>todas las facultades</b> y firma individual.`);
-    if ((bast.anulados || []).length) estado += aviso('warn', `<b>${bast.anulados.length} poder${bast.anulados.length > 1 ? 'es anulados' : ' anulado'} por revocatoria:</b> ` +
+    if ((bast.anulados || []).length) estado += aviso('warn', `<b>${bast.anulados.length} poder${bast.anulados.length > 1 ? 'es anulados' : ' anulado'} por ${bast.anulados.every(a => a.vencido) ? 'vencimiento' : bast.anulados.some(a => a.vencido) ? 'revocatoria o vencimiento' : 'revocatoria'}:</b> ` +
       bast.anulados.map(a => `${esc(a.poder.fecha_emision || 's/f')}${a.poder.deed_number ? ' (esc. ' + esc(a.poder.deed_number) + ')' : ''} — ${esc(a.motivo)}`).join(' · ') + '. No se usan en el bastanteo.');
     // Revocatorias que se pueden ignorar a mano (excepción: Complif marcó como revocatorio un poder que no lo es).
     const descPoder = p => `${esc(p.fecha_emision || 's/f')}${p.deed_number ? ' (esc. ' + esc(p.deed_number) + ')' : ''}`;
