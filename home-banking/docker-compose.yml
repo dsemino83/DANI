@@ -90,7 +90,8 @@ services:
     networks: [interna, salida]
 
   postgres:
-    image: postgres:16.4-alpine
+    build: ./db/operativa          # postgres:16.4-alpine + esquema y roles
+    image: ${HB_IMAGEN:-home-banking-valo}:db-operativa-${HB_VERSION:-local}
     environment:
       POSTGRES_DB: homebanking
       POSTGRES_USER: postgres
@@ -99,7 +100,6 @@ services:
     secrets: [db_owner_password, db_app_password]
     volumes:
       - pg_operativa:/var/lib/postgresql/data
-      - ./db/operativa:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d homebanking"]
       interval: 10s
@@ -109,7 +109,8 @@ services:
     networks: [interna]
 
   postgres-historico:
-    image: postgres:16.4-alpine
+    build: ./db/historica          # postgres:16.4-alpine + esquema y rol de solo lectura
+    image: ${HB_IMAGEN:-home-banking-valo}:db-historica-${HB_VERSION:-local}
     environment:
       POSTGRES_DB: homebanking_hist
       POSTGRES_USER: postgres
@@ -118,7 +119,6 @@ services:
     secrets: [dbh_owner_password, db_hist_ro_password]
     volumes:
       - pg_historica:/var/lib/postgresql/data
-      - ./db/historica:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d homebanking_hist"]
       interval: 10s
@@ -129,7 +129,8 @@ services:
 
   # Solo desarrollo local: en homologación/producción se usa https://ssohomo.valo.ar/valo/realms/staff
   keycloak:
-    image: quay.io/keycloak/keycloak:26.0.5
+    build: ./keycloak              # Keycloak 26.0.5 + realm "staff" de prueba
+    image: ${HB_IMAGEN:-home-banking-valo}:keycloak-dev-${HB_VERSION:-local}
     profiles: [dev]
     command: ["start-dev", "--import-realm"]
     environment:
@@ -137,8 +138,6 @@ services:
       KC_BOOTSTRAP_ADMIN_PASSWORD: admin
       KC_HOSTNAME: http://localhost:8081          # issuer que ve el navegador
       KC_HOSTNAME_BACKCHANNEL_DYNAMIC: "true"     # el backend lo consulta como http://keycloak:8080
-    volumes:
-      - ./keycloak/realm-staff-dev.json:/opt/keycloak/data/import/realm-staff-dev.json:ro
     ports:
       - "8081:8080"
     networks: [interna, publica]

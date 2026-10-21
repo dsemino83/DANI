@@ -126,13 +126,114 @@ jobs:
           tags: |
             ${{ steps.img.outputs.nombre }}:frontend-${{ steps.img.outputs.rama }}
             ${{ steps.img.outputs.nombre }}:frontend-${{ steps.img.outputs.corto }}
+      - name: Base operativa
+        uses: docker/build-push-action@v6
+        with:
+          context: home-banking/db/operativa
+          push: true
+          tags: |
+            ${{ steps.img.outputs.nombre }}:db-operativa-${{ steps.img.outputs.rama }}
+            ${{ steps.img.outputs.nombre }}:db-operativa-${{ steps.img.outputs.corto }}
+      - name: Base histórica
+        uses: docker/build-push-action@v6
+        with:
+          context: home-banking/db/historica
+          push: true
+          tags: |
+            ${{ steps.img.outputs.nombre }}:db-historica-${{ steps.img.outputs.rama }}
+            ${{ steps.img.outputs.nombre }}:db-historica-${{ steps.img.outputs.corto }}
+      - name: Keycloak de prueba
+        uses: docker/build-push-action@v6
+        with:
+          context: home-banking/keycloak
+          push: true
+          tags: |
+            ${{ steps.img.outputs.nombre }}:keycloak-dev-${{ steps.img.outputs.rama }}
+            ${{ steps.img.outputs.nombre }}:keycloak-dev-${{ steps.img.outputs.corto }}
       - name: Resumen
         run: |
           {
             echo "### Imágenes publicadas"
             echo "- \`${{ steps.img.outputs.nombre }}:backend-${{ steps.img.outputs.rama }}\` y \`backend-${{ steps.img.outputs.corto }}\`"
             echo "- \`${{ steps.img.outputs.nombre }}:frontend-${{ steps.img.outputs.rama }}\` y \`frontend-${{ steps.img.outputs.corto }}\`"
+            echo "- \`db-operativa\`, \`db-historica\` y \`keycloak-dev\` con los mismos tags"
             echo ""
             echo "En el servidor: \`HB_IMAGEN=${{ steps.img.outputs.nombre }}\` y \`HB_VERSION=${{ steps.img.outputs.rama }}\` en .env, después \`docker compose pull && docker compose up -d\`."
           } >> "$GITHUB_STEP_SUMMARY"
         working-directory: .
+
+  desde-docker-hub:
+    name: Despliegue desde Docker Hub (kit sin código)
+    needs: [publicar]
+    runs-on: ubuntu-latest
+    env:
+      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Armar el kit (solo configuración, sin código)
+        working-directory: .
+        run: |
+          mkdir -p kit/home-banking-valo/frontend/certs
+          cp home-banking/docker-compose.yml home-banking/.env.example home-banking/DESPLIEGUE.md home-banking/PRUEBA-INTEGRADA.md kit/home-banking-valo/
+          cp -r home-banking/scripts kit/home-banking-valo/
+          touch kit/home-banking-valo/frontend/certs/.gitkeep
+          ls -R kit
+      - name: Secretos y configuración de prueba
+        working-directory: kit/home-banking-valo
+        run: |
+          sh scripts/generar-secretos.sh
+          corto=$(echo "$GITHUB_SHA" | cut -c1-7)
+          cat > .env <<EOT
+          HB_IMAGEN=docker.io/${DOCKERHUB_USERNAME}/home-banking-valo
+          HB_VERSION=${corto}
+          BDV_AMBIENTE=homo
+          BDV_SOLO_CONSULTAS=true
+          OIDC_ISSUER=http://localhost:8081/realms/staff
+          OIDC_INTERNAL_URL=http://keycloak:8080/realms/staff
+          OIDC_ORIGIN=http://localhost:8081
+          OIDC_CLIENT_ID=home-banking-web
+          OIDC_AUDIENCE=home-banking-api
+          OIDC_ROLES_CLIENT=home-banking-api
+          KEYCLOAK_ADMIN_CLIENT_ID=home-banking-admin
+          HTTPS_PORT=443
+          EOT
+      - uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Descargar imágenes y levantar (sin compilar)
+        working-directory: kit/home-banking-valo
+        run: |
+          docker compose --profile dev pull
+          docker compose --profile dev up -d --no-build --wait --wait-timeout 300
+      - name: Verificar
+        working-directory: kit/home-banking-valo
+        run: |
+          set -e
+          curl -fsSk https://localhost/ | grep -q 'js/app.js'                      && echo 'frontend OK'
+          curl -fsSk https://localhost/api/health                                   && echo ' backend OK'
+          test "$(curl -sk -o /dev/null -w '%{http_code}' https://localhost/api/me)" = 401 && echo 'autenticación OK'
+          for i in $(seq 1 30); do curl -fs http://localhost:8081/realms/staff/.well-known/openid-configuration >/dev/null && break; sleep 5; done
+          curl -fs http://localhost:8081/realms/staff/.well-known/openid-configuration | grep -q '"issuer"' && echo 'Keycloak OK'
+          docker compose exec -T postgres psql -U postgres -d homebanking -Atc "SELECT count(*) FROM pg_tables WHERE tablename IN ('envio_banco','referencia_usada','credencial_api')" | grep -qx 3 && echo 'base operativa OK'
+          docker compose exec -T postgres psql -U postgres -d homebanking -Atc "SELECT count(*) FROM pg_roles WHERE rolname = 'hb_app'" | grep -qx 1 && echo 'usuario hb_app OK'
+          docker compose exec -T postgres-historico psql -U postgres -d homebanking_hist -Atc "SELECT count(*) FROM pg_roles WHERE rolname = 'hb_hist_ro'" | grep -qx 1 && echo 'base histórica OK'
+          docker compose ps
+      - name: Logs si falla
+        if: failure()
+        working-directory: kit/home-banking-valo
+        run: docker compose --profile dev logs --no-color --tail 200
+      - name: Bajar
+        if: always()
+        working-directory: kit/home-banking-valo
+        run: docker compose --profile dev down -v
+      - name: Publicar el kit (sin secretos)
+        if: success()
+        working-directory: .
+        run: rm -rf kit/home-banking-valo/secrets kit/home-banking-valo/.env kit/home-banking-valo/frontend/certs/tls.*
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: kit-despliegue-home-banking
+          path: kit/
+          retention-days: 90

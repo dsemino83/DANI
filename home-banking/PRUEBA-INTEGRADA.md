@@ -64,7 +64,7 @@ HTTPS_PORT=443
 
 ## 5. Levantar
 
-> Si ya están publicadas las imágenes en Docker Hub (ver README, **Imágenes publicadas**), agregá `HB_IMAGEN` y `HB_VERSION` al `.env` y usá `docker compose pull` seguido de `docker compose --profile dev up -d`: no compila nada en la PC.
+> Si ya están publicadas las imágenes en Docker Hub (ver README, **Imágenes publicadas**), agregá `HB_IMAGEN` y `HB_VERSION` al `.env` y usá `docker compose --profile dev pull` seguido de `docker compose --profile dev up -d --no-build`: no compila nada en la PC (bases y Keycloak de prueba incluidos). Alcanza con el kit descargable (ver DESPLIEGUE.md, paso 2), sin clonar el código.
 
 ```sh
 docker compose --profile dev up -d --build

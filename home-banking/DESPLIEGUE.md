@@ -9,14 +9,24 @@ El servidor no compila nada: descarga las imágenes que publica GitHub Actions (
 - **Entrada:** puerto **443** (HTTPS) abierto para los usuarios. No exponer ningún otro puerto.
 - **Salida HTTPS:** `api.bancodevalores.com` (producción) o `apihomo.bancodevalores.com` (homologación), el SSO de VALO (`ssohomo.valo.ar` o el de producción) y `registry-1.docker.io` (descarga de imágenes).
 
-## 2. Archivos de configuración
+## 2. Archivos de configuración (kit)
 
-El servidor necesita estos archivos del repositorio, no el código: `docker-compose.yml`, `.env.example`, `db/`, `keycloak/`, `scripts/` y la carpeta `frontend/certs/`. Lo más simple es clonar la rama:
+Todo lo ejecutable está en Docker Hub, en el repositorio `home-banking-valo`:
 
-```sh
-git clone -b ALYC https://github.com/dsemino83/DANI.git
-cd DANI/home-banking
-```
+| Tag | Qué es |
+|---|---|
+| `backend-<versión>` | API y tareas programadas (jobs) |
+| `frontend-<versión>` | Nginx con la aplicación web |
+| `db-operativa-<versión>` | Postgres 16 con el esquema y los usuarios de la base operativa |
+| `db-historica-<versión>` | Postgres 16 con el esquema y el usuario de solo lectura de la base histórica |
+| `keycloak-dev-<versión>` | Keycloak con usuarios de prueba (solo para pruebas locales) |
+
+El servidor solo necesita el **kit**: `docker-compose.yml`, `.env.example`, `scripts/` (para generar los secretos) y la carpeta `frontend/certs/`. Dos formas de obtenerlo:
+
+- **Descargarlo:** en GitHub → **Actions** → la última ejecución verde de *Home Banking · imágenes Docker* → **Artifacts** → `kit-despliegue-home-banking`. Descomprimir y entrar en `home-banking-valo/`.
+- **Clonar la rama:** `git clone -b ALYC https://github.com/dsemino83/DANI.git` y entrar en `DANI/home-banking`.
+
+El pipeline prueba exactamente esto en cada versión: con el kit solo, descarga las imágenes de Docker Hub, levanta todo y verifica frontend, backend, Keycloak y las dos bases.
 
 ## 3. Certificado HTTPS
 
@@ -66,7 +76,7 @@ El secret de la service account `home-banking-admin` que entregue Identidad va e
 ```sh
 docker login -u <usuario-docker-hub>     # repositorio privado: usar un token de solo lectura (Read-only)
 docker compose pull
-docker compose up -d
+docker compose up -d --no-build           # --no-build: usa solo las imágenes descargadas
 docker compose ps                         # postgres, postgres-historico, backend, jobs y frontend en "healthy"
 ```
 
