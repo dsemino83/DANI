@@ -15,7 +15,7 @@ export async function render(main, ctx) {
     const arch = st.tModo === 'arch';
     const d1 = h('input', { type: 'date', value: arch ? st.tArchDesde : st.tDesde, min: arch ? null : corte, max: arch ? diaAntes(corte) : iso() });
     const d2 = h('input', { type: 'date', value: arch ? st.tArchHasta : st.tHasta, min: arch ? null : corte, max: arch ? diaAntes(corte) : iso() });
-    const filas = (datos ?? []).filter((t) => (!estado || t.estado === estado) && (!q || [t.id, t.destino, t.titular, t.creador, t.aprobador, t.tipo, t.transaction_id].join(' ').toLowerCase().includes(q)));
+    const filas = (datos ?? []).filter((t) => (!estado || t.estado === estado) && (!q || [t.id, t.referencia, t.destino, t.titular, t.creador, t.aprobador, t.tipo, t.transaction_id].join(' ').toLowerCase().includes(q)));
     const conteo = Object.keys(ESTADOS).map((e) => [e, (datos ?? []).filter((t) => t.estado === e).length]).filter(([e, n]) => n || e === estado);
     poner(main, card('Transferencias · registro histórico', 'Todo lo cargado, individual y por lote, con su estado, quién lo cargó y aprobó y la respuesta del banco. La consulta diaria usa la base operativa (últimos 3 meses); lo anterior se consulta aparte en la base histórica.',
       h('div', { class: 'fila' },
@@ -27,14 +27,14 @@ export async function render(main, ctx) {
           if (arch) { st.tArchDesde = d1.value; st.tArchHasta = d2.value; } else { st.tDesde = d1.value; st.tHasta = d2.value; }
           cargar();
         } }, 'Consultar')],
-        campo('Buscar', h('input', { type: 'search', value: q, placeholder: 'ID, destino, titular, usuario…', oninput: (e) => { q = e.target.value.toLowerCase(); dibujar(); } }))),
+        campo('Buscar', h('input', { type: 'search', value: q, placeholder: 'OP, ID, destino, titular, usuario…', oninput: (e) => { q = e.target.value.toLowerCase(); dibujar(); } }))),
       h('p', { class: `aviso ${arch ? '' : 'rojo'}` }, h('b', {}, arch ? 'Base histórica · solo lectura. ' : 'Base operativa. '),
         arch ? `Operaciones anteriores al ${fecha(corte)}.` : `Últimos 3 meses (desde el ${fecha(corte)}); es la que usa la consulta diaria.`),
       datos ? [
         h('div', { class: 'chips' }, h('button', { class: 'chip', 'aria-pressed': String(!estado), onclick: () => { estado = ''; dibujar(); } }, 'Todas', h('b', {}, datos.length)),
           conteo.map(([e, n]) => h('button', { class: 'chip', 'aria-pressed': String(estado === e), onclick: () => { estado = estado === e ? '' : e; dibujar(); } }, ESTADOS[e][0], h('b', {}, n)))),
         tabla([
-          { t: 'ID', v: (t) => `OP-${t.id}`, cls: 'mono' }, { t: 'Fecha', v: (t) => fechaHora(t.creado_en), cls: 'mono' }, { t: 'Tipo', v: (t) => t.tipo },
+          { t: 'OP', v: (t) => `OP-${t.id}`, cls: 'mono' }, { t: 'ID', v: (t) => t.referencia ?? '', cls: 'mono' }, { t: 'Fecha', v: (t) => fechaHora(t.creado_en), cls: 'mono' }, { t: 'Tipo', v: (t) => t.tipo },
           { t: 'Cuenta origen', v: (t) => t.cuenta_origen, cls: 'mono' }, { t: 'Destino', v: (t) => t.destino, cls: 'mono' }, { t: 'Titular', v: (t) => t.titular ?? '' },
           { t: 'Importe', v: (t) => dinero(t.importe, t.moneda), cls: 'num' }, { t: 'Cargó', v: (t) => t.creador }, { t: 'Aprobó', v: (t) => t.aprobador ?? '' },
           { t: 'Estado', v: (t) => estadoPill(t.estado) }, { t: 'transactionId', v: (t) => t.transaction_id ?? '', cls: 'mono' },

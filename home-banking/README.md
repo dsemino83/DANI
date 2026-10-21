@@ -56,10 +56,10 @@ Ninguno se sube al repositorio (`.gitignore`). En producción conviene reemplaza
 | `GET /cuentas/{n}/movimientos?desde&hasta[&formato=xlsx]` | ídem | getMovementsDetail paginado de a 900; exporta .xlsx |
 | `GET /debitos?desde&hasta[&empresa][&formato=xlsx]` | ídem | Débitos realizados de todas las cuentas visibles |
 | `POST /cbu` | operador, autorizante | getCustomerInformationCbu |
-| `POST /transferencias` | rol Crear | **Carga interna**: queda PENDIENTE_APROBACION, no llama al banco |
+| `POST /transferencias` | rol Crear | **Carga interna** con `referencia` (ID de la operación, único): queda PENDIENTE_APROBACION, no llama al banco |
 | `GET /aprobaciones` | rol Aprobar | Pendientes (individuales y lotes) |
 | `POST /transferencias/{id}/aprobar` · `/rechazar` | rol Aprobar, distinto de quien cargó | **Aprobar envía al banco** por la API del tipo |
-| `POST /lotes` (multipart `archivo`) | rol Crear | CSV / XLSX / TXT → detalle previo (sin APIs de transferencia) |
+| `POST /lotes` (multipart `archivo`) | rol Crear | CSV / XLSX / TXT con columna `id` → detalle previo (sin APIs de transferencia) |
 | `POST /lotes/{id}/confirmar` | quien lo subió | Crea una transferencia pendiente por fila válida |
 | `POST /lotes/{id}/aprobar` · `/rechazar` | rol Aprobar, distinto de quien lo subió | Una llamada al banco por fila |
 | `GET /transferencias?desde&hasta[&estado]` | operativos | Base operativa (máximo 3 meses) |
@@ -91,6 +91,7 @@ SPA en JavaScript (módulos ES, sin paso de build) servida por Nginx, con las pa
 
 - **URL del banco según el ambiente**, nunca cargada a mano: `BDV_AMBIENTE=homo` usa `https://apihomo.bancodevalores.com/…` (la del PDF) y `BDV_AMBIENTE=prod` usa `https://api.bancodevalores.com/…`. Antes de cada login se verifica que la URL sea la del ambiente. `BDV_URL_HOMO` solo reemplaza la de homologación (simuladores); la de producción no se puede cambiar.
 - **Doble control:** quien carga no puede aprobar (validado en el backend y con `CHECK (aprobador <> creador)` en la base).
+- **Un ID de operación, una sola transferencia, para siempre.** Cada carga (individual o fila de un archivo) lleva un ID de hasta 40 caracteres (letras, números, `. _ / -`), sin distinguir mayúsculas ni espacios. Se reserva en `referencia_usada` (clave primaria, solo inserción, fuera del pase histórico) en la misma transacción que la carga: un ID repetido se rechaza indicando la operación original, aunque esa operación se haya rechazado o ya esté en la base histórica. El detalle previo de la carga masiva marca los IDs repetidos en el archivo y los ya usados.
 - **Nunca dos envíos al banco por la misma operación**, con cuatro barreras independientes:
   1. La aprobación bloquea la fila y es un `UPDATE` condicional sobre `PENDIENTE_APROBACION`: de N aprobaciones simultáneas pasa una sola.
   2. Antes de llamar al banco se confirma una fila en `envio_banco` (clave primaria = id de la transferencia, solo inserción). Si ya existe, no se envía. `enviarUnaVez` es el único camino a una API de transferencia (lo verifica una prueba).

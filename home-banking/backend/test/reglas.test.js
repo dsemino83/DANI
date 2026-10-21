@@ -13,6 +13,7 @@ const { cifrarClave, fechaMDY, fechaDMY } = await import('../src/bdv/cliente.js'
 const { cifrar, descifrar } = await import('../src/secretos.js');
 const { usuarioDesdeToken } = await import('../src/auth.js');
 const { leerTxt, formatoDe } = await import('../src/servicios/lotes.js');
+const { normalizarId } = await import('../src/servicios/transferencias.js');
 const { particionesAPasar, mesCorte } = await import('../src/jobs/pase-historico.js');
 const { urlBase, urlDelAmbiente, esAmbiente } = await import('../src/bdv/ambientes.js');
 
@@ -95,8 +96,9 @@ test('carga masiva: formatos y TXT de ancho fijo', () => {
   assert.equal(formatoDe('pagos.CSV'), 'CSV');
   assert.equal(formatoDe('pagos.xlsx'), 'XLSX');
   assert.throws(() => formatoDe('pagos.pdf'));
-  const linea = 'INMEDIATA ' + '300100000000000' + 'PAGOS.PROVEEDOR'.padEnd(22) + '30712340001' + '000000042000050' + 'FACTURA'.padEnd(30) + '   ';
+  const linea = 'INMEDIATA ' + '300100000000000' + 'PAGOS.PROVEEDOR'.padEnd(22) + '30712340001' + '000000042000050' + 'FACTURA'.padEnd(30) + '   ' + 'PAGO-2026-000123'.padEnd(40);
   const [f] = leerTxt(linea);
+  assert.equal(f.id, 'PAGO-2026-000123');
   assert.equal(f.tipo, 'INMEDIATA');
   assert.equal(f.cuenta_origen, '300100000000000');
   assert.equal(f.destino, 'PAGOS.PROVEEDOR');
@@ -137,4 +139,10 @@ test('un solo camino al banco: enviar() solo se usa dentro de enviarUnaVez', asy
   assert.equal(fuente.match(/\benviar\s*\(/g).length, 1, 'una sola llamada');
   const cuerpo = fuente.slice(fuente.indexOf('export async function enviarUnaVez'), fuente.indexOf('export async function registrarResultado'));
   assert.match(cuerpo, /INSERT INTO envio_banco[\s\S]*return enviar\(/, 'primero registra el envío, después llama al banco');
+});
+
+test('ID de operación: obligatorio, normalizado y con formato acotado', () => {
+  assert.equal(normalizarId('  pago-2026/001 '), 'PAGO-2026/001', 'sin espacios y sin distinguir mayúsculas');
+  assert.equal(normalizarId(12345), '12345');
+  for (const malo of ['', '   ', null, undefined, '-ABC', 'A B', 'A'.repeat(41), "X';DROP"]) assert.throws(() => normalizarId(malo), String(malo));
 });

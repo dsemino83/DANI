@@ -26,7 +26,7 @@ export default async function rutasTransferencias(app) {
     if (desde < corte) throw invalido(`La base operativa guarda desde el ${corte}. Para fechas anteriores usá /historico/transferencias`);
     const cuentas = [...(await cuentasHabilitadas(req.user.usuario)).keys()];
     const { rows } = await operativa.query(
-      `SELECT id, tipo, api, cuenta_origen, moneda, destino, titular, importe, creador, aprobador, estado, transaction_id, lote_id, creado_en, aprobado_en
+      `SELECT id, referencia, tipo, api, cuenta_origen, moneda, destino, titular, importe, creador, aprobador, estado, transaction_id, lote_id, creado_en, aprobado_en
          FROM transferencia
         WHERE creado_en >= $1::date AND creado_en < $2::date + 1 AND cuenta_origen = ANY($3)
           AND ($4::text IS NULL OR estado = $4)
@@ -44,7 +44,7 @@ export default async function rutasTransferencias(app) {
     const pagina = Math.max(0, Number(req.query.pagina ?? 0)), tam = 500;
     const cuentas = [...(await cuentasHabilitadas(req.user.usuario)).keys()];
     const { rows } = await historica.query(
-      `SELECT id, tipo, api, cuenta_origen, moneda, destino, titular, importe, creador, aprobador, estado, transaction_id, lote_id, creado_en, aprobado_en
+      `SELECT id, referencia, tipo, api, cuenta_origen, moneda, destino, titular, importe, creador, aprobador, estado, transaction_id, lote_id, creado_en, aprobado_en
          FROM transferencia
         WHERE creado_en >= $1::date AND creado_en < $2::date + 1 AND cuenta_origen = ANY($3)
         ORDER BY creado_en DESC OFFSET $4 LIMIT $5`,
@@ -70,7 +70,7 @@ export default async function rutasTransferencias(app) {
   app.get('/aprobaciones', { preHandler: exigirAprobar }, async (req) => {
     const cuentas = [...(await cuentasHabilitadas(req.user.usuario)).keys()];
     const individuales = (await operativa.query(
-      `SELECT id, tipo, api, cuenta_origen, moneda, destino, titular, importe, creador, creado_en, request
+      `SELECT id, referencia, tipo, api, cuenta_origen, moneda, destino, titular, importe, creador, creado_en, request
          FROM transferencia WHERE estado = 'PENDIENTE_APROBACION' AND lote_id IS NULL AND cuenta_origen = ANY($1)
         ORDER BY creado_en`, [cuentas])).rows;
     const lotesPend = (await operativa.query(

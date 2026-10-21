@@ -14,6 +14,7 @@ export async function render(main, ctx) {
   const operables = cuentas.filter((c) => c.empresa.operar);
   let tipo = 'INMEDIATA';
   const f = {
+    referencia: h('input', { maxlength: 40, autocomplete: 'off', placeholder: 'Ej.: PAGO-2026-000123', title: 'Único: no se puede cargar dos veces el mismo ID' }),
     origen: h('select', {}, operables.map((c) => h('option', { value: c.cuenta }, `${c.alias} · ${c.cuenta} (${c.moneda}) · ${c.empresa.razonSocial}`))),
     destino: h('input', { placeholder: 'CBU/CVU de 22 dígitos o alias' }),
     propia: h('select', {}), tercero: h('input', { placeholder: '300000000000001' }),
@@ -41,16 +42,17 @@ export async function render(main, ctx) {
   };
 
   const enviar = async () => {
-    const datos = { tipo, cuentaOrigen: f.origen.value, importe: Number(f.importe.value) };
+    if (!f.referencia.value.trim()) return toast('Ingresá el ID de la operación: identifica la transferencia y no se puede repetir.', true);
+    const datos = { tipo, cuentaOrigen: f.origen.value, importe: Number(f.importe.value), referencia: f.referencia.value.trim() };
     if (tipo === 'INMEDIATA') Object.assign(datos, { destino: f.destino.value.trim(), concepto: f.concepto.value, titular: f.titular.value || undefined, ddjjTitular: f.ddjjTit.checked, ddjjCtaCte: f.ddjjCC.checked });
     if (tipo === 'PROPIAS') Object.assign(datos, { destino: f.propia.value, concepto: f.texto.value });
     if (tipo === 'TERCEROS') Object.assign(datos, { destino: f.tercero.value.trim(), concepto: f.texto.value, conceptoId: f.conceptoId.value });
     if (tipo === 'MEP') Object.assign(datos, { codigoMep: f.mep.value, destino: f.destino.value.trim(), cuitDestino: f.cuit.value.trim(), titular: f.titular.value, conceptoFijo: f.fijo.value, conceptoLibre: f.texto.value, ddjjTitular: f.ddjjTit.checked, ddjjCtaCte: f.ddjjCC.checked });
     try {
       const r = await api('/transferencias', { method: 'POST', body: datos });
-      toast(`OP-${r.id} cargada y pendiente de aprobación. Se enviará al banco cuando la apruebe otro usuario con rol Aprobar.`);
+      toast(`OP-${r.id} (ID ${r.referencia}) cargada y pendiente de aprobación. Se enviará al banco cuando la apruebe otro usuario con rol Aprobar.`);
       pre.textContent = JSON.stringify(r.request, null, 2);
-      f.importe.value = ''; val.replaceChildren();
+      f.importe.value = ''; f.referencia.value = ''; val.replaceChildren();
       await cargarMias();
     } catch (e) { error(e); }
   };
@@ -61,7 +63,7 @@ export async function render(main, ctx) {
     const hoy = iso();
     const r = await api(`/transferencias?desde=${hoy}&hasta=${hoy}`);
     poner(mias, tabla([
-      { t: 'ID', v: (t) => `OP-${t.id}`, cls: 'mono' }, { t: 'Hora', v: (t) => fechaHora(t.creado_en).slice(11), cls: 'mono' }, { t: 'Tipo', v: (t) => t.tipo },
+      { t: 'OP', v: (t) => `OP-${t.id}`, cls: 'mono' }, { t: 'ID', v: (t) => t.referencia, cls: 'mono' }, { t: 'Hora', v: (t) => fechaHora(t.creado_en).slice(11), cls: 'mono' }, { t: 'Tipo', v: (t) => t.tipo },
       { t: 'Destino', v: (t) => [t.titular, t.destino].filter(Boolean).join(' · ') }, { t: 'Importe', v: (t) => dinero(t.importe, t.moneda), cls: 'num' },
       { t: 'Estado', v: (t) => estadoPill(t.estado) }, { t: 'Aprobó', v: (t) => t.aprobador ?? '' }, { t: 'transactionId', v: (t) => t.transaction_id ?? '', cls: 'mono' },
     ], r.transferencias.filter((t) => t.creador === ctx.me.usuario), { vacio: 'No cargaste transferencias hoy.' }));
@@ -74,7 +76,7 @@ export async function render(main, ctx) {
     poner(formulario, 
       seg(TIPOS, tipo, (v) => { tipo = v; val.replaceChildren(); dibujar(); }),
       h('div', { class: 'campos' },
-        en('MEP') && campo('Código MEP', f.mep), campo('Cuenta origen', f.origen),
+        campo('ID de la operación (único)', f.referencia), en('MEP') && campo('Código MEP', f.mep), campo('Cuenta origen', f.origen),
         en('INMEDIATA', 'MEP') && campo('CBU/CVU o alias destino', f.destino), en('PROPIAS') && campo('Cuenta propia destino', f.propia),
         en('TERCEROS') && campo('Cuenta destino Banco de Valores', f.tercero), en('MEP') && [campo('CUIT/CUIL destinatario', f.cuit), campo('Titular del CBU destino', f.titular)],
         campo('Importe', f.importe), en('INMEDIATA') && campo('Concepto (catálogo)', f.concepto), en('TERCEROS') && campo('Tipo de concepto', f.conceptoId),

@@ -12,6 +12,7 @@ function contenido(r) {
   return [
     h('p', { class: 'nota' }, r.base === 'historica' ? 'Operación en la base histórica (solo lectura).' : 'Operación en la base operativa.'),
     h('dl', { class: 'dl' },
+      h('dt', {}, 'ID de la operación'), h('dd', {}, t.referencia ?? '—'),
       h('dt', {}, 'Tipo'), h('dd', {}, `${t.tipo} · API ${t.api}`),
       h('dt', {}, 'Cuenta origen'), h('dd', {}, t.cuenta_origen),
       h('dt', {}, 'Destino'), h('dd', {}, [t.titular, t.destino].filter(Boolean).join(' · ')),

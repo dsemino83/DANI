@@ -33,7 +33,7 @@ export async function render(main, ctx) {
     const r = await api('/aprobaciones');
     poner(pendientes, 
       tabla([
-        { t: 'ID', v: (t) => `OP-${t.id}`, cls: 'mono' }, { t: 'Cargada', v: (t) => fechaHora(t.creado_en), cls: 'mono' }, { t: 'Tipo', v: (t) => t.tipo }, { t: 'API', v: (t) => t.api, cls: 'mono' },
+        { t: 'OP', v: (t) => `OP-${t.id}`, cls: 'mono' }, { t: 'ID', v: (t) => t.referencia, cls: 'mono' }, { t: 'Cargada', v: (t) => fechaHora(t.creado_en), cls: 'mono' }, { t: 'Tipo', v: (t) => t.tipo }, { t: 'API', v: (t) => t.api, cls: 'mono' },
         { t: 'Destino', v: (t) => t.destino, cls: 'mono' }, { t: 'Titular', v: (t) => t.titular ?? '' }, { t: 'Importe', v: (t) => dinero(t.importe, t.moneda), cls: 'num' },
         { t: 'Cargó', v: (t) => t.creador },
         { t: 'Acción', cls: 'acc', v: (t) => h('span', {}, acciones(t, `/transferencias/${t.id}`, `OP-${t.id} · ${dinero(t.importe, t.moneda)}`),
@@ -59,7 +59,7 @@ export async function render(main, ctx) {
         est.map((e) => [e, lista.filter((t) => t.estado === e).length]).filter(([, n]) => n).map(([e, n]) =>
           h('button', { class: 'chip', 'aria-pressed': String(estadoF === e), onclick: () => { estadoF = estadoF === e ? '' : e; cargarAprobadas(); } }, ESTADOS[e][0], h('b', {}, n)))),
       tabla([
-        { t: 'ID', v: (t) => `OP-${t.id}`, cls: 'mono' }, { t: 'Aprobada', v: (t) => fechaHora(t.aprobado_en), cls: 'mono' }, { t: 'Tipo', v: (t) => t.tipo },
+        { t: 'OP', v: (t) => `OP-${t.id}`, cls: 'mono' }, { t: 'ID', v: (t) => t.referencia ?? '', cls: 'mono' }, { t: 'Aprobada', v: (t) => fechaHora(t.aprobado_en), cls: 'mono' }, { t: 'Tipo', v: (t) => t.tipo },
         { t: 'Destino', v: (t) => [t.titular, t.destino].filter(Boolean).join(' · ') }, { t: 'Importe', v: (t) => dinero(t.importe, t.moneda), cls: 'num' },
         { t: 'Cargó', v: (t) => t.creador }, { t: 'Aprobó', v: (t) => t.aprobador }, { t: 'Estado en el banco', v: (t) => estadoPill(t.estado) },
         { t: 'transactionId', v: (t) => t.transaction_id ?? '', cls: 'mono' }, { t: 'Auditoría', v: (t) => engranaje(`OP-${t.id}`, () => auditoriaTransferencia(t.id)), cls: 'c' },

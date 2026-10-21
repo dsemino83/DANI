@@ -32,7 +32,7 @@ export async function render(main) {
 
   const dibujar = () => {
     poner(main, 
-      card('Carga masiva de transferencias', 'CSV o Excel (una fila por transferencia, con encabezado: tipo, cuenta_origen, destino, cuit, importe, concepto, titular, codigo_mep) o TXT de ancho fijo. Antes de invocar cualquier API se muestra el detalle previo.',
+      card('Carga masiva de transferencias', 'CSV o Excel (una fila por transferencia, con encabezado: id, tipo, cuenta_origen, destino, cuit, importe, concepto, titular, codigo_mep) o TXT de ancho fijo. El id identifica cada transferencia: no puede repetirse en el archivo ni haberse cargado antes. Antes de invocar cualquier API se muestra el detalle previo.',
         pasos(),
         h('div', { class: 'fila' }, archivo, h('button', { class: 'btn primario', onclick: subir }, 'Subir y ver detalle previo')),
         h('p', { class: 'nota' }, 'Tipos: INMEDIATA · INTERNA (entre cuentas propias) · TERCEROS · MEP-xxx. Cada tipo llama a su API al aprobarse: immediates, transferBetweenOwnAccount, transferThirdPartyAccount o transferMep.')),
@@ -40,7 +40,7 @@ export async function render(main) {
         h('div', { class: 'kpis' }, kpi('Filas leídas', previa.filas), kpi('Válidas', previa.validas, 'pos'), kpi('Con error (no se envían)', previa.conError, 'neg'), kpi('Importe a enviar', dinero(previa.importe))),
         card(`Detalle previo · ${previa.formato}`, 'Validación de formato, permiso Operar sobre la cuenta origen y CBU/alias contra COELSA. Nada se envía al banco hasta confirmar y aprobar.',
           tabla([
-            { t: 'Fila', v: (r) => r.fila }, { t: 'Tipo', v: (r) => r.datos.tipo }, { t: 'Cuenta origen', v: (r) => r.datos.cuenta_origen, cls: 'mono' },
+            { t: 'Fila', v: (r) => r.fila }, { t: 'ID', v: (r) => r.datos.referencia ?? r.datos.id ?? '', cls: 'mono' }, { t: 'Tipo', v: (r) => r.datos.tipo }, { t: 'Cuenta origen', v: (r) => r.datos.cuenta_origen, cls: 'mono' },
             { t: 'Destino', v: (r) => r.datos.destino, cls: 'mono' }, { t: 'CUIT', v: (r) => r.datos.cuit ?? r.datos.cuitDestino ?? '', cls: 'mono' },
             { t: 'Titular', v: (r) => r.datos.titular ?? '' }, { t: 'Importe', v: (r) => dinero(r.datos.importe), cls: 'num' },
             { t: 'Validación', v: (r) => pill(r.validacion, r.validacion === 'OK' ? 'ok' : 'bad') },

@@ -14,34 +14,61 @@ export async function cuentaOrigenDelBanco(numero) {
   return c;
 }
 
+// ID de la operación: 1 a 40 caracteres (letras, números, . _ / -), sin distinguir mayúsculas.
+export function normalizarId(valor) {
+  const id = String(valor ?? '').trim().toUpperCase();
+  if (!id) throw invalido('Falta el ID de la operación');
+  if (!/^[A-Z0-9][A-Z0-9._/-]{0,39}$/.test(id)) throw invalido(`ID de operación inválido: ${id} (hasta 40 caracteres: letras, números, . _ / -)`);
+  return id;
+}
+
+// IDs ya usados (para avisar en el detalle previo): Map ID -> OP-n
+export async function idsUsados(cliente, ids) {
+  if (!ids.length) return new Map();
+  const { rows } = await cliente.query('SELECT referencia, transferencia_id FROM referencia_usada WHERE referencia = ANY($1)', [ids]);
+  return new Map(rows.map((r) => [r.referencia, r.transferencia_id]));
+}
+
 // Inserta una transferencia PENDIENTE_APROBACION. No llama a ninguna API de transferencia.
+// El ID de operación se reserva en la misma transacción: si ya existe, no se carga nada.
 export async function crearPendiente(cliente, req, { tipo, origen, datos, loteId = null }) {
+  const referencia = normalizarId(datos.referencia);
   const request = armarRequest(tipo, origen, datos);
   const { rows } = await cliente.query(
-    `INSERT INTO transferencia (tipo, api, cuenta_origen, moneda, destino, titular, cuit_destino, importe, concepto, request, creador, estado, lote_id)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'PENDIENTE_APROBACION', $12)
+    `INSERT INTO transferencia (tipo, api, cuenta_origen, moneda, destino, titular, cuit_destino, importe, concepto, request, creador, estado, lote_id, referencia)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'PENDIENTE_APROBACION', $12, $13)
      RETURNING id, creado_en`,
     [tipo, apiCorta(tipo), origen.productNumber, Number(origen.currencyId) === 80 ? 'ARS' : 'USD', String(datos.destino ?? ''),
       datos.titular ?? null, datos.cuitDestino ?? null, Number(datos.importe), datos.concepto ?? datos.conceptoLibre ?? null,
-      request, req.user.usuario, loteId],
+      request, req.user.usuario, loteId, referencia],
   );
   const t = rows[0];
+  await cliente.query('SAVEPOINT referencia');
+  try {
+    await cliente.query('INSERT INTO referencia_usada (referencia, transferencia_id, creador) VALUES ($1, $2, $3)', [referencia, t.id, req.user.usuario]);
+  } catch (e) {
+    if (e.code !== '23505') throw e;
+    await cliente.query('ROLLBACK TO SAVEPOINT referencia');
+    const previa = (await cliente.query('SELECT transferencia_id FROM referencia_usada WHERE referencia = $1', [referencia])).rows[0];
+    throw conflicto(`El ID ${referencia} ya fue cargado${previa ? ` (OP-${previa.transferencia_id})` : ''}: no se puede cargar dos veces la misma transferencia`);
+  }
   await cliente.query('INSERT INTO transferencia_estado (transferencia_id, estado, usuario, detalle) VALUES ($1, $2, $3, $4)',
-    [t.id, 'PENDIENTE_APROBACION', req.user.usuario, loteId ? `Lote ${loteId}` : 'Carga individual']);
-  return { id: t.id, request };
+    [t.id, 'PENDIENTE_APROBACION', req.user.usuario, `${loteId ? `Lote ${loteId}` : 'Carga individual'} · ID ${referencia}`]);
+  return { id: t.id, referencia, request };
 }
 
 export async function crear(req, { tipo, cuentaOrigen, ...datos }) {
   if (!API_POR_TIPO[tipo]) throw invalido('Tipo de transferencia inválido');
+  normalizarId(datos.referencia); // valida antes de consultar al banco
   await exigirCuenta(req.user.usuario, cuentaOrigen, { operar: true });
   const origen = await cuentaOrigenDelBanco(cuentaOrigen);
   return tx(operativa, async (c) => {
     const t = await crearPendiente(c, req, { tipo, origen, datos });
     await auditar(c, req, {
       tipo: 'Transferencias', accion: `Cargó transferencia ${tipo}`, ref: { tipo: 'transferencia', id: t.id },
-      detalle: `OP-${t.id} · ${datos.titular ?? ''} ${datos.destino ?? ''} · ${datos.importe} · queda pendiente de aprobación`,
+      detalle: `OP-${t.id} · ID ${t.referencia} · ${datos.titular ?? ''} ${datos.destino ?? ''} · ${datos.importe} · queda pendiente de aprobación`,
     });
-    return { id: t.id, estado: 'PENDIENTE_APROBACION', request: t.request };
+    return { id: t.id, referencia: t.referencia, estado: 'PENDIENTE_APROBACION', request: t.request };
   });
 }
 

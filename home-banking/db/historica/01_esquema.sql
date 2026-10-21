@@ -21,6 +21,7 @@ CREATE TABLE transferencia (
   nro_control     text,
   respuesta       jsonb,
   lote_id         bigint,
+  referencia      text        NOT NULL,
   creado_en       timestamptz NOT NULL,
   aprobado_en     timestamptz,
   actualizado_en  timestamptz NOT NULL,

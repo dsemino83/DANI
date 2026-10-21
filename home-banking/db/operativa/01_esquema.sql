@@ -106,6 +106,7 @@ CREATE TABLE transferencia (
   nro_control     text,
   respuesta       jsonb,
   lote_id         bigint,
+  referencia      text   NOT NULL,                          -- ID de la operación (único, ver referencia_usada)
   creado_en       timestamptz NOT NULL DEFAULT now(),
   aprobado_en     timestamptz,
   actualizado_en  timestamptz NOT NULL DEFAULT now(),
@@ -195,6 +196,18 @@ CREATE TABLE envio_banco (
   iniciado_en       timestamptz NOT NULL DEFAULT now()
 );
 CREATE TRIGGER envio_banco_inmutable BEFORE UPDATE OR DELETE ON envio_banco
+  FOR EACH ROW EXECUTE FUNCTION hb_solo_insercion();
+
+-- ID de operación: una transferencia por ID, para siempre. Tabla aparte porque en una
+-- tabla particionada la unicidad tendría que incluir la fecha. Solo inserción y fuera
+-- del pase histórico: un ID usado hace años sigue bloqueado.
+CREATE TABLE referencia_usada (
+  referencia        text PRIMARY KEY CHECK (referencia ~ '^[A-Z0-9][A-Z0-9._/-]{0,39}$'),
+  transferencia_id  bigint      NOT NULL UNIQUE,
+  creador           text        NOT NULL,
+  creado_en         timestamptz NOT NULL DEFAULT now()
+);
+CREATE TRIGGER referencia_usada_inmutable BEFORE UPDATE OR DELETE ON referencia_usada
   FOR EACH ROW EXECUTE FUNCTION hb_solo_insercion();
 
 CREATE FUNCTION hb_transicion_valida() RETURNS trigger LANGUAGE plpgsql AS $$
