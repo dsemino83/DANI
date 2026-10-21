@@ -89,7 +89,7 @@ La clave se guarda cifrada (AES-256-GCM) en la base local y no se vuelve a mostr
 Con `admin.ti`:
 
 1. **Empresas** → dá de alta una o dos empresas reales (razón social y CUIT) y asignales algunas cuentas. La lista de cuentas sin asignar son las cuentas reales que devuelve el banco.
-2. **Permisos** → a `mgomez` (operador), `lrodriguez` (autorizante) y `svillalba` (auditor) dales **Ver** sobre esas empresas.
+2. **Usuarios y permisos** → a `mgomez` (operador), `lrodriguez` (autorizante) y `svillalba` (auditor) dales **Ver** sobre esas empresas. Ahí mismo se crean usuarios nuevos (**Nuevo usuario**), se cambia el perfil, se deshabilita o se restablece la clave (ver DESPLIEGUE.md, **Usuarios, perfiles y permisos**).
 
 ## 8. Probar como usuario
 

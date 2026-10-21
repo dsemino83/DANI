@@ -108,7 +108,7 @@ Todo se hace desde la aplicación con `admin.ti` (administrador de seguridad), e
 
 Nadie puede modificar su propio usuario. Para lo que no está en la app (por ejemplo, borrar un usuario o ver los eventos de ingreso), `admin.ti` tiene la consola del realm en `https://<servidor>/auth/admin/staff/console/`.
 
-Usuarios iniciales: `admin.ti`, `mgomez` (operador, Crear), `lrodriguez` (autorizante, Aprobar) y `svillalba` (auditor), con clave temporal `Dev-<usuario>-1` (por ejemplo `Dev-admin-1`) que **se cambia obligatoriamente en el primer ingreso**. Para un usuario nuevo: crearlo en la consola, cargarle una clave temporal en **Credentials** y asignarle el perfil.
+Usuarios iniciales: `admin.ti`, `mgomez` (operador, Crear), `lrodriguez` (autorizante, Aprobar) y `svillalba` (auditor), con clave temporal `Dev-<usuario>-1` (por ejemplo `Dev-admin-1`) que **se cambia obligatoriamente en el primer ingreso**.
 
 La consola maestra (`https://<servidor>/auth/admin/`, usuario `admin`, clave en `secrets/keycloak_bootstrap_password.txt`) es solo para emergencias: el trabajo diario lo hace `admin.ti` en la consola del realm `staff`. Todo cambio de roles que se haga desde la app queda en la auditoría del Home Banking; los que se hagan en la consola quedan en los eventos de Keycloak.
 
