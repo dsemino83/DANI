@@ -2,3 +2,5 @@
 *.sh text eol=lf
 *.template text eol=lf
 Dockerfile text eol=lf
+# Scripts de PowerShell para Windows
+*.ps1 text eol=crlf

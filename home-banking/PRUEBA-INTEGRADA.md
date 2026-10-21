@@ -8,7 +8,9 @@ La prueba con Power Automate mostró que el banco aceptó llamadas desde la nube
 
 - Windows 10/11, macOS o Linux, con 8 GB de RAM libres y los puertos **443** y **8081** sin usar.
 - **Docker**: Docker Desktop, o Rancher Desktop o Podman si la licencia de Docker Desktop no aplica a VALO (es paga para empresas grandes).
-- **Git**. En Windows, **Git Bash** (trae `sh` y `openssl` para el paso 3).
+- **Git** ([git-scm.com](https://git-scm.com)).
+
+Los comandos de esta guía van en **PowerShell** en Windows y en una terminal en macOS/Linux; donde cambian, están las dos versiones. Docker Desktop tiene que estar **abierto** (ícono de la ballena en verde) antes de correrlos.
 - Salida a internet hacia `api.bancodevalores.com` (HTTPS) sin proxy obligatorio (ver **Problemas**).
 
 ## 2. Bajar el código
@@ -20,7 +22,13 @@ cd DANI/home-banking
 
 ## 3. Generar secretos y certificado de prueba
 
-En Git Bash (Windows) o en una terminal (macOS/Linux):
+**Windows (PowerShell):**
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\generar-secretos.ps1
+```
+
+**macOS / Linux:**
 
 ```sh
 sh scripts/generar-secretos.sh
@@ -30,7 +38,12 @@ Crea las claves de las bases, la llave maestra que cifra la credencial del banco
 
 ## 4. Configurar `.env`
 
-Copiá `.env.example` como `.env` y dejá estos valores:
+Copiá `.env.example` como `.env`:
+
+- **Windows (PowerShell):** `Copy-Item .env.example .env` y después `notepad .env`
+- **macOS / Linux:** `cp .env.example .env`
+
+Dejá estos valores (si una línea ya existe, cambiá el valor; si no, agregala):
 
 ```env
 BDV_AMBIENTE=prod
