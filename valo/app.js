@@ -2897,11 +2897,14 @@
   function jsonV1() {
     const conLetras = bast.cliente && bast.cliente.firmantes.some(f => f.uso && f.uso.grupo);
     const todos = $('bastTodosApod').checked;
-    return M.jsonBastanteoV1(jsonUnico(todos), bast.cliente, { jsons: bast.poderes.map((p, i) => jsonDe(i, todos)), fuente: conLetras ? $('bastFuenteGrupos').value : 'complif' });
+    return M.jsonBastanteoV1(jsonUnico(todos), bast.cliente, { jsons: bast.poderes.map((p, i) => jsonDe(i, todos)), tc: bastTcActual(), fuente: conLetras ? $('bastFuenteGrupos').value : 'complif' });
   }
+  let bastTcAuto = false;
   function renderV1Avisos() {
     if (!bast.poderes.length) { $('bastV1Avisos').innerHTML = ''; return; }
-    const j = jsonV1(), conLetras = bast.cliente && bast.cliente.firmantes.some(f => f.uso && f.uso.grupo);
+    const j = jsonV1();
+    if (!bastTcAuto && !bastTcActual() && j.reglasFirma.some(r => r.monto)) { bastTcAuto = true; setTimeout(() => traerTcBast(false), 0); }
+    const conLetras = bast.cliente && bast.cliente.firmantes.some(f => f.uso && f.uso.grupo);
     const ren = Object.entries(j.renombre).filter(([a, b]) => a !== b);
     $('bastV1Avisos').innerHTML = (!conLetras && $('bastFuenteGrupos').value === 'planilla' ? aviso('warn', 'La planilla no designa grupos con letra: se usan los grupos de los poderes (o los armados por agrupamiento).') : '') +
       (ren.length ? aviso('ok', 'Grupos de la planilla: ' + ren.map(([a, b]) => `${esc(a)} del poder → ${esc(b)}`).join(' · ')) : '') +
@@ -2911,6 +2914,59 @@
       `<p class="sub">${j.apoderados.length} apoderados · ${j.reglasFirma.length} reglas de firma</p>`;
     mostrarCorrecciones();
   }
+  // Tipo de cambio Com. A 3500 para los topes en dólares y en pesos: el último publicado hasta hoy (API del BCRA, la base
+  // o el com3500.xls).
+  const bastTcActual = () => { const v = String($('bastTc').value).trim(); const tc = Number(/,/.test(v) ? v.replace(/\./g, '').replace(',', '.') : v);
+    return tc > 0 ? { tc, fecha: $('bastTcFecha').value } : null; };
+  const refrescarV1 = () => { renderV1Avisos(); if (!$('bastUnicoJson').classList.contains('oculto')) $('bastUnicoJson').textContent = JSON.stringify(jsonV1(), null, 2); };
+  function usarTcBast(lista, fuente) {
+    const hoy = new Date().toISOString().slice(0, 10);
+    const r = lista.filter(x => x.fecha <= hoy).pop() || lista[lista.length - 1];
+    if (!r) throw new Error('No hay cotizaciones.');
+    $('bastTc').value = String(r.tc).replace('.', ','); $('bastTcFecha').value = r.fecha;
+    $('bastTcEstado').innerHTML = aviso('ok', `TC Com. A 3500 del ${esc(fechaAr(r.fecha))}: ${esc(String(r.tc).replace('.', ','))} (${esc(fuente)}).`);
+    refrescarV1();
+  }
+  let bastTcBuscando = false;
+  async function traerTcBast(manual) {
+    if (bastTcBuscando) return;
+    bastTcBuscando = true; $('btnBastTcBcra').disabled = true;
+    $('bastTcEstado').innerHTML = '<p class="sub">Buscando el tipo de cambio Com. A 3500…</p>';
+    const h = new Date(), desde = new Date(h.getFullYear(), h.getMonth(), h.getDate() - 15).toISOString().slice(0, 10), hasta = h.toISOString().slice(0, 10);
+    const errores = [];
+    let lista = [], fuente = '';
+    for (const v of ['v4.0', 'v3.0']) {
+      if (lista.length) break;
+      try {
+        const r = await fetch(`https://api.bcra.gob.ar/estadisticas/${v}/monetarias/5?desde=${desde}&hasta=${hasta}`, { cache: 'no-store' });
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        lista = M.leerTcApiBcra(await r.json()); fuente = 'API del BCRA';
+      } catch (e) { errores.push(`API ${v}: ${e.message || e}`); }
+    }
+    if (!lista.length && almacen && typeof almacen.rpc === 'function') {
+      try { const j = await almacen.rpc('tc_bcra', { p_desde: desde, p_hasta: hasta }); if (j && j.status === 200) { lista = M.leerTcApiBcra(j); fuente = 'API del BCRA (por la base)'; } else errores.push('base: ' + ((j && j.error) || 'sin respuesta')); }
+      catch (e) { errores.push('base: ' + (e.message || e)); }
+    }
+    if (!lista.length) {
+      try { const r = await fetch(URL_COM3500, { cache: 'no-store' }); if (!r.ok) throw new Error('HTTP ' + r.status);
+        const wb = XLSX.read(await r.arrayBuffer(), { type: 'array' }); lista = M.leerCom3500(wb.SheetNames.flatMap(n => filasHoja(wb.Sheets[n]))); fuente = 'BCRA com3500.xls'; }
+      catch (e) { errores.push('com3500.xls: ' + (e.message || e)); }
+    }
+    bastTcBuscando = false; $('btnBastTcBcra').disabled = false;
+    if (lista.length) { usarTcBast(lista, fuente); return; }
+    $('bastTcEstado').innerHTML = aviso('warn', `No se pudo traer el tipo de cambio automáticamente. Bajá <a href="${URL_COM3500}" target="_blank" rel="noopener">com3500.xls</a> y subilo con <b>Subir com3500.xls</b>, o escribilo.` +
+      (manual ? `<br><span class="sub">${esc(errores.join(' · '))}</span>` : ''));
+  }
+  $('btnBastTcBcra').addEventListener('click', () => traerTcBast(true));
+  $('btnBastTcArchivo').addEventListener('click', () => $('archivoBastCom3500').click());
+  $('archivoBastCom3500').addEventListener('change', async e => {
+    const f = e.target.files[0]; e.target.value = '';
+    if (!f) return;
+    try { const wb = XLSX.read(await f.arrayBuffer(), { type: 'array' }); const l = M.leerCom3500(wb.SheetNames.flatMap(n => filasHoja(wb.Sheets[n])));
+      if (!l.length) throw new Error('El archivo no tiene fechas con tipo de cambio (¿es el com3500.xls del BCRA?).'); usarTcBast(l, f.name); }
+    catch (err) { $('bastTcEstado').innerHTML = aviso('bad', esc(err.message || err)); }
+  });
+  ['bastTc', 'bastTcFecha'].forEach(id => $(id).addEventListener('change', refrescarV1));
   $('bastTodosApod').addEventListener('change', () => { renderV1Avisos(); if (!$('bastUnicoJson').classList.contains('oculto')) $('bastUnicoJson').textContent = JSON.stringify(jsonV1(), null, 2); });
   $('bastFuenteGrupos').addEventListener('change', () => { renderV1Avisos(); if (!$('bastUnicoJson').classList.contains('oculto')) $('bastUnicoJson').textContent = JSON.stringify(jsonV1(), null, 2); });
   $('btnBastUnico').addEventListener('click', () => {
