@@ -112,6 +112,30 @@ Usuarios iniciales: `admin.ti`, `mgomez` (operador, Crear), `lrodriguez` (autori
 
 La consola maestra (`https://<servidor>/auth/admin/`, usuario `admin`, clave en `secrets/keycloak_bootstrap_password.txt`) es solo para emergencias: el trabajo diario lo hace `admin.ti` en la consola del realm `staff`. Todo cambio de roles que se haga desde la app queda en la auditoría del Home Banking; los que se hagan en la consola quedan en los eventos de Keycloak.
 
+## Máquina de prueba en la web (GitHub Codespaces)
+
+Para probar sin instalar nada: una máquina virtual de GitHub con Docker que levanta todo sola (bases, Keycloak, backend, frontend) y suma **Portainer**, un panel web para manejar los contenedores. Todo se usa desde el navegador.
+
+**Una sola vez (opcional): usar las imágenes de Docker Hub.** En GitHub → foto de perfil → **Settings** → **Codespaces** → **New secret**, cargá `DOCKERHUB_USERNAME` y `DOCKERHUB_TOKEN` (token **Read-only**) y en *Repository access* elegí `dsemino83/DANI`. Sin estos secretos la máquina compila las imágenes desde el código (tarda unos minutos más).
+
+**Crear la máquina:**
+
+1. En el repositorio, elegí la rama **ALYC** → botón verde **Code** → pestaña **Codespaces** → **⋯** → **New with options** → máquina de **4 cores** → **Create codespace**.
+2. Se abre un editor en el navegador. Abajo, en la terminal, esperá el mensaje **Listo** (5 a 10 minutos la primera vez) con las dos direcciones:
+   - **Home Banking:** `https://<nombre>-443.app.github.dev` → `admin.ti` / `Dev-admin-1`.
+   - **Portainer:** `https://<nombre>-9443.app.github.dev` → usuario `admin`, clave en `home-banking/secrets/portainer_admin_password.txt` (abrilo desde el explorador de archivos del editor).
+   También están en la pestaña **Ports**.
+3. Seguí con **Credenciales API**, Empresas y Usuarios y permisos como en `PRUEBA-INTEGRADA.md` (pasos 6 a 8). La máquina ya viene con banco **Producción** y **solo consultas**.
+
+**Manejo desde Portainer** (**Home** → **local** → **Containers**): estado de cada servicio, **Logs**, **Restart**, **Console**. Para actualizar un servicio a la última versión publicada: el contenedor → **Recreate** → activar **Re-pull image**. Para actualizar todo de una vez, en la terminal del Codespace: `bash home-banking/scripts/maquina-prueba.sh`.
+
+**Cuidados:**
+
+- Los puertos quedan **privados**: solo entra tu usuario de GitHub. No los cambies a *Public*.
+- La máquina se apaga sola tras 30 minutos sin uso y se vuelve a levantar al abrirla (**Code** → **Codespaces**); usuarios y datos se conservan. Las horas de uso se descuentan del cupo gratuito de GitHub.
+- La credencial del banco queda cifrada en la base de la máquina. Al terminar la prueba, **borrá el Codespace** (**Code** → **Codespaces** → **⋯** → **Delete**): se borra todo.
+- Si "Probar conexión" no llega al banco, el banco puede estar filtrando por IP: las máquinas de Codespaces no tienen una IP fija.
+
 ## 7. Actualizar a una versión nueva
 
 Cada push a `ALYC` que pasa las pruebas publica `backend-alyc`/`frontend-alyc` y la versión fija `backend-<commit>`/`frontend-<commit>`.

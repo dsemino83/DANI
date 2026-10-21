@@ -11,6 +11,8 @@ navegador ──HTTPS──> frontend (Nginx) ──/api──> backend ──> 
 
 ## Puesta en marcha
 
+> **Sin instalar nada:** una máquina de prueba en la web (GitHub Codespaces + Portainer) levanta todo sola. Ver [DESPLIEGUE.md](DESPLIEGUE.md), **Máquina de prueba en la web**.
+
 ```sh
 cd home-banking
 sh scripts/generar-secretos.sh      # crea ./secrets/*.txt y un certificado autofirmado (solo desarrollo)
