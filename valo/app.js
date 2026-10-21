@@ -2439,7 +2439,7 @@
     if (!cliente.firmantes.length) { fila.estado = 'err'; fila.error = 'El Excel no tiene firmantes (no se encontró la tabla de firmantes)'; return fila; }
     // Sin razón social en el Excel: la del nombre del archivo (los poderes sin CUIT se encuentran por nombre).
     const r = M.complifDeEmpresa(docs, cliente.cuit, nombreCliente || fila.empresa.replace(/\s*-\s*(ex|cuenta)\b.*$/i, ''), { soloCuit });
-    const rv = M.aplicarRevocatorias(r.poderes);
+    const rv = M.aplicarRevocatorias(r.poderes, { ignorar: (excepBast.porCuit || {})[String(cliente.cuit || '').replace(/\D/g, '')] || [] });
     // Presidente / socio gerente (por acta, por el encabezado del resumen o "D" / "(Presidente)"): firma con todas las
     // facultades aunque no figure en los poderes.
     const presidencia = M.poderesFirmantesD(cliente, rv.vigentes, r.actas);
@@ -2485,6 +2485,7 @@
     mas.cerradas = fuentes.filter(f => /\.xlsx?$/i.test(f.nombre) && esCerrada(f.nombre)).length;
     if (!lista.length) { $('masEstado').innerHTML = aviso('warn', 'No hay archivos Excel para controlar.'); return; }
     Object.assign(mas, { filas: [], cancelar: false, corriendo: true });
+    await cargarExcepcionesBast();
     $('btnMasCancelar').disabled = false; $('btnMasExcel').disabled = true;
     const estado = t => { $('masEstado').innerHTML = `<p class="sub">${t}</p>`; };
     try {
@@ -2646,7 +2647,38 @@
   }
 
   // Ediciones por poder: escritura (por la fecha de emisión, entre las de la planilla), acta, tipo y CUIT de cada DNI.
+  // Excepciones de revocatorias (por CUIT de la empresa), guardadas en la base para todos.
+  const excepBast = { porCuit: null };
+  async function cargarExcepcionesBast() {
+    if (excepBast.porCuit) return;
+    try { excepBast.porCuit = (almacen && typeof almacen.excepcionesBastanteo === 'function') ? await almacen.excepcionesBastanteo() : {}; }
+    catch (e) { excepBast.porCuit = {}; }
+  }
+  const cuitEmpresaBast = poderes => String((bast.cliente && bast.cliente.cuit) || ((poderes || []).find(p => /\d{11}/.test(String(p.cuit_empresa || '').replace(/\D/g, ''))) || {}).cuit_empresa || '').replace(/\D/g, '');
+  async function cambiarExcepcionRev(clave, ignorar) {
+    const cuit = cuitEmpresaBast(bast.poderesTodos);
+    if (!cuit) return toast('No se sabe el CUIT de la empresa: cargá la planilla del cliente');
+    await cargarExcepcionesBast();
+    const l = new Set(excepBast.porCuit[cuit] || []);
+    if (ignorar) l.add(clave); else l.delete(clave);
+    excepBast.porCuit[cuit] = [...l];
+    if (!excepBast.porCuit[cuit].length) delete excepBast.porCuit[cuit];
+    try { await almacen.guardarExcepcionesBastanteo(excepBast.porCuit); toast(ignorar ? 'Revocatoria ignorada para esta empresa (queda guardado)' : 'Revocatoria aplicada de nuevo'); }
+    catch (e) { toast('Se aplica en esta sesión; no se pudo guardar: ' + (e.message || e)); }
+    prepararBastanteo();
+  }
+  $('bastEstado').addEventListener('click', e => {
+    const b = e.target.closest('[data-rev-ignorar], [data-rev-aplicar]');
+    if (!b) return;
+    if (b.dataset.revIgnorar != null) {
+      if (!confirm('¿Ignorar la revocatoria de este poder para esta empresa? Los poderes que anulaba vuelven a usarse en el bastanteo (y en el chequeo masivo).')) return;
+      cambiarExcepcionRev(b.dataset.revIgnorar, true);
+    } else cambiarExcepcionRev(b.dataset.revAplicar, false);
+  });
+
   async function prepararBastanteo() {
+    // Primero las excepciones (puede tardar): el estado del bastanteo se lee después, ya actualizado.
+    await cargarExcepcionesBast();
     // Se toman todos los poderes del PDF (sin filtrar por la empresa de la planilla).
     let todos = bast.poderesTodos || [];
     bast.avisoPresidente = '';
@@ -2660,8 +2692,10 @@
         bast.avisoPresidente = aviso('warn', `El PDF no tiene "Acreditación de Poderes": se toma al presidente del acta de designación (${esc(pp.fecha_emision || 's/f')}), ${quien}, que está en la planilla como apoderado, con <b>todas las facultades</b> y firma individual. Revisalo antes de usar el JSON.`);
       } else bast.avisoPresidente = aviso('bad', `El PDF no tiene "Acreditación de Poderes" y el presidente del acta, ${quien}, no figura en la planilla del cliente: no se arma el bastanteo.`);
     }
-    // Revocatorias: los poderes anteriores a uno que revoca quedan anulados.
-    const rv = M.aplicarRevocatorias(todos);
+    // Revocatorias: los poderes anteriores a uno que revoca quedan anulados (salvo las excepciones cargadas a mano).
+    const rv = M.aplicarRevocatorias(todos, { ignorar: excepBast.porCuit[cuitEmpresaBast(todos)] || [] });
+    bast.revocan = rv.revocan || [];
+    bast.ignorados = rv.ignorados || [];
     bast.anulados = rv.anulados;
     bast.quitados = rv.quitados || [];
     bast.avisosRev = rv.avisos || [];
@@ -2702,7 +2736,7 @@
     if (bast.cuitsBase[dni]) return { cuit: bast.cuitsBase[dni], fuente: 'base de entes' };
     return { cuit: '', fuente: '' };
   }
-  function jsonDe(i) {
+  function jsonDe(i, todosApoderados = false) {
     const ed = bast.ediciones[i];
     const cuits = {};
     const p = bast.poderes[i];
@@ -2713,7 +2747,7 @@
       if ((ed.cuits || {})[d]) cuits[d] = ed.cuits[d];
       else if (!(firmantes && M.firmanteDe(x, firmantes)) && bast.cuitsBase[d]) cuits[d] = bast.cuitsBase[d];
     });
-    return M.jsonPoder(p, bast.cliente, Object.assign({}, ed, { cuits }));
+    return M.jsonPoder(p, bast.cliente, Object.assign({}, ed, { cuits, todosApoderados }));
   }
 
   function renderBastanteo() {
@@ -2724,6 +2758,14 @@
     if ((bast.firmantesD || []).length) estado += aviso('warn', `<b>Presidente:</b> ${bast.firmantesD.map(p => esc(p.presidente.nombre_completo) + ' (grupo ' + esc(p.presidente.grupo) + ')').join(', ')} no está en los poderes; por el acta de directorio o el resumen ("D" / "Presidente") se lo toma como presidente con <b>todas las facultades</b> y firma individual.`);
     if ((bast.anulados || []).length) estado += aviso('warn', `<b>${bast.anulados.length} poder${bast.anulados.length > 1 ? 'es anulados' : ' anulado'} por revocatoria:</b> ` +
       bast.anulados.map(a => `${esc(a.poder.fecha_emision || 's/f')}${a.poder.deed_number ? ' (esc. ' + esc(a.poder.deed_number) + ')' : ''} — ${esc(a.motivo)}`).join(' · ') + '. No se usan en el bastanteo.');
+    // Revocatorias que se pueden ignorar a mano (excepción: Complif marcó como revocatorio un poder que no lo es).
+    const descPoder = p => `${esc(p.fecha_emision || 's/f')}${p.deed_number ? ' (esc. ' + esc(p.deed_number) + ')' : ''}`;
+    const efecto = (bast.revocan || []).map(r => ({ r, an: (bast.anulados || []).filter(a => a.revocante === r).length, qu: (bast.quitados || []).filter(q => q.revocante === r).length })).filter(x => x.an || x.qu);
+    if (efecto.length || (bast.ignorados || []).length) estado += `<div class="aviso warn"><b>Excepciones de revocatoria</b> (si Complif categorizó mal un poder):` +
+      efecto.map(x => `<div style="margin-top:4px">El poder del ${descPoder(x.r)} revoca: ${x.an ? x.an + ' poder' + (x.an > 1 ? 'es anulados' : ' anulado') : ''}${x.an && x.qu ? ', ' : ''}${x.qu ? x.qu + ' apoderado' + (x.qu > 1 ? 's quitados' : ' quitado') : ''}. ` +
+        `<button class="btn" type="button" data-rev-ignorar="${esc(M.claveRevocatoria(x.r))}" data-escribe>Ignorar esta revocatoria</button></div>`).join('') +
+      (bast.ignorados || []).map(p => `<div style="margin-top:4px"><span class="chip gris">excepción</span> La revocatoria del poder del ${descPoder(p)} está ignorada para esta empresa. ` +
+        `<button class="btn" type="button" data-rev-aplicar="${esc(M.claveRevocatoria(p))}" data-escribe>Volver a aplicarla</button></div>`).join('') + '</div>';
     (bast.avisosRev || []).forEach(a => { estado += aviso('warn', `<b>Revocatoria sin apoderados:</b> el poder del ${esc(a.poder.fecha_emision || 's/f')}${a.poder.deed_number ? ' (esc. ' + esc(a.poder.deed_number) + ')' : ''} ${esc(a.motivo)}.`); });
     if (hay && !bast.cliente) estado += aviso('warn', 'Falta la planilla del cliente: sin ella no se completan los CUIT de los firmantes ni la escritura, y se muestran todas las personas del PDF.');
     const otros = bast.otrosPoderes || [];
@@ -2737,6 +2779,7 @@
         return `<tr><td>${esc(f.nombre)}</td><td>${f.cuit ? esc(M.formatoCuit(f.cuit)) : 'DNI ' + esc(f.dni) + ' (sin CUIT)'}</td><td>${rev ? `<span class="chip bad">revocado</span> <span style="white-space:normal">${esc(rev)}</span>` : '<span class="chip warn">en la planilla, sin poder</span>'}</td></tr>`; }).join('') + '</tbody></table></div>';
     $('bastEstado').innerHTML = estado;
     renderBastUnico();
+    renderV1Avisos();
     renderControlResumen();
     $('bastPoderes').innerHTML = bast.poderes.map((p, i) => {
       const ed = bast.ediciones[i] || {};
@@ -2815,7 +2858,7 @@
   });
   // Un solo JSON con todos los poderes, agrupando apoderados por tipo de firma y facultades.
   const sinPoder = () => (bast.cliente ? M.firmantesSinPoder(bast.poderes, bast.cliente.firmantes).filter(f => !f.revocado) : []);
-  function jsonUnico() { return M.jsonBastanteoUnico(bast.poderes.map((p, i) => jsonDe(i)), bast.cliente && Object.assign({}, bast.cliente, { sinPoder: sinPoder() })); }
+  function jsonUnico(todosApoderados = false) { return M.jsonBastanteoUnico(bast.poderes.map((p, i) => jsonDe(i, todosApoderados)), bast.cliente && Object.assign({}, bast.cliente, { sinPoder: sinPoder() })); }
   // Control del resumen (Excel) contra los poderes, firmante por firmante: uso de firma, grupo, conjuntas y límite.
   function renderControlResumen() {
     if (!bast.poderes.length || !bast.cliente || !bast.cliente.firmantes.length) { $('bastControl').innerHTML = ''; return; }
@@ -2849,17 +2892,84 @@
       u.estructuras_de_firma.map(e => `<tr><td><b>${esc(e.grupo)}</b></td><td>${esc(e.tipo_de_firma || '')}</td><td>${esc((e.combinaciones || []).join('; '))}${e.combinaciones_sin_firmantes ? `<div style="color:var(--muted);font-size:12px" title="El poder la permite, pero no hay firmantes suficientes en la planilla">sin firmantes: ${esc(e.combinaciones_sin_firmantes.join('; '))}</div>` : ''}</td><td>${esc(u.apoderados.filter(a => e.apoderados.includes(a.numero_de_identificacion)).map(a => a.nombre_completo).join(', '))}</td>` +
         `<td class="num">${Object.values(e.facultades).filter(Boolean).length}</td><td>${esc(e.escrituras.join(', '))}</td><td style="min-width:260px">${diferencia(e)}</td></tr>`).join('') + '</tbody></table></div>';
   }
+  // JSON de bastanteo (formato 1.0). Grupos de la planilla o de los poderes (Complif / PDF).
+  const nombreBast = (razon, sufijo = '') => `BASTANTEO_${String(razon || 'cliente').replace(/[^A-Za-z0-9]+/g, '_').replace(/^_|_$/g, '').slice(0, 50)}${sufijo}.json`;
+  function jsonV1() {
+    const conLetras = bast.cliente && bast.cliente.firmantes.some(f => f.uso && f.uso.grupo);
+    const todos = $('bastTodosApod').checked;
+    return M.jsonBastanteoV1(jsonUnico(todos), bast.cliente, { jsons: bast.poderes.map((p, i) => jsonDe(i, todos)), fuente: conLetras ? $('bastFuenteGrupos').value : 'complif' });
+  }
+  function renderV1Avisos() {
+    if (!bast.poderes.length) { $('bastV1Avisos').innerHTML = ''; return; }
+    const j = jsonV1(), conLetras = bast.cliente && bast.cliente.firmantes.some(f => f.uso && f.uso.grupo);
+    const ren = Object.entries(j.renombre).filter(([a, b]) => a !== b);
+    $('bastV1Avisos').innerHTML = (!conLetras && $('bastFuenteGrupos').value === 'planilla' ? aviso('warn', 'La planilla no designa grupos con letra: se usan los grupos de los poderes (o los armados por agrupamiento).') : '') +
+      (ren.length ? aviso('ok', 'Grupos de la planilla: ' + ren.map(([a, b]) => `${esc(a)} del poder → ${esc(b)}`).join(' · ')) : '') +
+      (j.avisos.length ? aviso('warn', j.avisos.map(esc).join('<br>')) : '') +
+      (M.validarJsonBastanteo(j).length ? aviso('bad', '<b>No cumple las reglas del sistema:</b><br>' + M.validarJsonBastanteo(j).map(esc).join('<br>')) : aviso('ok', 'Cumple las reglas del sistema (quorum, grupos y firmantes).')) +
+      `<p class="sub">${j.apoderados.length} apoderados · ${j.reglasFirma.length} reglas de firma</p>`;
+    mostrarCorrecciones();
+  }
+  $('bastTodosApod').addEventListener('change', () => { renderV1Avisos(); if (!$('bastUnicoJson').classList.contains('oculto')) $('bastUnicoJson').textContent = JSON.stringify(jsonV1(), null, 2); });
+  $('bastFuenteGrupos').addEventListener('change', () => { renderV1Avisos(); if (!$('bastUnicoJson').classList.contains('oculto')) $('bastUnicoJson').textContent = JSON.stringify(jsonV1(), null, 2); });
   $('btnBastUnico').addEventListener('click', () => {
-    const u = jsonUnico();
-    descargar(`BASTANTEO_${String(u.razon_social || 'cliente').replace(/[^A-Za-z0-9]+/g, '_').replace(/^_|_$/g, '').slice(0, 50)}.json`, JSON.stringify(u, null, 2), true);
+    const j = jsonV1(), err = M.validarJsonBastanteo(j);
+    if (err.length && !confirm(`El JSON no cumple ${err.length} regla(s) del sistema:\n\n${err.slice(0, 8).join('\n')}\n\n¿Descargarlo igual?`)) return;
+    descargar(nombreBast(j.empresa.razonSocial), JSON.stringify(j, null, 2), true); });
+  $('btnBastUnicoVer').addEventListener('click', () => { const pre = $('bastUnicoJson'); pre.textContent = JSON.stringify(jsonV1(), null, 2); pre.classList.toggle('oculto'); });
+  $('btnBastDetalle').addEventListener('click', () => { const u = jsonUnico(); descargar(nombreBast(u.razon_social, '_detalle'), JSON.stringify(u, null, 2), true); });
+  // Marcar corrección: se guarda el JSON generado, el corregido y el comentario (colección bastanteoCorrecciones).
+  $('btnBastMarcar').addEventListener('click', () => {
+    $('bastCorrJson').value = JSON.stringify(jsonV1(), null, 2);
+    $('bastCorrComentario').value = '';
+    $('bastCorreccion').classList.remove('oculto');
+    $('bastCorrComentario').focus();
   });
-  $('btnBastUnicoVer').addEventListener('click', () => { const pre = $('bastUnicoJson'); pre.textContent = JSON.stringify(jsonUnico(), null, 2); pre.classList.toggle('oculto'); });
+  $('btnBastCorrCerrar').addEventListener('click', () => $('bastCorreccion').classList.add('oculto'));
+  $('btnBastCorrGuardar').addEventListener('click', async () => {
+    let corregido;
+    try { corregido = JSON.parse($('bastCorrJson').value); } catch (e) { return informar('JSON inválido', 'El JSON corregido no se puede leer: ' + esc(e.message)); }
+    const comentario = $('bastCorrComentario').value.trim();
+    const generado = jsonV1();
+    if (!comentario && JSON.stringify(corregido) === JSON.stringify(generado)) return toast('Escribí qué estaba mal o corregí el JSON');
+    try {
+      await almacen.guardarCorreccionBastanteo({ cuit: String(generado.empresa.cuit || '').replace(/\D/g, ''), razonSocial: generado.empresa.razonSocial, comentario,
+        fuenteGrupos: $('bastFuenteGrupos').value, origen: bast.pdf || '', planilla: bast.xls || '', generado, corregido, detalle: jsonUnico() });
+      $('bastCorreccion').classList.add('oculto');
+      toast('Corrección guardada');
+      correccionesCache.cuit = null;
+      mostrarCorrecciones();
+    } catch (e) { informar('No se pudo guardar', esc(e.message || e)); }
+  });
+  // Correcciones guardadas de la misma empresa: se puede bajar la versión corregida.
+  const correccionesCache = { cuit: null, lista: [] };
+  async function mostrarCorrecciones() {
+    if (!bast.poderes.length || !almacen || typeof almacen.correccionesBastanteo !== 'function') { $('bastCorrecciones').innerHTML = ''; return; }
+    const cuit = String(jsonUnico().cuit_empresa || '').replace(/\D/g, '');
+    if (!cuit) { $('bastCorrecciones').innerHTML = ''; return; }
+    if (correccionesCache.cuit !== cuit) {
+      correccionesCache.cuit = cuit;
+      try { correccionesCache.lista = await almacen.correccionesBastanteo(cuit); } catch (e) { correccionesCache.lista = []; }
+    }
+    const l = correccionesCache.lista;
+    $('bastCorrecciones').innerHTML = l.length ? aviso('warn', `<b>Hay ${l.length} corrección${l.length > 1 ? 'es' : ''} guardada${l.length > 1 ? 's' : ''} de esta empresa.</b>` +
+      l.slice(0, 5).map((c, k) => `<div style="margin-top:4px">${esc(String(c.creado || '').slice(0, 10).split('-').reverse().join('/'))} · ${esc(c.comentario || 'sin comentario')} ` +
+        `<a href="#" data-bast-corr="${k}">Descargar la versión corregida</a></div>`).join('')) : '';
+  }
+  $('bastCorrecciones').addEventListener('click', e => {
+    const a = e.target.closest('[data-bast-corr]');
+    if (!a) return;
+    e.preventDefault();
+    const c = correccionesCache.lista[Number(a.dataset.bastCorr)];
+    if (c && c.corregido) descargar(nombreBast(c.razonSocial, '_corregido'), JSON.stringify(c.corregido, null, 2), true);
+  });
   $('btnBastLimpiar').addEventListener('click', () => {
     $('cmpEstado').innerHTML = ''; $('cmpCuit').value = ''; $('cmpNombre').value = ''; cmp.crudo = null;
     Object.assign(bast, { pdf: null, xls: null, poderes: [], poderesTodos: [], poderPresidente: null, avisoPresidente: '', actas: [], otrosPoderes: [], edPorPoder: {}, cliente: null, ediciones: [], cuitsBase: {} });
     $('bastPdfNombre').textContent = 'Arrastrá el PDF o hacé clic';
     $('bastXlsNombre').textContent = 'Arrastrá el Excel o hacé clic';
     $('bastUnicoJson').classList.add('oculto');
+    $('bastCorreccion').classList.add('oculto');
     renderBastanteo();
     toast('Bastanteo limpio: cargá los archivos del próximo cliente');
   });
@@ -3485,7 +3595,7 @@
     const b = fcicBase();
     $('fcicBase').textContent = isFinite(b) ? '$ ' + fmtMonto(b) : '—';
     $('btnFcicArmar').disabled = !(fcic.rep && isFinite(b) && deIso($('fcicConcesion').value) && deIso($('fcicVto').value));
-    $('btnFcicTxt').disabled = $('btnFcicExcel').disabled = true;
+    $('btnFcicTxt').disabled = $('btnFcicExcelRed').disabled = $('btnFcicExcel').disabled = true;
     $('fcicTabla').innerHTML = ''; $('fcicKpis').innerHTML = ''; $('fcicEstado').innerHTML = '';
   }
   $('fcicPatrimonio').addEventListener('input', () => { $('fcicSaldoEstado').innerHTML = ''; fcicInvalidar(); });
@@ -3581,16 +3691,102 @@
         + `<td class="num">${f.conDatos ? fmtMonto(f.monto) : ''}</td><td class="num">${f.conDatos ? (f.porcentaje * 100).toFixed(4) : '0'}</td><td class="num">${fmtMonto(f.saldo)}</td>`
         + `<td style="font-family:monospace;font-size:11px">${esc(f.linea)}</td></tr>`).join('') + '</tbody></table>';
     $('btnFcicTxt').disabled = !r.texto;
-    $('btnFcicExcel').disabled = false;
+    $('btnFcicExcel').disabled = $('btnFcicExcelRed').disabled = false;
   }
   // Nombre como en la solapa FORMATO: fideico_nocobis_aaaammdd.txt (fecha de hoy).
+  const fcicNombreTxt = () => { const h = new Date(); return `fideico_nocobis_${h.getFullYear()}${String(h.getMonth() + 1).padStart(2, '0')}${String(h.getDate()).padStart(2, '0')}.txt`; };
   $('btnFcicTxt').addEventListener('click', () => {
     if (!fcic.res || !fcic.res.texto) return;
-    const h = new Date();
-    descargar(`fideico_nocobis_${h.getFullYear()}${String(h.getMonth() + 1).padStart(2, '0')}${String(h.getDate()).padStart(2, '0')}.txt`, fcic.res.texto, true);
+    descargar(fcicNombreTxt(), fcic.res.texto, true);
   });
-  $('btnFcicExcel').addEventListener('click', () => {
-    const r = fcic.res; if (!r) return;
+  // Guardar también en la carpeta de red \\dmbi2019db\comercial. El navegador no puede escribir en una ruta por su
+  // cuenta: la carpeta se elige una vez (Edge / Chrome) y queda recordada en este navegador; después se pide permiso
+  // de escritura cuando hace falta.
+  const CARPETA_FCIC = '\\\\dmbi2019db\\comercial';
+  const carpetasDb = () => new Promise((ok, mal) => {
+    const r = indexedDB.open('valo-carpetas', 1);
+    r.onupgradeneeded = () => r.result.createObjectStore('h');
+    r.onsuccess = () => ok(r.result); r.onerror = () => mal(r.error);
+  });
+  const carpetasSesion = {};
+  async function carpetaGuardada(clave) {
+    if (carpetasSesion[clave]) return carpetasSesion[clave];
+    try { const db = await carpetasDb(); return await new Promise(ok => { const q = db.transaction('h').objectStore('h').get(clave); q.onsuccess = () => ok(q.result || null); q.onerror = () => ok(null); }); }
+    catch (e) { return null; }
+  }
+  async function recordarCarpeta(clave, h) {
+    carpetasSesion[clave] = h;
+    try { const db = await carpetasDb(); await new Promise(ok => { const t = db.transaction('h', 'readwrite'); t.objectStore('h').put(h, clave); t.oncomplete = ok; t.onerror = ok; }); } catch (e) { /* queda solo para esta vez */ }
+  }
+  async function elegirCarpetaFcic() {
+    await informar('Elegí la carpeta de red', `En la ventana que se abre, escribí <b>${esc(CARPETA_FCIC)}</b> en la barra de dirección, entrá a la carpeta y tocá <b>Seleccionar carpeta</b> (y después <b>Permitir</b> / <b>Ver archivos</b>). Queda recordada en este navegador.`);
+    const h = await window.showDirectoryPicker({ id: 'fcicComercial', mode: 'readwrite' });
+    if (!/^comercial$/i.test(h.name) && !confirm(`Elegiste la carpeta "${h.name}", no "comercial". ¿Usarla igual?`)) return null;
+    await recordarCarpeta('fcicComercial', h);
+    return h;
+  }
+  async function mostrarCarpetaFcic() {
+    if (!window.showDirectoryPicker) { $('fcicCarpetaEstado').textContent = 'Para guardar en la carpeta de red usá Edge o Chrome (fuera de claude.ai).'; return; }
+    const h = await carpetaGuardada('fcicComercial');
+    $('fcicCarpetaEstado').innerHTML = h ? `Carpeta de red: <b>${esc(h.name)}</b> · <a href="#" id="fcicCambiarCarpeta">cambiar</a>` : `La primera vez que guardes en ${esc(CARPETA_FCIC)} se te pide elegir la carpeta.`;
+  }
+  $('fcicCarpetaEstado').addEventListener('click', async e => {
+    if (!e.target.closest('#fcicCambiarCarpeta')) return;
+    e.preventDefault();
+    try { await elegirCarpetaFcic(); } catch (err) { if (err.name !== 'AbortError') informar('No se pudo elegir la carpeta', esc(err.message || err)); }
+    mostrarCarpetaFcic();
+  });
+  $('btnFcicExcelRed').addEventListener('click', async () => {
+    const libro = fcicLibro();
+    if (!libro) return;
+    const nombre = libro.nombre;
+    const contenido = new Blob([XLSX.write(libro.wb, { bookType: 'xlsx', type: 'array' })], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    const bajar = () => descargarLibro(libro.nombre, libro.wb);
+    if (!window.showDirectoryPicker) {
+      bajar();
+      return informar('No se pudo guardar en la carpeta de red', `Este navegador no permite que la página escriba en carpetas. Se descargó <b>${esc(nombre)}</b>: copialo a ${esc(CARPETA_FCIC)}, o abrí la página en Edge / Chrome (desde el sitio, no dentro de claude.ai).`);
+    }
+    try {
+      // Primero la carpeta (el permiso necesita el clic), después la descarga.
+      let h = await carpetaGuardada('fcicComercial');
+      if (h && (await h.queryPermission({ mode: 'readwrite' })) !== 'granted' && (await h.requestPermission({ mode: 'readwrite' })) !== 'granted') h = null;
+      if (!h) h = await elegirCarpetaFcic();
+      if (!h) return;
+      let existe = false;
+      try { await h.getFileHandle(nombre); existe = true; } catch (e) { /* no existe */ }
+      if (existe && !confirm(`Ya hay un ${nombre} en ${h.name}. ¿Reemplazarlo?`)) return;
+      // El navegador escribe en un temporal (.crswap) y lo renombra; en carpetas de red eso puede fallar
+      // (InvalidStateError) si el archivo ya existe o quedó bloqueado: se borra y se vuelve a intentar una vez.
+      const escribir = async () => {
+        const f = await h.getFileHandle(nombre, { create: true });
+        const w = await f.createWritable({ keepExistingData: false });
+        try { await w.write(contenido); await w.close(); }
+        catch (e) { try { await w.abort(); } catch (x) { /* ya cerrado */ } throw e; }
+      };
+      try { await escribir(); }
+      catch (e) {
+        if (e.name !== 'InvalidStateError' && e.name !== 'NoModificationAllowedError') throw e;
+        try { await h.removeEntry(nombre); } catch (x) { /* no estaba o no se puede borrar */ }
+        try { await h.removeEntry(nombre + '.crswap'); } catch (x) { /* sin temporal */ }
+        await escribir();
+      }
+      toast(`Guardado en ${h.name}\\${nombre}`);
+      $('fcicEstado').innerHTML = aviso('ok', `Excel guardado en <b>${esc(CARPETA_FCIC)}\\${esc(nombre)}</b> (carpeta elegida: ${esc(h.name)}) y descargado.`);
+      mostrarCarpetaFcic();
+      bajar();
+    } catch (e) {
+      if (e.name === 'AbortError') return;
+      bajar();
+      const causa = e.name === 'InvalidStateError' || e.name === 'NoModificationAllowedError'
+        ? 'La carpeta no deja que el navegador termine de grabar el archivo: Edge/Chrome escriben primero un temporal (<i>.crswap</i>) y después lo renombran, y en esa carpeta compartida no se puede renombrar o borrar (permiso de <b>Modificar</b>), o el archivo está abierto / bloqueado. Pedí a sistemas permiso de Modificar sobre la carpeta, o cerrá el archivo si está abierto.'
+        : e.name === 'NotAllowedError' ? 'El navegador no dio permiso de escritura sobre la carpeta (tocá Permitir cuando lo pida).' : `Revisá que tengas acceso de escritura a ${esc(CARPETA_FCIC)}.`;
+      informar('No se pudo guardar en la carpeta de red', `<b>${esc(e.name || 'Error')}</b>: ${esc(e.message || e)}<br><br>${causa}<br><br>Se descargó <b>${esc(nombre)}</b> igual: copialo a ${esc(CARPETA_FCIC)}.`);
+    }
+  });
+  mostrarCarpetaFcic();
+  // Excel de detalle: solapas DG, Reporte por banco y TXT DE NO COBIS.
+  function fcicLibro() {
+    const r = fcic.res; if (!r) return null;
     const dg = [['Ultimo dia habil del mes', fBarra(r.fechas.concesion)], ['vto de producto', fBarra(r.fechas.vencimiento)], ['Saldo cuenta 121049010', r.base], [],
       ['Ente', 'CUIT', 'Banco', 'Importe actual cheques', 'Porcentaje', 'Saldo de capital', 'Línea TXT']]
       .concat(r.filas.map(f => [Number(f.ente) || '', Number(f.cuit), f.nombre, f.conDatos ? f.monto : 0, f.porcentaje, f.saldo, f.linea]));
@@ -3598,8 +3794,9 @@
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(dg), 'DG');
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['Banco', 'Monto', 'Porcentaje']].concat(fcic.rep.grupos.map(g => [g.banco, g.monto, g.porcentaje]))), 'Reporte por banco');
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(r.filas.filter(f => f.linea).map(f => [f.linea])), 'TXT DE NO COBIS');
-    descargarLibro(`NoCobis_FCIC_MELI_${isoDe(r.fechas.concesion).replace(/-/g, '')}.xlsx`, wb);
-  });
+    return { nombre: `NoCobis_FCIC_MELI_${isoDe(r.fechas.concesion).replace(/-/g, '')}.xlsx`, wb };
+  }
+  $('btnFcicExcel').addEventListener('click', () => { const l = fcicLibro(); if (l) descargarLibro(l.nombre, l.wb); });
 
   // ---- lista DG y nombres de bancos (base compartida)
   function renderFcicCfg() {

@@ -60,6 +60,10 @@
       async guardarChequesCfg(cfg) { datos.chequesCfg = clonar(cfg); cambiar(); },
       async guardarFcicMeliCfg(cfg) { datos.fcicMeliCfg = clonar(cfg); cambiar(); },
       async guardarPadronInventario(p) { datos.padronInventario = clonar(p); cambiar(); },
+      async guardarCorreccionBastanteo(c) { datos.bastCorrecciones = (datos.bastCorrecciones || []).concat([Object.assign({ id: nuevoId(), creado: new Date().toISOString() }, clonar(c))]).slice(-200); cambiar(); },
+      async correccionesBastanteo(cuit) { return clonar((datos.bastCorrecciones || []).filter(c => !cuit || c.cuit === cuit)).reverse(); },
+      async excepcionesBastanteo() { return clonar(datos.bastExcepciones || {}); },
+      async guardarExcepcionesBastanteo(porCuit) { datos.bastExcepciones = clonar(porCuit); cambiar(); },
       async contarEntes() { return Object.keys(datos.entesBase || {}).length; },
       async buscarCuitPorDni(dnis) { const r = {}; const v = Object.values(datos.entesBase || {}).map(x => x[0]); dnis.forEach(d => { const d8 = String(d).padStart(8, '0'); const c = v.find(x => String(x).slice(2, 10) === d8); if (c) r[d] = c; }); return r; },
       async buscarEntes(lista) { const b = datos.entesBase || {}, r = {}; lista.forEach(e => { if (b[e]) r[e] = { cuit: b[e][0], nombre: b[e][1] }; }); return r; },
@@ -242,6 +246,25 @@
       async registrarEnvio(e) {
         const id = nuevoId();
         await escribir(() => db.doc('envios/' + id).set(Object.assign(clonar(e), { usuarioId })));
+      },
+      // Correcciones marcadas en el bastanteo (JSON generado, JSON corregido y comentario): sirven para revisar y mejorar
+      // las reglas, y para reusar la versión corregida de la misma empresa.
+      async guardarCorreccionBastanteo(c) {
+        const id = nuevoId();
+        await escribir(() => db.doc('bastanteoCorrecciones/' + id).set(Object.assign(clonar(c), { creado: new Date().toISOString(), usuarioId, estado: 'pendiente' })));
+        return id;
+      },
+      async correccionesBastanteo(cuit) {
+        const s = await db.collection('bastanteoCorrecciones').get();
+        return s.docs.map(d => Object.assign({ id: d.id }, d.data())).filter(c => !cuit || c.cuit === cuit).sort((a, b) => String(b.creado || '').localeCompare(String(a.creado || '')));
+      },
+      // Excepciones de revocatorias por CUIT de empresa: { cuit: [claves de poderes cuya revocatoria no se aplica] }.
+      async excepcionesBastanteo() {
+        const s = await db.doc('maestros/bastanteoExcepciones').get();
+        return s.exists && s.data().porCuit ? clonar(s.data().porCuit) : {};
+      },
+      async guardarExcepcionesBastanteo(porCuit) {
+        await escribir(() => db.doc('maestros/bastanteoExcepciones').set({ porCuit: clonar(porCuit), actualizado: new Date().toISOString(), actualizadoPor: usuarioId }));
       },
       async guardarPadronInventario(p) {
         await escribir(() => db.doc('maestros/inventarioPadron').set({ padron: clonar(p), actualizado: new Date().toISOString(), actualizadoPor: usuarioId }));

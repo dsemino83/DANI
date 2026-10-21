@@ -2375,9 +2375,20 @@
       p.complementarioDe = true;
     });
   }
-  function aplicarRevocatorias(poderes) {
-    const revocan = poderes.filter(revocaPoder);
-    if (!revocan.length) { const vigentes = poderes.slice(); heredarComplementarios(vigentes); return { vigentes, anulados: [], quitados: [], avisos: [] }; }
+  // opciones.ignorar: claves (claveRevocatoria) de poderes cuya revocatoria no se aplica (excepción cargada a mano, por
+  // ejemplo cuando Complif marca como revocatorio un poder que no lo es).
+  const claveRevocatoria = p => `${p.fecha_emision || ''}|${String(p.deed_number || '').replace(/\D/g, '')}`;
+  function aplicarRevocatorias(poderes, opciones = {}) {
+    const ignorar = new Set(opciones.ignorar || []);
+    // Se puede volver a correr con otras excepciones: cada poder recupera los apoderados que tenía antes de las
+    // revocaciones parciales.
+    poderes.forEach(p => {
+      if (!p._apoderadosOriginales) Object.defineProperty(p, '_apoderadosOriginales', { value: (p.apoderados || []).slice(), writable: true, enumerable: false });
+      else p.apoderados = p._apoderadosOriginales.slice();
+    });
+    const ignorados = poderes.filter(p => revocaPoder(p) && ignorar.has(claveRevocatoria(p)));
+    const revocan = poderes.filter(p => revocaPoder(p) && !ignorar.has(claveRevocatoria(p)));
+    if (!revocan.length) { const vigentes = poderes.slice(); heredarComplementarios(vigentes); return { vigentes, anulados: [], quitados: [], avisos: [], revocan, ignorados }; }
     const anulados = [], quitados = [], avisos = [];
     const vigentes = poderes.filter(p => {
       for (const r of revocan) {
@@ -2397,22 +2408,22 @@
         const parcial = /parcial|[uú]nicamente\s+(con\s+)?respecto|s[oó]lo\s+(con\s+)?respecto|en\s+cuanto\s+a/i.test(tr) || listados.length > 0 || (nombrados.length && nombrados.length < p.apoderados.length);
         if (parcial) {
           if (!nombrados.length) continue;
-          nombrados.forEach(a => quitados.push({ apoderado: a, poder: p, motivo: `revocado por el poder del ${r.fecha_emision}` }));
+          nombrados.forEach(a => quitados.push({ apoderado: a, poder: p, revocante: r, motivo: `revocado por el poder del ${r.fecha_emision}` }));
           p.apoderados = p.apoderados.filter(a => !nombrados.includes(a));
-          if (!p.apoderados.length) { anulados.push({ poder: p, motivo: `revocación parcial del ${r.fecha_emision}: no le quedan apoderados` }); return false; }
+          if (!p.apoderados.length) { anulados.push({ poder: p, revocante: r, motivo: `revocación parcial del ${r.fecha_emision}: no le quedan apoderados` }); return false; }
           continue;
         }
         if (RE_EBANVAL.test(textoPoder(r)) && !RE_EBANVAL.test(textoPoder(p))) continue;
-        anulados.push({ poder: p, motivo: `revocado por el poder del ${r.fecha_emision}` });
+        anulados.push({ poder: p, revocante: r, motivo: `revocado por el poder del ${r.fecha_emision}` });
         return false;
       }
       const a = p.alcance || {};
       // Solo revoca (no tiene usos de firma propios): no otorga facultades. Si trae usos, otorga aunque Complif diga "new: false".
-      if (revocaPoder(p) && !otorga(p)) { anulados.push({ poder: p, motivo: 'revocatoria: no otorga facultades' }); return false; }
+      if (revocaPoder(p) && !ignorar.has(claveRevocatoria(p)) && !otorga(p)) { anulados.push({ poder: p, motivo: 'revocatoria: no otorga facultades' }); return false; }
       return true;
     });
     heredarComplementarios(vigentes);
-    return { vigentes, anulados, quitados, avisos };
+    return { vigentes, anulados, quitados, avisos, revocan, ignorados };
   }
 
   // Un firmante sin poder vigente que figuraba en un poder revocado (anulado entero o revocación parcial que lo quitó):
@@ -2436,6 +2447,21 @@
     return (firmantes || []).filter(f => !aps.some(a => firmanteDe(a, [f])));
   }
 
+  // Poder con apoderados en grupos con letra (A, B, C) y usos de firma que hablan de "Grupo 1 / Grupo 2" (Complif):
+  // el 1 es la primera letra, el 2 la segunda… ("2 apoderados del GRUPO 1" = A+A). Si los apoderados ya tienen grupos
+  // con número, no se toca.
+  function alinearGruposNumerados(poder) {
+    const letras = [...new Set((poder.apoderados || []).map(a => letraGrupo(a.grupo)).filter(Boolean))].sort();
+    if (!letras.length || letras.some(l => /^\d+$/.test(l))) return poder.usos;
+    const cambia = x => (/^\d+$/.test(x) && letras[Number(x) - 1] ? letras[Number(x) - 1] : x);
+    const tieneNumeros = u => [u.grupo, ...(u.grupos || []), ...(u.combinaciones || []).flatMap(c => String(c).split('+'))].some(x => /^\d+$/.test(String(x || '')));
+    return (poder.usos || []).map(u => (!tieneNumeros(u) ? u : Object.assign({}, u, {
+      grupo: u.grupo ? cambia(String(u.grupo)) : u.grupo,
+      grupos: u.grupos ? u.grupos.map(x => cambia(String(x))) : u.grupos,
+      combinaciones: u.combinaciones ? [...new Set(u.combinaciones.map(c => String(c).split('+').map(cambia).sort().join('+')))] : u.combinaciones,
+    })));
+  }
+
   // Arma el JSON de un poder. edicion: { deed_number, board_resolution_power_attorney, power_attorney_type, cuits: {dni: cuit} }.
   function jsonPoder(poder, cliente, edicion = {}) {
     const cuits = edicion.cuits || {};
@@ -2446,7 +2472,8 @@
       return c ? Number(String(c).replace(/\D/g, '')) : (dni ? Number(dni) : null);
     };
     // Con planilla: solo van los apoderados que están en ella.
-    const apoderados = firmantes ? poder.apoderados.filter(a => firmanteDe(a, firmantes)) : poder.apoderados;
+    // (edicion.todosApoderados: van todos los del poder, también los que no están en la planilla.)
+    const apoderados = firmantes && !edicion.todosApoderados ? poder.apoderados.filter(a => firmanteDe(a, firmantes)) : poder.apoderados;
     const marcas = (cliente && cliente.marcas) || {};
     return {
       deed_number: edicion.deed_number || null,
@@ -2460,7 +2487,7 @@
       cuit_empresa: formatoCuit(poder.cuit_empresa),
       otorgante: { numero_de_identificacion: ident(poder.otorgante.dni), nombre_completo: poder.otorgante.nombre_completo || null, fecha_nacimiento: poder.otorgante.fecha_nacimiento || null },
       apoderados: apoderados.map(a => ({ numero_de_identificacion: ident(a.dni, a), nombre_completo: a.nombre_completo, grupo: a.grupo || null })),
-      estructuras_de_firma: poder.usos.map((u, n) => {
+      estructuras_de_firma: alinearGruposNumerados(poder).map((u, n) => {
         const ed = (edicion.facultades || [])[n] || {};
         // Si el uso es de un grupo y el poder asigna grupos, el uso vale solo para los apoderados de ese grupo.
         const comb = expandirComodines(u.combinaciones && u.combinaciones.length ? u.combinaciones : combinacionesPorGrupos(u, poder.apoderados), poder.apoderados);
@@ -2659,6 +2686,225 @@
         power_attorney_type: j.power_attorney_type, board_resolution_power_attorney: j.board_resolution_power_attorney,
         apoderados: j.apoderados.map(a => a.numero_de_identificacion), estructuras: j.estructuras_de_firma.map(e => e.estructura_de_firma) })),
     };
+  }
+
+  // ------------------------------------------------------------ JSON DE BASTANTEO (formato 1.0: empresa / apoderados / reglasFirma)
+  // Se arma desde el JSON único. Grupos: los que designa la planilla del cliente (letra del uso de firma del resumen,
+  // "B CONJUNTA B+B; B+C"); con opciones.fuente = 'complif', los de los poderes (Complif / PDF). Sin letra en el poder, los
+  // grupos ya vienen armados por agrupamiento (mismo tipo de firma y facultades). Reglas:
+  // (Como en producción: en ConjuntaIndistinta el quorum es el total de firmas; en Conjunta, las firmas de cada grupo.)
+  //  - firma individual de un grupo → ConjuntaIndistinta [A], quorum 1; de varios grupos ("A y/o B") → [A, B], quorum 1;
+  //    de una persona sin grupo → Individual con su CUIT en firmantes, quorum 1 (no juega);
+  //  - dos cualesquiera de un grupo (A+A) → ConjuntaIndistinta [A], quorum 2;
+  //  - dos cualesquiera de varios grupos (A+A, A+B y B+B) → ConjuntaIndistinta [A, B], quorum 2;
+  //  - uno de cada grupo (A+B) → Conjunta [A, B], quorum 1; A+A+B+B → Conjunta, quorum 2.
+  // Circuitos = códigos del catálogo de cada facultad.
+  const CIRCUITO_DE_CLAVE = Object.fromEntries(BASTANTEO_CATALOGO.map(c => [c[2], c[0]]));
+  // Circuitos que el sistema de destino tiene con dos códigos (van los dos juntos).
+  const CIRCUITOS_GEMELOS = { TRF_ENTRE_CTAS_EMP: ['TRF_ENTRE_CUENTAS_EM'] };
+  const PARTICULAS_APELLIDO = /^(DE|DEL|LA|LAS|LOS|DI|DA|VAN|VON|MC|MAC|SAN|SANTA)$/;
+  // Nombres de pila frecuentes: en "CARLOS MODESTO AGUIAR MARTINEZ" los primeros que son nombres van a nombre y el resto
+  // (aunque sean dos palabras) a apellido.
+  const NOMBRES_PILA = new Set(('adrian adriana agustin agustina alan alberto alejandra alejandro alfredo alicia ana andrea andres angel angela angeles ' +
+    'anibal antonio ariel armando augusto aurora beatriz belen benjamin bernardo blanca bruno camila carina carla carlos carmen carolina catalina ' +
+    'cecilia cesar claudia claudio clara constanza cristian cristina dalma damian daniel daniela dario david debora diana diego dolores domingo ' +
+    'eduardo elena elias eliana elisa elsa emanuel emilia emiliano emilio enrique ernesto esteban estefania eugenia eugenio evangelina ezequiel ' +
+    'fabian fabiana fabio facundo federico felipe fernanda fernando florencia francisco franco gabriel gabriela gaston gerardo german gisela ' +
+    'gonzalo graciela guadalupe guillermo gustavo hector hernan horacio hugo ignacio ines irene isabel ismael ivan jaime javier jesus joaquin ' +
+    'jorge jose josefina juan juana julia julian juliana julieta julio karina laura leandro leonardo leonel lorena lourdes lucas lucia luciana ' +
+    'luciano lucila luis luisa lujan magdalena manuel marcela marcelo marcos marco margarita maria mariana mariano maricel marina mario marta ' +
+    'martin martina matias mauricio maximiliano melisa mercedes micaela miguel milagros miriam modesto monica natalia nelson nicolas noelia norberto ' +
+    'norma octavio omar oscar osvaldo pablo pamela patricia patricio paula paulina pedro pilar rafael ramiro ramon raquel raul ricardo roberto ' +
+    'rocio rodolfo rodrigo rolando romina rosa rosana ruben sabrina salvador samuel sandra sandro santiago sebastian sergio silvia silvina ' +
+    'sofia solange soledad sonia susana tatiana teresa tomas valentin valeria vanesa veronica vicente victor victoria virginia virignia walter ' +
+    'yamila ximena martha marta oriana irena clotilde justo fortunato analia veronica estefania gisella nahuel thiago tobias bautista valentina').split(' '));
+  const esNombrePila = w => NOMBRES_PILA.has(normalizar(w));
+  // "BREA, RICARDO CESAR JOSE" → apellido BREA; sin coma, el apellido es la primera palabra (con "DE LA", "DEL"…).
+  // otro: el mismo nombre en otro orden (la planilla suele traer "APELLIDO NOMBRE" y el poder "NOMBRE APELLIDO"): el
+  // apellido son las últimas palabras de uno que son las primeras del otro.
+  function separarNombre(completo, otro) {
+    const t = String(completo || '').replace(/\s+/g, ' ').trim();
+    if (!t) return { apellido: '', nombre: '', seguro: false };
+    if (t.includes(',')) { const [a, ...n] = t.split(','); return { apellido: a.trim(), nombre: n.join(',').trim(), seguro: true }; }
+    const p = t.split(' ');
+    const o = String(otro || '').replace(/,/g, ' ').replace(/\s+/g, ' ').trim().split(' ').filter(Boolean);
+    // El otro trae el apellido en mayúsculas ("Estefania DE ROSA"): esas palabras, juntas en este nombre, son el apellido.
+    const may = w => /[A-ZÁÉÍÓÚÑ]{2}/.test(w) && w === w.toUpperCase();
+    if (o.some(w => /[a-záéíóúñ]/.test(w)) && o.some(may)) {
+      const ap = o.filter(may).map(normalizar).join(' ');
+      for (let i = 0; i < p.length; i++) for (let k = p.length; k > i; k--) {
+        if (p.slice(i, k).map(normalizar).join(' ') === ap && (i === 0 || k === p.length) && k - i < p.length)
+          return { apellido: p.slice(i, k).join(' '), nombre: p.slice(0, i).concat(p.slice(k)).join(' '), seguro: true };
+      }
+    }
+    if (o.length === p.length && normalizar(o.join(' ')) !== normalizar(t)) {
+      for (let k = p.length - 1; k >= 1; k--) {
+        const fin = p.slice(k).map(normalizar).join(' ');
+        // (Si lo que queda como apellido son nombres de pila y el nombre no tiene ninguno, el orden es el otro.)
+        if (normalizar(o.slice(0, p.length - k).join(' ')) === fin && !(p.slice(k).every(esNombrePila) && !p.slice(0, k).some(esNombrePila)))
+          return { apellido: p.slice(k).join(' '), nombre: p.slice(0, k).join(' '), seguro: true };
+      }
+    }
+    // "Eduardo Fortunato AMIRANTE": el apellido es lo que está en mayúsculas al final.
+    const mayus = w => /[A-ZÁÉÍÓÚÑ]{2}/.test(w) && w === w.toUpperCase();
+    if (p.some(w => !mayus(w) && /[a-záéíóúñ]/.test(w)) && mayus(p[p.length - 1])) {
+      let i = p.length - 1;
+      while (i > 0 && (mayus(p[i - 1]) || PARTICULAS_APELLIDO.test(p[i - 1].toUpperCase()))) i--;
+      if (i > 0) return { apellido: p.slice(i).join(' '), nombre: p.slice(0, i).join(' '), seguro: true };
+    }
+    // Nombres de pila al principio ("ADRIÁN ALBERTO FANTÍN"): el resto es el apellido; al final ("ZAPATA JUAN CARLOS"):
+    // lo de adelante es el apellido.
+    let ini = 0;
+    while (ini < p.length - 1 && esNombrePila(p[ini])) ini++;
+    if (ini > 0) return { apellido: p.slice(ini).join(' '), nombre: p.slice(0, ini).join(' '), seguro: true };
+    let fin = p.length;
+    while (fin > 1 && esNombrePila(p[fin - 1])) fin--;
+    if (fin < p.length) return { apellido: p.slice(0, fin).join(' '), nombre: p.slice(fin).join(' '), seguro: true };
+    // "Sebastian Roig" (nombre y apellido en ese orden): el apellido es la última palabra (con "de la", "del"…).
+    if (p.length > 1 && p.every(w => !mayus(w))) {
+      let i = p.length - 1;
+      while (i > 1 && PARTICULAS_APELLIDO.test(p[i - 1].toUpperCase())) i--;
+      return { apellido: p.slice(i).join(' '), nombre: p.slice(0, i).join(' '), seguro: p.length === 2 };
+    }
+    let k = 0;
+    while (k < p.length - 2 && PARTICULAS_APELLIDO.test(p[k].toUpperCase())) k++;
+    return { apellido: p.slice(0, k + 1).join(' '), nombre: p.slice(k + 1).join(' '), seguro: p.length <= 1 };
+  }
+  // Reglas de negocio del sistema de destino: Conjunta / ConjuntaIndistinta con quorum entero > 0; ConjuntaIndistinta con
+  // al menos 1 grupo; Conjunta con al menos 2; Individual con un firmante. Grupos y firmantes tienen que existir.
+  function validarJsonBastanteo(j) {
+    const errores = [];
+    const grupos = new Set((j.apoderados || []).flatMap(a => a.grupos || []));
+    const cuits = new Set((j.apoderados || []).map(a => a.cuitCuil));
+    (j.reglasFirma || []).forEach(r => {
+      const q = `${r.referencia} (${r.tipo})`;
+      if (!['Individual', 'Conjunta', 'ConjuntaIndistinta'].includes(r.tipo)) errores.push(`${q}: tipo desconocido.`);
+      if (/Conjunta/.test(r.tipo) && !(Number.isInteger(r.quorum) && r.quorum > 0)) errores.push(`${q}: el quorum tiene que ser un entero mayor a 0.`);
+      if (r.tipo === 'ConjuntaIndistinta' && !(r.grupos || []).length) errores.push(`${q}: tiene que tener al menos 1 grupo.`);
+      if (r.tipo === 'Conjunta' && (r.grupos || []).length < 2) errores.push(`${q}: tiene que tener al menos 2 grupos.`);
+      if (r.tipo === 'Individual' && (r.firmantes || []).length !== 1) errores.push(`${q}: tiene que tener un firmante.`);
+      (r.grupos || []).filter(g => !grupos.has(g)).forEach(g => errores.push(`${q}: el grupo ${g} no tiene apoderados.`));
+      (r.firmantes || []).filter(c => !cuits.has(c)).forEach(c => errores.push(`${q}: el firmante ${c} no está entre los apoderados.`));
+      if (!(r.circuitos || []).length) errores.push(`${q}: no tiene circuitos.`);
+    });
+    if (!(j.apoderados || []).length) errores.push('No hay apoderados.');
+    (j.apoderados || []).filter(a => !a.cuitCuil).forEach(a => errores.push(`${a.apellido}, ${a.nombre}: sin CUIT/CUIL.`));
+    return errores;
+  }
+  function jsonBastanteoV1(unico, cliente, opciones = {}) {
+    const fuente = opciones.fuente === 'complif' ? 'complif' : 'planilla';
+    const firmantes = (cliente && cliente.firmantes) || [];
+    const avisos = [];
+    const idTexto = id => String(id == null ? '' : id).replace(/\D/g, '');
+    const firmanteDeId = a => {
+      const d = idTexto(a.numero_de_identificacion);
+      return firmanteDe({ dni: d.length === 11 ? d.slice(2, 10).replace(/^0+/, '') : d, cuit: d.length === 11 ? d : '', nombre_completo: a.nombre_completo }, firmantes);
+    };
+    const apoderadosU = (unico.apoderados || []).filter(a => a.grupo);
+    const planillaDe = new Map(apoderadosU.map(a => [a.numero_de_identificacion, firmanteDeId(a)]));
+    // Letra del poder → letra de la planilla: todos los integrantes del grupo que están en la planilla con una letra
+    // tienen que coincidir; si no, queda la del poder y se avisa.
+    const renombre = {};
+    if (fuente === 'planilla') {
+      const porGrupo = {};
+      (unico.estructuras_de_firma || []).forEach(e => (e.apoderados || []).forEach(id => {
+        const f = planillaDe.get(id), l = f && f.uso && f.uso.grupo;
+        if (l) (porGrupo[e.grupo] = porGrupo[e.grupo] || new Set()).add(l);
+      }));
+      Object.entries(porGrupo).forEach(([g, ls]) => {
+        if (ls.size === 1) renombre[g] = [...ls][0];
+        else avisos.push(`El grupo ${g} de los poderes tiene en la planilla firmantes de los grupos ${[...ls].sort().join(', ')}: cada uno va con la letra de la planilla y las reglas quedan con la del poder.`);
+      });
+    }
+    const ren = g => renombre[g] || g;
+    const reglas = new Map();
+    // Con los JSON de cada poder (opciones.jsons) y todos los usos conjuntos con combinaciones, cada regla sale del uso
+    // de firma exacto del poder (sus circuitos y sus combinaciones). Si no, de los grupos del JSON único.
+    const porUso = (opciones.jsons || []).flatMap(j => j.estructuras_de_firma || []);
+    const exacto = porUso.length && porUso.every(e => !e.firma_conjunta || (e.combinaciones || []).length);
+    // Apoderados del poder que no están en el JSON único (grupos sin usos de firma, p. ej. un grupo C): van igual.
+    if (opciones.jsons) {
+      const ya = new Set(apoderadosU.map(a => a.numero_de_identificacion));
+      opciones.jsons.flatMap(j => j.apoderados || []).forEach(a => {
+        if (ya.has(a.numero_de_identificacion) || !letraGrupo(a.grupo)) return;
+        ya.add(a.numero_de_identificacion);
+        apoderadosU.push({ numero_de_identificacion: a.numero_de_identificacion, nombre_completo: a.nombre_completo, grupo: letraGrupo(a.grupo) });
+        planillaDe.set(a.numero_de_identificacion, firmanteDeId(a));
+      });
+    }
+    (exacto ? porUso : unico.estructuras_de_firma || []).forEach(e => {
+      const circuitos = [...new Set(Object.entries(e.facultades || {}).filter(([k, v]) => v && CIRCUITO_DE_CLAVE[k])
+        .flatMap(([k]) => [CIRCUITO_DE_CLAVE[k]].concat(CIRCUITOS_GEMELOS[CIRCUITO_DE_CLAVE[k]] || [])))].sort();
+      const agregar = (tipo, quorum, grupos, extra = {}, combo = '', firmantes = []) => {
+        // Misma regla (tipo, quorum, grupos, firmante y monto) desde varios grupos del poder: se juntan los circuitos.
+        const k = [tipo, quorum, grupos.join(','), firmantes.join(','), extra.monto || ''].join('|');
+        if (reglas.has(k)) { const r = reglas.get(k); r.circuitos = [...new Set(r.circuitos.concat(circuitos))].sort(); return; }
+        const descripcion = tipo === 'Individual' ? `Firma individual - ${combo}`
+          : tipo === 'ConjuntaIndistinta' ? (combo === 'individual' ? `Grupo ${grupos.join(' y/o ')} - firma individual` : grupos.length > 1 ? `Firma conjunta: ${combo}` : `Grupo ${grupos[0]} - firma conjunta ${combo}`) : `Firma conjunta ${combo}`;
+        reglas.set(k, Object.assign({ tipo, quorum, moneda: null, monto: null, descripcion, circuitos, grupos, firmantes }, extra));
+      };
+      if (e.firma_individual && !e.firma_conjunta) {
+        // Límite de la firma individual escrito en la planilla ("H/ $ 50.000.000"), si es el mismo para todo el grupo.
+        const lim = fuente === 'planilla' ? [...new Set((e.apoderados || []).map(id => { const f = planillaDe.get(id); return f && f.uso && f.uso.limite ? `${f.uso.limite}|${f.uso.limiteTexto}` : ''; }))] : [];
+        const extra = lim.length === 1 && lim[0] ? { monto: Number(lim[0].split('|')[0]), moneda: /U\$S|USD|US\$/.test(lim[0]) ? 'USD' : 'ARS' } : {};
+        // Firma individual de un grupo: ConjuntaIndistinta con quorum 1 (una firma de cualquiera del grupo). Las personas
+        // sin grupo van como Individual con su CUIT (el sistema pide un firmante en la regla individual).
+        const grupoDe = id => { const f = planillaDe.get(id), a = apoderadosU.find(x => x.numero_de_identificacion === id);
+          return (fuente === 'planilla' && f && f.uso && f.uso.grupo) || (a && ren(String(a.grupo).split(',')[0].trim())) || ''; };
+        const conGrupo = [...new Set((e.apoderados || []).map(grupoDe).filter(Boolean))].sort();
+        if (conGrupo.length) agregar('ConjuntaIndistinta', 1, conGrupo, extra, 'individual');
+        (e.apoderados || []).filter(id => !grupoDe(id)).forEach(id => {
+          const a = apoderadosU.find(x => x.numero_de_identificacion === id);
+          if (!a) return;
+          const f = planillaDe.get(id), d = idTexto(id) || idTexto(f && f.cuit);
+          if (!d) return;
+          agregar('Individual', 1, [], extra, a.nombre_completo, [d.length === 11 ? formatoCuit(d) : d]);
+        });
+        return;
+      }
+      let combos = [...new Map((e.combinaciones && e.combinaciones.length ? e.combinaciones : [`${e.grupo}+${e.grupo}`])
+        .map(c => c.split('+').map(ren).sort()).map(ls => [ls.join('+'), ls])).values()];
+      // Todas las parejas posibles entre los grupos (A+A, A+B, B+B): dos cualesquiera de esos grupos.
+      const gs = [...new Set(combos.flat())].sort();
+      const parejas = gs.flatMap((a, i) => gs.slice(i).map(b => `${a}+${b}`));
+      const claves = new Set(combos.map(ls => ls.join('+')));
+      if (gs.length > 1 && parejas.every(p => claves.has(p))) {
+        agregar('ConjuntaIndistinta', 2, gs, {}, `dos cualesquiera de ${gs.join(' y/o ')}`);
+        combos = combos.filter(ls => ls.length !== 2);
+      }
+      combos.forEach(ls => {
+        const unicos = [...new Set(ls)].sort();
+        if (unicos.length === 1) { agregar('ConjuntaIndistinta', ls.length, unicos, {}, ls.join('+')); return; }
+        // Uno (o n) de cada grupo: quorum = firmas por grupo.
+        const cuenta = unicos.map(g => ls.filter(x => x === g).length);
+        if (new Set(cuenta).size > 1) avisos.push(`La combinación ${ls.join('+')} pide distinta cantidad de firmas por grupo: va como Conjunta con quorum ${Math.max(...cuenta)} (revisar).`);
+        agregar('Conjunta', Math.max(...cuenta), unicos, {}, ls.join('+'));
+      });
+    });
+    const apoderados = apoderadosU.map(a => {
+      const f = planillaDe.get(a.numero_de_identificacion);
+      // Nombre de Complif / del poder; el del Excel ayuda a saber cuál es el apellido.
+      const n = a.nombre_completo ? separarNombre(a.nombre_completo, f && f.nombre) : separarNombre(f && f.nombre);
+      if (!n.seguro) avisos.push(`${a.nombre_completo}: apellido "${n.apellido}" (revisar).`);
+      const id = idTexto(a.numero_de_identificacion) || idTexto(f && f.cuit);
+      if (!id) avisos.push(`${a.nombre_completo}: sin CUIT/CUIL.`);
+      // Con la planilla, la letra que le da a la persona manda; si no tiene, la del poder (o la del agrupamiento).
+      const propia = fuente === 'planilla' && f && f.uso && f.uso.grupo;
+      return { cuitCuil: id.length === 11 ? formatoCuit(id) : id, nombre: n.nombre, apellido: n.apellido, estado: 'Activa',
+        grupos: propia ? [propia] : [...new Set(String(a.grupo).split(',').map(x => ren(x.trim())).filter(Boolean))].sort() };
+    });
+    const json = {
+      version: '1.0',
+      empresa: { cuit: formatoCuit(unico.cuit_empresa), razonSocial: unico.razon_social || null, estado: 'Activa' },
+      apoderados,
+      // Orden: conjuntas indistintas, conjuntas e individuales.
+      reglasFirma: [...reglas.values()].sort((a, b) => ['ConjuntaIndistinta', 'Conjunta', 'Individual'].indexOf(a.tipo) - ['ConjuntaIndistinta', 'Conjunta', 'Individual'].indexOf(b.tipo))
+        .map((r, i) => Object.assign({ referencia: `regla-${i + 1}` }, r)),
+    };
+    // Avisos y grupos renombrados: para la pantalla, no se exportan.
+    Object.defineProperty(json, 'avisos', { value: avisos, enumerable: false });
+    Object.defineProperty(json, 'renombre', { value: renombre, enumerable: false });
+    return json;
   }
 
   // ------------------------------------------------------------ TXT NO COBIS
@@ -4036,7 +4282,7 @@ try {
     leerTxtMeli, bancoMeliDeTxt, bancosParaMeli,
     sqlExtraccionCartera, bookmarkletCartera, scriptPowerShellCartera, comandoTareaCartera, IMPORTES_CARTERA,
     NO_COBIS, ultimoDiaHabil, fechasNoCobis, FCIC_MELI_INICIAL, FERIADOS_AR, diaHabilAnterior, fechasFcicMeli, leerReporteCupones, armarNoCobisFcic, lineaNoCobis, txtNoCobis, loteApiNoCobis, scriptPowerShellNoCobis, scriptPowerShellProbarNoCobis, scriptPowerShellAgenteNoCobis, cmdEnvioNoCobis,
-    leerCartera, BASTANTEO_CATALOGO, BASTANTEO_CLAVES, BASTANTEO_EXTRA, leerPoderesOcr, leerAutoridadesOcr, COMPLIF_TIPOS, poderDesdeComplif, actaDesdeComplif, complifDeEmpresa, controlResumen, usoDelResumen, aplicarRevocatorias, poderesFirmantesD, presidentesDeActas, gruposDelUso, usoCompleto, tokensDe, combosDeClausula, poderDelPresidente, leerClienteBastanteo, cuitPorDni, formatoCuit, firmanteDe, firmantesSinPoder, jsonPoder, jsonBastanteoUnico, leerInventarioGarantias, leerUsoAcuerdos, leerCuentasPowerBI, clienteDeCuenta, leerPadronDesdeLineasPdf, INVENTARIOS_CONTABLES, INVENTARIO_DENOMINACION, INVENTARIO_FIRMAS, fechaReporteIso, fechaInventarioDesdeReporte, leerPadronDesdeInventarios, leerBaseEntes, unirPadron, armarInventariosContables, leerCom3500, leerTcApiBcra, elegirTipoCambio, numeroEnLetras, daxCarteraPowerBI, daxDiagnosticoPowerBI, daxSaldoDeuda, armarSaldoDeuda, daxSaldoDeudaDetalle, armarDeudaDetalle, leerFilasPowerBI, sugerirColumnaCartera, columnasNumericasCartera, agruparCartera, valoresDistintos, sqlCartera,
+    leerCartera, BASTANTEO_CATALOGO, BASTANTEO_CLAVES, BASTANTEO_EXTRA, leerPoderesOcr, leerAutoridadesOcr, COMPLIF_TIPOS, poderDesdeComplif, actaDesdeComplif, complifDeEmpresa, controlResumen, usoDelResumen, aplicarRevocatorias, claveRevocatoria, poderesFirmantesD, presidentesDeActas, gruposDelUso, usoCompleto, tokensDe, combosDeClausula, poderDelPresidente, leerClienteBastanteo, cuitPorDni, formatoCuit, firmanteDe, firmantesSinPoder, jsonPoder, jsonBastanteoUnico, jsonBastanteoV1, validarJsonBastanteo, separarNombre, leerInventarioGarantias, leerUsoAcuerdos, leerCuentasPowerBI, clienteDeCuenta, leerPadronDesdeLineasPdf, INVENTARIOS_CONTABLES, INVENTARIO_DENOMINACION, INVENTARIO_FIRMAS, fechaReporteIso, fechaInventarioDesdeReporte, leerPadronDesdeInventarios, leerBaseEntes, unirPadron, armarInventariosContables, leerCom3500, leerTcApiBcra, elegirTipoCambio, numeroEnLetras, daxCarteraPowerBI, daxDiagnosticoPowerBI, daxSaldoDeuda, armarSaldoDeuda, daxSaldoDeudaDetalle, armarDeudaDetalle, leerFilasPowerBI, sugerirColumnaCartera, columnasNumericasCartera, agruparCartera, valoresDistintos, sqlCartera,
     leerCsv, encabezadosEjemplo, leerDefinicionInterfaz, sugerirColumna, detectarHojaInterfaz,
     normalizar, provinciaPorNombre, crearBuscadorBancoPorNombre, round2, aNumero, aFechaSerial, aCodigoBanco,
     fechaDDMMYY, fechaYYYYMMDD, fechaLegible, hoyDDMMYY,
