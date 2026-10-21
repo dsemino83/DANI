@@ -2798,6 +2798,28 @@
     (j.apoderados || []).filter(a => !a.cuitCuil).forEach(a => errores.push(`${a.apellido}, ${a.nombre}: sin CUIT/CUIL.`));
     return errores;
   }
+  // Monto de una estructura de firma, leído del texto del poder ("en operaciones que no excedan la suma de U$S 500.000",
+  // "hasta $ 10.000.000", "≤U$S500.000"): { monto, moneda }. "que excedan U$S 500.000" / "más de" es la regla para montos
+  // mayores: no tiene tope (null). Sin monto en el texto: null.
+  function montoDeTexto(texto) {
+    const t = String(texto || '').replace(/\s+/g, ' ');
+    const re = /(U\$S|U\$D|USD|US\$|D[OÓ]LARES|\$|ARS|PESOS)\s*([\d][\d.]*(?:,\d{1,2})?)(\s*(?:MILLONES|MILL\.?))?/gi;
+    let m;
+    while ((m = re.exec(t))) {
+      const antes = t.slice(Math.max(0, m.index - 70), m.index).toLowerCase();
+      let valor = Number(m[2].replace(/\./g, '').replace(',', '.'));
+      if (m[3]) valor *= 1e6;
+      if (!(valor > 0)) continue;
+      const moneda = /\$/.test(m[1]) && !/U\$|US\$/i.test(m[1]) || /ARS|PESOS/i.test(m[1]) ? 'ARS' : 'USD';
+      // Lo último que se dice antes del importe decide: "no excedan", "hasta", "≤" (tope) o "excedan", "más de", ">" (sin tope).
+      const ultimo = (re2 => { let x, u = null; while ((x = re2.exec(antes))) u = x[0]; return u; })(/no\s+(?:exced|super|sobrepas)\w*|hasta|≤|<=|menor\w*|inferior\w*|no\s+mayor\w*|exced\w*|super\w*|mayor\w*|m[aá]s\s+de|>/g);
+      if (!ultimo) continue;
+      if (/^no\s|hasta|≤|<=|menor|inferior/.test(ultimo)) return { monto: valor, moneda };
+      return { monto: null, moneda: null, desde: valor };
+    }
+    return { monto: null, moneda: null };
+  }
+
   // Optimización de reglas: se juntan las que, con los mismos circuitos, el mismo vencimiento y el mismo monto, dicen lo
   // mismo con otra forma:
   //  1. grupos con exactamente los mismos integrantes → un solo grupo (la primera letra);
@@ -2823,7 +2845,7 @@
       lista.forEach(r => { r.grupos = [...new Set(r.grupos.map(g => alias[g] || g))].sort(); });
     }
     // 2. Reglas idénticas (también las que quedaron iguales por el paso 1).
-    const clave = r => [r.tipo, r.quorum, r.grupos.join(','), (r.firmantes || []).join(','), r.monto || '', r._vto || ''].join('|');
+    const clave = r => [r.tipo, r.quorum, r.grupos.join(','), (r.firmantes || []).join(','), r.monto || '', r.moneda || '', r._vto || ''].join('|');
     const juntar = l => {
       const m = new Map();
       l.forEach(r => {
@@ -2928,10 +2950,13 @@
     (exacto ? porUso : unico.estructuras_de_firma || []).forEach(e => {
       const circuitos = [...new Set(Object.entries(e.facultades || {}).filter(([k, v]) => v && CIRCUITO_DE_CLAVE[k])
         .flatMap(([k]) => [CIRCUITO_DE_CLAVE[k]].concat(CIRCUITOS_GEMELOS[CIRCUITO_DE_CLAVE[k]] || [])))].sort();
-      const agregar = (tipo, quorum, grupos, extra = {}, combo = '', firmantes = []) => {
+      const mt = montoDeTexto(`${e.estructura_de_firma || ''} ${e.limitaciones || ''}`);
+      const delTexto = mt.monto ? { monto: mt.monto, moneda: mt.moneda } : {};
+      const agregar = (tipo, quorum, grupos, extra0 = {}, combo = '', firmantes = []) => {
+        const extra = Object.assign({}, delTexto, extra0);
         // Misma regla (tipo, quorum, grupos, firmante, monto y vencimiento del poder) desde varios usos: se juntan los circuitos.
         const vto = e.vencimiento || '';
-        const k = [tipo, quorum, grupos.join(','), firmantes.join(','), extra.monto || '', vto].join('|');
+        const k = [tipo, quorum, grupos.join(','), firmantes.join(','), extra.monto || '', extra.moneda || '', vto].join('|');
         if (reglas.has(k)) { const r = reglas.get(k); r.circuitos = [...new Set(r.circuitos.concat(circuitos))].sort(); return; }
         const descripcion = tipo === 'Individual' ? `Firma individual - ${combo}`
           : tipo === 'ConjuntaIndistinta' ? (combo === 'individual' ? `Grupo ${grupos.join(' y/o ')} - firma individual` : grupos.length > 1 ? `Firma conjunta: ${combo}` : `Grupo ${grupos[0]} - firma conjunta ${combo}`) : `Firma conjunta ${combo}`;
@@ -4381,7 +4406,7 @@ try {
     leerTxtMeli, bancoMeliDeTxt, bancosParaMeli,
     sqlExtraccionCartera, bookmarkletCartera, scriptPowerShellCartera, comandoTareaCartera, IMPORTES_CARTERA,
     NO_COBIS, ultimoDiaHabil, fechasNoCobis, FCIC_MELI_INICIAL, FERIADOS_AR, diaHabilAnterior, fechasFcicMeli, leerReporteCupones, armarNoCobisFcic, lineaNoCobis, txtNoCobis, loteApiNoCobis, scriptPowerShellNoCobis, scriptPowerShellProbarNoCobis, scriptPowerShellAgenteNoCobis, cmdEnvioNoCobis,
-    leerCartera, BASTANTEO_CATALOGO, BASTANTEO_CLAVES, BASTANTEO_EXTRA, leerPoderesOcr, leerAutoridadesOcr, COMPLIF_TIPOS, poderDesdeComplif, actaDesdeComplif, complifDeEmpresa, controlResumen, usoDelResumen, aplicarRevocatorias, claveRevocatoria, poderesFirmantesD, presidentesDeActas, gruposDelUso, usoCompleto, tokensDe, combosDeClausula, poderDelPresidente, leerClienteBastanteo, cuitPorDni, formatoCuit, firmanteDe, firmantesSinPoder, jsonPoder, jsonBastanteoUnico, jsonBastanteoV1, optimizarReglas, validarJsonBastanteo, separarNombre, leerInventarioGarantias, leerUsoAcuerdos, leerCuentasPowerBI, clienteDeCuenta, leerPadronDesdeLineasPdf, INVENTARIOS_CONTABLES, INVENTARIO_DENOMINACION, INVENTARIO_FIRMAS, fechaReporteIso, fechaInventarioDesdeReporte, leerPadronDesdeInventarios, leerBaseEntes, unirPadron, armarInventariosContables, leerCom3500, leerTcApiBcra, elegirTipoCambio, numeroEnLetras, daxCarteraPowerBI, daxDiagnosticoPowerBI, daxSaldoDeuda, armarSaldoDeuda, daxSaldoDeudaDetalle, armarDeudaDetalle, leerFilasPowerBI, sugerirColumnaCartera, columnasNumericasCartera, agruparCartera, valoresDistintos, sqlCartera,
+    leerCartera, BASTANTEO_CATALOGO, BASTANTEO_CLAVES, BASTANTEO_EXTRA, leerPoderesOcr, leerAutoridadesOcr, COMPLIF_TIPOS, poderDesdeComplif, actaDesdeComplif, complifDeEmpresa, controlResumen, usoDelResumen, aplicarRevocatorias, claveRevocatoria, poderesFirmantesD, presidentesDeActas, gruposDelUso, usoCompleto, tokensDe, combosDeClausula, poderDelPresidente, leerClienteBastanteo, cuitPorDni, formatoCuit, firmanteDe, firmantesSinPoder, jsonPoder, jsonBastanteoUnico, jsonBastanteoV1, optimizarReglas, montoDeTexto, validarJsonBastanteo, separarNombre, leerInventarioGarantias, leerUsoAcuerdos, leerCuentasPowerBI, clienteDeCuenta, leerPadronDesdeLineasPdf, INVENTARIOS_CONTABLES, INVENTARIO_DENOMINACION, INVENTARIO_FIRMAS, fechaReporteIso, fechaInventarioDesdeReporte, leerPadronDesdeInventarios, leerBaseEntes, unirPadron, armarInventariosContables, leerCom3500, leerTcApiBcra, elegirTipoCambio, numeroEnLetras, daxCarteraPowerBI, daxDiagnosticoPowerBI, daxSaldoDeuda, armarSaldoDeuda, daxSaldoDeudaDetalle, armarDeudaDetalle, leerFilasPowerBI, sugerirColumnaCartera, columnasNumericasCartera, agruparCartera, valoresDistintos, sqlCartera,
     leerCsv, encabezadosEjemplo, leerDefinicionInterfaz, sugerirColumna, detectarHojaInterfaz,
     normalizar, provinciaPorNombre, crearBuscadorBancoPorNombre, round2, aNumero, aFechaSerial, aCodigoBanco,
     fechaDDMMYY, fechaYYYYMMDD, fechaLegible, hoyDDMMYY,
