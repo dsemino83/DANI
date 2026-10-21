@@ -3023,6 +3023,21 @@
         grupos: propia ? [propia] : [...new Set(String(a.grupo).split(',').map(x => ren(x.trim())).filter(Boolean))].sort() };
     });
     const opt = optimizarReglas([...reglas.values()], apoderados);
+    // Tope en las dos monedas: cada regla con monto va también en la otra moneda al tipo de cambio Com. A 3500
+    // (opciones.tc = { tc, fecha }). Sin tipo de cambio, solo la del poder (y se avisa).
+    const conTope = opt.lista.filter(r => r.monto && (r.moneda === 'USD' || r.moneda === 'ARS'));
+    if (conTope.length && !(opciones.tc && opciones.tc.tc > 0)) avisos.push('Hay reglas con tope: falta el tipo de cambio (Com. A 3500) para agregar la misma regla en la otra moneda.');
+    if (conTope.length && opciones.tc && opciones.tc.tc > 0) {
+      const tc = opciones.tc.tc, fTc = String(opciones.tc.fecha || '').split('-').reverse().join('/');
+      const fmt = (n, d) => Number(n).toLocaleString('es-AR', { minimumFractionDigits: d, maximumFractionDigits: d });
+      conTope.forEach(r => {
+        const otra = r.moneda === 'USD' ? 'ARS' : 'USD';
+        const monto = round2(r.moneda === 'USD' ? r.monto * tc : r.monto / tc);
+        const gemela = Object.defineProperty(Object.assign({}, r, { moneda: otra, monto,
+          descripcion: `${r.descripcion} · equivale a ${r.moneda} ${fmt(r.monto, 2)} al TC Com. A 3500${fTc ? ' del ' + fTc : ''} (${fmt(tc, 4)})` }), '_vto', { value: r._vto, writable: true, enumerable: false });
+        opt.lista.splice(opt.lista.indexOf(r) + 1, 0, gemela);
+      });
+    }
     const hoy = claveDia(opciones.hoy || new Date());
     opt.lista.forEach(r => { if (r._vto) r.descripcion = `${r.descripcion} · vence ${r._vto.split('-').reverse().join('/')}`; });
     [...new Set(opt.lista.filter(r => r._vto && r._vto < hoy).map(r => r._vto))].forEach(v => avisos.push(`Hay reglas de un poder vencido el ${v.split('-').reverse().join('/')} (vencimiento en Complif): revisar si sigue vigente.`));
