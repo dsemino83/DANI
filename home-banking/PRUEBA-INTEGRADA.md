@@ -121,4 +121,5 @@ docker compose --profile dev down -v
 | Falla con HTTP 403 o "Sin respuesta" | El banco filtra por IP: pedile que habilite la IP pública de esa red |
 | "El banco rechazó el login" | Usuario, DNI, terminal o clave incorrectos, o el texto cifrado no corresponde a producción. El mensaje trae el código del banco |
 | El login de la aplicación no abre o vuelve a la pantalla de ingreso | Keycloak todavía está arrancando (esperá 1 minuto), o el `.env` no tiene los valores del paso 4 |
+| El backend se reinicia con `EACCES: permission denied, open '/run/secrets/…'` (Linux/macOS) | Secretos generados con una versión anterior del script: `chmod 700 secrets && chmod 644 secrets/*.txt`, después `docker compose --profile dev down -v` (la base quedó a medio inicializar) y volver a levantar |
 | `docker compose` falla en Windows con errores en archivos `.sh` | Clonado con fines de línea de Windows: volvé a clonar (el repositorio ya fuerza LF en esos archivos) |
