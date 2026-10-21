@@ -51,3 +51,24 @@ Si el banco rechaza el login, la ejecución termina en error con el código y el
 - El disparador, el login y la cookie de sesión tienen **entradas y salidas seguras**: la clave y la cookie no se ven en el historial.
 - Los saldos y movimientos sí quedan visibles en el historial de ejecuciones (Power Automate los conserva unos 28 días). Ejecutalo en un entorno al que solo acceda quien tenga que ver esos datos y, al terminar la prueba, borrá el flujo o su historial.
 - El `password` cifrado funciona como la clave: quien lo tenga puede iniciar sesión. No lo guardes en el flujo, en variables de entorno compartidas ni en documentos, y pedí al banco que lo cambie después de la prueba si circuló por canales no seguros.
+
+## Versión 3: paginación de movimientos (`Prueba-API-BancoValores-v3-Paginacion.zip`)
+
+Prueba lo mismo que hace el backend con `getMovementsDetail` en un período largo. Pide páginas de 900: la primera con `mode "0"` y las siguientes con `mode "1"` y el `sequential`/`uniqueSequential` del último movimiento recibido, hasta que una página traiga menos de 900. Tope de 100 páginas o una hora.
+
+Entradas: las mismas que la versión 1, más **Cuenta** (obligatoria), **Desde** y **Hasta** en formato `AAAA-MM-DD`.
+
+Para probar la paginación de verdad, elegí una cuenta y un período con **más de 900 movimientos**, por ejemplo una cuenta de cobranzas en un mes completo.
+
+Resultado en la ejecución:
+
+| Paso | Qué muestra |
+|---|---|
+| **Verificacion** | `Resultado` (OK o REVISAR), páginas, total de movimientos, únicos, **repetidos** (tiene que ser 0), débitos, si el banco devolvió error y si cada movimiento trae `transactionId`, `sequential` y `uniqueSequential` |
+| **Tabla_de_paginas** | Una fila por página: mode y sequential enviados, cantidad, primer y último sequential, fecha y hora del primer y último movimiento |
+| **Tabla_de_movimientos** | Todos los movimientos del período |
+
+Qué mirar:
+- **Repetidos = 0** y el total igual a lo que muestra el banco para ese período.
+- En **Tabla_de_paginas**, el `Sequential_enviado` de cada página tiene que ser el `Ultimo_sequential` de la anterior, y el primer movimiento de cada página tiene que ser anterior al último de la página previa (orden descendente, sin saltos).
+- Si el banco devuelve el mismo último `sequential` dos veces, el flujo corta con el error "La paginación no avanza", en lugar de quedar en un bucle.
