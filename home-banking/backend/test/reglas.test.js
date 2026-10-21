@@ -146,3 +146,16 @@ test('ID de operación: obligatorio, normalizado y con formato acotado', () => {
   assert.equal(normalizarId(12345), '12345');
   for (const malo of ['', '   ', null, undefined, '-ABC', 'A B', 'A'.repeat(41), "X';DROP"]) assert.throws(() => normalizarId(malo), String(malo));
 });
+
+test('alta de usuario: validaciones y clave temporal', async () => {
+  const { validarAlta, validarClaveTemporal, PERFILES } = await import('../src/keycloak-admin.js');
+  const ok = { usuario: ' JPerez ', email: 'jperez@valo.ar', nombre: 'Juan', apellido: 'Pérez', perfil: 'operador', claveTemporal: 'Temporal-2026x' };
+  assert.equal(validarAlta(ok).usuario, 'jperez', 'en minúsculas y sin espacios');
+  assert.deepEqual(PERFILES, ['operador', 'autorizante', 'auditor', 'administrador']);
+  assert.throws(() => validarAlta({ ...ok, usuario: 'a' }));
+  assert.throws(() => validarAlta({ ...ok, usuario: 'juan perez' }));
+  assert.throws(() => validarAlta({ ...ok, email: 'sin-arroba' }));
+  assert.throws(() => validarAlta({ ...ok, apellido: '' }));
+  assert.throws(() => validarAlta({ ...ok, perfil: 'superusuario' }));
+  for (const mala of ['corta1', 'sinnumerosenlaclave', '123456789012', '']) assert.throws(() => validarClaveTemporal(mala), mala);
+});

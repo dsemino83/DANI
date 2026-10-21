@@ -7,7 +7,7 @@ import { conflicto, invalido, noEncontrado } from '../errores.js';
 import { esAmbiente, urlBase } from '../bdv/ambientes.js';
 import { cifrar, estadoCredencial, leerCredencial } from '../secretos.js';
 import { bdv, cuentasPropias, pemDesdeBase64 } from '../bdv/cliente.js';
-import { cambiarRol, listarUsuarios, rolesDeTransferencias } from '../keycloak-admin.js';
+import { cambiarPerfil, cambiarRol, crearUsuario, habilitarUsuario, listarUsuarios, restablecerClave, rolesDeTransferencias } from '../keycloak-admin.js';
 import { createPublicKey } from 'node:crypto';
 
 const nivel = (p) => (!p ? 'sin acceso' : p.operar ? 'ver+operar' : p.ver ? 'ver' : 'sin acceso');
@@ -126,6 +126,49 @@ export default async function rutasAdmin(app) {
   app.get('/usuarios', async () => listarUsuarios());
 
   app.get('/usuarios/:usuario/roles', async (req) => rolesDeTransferencias(req.params.usuario));
+
+  // ---------------- Usuarios del SSO: alta, perfil, habilitación y clave temporal ----------------
+  const noASiMismo = (req, usuario) => { if (usuario === req.user.usuario) throw invalido('No podés modificar tu propio usuario'); };
+
+  app.post('/usuarios', async (req, reply) => {
+    const r = await crearUsuario(req.body ?? {});
+    await auditar(null, req, { tipo: 'Administración', accion: 'Alta de usuario', api: 'Keycloak Admin',
+      detalle: `${r.usuario} · perfil ${r.perfil} · clave temporal (se cambia en el primer ingreso)` });
+    reply.code(201);
+    return r;
+  });
+
+  app.put('/usuarios/:usuario/perfil', async (req) => {
+    const usuario = req.params.usuario;
+    noASiMismo(req, usuario);
+    const r = await cambiarPerfil(usuario, req.body?.perfil);
+    let permisosQuitados = 0;
+    if (r.despues === 'administrador') { // el administrador de seguridad no opera ni ve empresas
+      permisosQuitados = (await operativa.query('DELETE FROM permiso_empresa WHERE usuario = $1', [usuario])).rowCount;
+    }
+    await auditar(null, req, { tipo: 'Administración', accion: 'Cambió perfil de usuario', api: 'Keycloak Admin',
+      detalle: `${usuario} · ${r.antes.join('+') || 'sin perfil'} → ${r.despues}${r.quitados.length ? ` · quitó ${r.quitados.join(', ')}` : ''}${permisosQuitados ? ` · ${permisosQuitados} permisos por empresa quitados` : ''}` });
+    return { usuario, ...r, permisosQuitados };
+  });
+
+  app.patch('/usuarios/:usuario', async (req) => {
+    const usuario = req.params.usuario;
+    noASiMismo(req, usuario);
+    if (typeof req.body?.habilitado !== 'boolean') throw invalido('Indicá habilitado: true o false');
+    const r = await habilitarUsuario(usuario, req.body.habilitado);
+    await auditar(null, req, { tipo: 'Administración', accion: r.habilitado ? 'Habilitó usuario' : 'Deshabilitó usuario', api: 'Keycloak Admin',
+      detalle: `${usuario}${r.habilitado ? '' : ' · sesiones abiertas cerradas'}` });
+    return r;
+  });
+
+  app.post('/usuarios/:usuario/clave', async (req) => {
+    const usuario = req.params.usuario;
+    noASiMismo(req, usuario);
+    const r = await restablecerClave(usuario, req.body?.claveTemporal);
+    await auditar(null, req, { tipo: 'Administración', accion: 'Restableció clave de usuario', api: 'Keycloak Admin',
+      detalle: `${usuario} · clave temporal (se cambia en el primer ingreso)` }); // nunca el valor
+    return r;
+  });
 
   app.put('/usuarios/:usuario/roles', async (req) => {
     const usuario = req.params.usuario;

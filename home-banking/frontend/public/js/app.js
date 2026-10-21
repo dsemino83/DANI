@@ -21,7 +21,7 @@ const PAGINAS = {
   saldos: ['Saldos', saldos], movimientos: ['Movimientos', movimientos], debitos: ['Débitos realizados', debitos],
   transferir: ['Transferir', transferir], cbu: ['Consulta CBU', cbu], masiva: ['Carga masiva', masiva],
   transferencias: ['Transferencias', transferencias], aprobaciones: ['Aprobaciones', aprobaciones], auditoria: ['Auditoría', auditoria],
-  empresas: ['Empresas', empresas], permisos: ['Permisos', permisos], credenciales: ['Credenciales API', credenciales],
+  empresas: ['Empresas', empresas], permisos: ['Usuarios y permisos', permisos], credenciales: ['Credenciales API', credenciales],
   documentacion: ['Documentación', documentacion], ayuda: ['Ayuda', ayuda],
 };
 

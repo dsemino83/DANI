@@ -95,11 +95,18 @@ Después: `https://<dominio-del-servidor>` → entrar con un usuario del SSO que
 
 ## Usuarios, perfiles y permisos (Keycloak propio)
 
-| Qué | Dónde | Quién |
-|---|---|---|
-| Alta, baja, datos y clave de usuarios; **perfil** (operador, autorizante, auditor, administrador) | Consola del realm: `https://<servidor>/auth/admin/staff/console/` → **Users** → usuario → **Role mapping** → **Assign role** → *Filter by clients* → `home-banking-api` | `admin.ti` (administrador de seguridad) |
-| Roles **Crear** / **Aprobar** transferencias | En la app: **Permisos** → usuario (o en la consola, roles `transferencias:crear` / `transferencias:aprobar`) | `admin.ti` |
-| Empresas y permisos **Ver** / **Operar** por empresa | En la app: **Empresas** y **Permisos** | `admin.ti` |
+Todo se hace desde la aplicación con `admin.ti` (administrador de seguridad), en **Usuarios y permisos**, y queda en la auditoría del Home Banking:
+
+| Qué | Cómo |
+|---|---|
+| **Alta de usuario** | **Nuevo usuario**: usuario, nombre, apellido, email, perfil y clave temporal (mínimo 12 caracteres con letras y números; se cambia en el primer ingreso) |
+| **Perfil** (operador, autorizante, auditor, administrador) | Elegir el usuario → **Perfil** → **Guardar perfil**. Pasar a administrador quita Crear/Aprobar y los permisos por empresa |
+| **Deshabilitar / habilitar** | Botón en el usuario. Deshabilitar cierra sus sesiones abiertas y conserva sus permisos |
+| **Restablecer clave** | **Nueva clave temporal** → **Restablecer clave** |
+| Roles **Crear** / **Aprobar** transferencias | **Roles de transferencias** del usuario |
+| Permisos **Ver** / **Operar** por empresa | **Empresas** del usuario (y el maestro de empresas en **Empresas**) |
+
+Nadie puede modificar su propio usuario. Para lo que no está en la app (por ejemplo, borrar un usuario o ver los eventos de ingreso), `admin.ti` tiene la consola del realm en `https://<servidor>/auth/admin/staff/console/`.
 
 Usuarios iniciales: `admin.ti`, `mgomez` (operador, Crear), `lrodriguez` (autorizante, Aprobar) y `svillalba` (auditor), con clave temporal `Dev-<usuario>-1` (por ejemplo `Dev-admin-1`) que **se cambia obligatoriamente en el primer ingreso**. Para un usuario nuevo: crearlo en la consola, cargarle una clave temporal en **Credentials** y asignarle el perfil.
 

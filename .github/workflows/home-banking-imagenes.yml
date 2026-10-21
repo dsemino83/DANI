@@ -78,6 +78,18 @@ jobs:
           curl -fsk https://localhost/auth/realms/staff/protocol/openid-connect/token -d grant_type=client_credentials -d client_id=home-banking-admin --data-urlencode "client_secret=$(cat secrets/keycloak_admin_client_secret.txt)" | grep -q access_token && echo 'service account OK'
           docker compose exec -T postgres psql -U postgres -d homebanking -Atc "SELECT count(*) FROM pg_tables WHERE tablename IN ('envio_banco','referencia_usada','credencial_api')" | grep -qx 3 && echo 'esquema OK'
           docker compose ps
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Gestión de usuarios contra Keycloak real
+        run: |
+          cd backend && npm ci --omit=dev
+          NODE_TLS_REJECT_UNAUTHORIZED=0 \
+          OIDC_ISSUER=https://localhost/auth/realms/staff OIDC_INTERNAL_URL=https://localhost/auth/realms/staff \
+          OIDC_ROLES_CLIENT=home-banking-api KEYCLOAK_ADMIN_CLIENT_ID=home-banking-admin \
+          KEYCLOAK_ADMIN_CLIENT_SECRET_FILE=../secrets/keycloak_admin_client_secret.txt \
+          DB_PASSWORD=x DBH_PASSWORD=x CREDENCIALES_MASTER_KEY=$(openssl rand -base64 32) \
+          node test/integracion-keycloak.mjs
       - name: Logs si falla
         if: failure()
         run: docker compose --profile sso-local logs --no-color --tail 200

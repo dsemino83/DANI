@@ -24,8 +24,9 @@ async function api(t, ruta, opciones = {}) {
   const res = await fetch(`${base}/admin/realms/${realm}${ruta}`, {
     ...opciones, headers: { authorization: `Bearer ${t}`, 'content-type': 'application/json', ...(opciones.headers ?? {}) },
   });
+  if (res.status === 409) throw new ErrorHttp(409, 'conflicto', 'Ya existe un usuario con ese nombre o email en el SSO');
   if (!res.ok) throw new ErrorHttp(502, 'sso', `SSO respondió ${res.status} en ${ruta}`);
-  return res.status === 204 ? null : res.json();
+  return res.status === 204 || res.status === 201 ? null : res.json();
 }
 
 async function contexto(usuario) {
@@ -58,7 +59,7 @@ export async function listarUsuarios() {
   for (const rol of ROLES_APP) {
     const lista = await api(t, `/clients/${cli.id}/roles/${encodeURIComponent(rol)}/users?max=1000`);
     for (const u of lista) {
-      const x = usuarios.get(u.username) ?? { usuario: u.username, nombre: [u.firstName, u.lastName].filter(Boolean).join(' '), roles: [] };
+      const x = usuarios.get(u.username) ?? { usuario: u.username, nombre: [u.firstName, u.lastName].filter(Boolean).join(' '), email: u.email ?? '', habilitado: u.enabled !== false, roles: [] };
       x.roles.push(rol);
       usuarios.set(u.username, x);
     }
@@ -68,4 +69,79 @@ export async function listarUsuarios() {
     rol: ['administrador', 'auditor', 'autorizante', 'operador'].find((r) => u.roles.includes(r)) ?? 'sin_rol',
     crear: u.roles.includes(ROL_CREAR), aprobar: u.roles.includes(ROL_APROBAR),
   })).sort((a, b) => a.usuario.localeCompare(b.usuario));
+}
+
+// ---------------- Alta y mantenimiento de usuarios (administrador de seguridad) ----------------
+export const PERFILES = ['operador', 'autorizante', 'auditor', 'administrador'];
+
+// Clave temporal: el usuario la cambia obligatoriamente en el primer ingreso (UPDATE_PASSWORD).
+export function validarClaveTemporal(clave) {
+  const c = String(clave ?? '');
+  if (c.length < 12 || !/[A-Za-z]/.test(c) || !/\d/.test(c)) throw invalido('La clave temporal debe tener al menos 12 caracteres, con letras y números');
+  return c;
+}
+
+export function validarAlta(d) {
+  const usuario = String(d.usuario ?? '').trim().toLowerCase();
+  if (!/^[a-z0-9][a-z0-9._-]{2,49}$/.test(usuario)) throw invalido('Usuario inválido: 3 a 50 caracteres, letras minúsculas, números, punto, guion o guion bajo');
+  const email = String(d.email ?? '').trim();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw invalido('Email inválido');
+  const nombre = String(d.nombre ?? '').trim(), apellido = String(d.apellido ?? '').trim();
+  if (!nombre || !apellido) throw invalido('Faltan nombre y apellido');
+  if (!PERFILES.includes(d.perfil)) throw invalido(`Perfil inválido: ${PERFILES.join(', ')}`);
+  return { usuario, email, nombre, apellido, perfil: d.perfil, claveTemporal: validarClaveTemporal(d.claveTemporal) };
+}
+
+async function idDeUsuario(t, usuario) {
+  const [u] = await api(t, `/users?username=${encodeURIComponent(usuario)}&exact=true`);
+  if (!u) throw invalido(`El usuario ${usuario} no existe en el SSO`);
+  return u;
+}
+
+async function rolCliente(t, clientUuid, rol) {
+  return api(t, `/clients/${clientUuid}/roles/${encodeURIComponent(rol)}`);
+}
+
+export async function crearUsuario(datos) {
+  const d = validarAlta(datos);
+  const t = await token();
+  await api(t, '/users', { method: 'POST', body: JSON.stringify({
+    username: d.usuario, email: d.email, firstName: d.nombre, lastName: d.apellido,
+    enabled: true, emailVerified: true, requiredActions: ['UPDATE_PASSWORD'],
+  }) });
+  const u = await idDeUsuario(t, d.usuario);
+  await api(t, `/users/${u.id}/reset-password`, { method: 'PUT', body: JSON.stringify({ type: 'password', value: d.claveTemporal, temporary: true }) });
+  const [cli] = await api(t, `/clients?clientId=${encodeURIComponent(config.oidc.clienteRoles)}`);
+  await api(t, `/users/${u.id}/role-mappings/clients/${cli.id}`, { method: 'POST', body: JSON.stringify([await rolCliente(t, cli.id, d.perfil)]) });
+  return { usuario: d.usuario, perfil: d.perfil };
+}
+
+// Deja un único perfil. Pasar a administrador quita Crear/Aprobar (el administrador no opera).
+export async function cambiarPerfil(usuario, perfil) {
+  if (!PERFILES.includes(perfil)) throw invalido(`Perfil inválido: ${PERFILES.join(', ')}`);
+  const { t, userId, clientUuid } = await contexto(usuario);
+  const actuales = await api(t, `/users/${userId}/role-mappings/clients/${clientUuid}`);
+  const quitar = actuales.filter((r) => PERFILES.includes(r.name) && r.name !== perfil)
+    .concat(perfil === 'administrador' ? actuales.filter((r) => [ROL_CREAR, ROL_APROBAR].includes(r.name)) : []);
+  if (quitar.length) await api(t, `/users/${userId}/role-mappings/clients/${clientUuid}`, { method: 'DELETE', body: JSON.stringify(quitar) });
+  if (!actuales.some((r) => r.name === perfil)) {
+    await api(t, `/users/${userId}/role-mappings/clients/${clientUuid}`, { method: 'POST', body: JSON.stringify([await rolCliente(t, clientUuid, perfil)]) });
+  }
+  return { antes: actuales.filter((r) => PERFILES.includes(r.name)).map((r) => r.name), despues: perfil, quitados: quitar.map((r) => r.name) };
+}
+
+export async function habilitarUsuario(usuario, habilitado) {
+  const t = await token();
+  const u = await idDeUsuario(t, usuario);
+  await api(t, `/users/${u.id}`, { method: 'PUT', body: JSON.stringify({ enabled: !!habilitado }) });
+  if (!habilitado) await api(t, `/users/${u.id}/logout`, { method: 'POST' }); // corta las sesiones abiertas
+  return { usuario, habilitado: !!habilitado };
+}
+
+export async function restablecerClave(usuario, claveTemporal) {
+  const clave = validarClaveTemporal(claveTemporal);
+  const t = await token();
+  const u = await idDeUsuario(t, usuario);
+  await api(t, `/users/${u.id}/reset-password`, { method: 'PUT', body: JSON.stringify({ type: 'password', value: clave, temporary: true }) });
+  return { usuario };
 }
