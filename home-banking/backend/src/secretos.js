@@ -27,7 +27,7 @@ export async function leerCredencial(ambiente = config.ambiente) {
   return {
     ambiente, url: urlBase(ambiente), // siempre la del ambiente, nunca una cargada a mano
     usuario: r.usuario, identification: r.identification, terminal: r.terminal, channel: r.channel,
-    rsaPublicKey: r.rsa_public_key,
+    rsaPublicKey: r.rsa_public_key, claveYaCifrada: r.clave_ya_cifrada,
     clave: descifrar({ cifrado: r.clave_cifrada, iv: r.clave_iv, tag: r.clave_tag }),
   };
 }
@@ -37,14 +37,14 @@ export async function estadoCredencial(ambiente) {
   const { rows } = await operativa.query(
     `SELECT ambiente, url, usuario, identification, terminal, channel,
             clave_cargada_por, clave_cargada_en, actualizado_por, actualizado_en,
-            (rsa_public_key <> '') AS rsa_cargada
+            (rsa_public_key <> '') AS rsa_cargada, clave_ya_cifrada
        FROM credencial_api WHERE ambiente = $1`, [ambiente]);
   const r = rows[0];
   if (!r) return { ambiente, configurada: false, url: urlBase(ambiente) };
   return {
     ambiente, configurada: true, url: urlBase(ambiente), usuario: r.usuario,
     identification: r.identification.replace(/^(\d{2})\d+(\d{2})$/, '$1•••••$2'),
-    terminal: r.terminal, channel: r.channel, rsaCargada: r.rsa_cargada,
+    terminal: r.terminal, channel: r.channel, rsaCargada: r.rsa_cargada, claveYaCifrada: r.clave_ya_cifrada,
     claveCargadaPor: r.clave_cargada_por, claveCargadaEn: r.clave_cargada_en,
     actualizadoPor: r.actualizado_por, actualizadoEn: r.actualizado_en,
   };

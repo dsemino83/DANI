@@ -45,7 +45,8 @@ CREATE TABLE credencial_api (
   identification    text NOT NULL,
   terminal          text NOT NULL,
   channel           text NOT NULL DEFAULT '3',
-  rsa_public_key    text NOT NULL,
+  rsa_public_key    text NOT NULL,                  -- vacía si el banco entrega la clave ya cifrada
+  clave_ya_cifrada  boolean NOT NULL DEFAULT false,  -- true: la clave guardada es el texto cifrado RSA (base64) y se envía tal cual
   clave_cifrada     bytea NOT NULL,
   clave_iv          bytea NOT NULL,
   clave_tag         bytea NOT NULL,

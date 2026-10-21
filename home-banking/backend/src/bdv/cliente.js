@@ -55,7 +55,7 @@ class ClienteBdv {
     if (!urlDelAmbiente(amb, base)) throw new ErrorBanco(`La URL ${base} no corresponde al ambiente ${amb}`);
     const res = await this.fetch(`${base}/security/login`, {
       login: c.usuario,
-      password: cifrarClave(c.clave, c.rsaPublicKey),
+      password: c.claveYaCifrada ? c.clave : cifrarClave(c.clave, c.rsaPublicKey), // el banco puede entregarla ya cifrada
       terminal: c.terminal,
       channel: c.channel,
       identification: c.identification,

@@ -18,12 +18,13 @@ export async function render(main) {
       identification: h('input', { inputmode: 'numeric', maxlength: 11, autocomplete: 'off', placeholder: e.configurada ? `${e.identification} · vacío = se conserva` : 'DNI / CUIT del usuario API' }),
       terminal: h('input', { value: e.terminal ?? '', autocomplete: 'off' }),
       clave: h('input', { type: 'password', autocomplete: 'new-password', placeholder: e.configurada ? 'Vacío = se conserva la actual' : 'Clave del usuario API' }),
+      yaCifrada: h('input', { type: 'checkbox', checked: !!e.claveYaCifrada }),
       rsa: h('textarea', { rows: 4, spellcheck: false, placeholder: e.rsaCargada ? 'Vacío = se conserva la llave actual' : 'Llave pública RSA del banco (base64 o PEM)' }),
     };
     const guardar = async () => {
       const body = { usuario: f.usuario.value.trim(), terminal: f.terminal.value.trim() };
       if (f.identification.value.trim()) body.identification = f.identification.value.trim();
-      if (f.clave.value) body.clave = f.clave.value;
+      if (f.clave.value) { body.clave = f.clave.value; body.claveYaCifrada = f.yaCifrada.checked; }
       if (f.rsa.value.trim()) body.rsaPublicKey = f.rsa.value.trim();
       if (!(await confirmar('Guardar credencial', `Ambiente ${amb === 'prod' ? 'Producción' : 'Homologación'}: la próxima llamada al banco usará estos datos. Queda registrado en auditoría (sin el valor de la clave).`, 'Guardar'))) return;
       try { await api(`/admin/credenciales/${amb}`, { method: 'PUT', body }); toast('Credencial guardada.'); } catch (x) { error(x); }
@@ -42,14 +43,17 @@ export async function render(main) {
         card('Datos de acceso', 'La URL la fija el ambiente: Homologación usa apihomo.bancodevalores.com y Producción api.bancodevalores.com. La clave y la llave RSA se cifran en el backend (AES-256-GCM) y nunca se devuelven a la pantalla. channel = 3.',
           h('div', { class: 'campos' },
             campo('URL de la API (según el ambiente)', f.url), campo('Usuario', f.usuario), campo('identification', f.identification), campo('Terminal', f.terminal),
-            campo('Clave (solo escritura)', f.clave), campo('Llave pública RSA del banco', f.rsa)),
+            campo('Clave (solo escritura)', f.clave),
+            campo('La clave ya viene cifrada por el banco (texto base64): se envía tal cual y no hace falta la llave RSA', f.yaCifrada, 'check'),
+            campo('Llave pública RSA del banco (solo si la clave está en texto plano)', f.rsa)),
           h('div', { class: 'fila' },
             h('button', { class: 'btn primario', onclick: guardar }, 'Guardar'),
             h('button', { class: 'btn', disabled: !e.configurada, onclick: probar }, 'Probar conexión'))),
         card('Estado', null,
           h('dl', { class: 'dl' },
             h('dt', {}, 'Configurada'), h('dd', {}, pill(e.configurada ? 'Sí' : 'No', e.configurada ? 'ok' : 'warn')),
-            h('dt', {}, 'Llave RSA'), h('dd', {}, e.rsaCargada ? 'Cargada' : 'Falta'),
+            h('dt', {}, 'Clave'), h('dd', {}, !e.configurada ? '—' : e.claveYaCifrada ? 'Ya cifrada por el banco' : 'Texto plano (se cifra con RSA)'),
+            h('dt', {}, 'Llave RSA'), h('dd', {}, e.rsaCargada ? 'Cargada' : e.claveYaCifrada ? 'No hace falta' : 'Falta'),
             h('dt', {}, 'Clave cargada por'), h('dd', {}, e.claveCargadaPor ? `${e.claveCargadaPor} · ${fechaHora(e.claveCargadaEn)}` : '—'),
             h('dt', {}, 'Última modificación'), h('dd', {}, e.actualizadoPor ? `${e.actualizadoPor} · ${fechaHora(e.actualizadoEn)}` : '—')),
           h('p', { class: 'nota' }, 'Es una única credencial de VALO para todas las empresas: el filtrado por empresa lo hace el Home Banking según los permisos de cada usuario.'))));

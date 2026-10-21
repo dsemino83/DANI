@@ -36,12 +36,14 @@ Después de levantar:
 
 ## Primera prueba con producción (sin mover dinero)
 
+> Paso a paso completo para levantar todo en una PC y probar con la API de producción en modo solo consultas: [PRUEBA-INTEGRADA.md](PRUEBA-INTEGRADA.md).
+
 La prueba se hace con la aplicación desplegada en la infraestructura de VALO: el prototipo no se conecta al banco y la credencial de producción nunca sale del backend.
 
 1. En `.env`: `BDV_AMBIENTE=prod` y `BDV_SOLO_CONSULTAS=true`. La URL pasa a ser `https://api.bancodevalores.com/…` sola.
 2. `docker compose up -d --build` (o `docker compose up -d backend` si ya estaba levantado).
 3. Confirmar con el banco que la IP de salida del servidor esté habilitada para producción.
-4. Entrar como administrador de seguridad → **Credenciales API** → **Producción**: cargar usuario, clave, DNI, terminal y llave RSA de producción → **Probar conexión** (solo hace `login` y `getUserEntityInformation`).
+4. Entrar como administrador de seguridad → **Credenciales API** → **Producción**: cargar usuario, clave, DNI y terminal; si el banco entregó la clave ya cifrada, tildar **La clave ya viene cifrada por el banco** (no hace falta la llave RSA); si no, cargar la llave RSA → **Probar conexión** (solo hace `login` y `getUserEntityInformation`).
 5. Dar de alta las empresas, asignarles las cuentas reales y otorgar permisos **Ver** a quienes van a probar.
 6. Con un usuario operador: Saldos, Movimientos (Excel incluido), Débitos realizados y Consulta CBU con datos reales. El encabezado muestra "Banco: Producción" y el aviso de modo solo consultas.
 7. Si se carga una transferencia de prueba, queda pendiente: **Aprobar** la rechaza el backend y no llega al banco.
