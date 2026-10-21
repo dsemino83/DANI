@@ -2803,7 +2803,9 @@
   //  1. grupos con exactamente los mismos integrantes → un solo grupo (la primera letra);
   //  2. misma regla (tipo, quorum, grupos, firmante) repetida → una, con los circuitos de todas;
   //  3. una firma de A y una firma de B (ConjuntaIndistinta [A] q1 + [B] q1) → ConjuntaIndistinta [A, B] q1;
-  //  4. A+A, B+B y A+B (ConjuntaIndistinta [A] q2 + [B] q2 + Conjunta [A, B] q1) → ConjuntaIndistinta [A, B] q2.
+  //  4. A+A, B+B y A+B (ConjuntaIndistinta [A] q2 + [B] q2 + Conjunta [A, B] q1) → ConjuntaIndistinta [A, B] q2;
+  //  5. una regla cuyas firmas ya alcanzan para otra menos exigente que tiene todos sus circuitos (A+A cuando existe
+  //     "dos cualesquiera de A y/o B" con esos circuitos) sobra: se saca. Mismo vencimiento y sin un monto menor.
   // Devuelve { lista, notas } (notas: qué se unificó, para la pantalla).
   function optimizarReglas(lista, apoderados) {
     const notas = [];
@@ -2861,6 +2863,25 @@
       }
     });
     lista = juntar(lista.filter(r => !quitar.has(r)).concat(nuevas));
+    // 5. Reglas cubiertas por otra menos exigente.
+    const firmasMinimas = r => { // conjuntos mínimos de firmas (lista de grupos) que cumplen la regla
+      if (r.tipo === 'Conjunta') return [r.grupos.flatMap(g => Array(r.quorum).fill(g))];
+      if (r.tipo !== 'ConjuntaIndistinta' || r.quorum > 4 || r.grupos.length > 6) return null;
+      const out = [], arma = (desde, acc) => { if (acc.length === r.quorum) { out.push(acc); return; } r.grupos.slice(desde).forEach((g, i) => arma(desde + i, acc.concat(g))); };
+      arma(0, []);
+      return out;
+    };
+    const cumple = (firmas, r) => r.tipo === 'ConjuntaIndistinta' ? firmas.filter(g => r.grupos.includes(g)).length >= r.quorum
+      : r.tipo === 'Conjunta' ? r.grupos.every(g => firmas.filter(x => x === g).length >= r.quorum) : false;
+    const cubre = (grande, chica) => grande !== chica && (grande._vto || '') === (chica._vto || '') && chica.circuitos.every(c => grande.circuitos.includes(c))
+      && (grande.monto == null || (chica.monto != null && chica.monto <= grande.monto && chica.moneda === grande.moneda))
+      && (firmasMinimas(chica) || [null]).every(f => f && cumple(f, grande));
+    const sobran = new Set();
+    lista.forEach(r => {
+      const g = lista.find(x => !sobran.has(x) && cubre(x, r));
+      if (g) { sobran.add(r); notas.push(`${r.descripcion.split(' · ')[0]} (${r.tipo} [${r.grupos.join(', ')}] quorum ${r.quorum}) ya está cubierta por "${g.descripcion.split(' · ')[0]}", que tiene todos sus circuitos: se saca.`); }
+    });
+    lista = lista.filter(r => !sobran.has(r));
     return { lista, notas };
   }
   function jsonBastanteoV1(unico, cliente, opciones = {}) {
