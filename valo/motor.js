@@ -2395,7 +2395,14 @@
     });
     const ignorados = poderes.filter(p => revocaPoder(p) && ignorar.has(claveRevocatoria(p)));
     const revocan = poderes.filter(p => revocaPoder(p) && !ignorar.has(claveRevocatoria(p)));
-    if (!revocan.length) { const vigentes = poderes.slice(); heredarComplementarios(vigentes); return { vigentes, anulados: [], quitados: [], avisos: [], revocan, ignorados }; }
+    // Poderes vencidos (vencimiento de Complif anterior a hoy): no se usan. Igual revocan a los anteriores.
+    const hoy = claveDia(opciones.hoy || new Date());
+    const vencido = p => !!(p.vencimiento && p.vencimiento < hoy);
+    const sacarVencidos = (vigentes, anulados) => {
+      vigentes.filter(vencido).forEach(p => anulados.push({ poder: p, vencido: true, motivo: `vencido el ${p.vencimiento.split('-').reverse().join('/')}` }));
+      return vigentes.filter(p => !vencido(p));
+    };
+    if (!revocan.length) { const anulados = []; const vigentes = sacarVencidos(poderes.slice(), anulados); heredarComplementarios(vigentes); return { vigentes, anulados, quitados: [], avisos: [], revocan, ignorados }; }
     const anulados = [], quitados = [], avisos = [];
     const vigentes = poderes.filter(p => {
       for (const r of revocan) {
@@ -2429,8 +2436,9 @@
       if (revocaPoder(p) && !ignorar.has(claveRevocatoria(p)) && !otorga(p)) { anulados.push({ poder: p, motivo: 'revocatoria: no otorga facultades' }); return false; }
       return true;
     });
-    heredarComplementarios(vigentes);
-    return { vigentes, anulados, quitados, avisos, revocan, ignorados };
+    const sinVencidos = sacarVencidos(vigentes, anulados);
+    heredarComplementarios(sinVencidos);
+    return { vigentes: sinVencidos, anulados, quitados, avisos, revocan, ignorados };
   }
 
   // Un firmante sin poder vigente que figuraba en un poder revocado (anulado entero o revocación parcial que lo quitó):
