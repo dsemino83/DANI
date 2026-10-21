@@ -74,8 +74,13 @@ services:
       DBH_OWNER_USER: postgres
       DBH_OWNER_PASSWORD_FILE: /run/secrets/dbh_owner_password
     secrets: [db_app_password, db_hist_ro_password, credenciales_master_key, keycloak_admin_client_secret, db_owner_password, dbh_owner_password]
-    healthcheck:
-      disable: true
+    healthcheck:   # el programador actualiza /tmp/latido cada minuto
+      test: ["CMD-SHELL", "find /tmp/latido -mmin -3 | grep -q ."]
+      interval: 60s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+      start_interval: 5s
     depends_on:
       postgres:
         condition: service_healthy
