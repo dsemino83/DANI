@@ -2825,9 +2825,11 @@
   //  1. grupos con exactamente los mismos integrantes → un solo grupo (la primera letra);
   //  2. misma regla (tipo, quorum, grupos, firmante) repetida → una, con los circuitos de todas;
   //  3. una firma de A y una firma de B (ConjuntaIndistinta [A] q1 + [B] q1) → ConjuntaIndistinta [A, B] q1;
-  //  4. A+A, B+B y A+B (ConjuntaIndistinta [A] q2 + [B] q2 + Conjunta [A, B] q1) → ConjuntaIndistinta [A, B] q2;
+  //  4. A+A, B+B y A+B (ConjuntaIndistinta [A] q2 + [B] q2 + Conjunta [A, B] q1) con el mismo monto y vencimiento →
+  //     ConjuntaIndistinta [A, B] q2 con los circuitos de las tres (aunque cada una tenga otros circuitos);
   //  5. una regla cuyas firmas ya alcanzan para otra menos exigente que tiene todos sus circuitos (A+A cuando existe
-  //     "dos cualesquiera de A y/o B" con esos circuitos) sobra: se saca. Mismo vencimiento y sin un monto menor.
+  //     "dos cualesquiera de A y/o B" con esos circuitos) sobra: se saca. Mismo vencimiento y mismo monto (la regla con
+  //     tope y la sin tope quedan las dos).
   // Devuelve { lista, notas } (notas: qué se unificó, para la pantalla).
   function optimizarReglas(lista, apoderados) {
     const notas = [];
@@ -2872,15 +2874,23 @@
         nuevas.push(Object.defineProperty(Object.assign({}, ind[0], { grupos: gs, descripcion: `Grupo ${gs.join(' y/o ')} - firma individual` }), '_vto', { value: ind[0]._vto, writable: true, enumerable: false }));
         notas.push(`Firma individual de ${ind.map(r => r.grupos.join('/')).join(', ')} con los mismos circuitos: una sola regla ConjuntaIndistinta [${gs.join(', ')}] quorum 1.`);
       }
-      // 4. Dos cualesquiera de varios grupos: todas las parejas presentes.
+    });
+    // 4. Dos cualesquiera de varios grupos: todas las parejas presentes con el mismo monto y vencimiento.
+    const porMonto = new Map();
+    lista.filter(r => !quitar.has(r)).forEach(r => { const k = [r._vto || '', r.monto || '', r.moneda || ''].join('|'); (porMonto.get(k) || porMonto.set(k, []).get(k)).push(r); });
+    porMonto.forEach(rs => {
       const dobles = rs.filter(r => r.tipo === 'ConjuntaIndistinta' && r.quorum === 2 && r.grupos.length === 1 && !quitar.has(r));
       const gs = dobles.map(r => r.grupos[0]).sort();
       if (gs.length > 1) {
         const cruces = gs.flatMap((a, i) => gs.slice(i + 1).map(b => rs.find(r => r.tipo === 'Conjunta' && r.quorum === 1 && r.grupos.join(',') === [a, b].join(',') && !quitar.has(r))));
         if (cruces.every(Boolean)) {
-          dobles.concat(cruces).forEach(r => quitar.add(r));
-          nuevas.push(Object.defineProperty(Object.assign({}, dobles[0], { grupos: gs, quorum: 2, descripcion: `Firma conjunta: dos cualesquiera de ${gs.join(' y/o ')}` }), '_vto', { value: dobles[0]._vto, writable: true, enumerable: false }));
-          notas.push(`${gs.map(g => g + '+' + g).join(', ')} y ${cruces.map(r => r.grupos.join('+')).join(', ')} con los mismos circuitos: una sola regla ConjuntaIndistinta [${gs.join(', ')}] quorum 2.`);
+          const todas = dobles.concat(cruces);
+          todas.forEach(r => quitar.add(r));
+          const circuitos = [...new Set(todas.flatMap(r => r.circuitos))].sort();
+          const distintos = todas.some(r => r.circuitos.join() !== circuitos.join());
+          nuevas.push(Object.defineProperty(Object.assign({}, dobles[0], { grupos: gs, quorum: 2, circuitos, descripcion: `Firma conjunta: dos cualesquiera de ${gs.join(' y/o ')}` }), '_vto', { value: dobles[0]._vto, writable: true, enumerable: false }));
+          notas.push(`${gs.map(g => g + '+' + g).join(', ')} y ${cruces.map(r => r.grupos.join('+')).join(', ')}${dobles[0].monto ? ` (hasta ${dobles[0].moneda} ${dobles[0].monto})` : ' (sin tope)'}: una sola regla ConjuntaIndistinta [${gs.join(', ')}] quorum 2` +
+            (distintos ? ` con los circuitos de todas (${circuitos.length}); antes cada combinación tenía los suyos.` : '.'));
         }
       }
     });
@@ -2896,7 +2906,7 @@
     const cumple = (firmas, r) => r.tipo === 'ConjuntaIndistinta' ? firmas.filter(g => r.grupos.includes(g)).length >= r.quorum
       : r.tipo === 'Conjunta' ? r.grupos.every(g => firmas.filter(x => x === g).length >= r.quorum) : false;
     const cubre = (grande, chica) => grande !== chica && (grande._vto || '') === (chica._vto || '') && chica.circuitos.every(c => grande.circuitos.includes(c))
-      && (grande.monto == null || (chica.monto != null && chica.monto <= grande.monto && chica.moneda === grande.moneda))
+      && (grande.monto || null) === (chica.monto || null) && (grande.moneda || null) === (chica.moneda || null)
       && (firmasMinimas(chica) || [null]).every(f => f && cumple(f, grande));
     const sobran = new Set();
     lista.forEach(r => {
