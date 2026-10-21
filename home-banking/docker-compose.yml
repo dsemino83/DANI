@@ -1,0 +1,150 @@
+# Home Banking VALO
+#   docker compose up -d                      -> homologación/producción (login contra el SSO de VALO)
+#   docker compose --profile dev up -d        -> además levanta un Keycloak local para desarrollo
+# Los secretos se leen de ./secrets/*.txt (ver README); nunca se suben al repositorio.
+
+name: home-banking-valo
+
+x-backend-env: &backend-env
+  NODE_ENV: production
+  BDV_AMBIENTE: ${BDV_AMBIENTE:-homo}
+  OIDC_ISSUER: ${OIDC_ISSUER}
+  OIDC_INTERNAL_URL: ${OIDC_INTERNAL_URL:-${OIDC_ISSUER}}
+  OIDC_AUDIENCE: ${OIDC_AUDIENCE:-home-banking-api}
+  OIDC_ROLES_CLIENT: ${OIDC_ROLES_CLIENT:-home-banking-api}
+  KEYCLOAK_ADMIN_CLIENT_ID: ${KEYCLOAK_ADMIN_CLIENT_ID:-home-banking-admin}
+  KEYCLOAK_ADMIN_CLIENT_SECRET_FILE: /run/secrets/keycloak_admin_client_secret
+  DB_HOST: postgres
+  DB_NAME: homebanking
+  DB_USER: hb_app
+  DB_PASSWORD_FILE: /run/secrets/db_app_password
+  DBH_HOST: postgres-historico
+  DBH_NAME: homebanking_hist
+  DBH_USER: hb_hist_ro
+  DBH_PASSWORD_FILE: /run/secrets/db_hist_ro_password
+  CREDENCIALES_MASTER_KEY_FILE: /run/secrets/credenciales_master_key
+  BDV_SESION_MINUTOS: ${BDV_SESION_MINUTOS:-20}
+  TZ: America/Argentina/Buenos_Aires
+
+services:
+  frontend:
+    build: ./frontend
+    ports:
+      - "${HTTPS_PORT:-443}:443"
+    volumes:
+      - ./frontend/certs:/etc/nginx/certs:ro
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+    networks: [publica, interna]
+
+  backend:
+    build: ./backend
+    environment: *backend-env
+    secrets: [db_app_password, db_hist_ro_password, credenciales_master_key, keycloak_admin_client_secret]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      postgres-historico:
+        condition: service_healthy
+    restart: unless-stopped
+    networks: [interna, salida]   # "salida": acceso a internet para el SSO y el Banco de Valores
+
+  jobs:
+    build: ./backend
+    command: ["node", "src/jobs/programador.js"]
+    environment:
+      <<: *backend-env
+      DB_OWNER_USER: postgres
+      DB_OWNER_PASSWORD_FILE: /run/secrets/db_owner_password
+      DBH_OWNER_USER: postgres
+      DBH_OWNER_PASSWORD_FILE: /run/secrets/dbh_owner_password
+    secrets: [db_app_password, db_hist_ro_password, credenciales_master_key, keycloak_admin_client_secret, db_owner_password, dbh_owner_password]
+    healthcheck:
+      disable: true
+    depends_on:
+      postgres:
+        condition: service_healthy
+      postgres-historico:
+        condition: service_healthy
+    restart: unless-stopped
+    networks: [interna, salida]
+
+  postgres:
+    image: postgres:16.4-alpine
+    environment:
+      POSTGRES_DB: homebanking
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD_FILE: /run/secrets/db_owner_password
+      TZ: UTC
+    secrets: [db_owner_password, db_app_password]
+    volumes:
+      - pg_operativa:/var/lib/postgresql/data
+      - ./db/operativa:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d homebanking"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+    networks: [interna]
+
+  postgres-historico:
+    image: postgres:16.4-alpine
+    environment:
+      POSTGRES_DB: homebanking_hist
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD_FILE: /run/secrets/dbh_owner_password
+      TZ: UTC
+    secrets: [dbh_owner_password, db_hist_ro_password]
+    volumes:
+      - pg_historica:/var/lib/postgresql/data
+      - ./db/historica:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d homebanking_hist"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+    networks: [interna]
+
+  # Solo desarrollo local: en homologación/producción se usa https://ssohomo.valo.ar/valo/realms/staff
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.0.5
+    profiles: [dev]
+    command: ["start-dev", "--import-realm"]
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: admin
+      KC_HOSTNAME: http://localhost:8081          # issuer que ve el navegador
+      KC_HOSTNAME_BACKCHANNEL_DYNAMIC: "true"     # el backend lo consulta como http://keycloak:8080
+    volumes:
+      - ./keycloak/realm-staff-dev.json:/opt/keycloak/data/import/realm-staff-dev.json:ro
+    ports:
+      - "8081:8080"
+    networks: [interna, publica]
+
+secrets:
+  db_owner_password:
+    file: ./secrets/db_owner_password.txt
+  dbh_owner_password:
+    file: ./secrets/dbh_owner_password.txt
+  db_app_password:
+    file: ./secrets/db_app_password.txt
+  db_hist_ro_password:
+    file: ./secrets/db_hist_ro_password.txt
+  credenciales_master_key:
+    file: ./secrets/credenciales_master_key.txt
+  keycloak_admin_client_secret:
+    file: ./secrets/keycloak_admin_client_secret.txt
+
+volumes:
+  pg_operativa:
+  pg_historica:
+
+networks:
+  publica:
+  interna:
+    internal: true   # las bases no tienen salida a internet
+  salida:
