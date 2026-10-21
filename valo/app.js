@@ -2906,6 +2906,7 @@
     $('bastV1Avisos').innerHTML = (!conLetras && $('bastFuenteGrupos').value === 'planilla' ? aviso('warn', 'La planilla no designa grupos con letra: se usan los grupos de los poderes (o los armados por agrupamiento).') : '') +
       (ren.length ? aviso('ok', 'Grupos de la planilla: ' + ren.map(([a, b]) => `${esc(a)} del poder → ${esc(b)}`).join(' · ')) : '') +
       (j.avisos.length ? aviso('warn', j.avisos.map(esc).join('<br>')) : '') +
+      (j.unificaciones.length ? aviso('ok', '<b>Reglas unificadas:</b><br>' + j.unificaciones.map(esc).join('<br>')) : '') +
       (M.validarJsonBastanteo(j).length ? aviso('bad', '<b>No cumple las reglas del sistema:</b><br>' + M.validarJsonBastanteo(j).map(esc).join('<br>')) : aviso('ok', 'Cumple las reglas del sistema (quorum, grupos y firmantes).')) +
       `<p class="sub">${j.apoderados.length} apoderados · ${j.reglasFirma.length} reglas de firma</p>`;
     mostrarCorrecciones();
