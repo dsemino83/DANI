@@ -24,6 +24,8 @@ Flujo para ver cómo responde la API del Banco de Valores (homologación o produ
 
 No usa conexiones: el disparador es manual y las demás acciones son HTTP y operaciones de datos.
 
+Si queda en "Importando el paquete… No salga." más de 1 o 2 minutos (el paquete pesa 4 KB, no es el tamaño): recargá la página y fijate en **Mis flujos** si el flujo se creó igual. Si no está, revisá que la DLP del entorno permita HTTP; cuando el entorno bloquea un conector, el importador puede quedarse colgado sin mostrar el error.
+
 Si el importador heredado no está disponible en tu entorno, creá el flujo a mano copiando las acciones de `definicion-flujo.json` (es la definición completa: disparador manual con 6 entradas, 3 a 4 acciones HTTP, Seleccionar y Crear tabla HTML).
 
 ## Ejecutar
@@ -48,6 +50,6 @@ Si el banco rechaza el login, la ejecución termina en error con el código y el
 
 ## Seguridad
 
-- El disparador, el login y la cookie de sesión tienen **entradas y salidas seguras**: la clave y la cookie no se ven en el historial.
+- El disparador tiene **salidas seguras**, el login **entradas y salidas seguras** y la cookie de sesión **entradas seguras** (en Redactar eso oculta también la salida): la clave y la cookie no se ven en el historial.
 - Los saldos y movimientos sí quedan visibles en el historial de ejecuciones (Power Automate los conserva unos 28 días). Ejecutalo en un entorno al que solo acceda quien tenga que ver esos datos y, al terminar la prueba, borrá el flujo o su historial.
 - El `password` cifrado funciona como la clave: quien lo tenga puede iniciar sesión. No lo guardes en el flujo, en variables de entorno compartidas ni en documentos, y pedí al banco que lo cambie después de la prueba si circuló por canales no seguros.
