@@ -1,5 +1,6 @@
-# Frontend (SPA). Por ahora sirve un placeholder: reemplazar public/ por el build de la SPA
-# (React o Angular) que implementa las pantallas del prototipo y hace login OIDC + PKCE.
+# Frontend: SPA en JavaScript (módulos ES, sin build) servida por Nginx.
 FROM nginx:1.27-alpine
-COPY nginx.conf /etc/nginx/conf.d/default.conf
+COPY templates/default.conf.template /etc/nginx/templates/default.conf.template
+COPY 40-config-runtime.sh /docker-entrypoint.d/40-config-runtime.sh
+RUN chmod +x /docker-entrypoint.d/40-config-runtime.sh && rm -f /etc/nginx/conf.d/default.conf
 COPY public /usr/share/nginx/html

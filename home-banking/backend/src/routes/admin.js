@@ -6,7 +6,7 @@ import { operativa, tx } from '../db.js';
 import { conflicto, invalido, noEncontrado } from '../errores.js';
 import { cifrar, estadoCredencial, leerCredencial } from '../secretos.js';
 import { bdv, cuentasPropias, pemDesdeBase64 } from '../bdv/cliente.js';
-import { cambiarRol, rolesDeTransferencias } from '../keycloak-admin.js';
+import { cambiarRol, listarUsuarios, rolesDeTransferencias } from '../keycloak-admin.js';
 import { createPublicKey } from 'node:crypto';
 
 const nivel = (p) => (!p ? 'sin acceso' : p.operar ? 'ver+operar' : p.ver ? 'ver' : 'sin acceso');
@@ -122,6 +122,8 @@ export default async function rutasAdmin(app) {
   });
 
   // ---------------- Roles Crear / Aprobar (en el SSO) ----------------
+  app.get('/usuarios', async () => listarUsuarios());
+
   app.get('/usuarios/:usuario/roles', async (req) => rolesDeTransferencias(req.params.usuario));
 
   app.put('/usuarios/:usuario/roles', async (req) => {
@@ -147,11 +149,13 @@ export default async function rutasAdmin(app) {
     const b = req.body ?? {};
     if (!/^https:\/\/\S+$/.test(b.url ?? '')) throw invalido('La URL base tiene que empezar con https://');
     if (!b.usuario || !b.terminal) throw invalido('Faltan usuario o terminal');
-    if (!/^\d{7,11}$/.test(String(b.identification ?? ''))) throw invalido('identification debe tener entre 7 y 11 dígitos');
+    if (b.identification && !/^\d{7,11}$/.test(String(b.identification))) throw invalido('identification debe tener entre 7 y 11 dígitos');
     if (b.rsaPublicKey) { try { createPublicKey(pemDesdeBase64(b.rsaPublicKey)); } catch { throw invalido('La llave pública RSA no es válida'); } }
     await tx(operativa, async (c) => {
       const prev = (await c.query('SELECT * FROM credencial_api WHERE ambiente = $1 FOR UPDATE', [amb])).rows[0];
       if (!prev && (!b.clave || !b.rsaPublicKey)) throw invalido('En la primera carga se requieren clave y llave RSA');
+      if (!b.identification && !prev) throw invalido('identification debe tener entre 7 y 11 dígitos');
+      b.identification = String(b.identification || prev.identification); // vacío = se conserva (la pantalla la muestra enmascarada)
       const clave = b.clave ? cifrar(String(b.clave)) : { cifrado: prev.clave_cifrada, iv: prev.clave_iv, tag: prev.clave_tag };
       await c.query(
         `INSERT INTO credencial_api (ambiente, url, usuario, identification, terminal, channel, rsa_public_key, clave_cifrada, clave_iv, clave_tag,

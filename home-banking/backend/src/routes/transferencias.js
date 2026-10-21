@@ -56,6 +56,16 @@ export default async function rutasTransferencias(app) {
   // --- Auditoría de una operación (ruedita ⚙) ---
   app.get('/transferencias/:id/auditoria', operativos, async (req) => transferencias.auditoriaDeOperacion(req, Number(req.params.id)));
 
+  // Auditoría de un débito (⚙ en Débitos realizados): si lo originó una transferencia de la app, su historial
+  app.get('/debitos/:movimiento/auditoria', operativos, async (req) => {
+    const { rows } = await operativa.query('SELECT transferencia_id, cuenta FROM debito_transferencia WHERE movimiento_id = $1', [req.params.movimiento]);
+    if (!rows[0]) {
+      await auditar(null, req, { tipo: 'Consultas', accion: 'Consultó auditoría de la operación', detalle: `débito ${req.params.movimiento} (sin transferencia de la app)` });
+      return { origen: 'externo', movimiento: req.params.movimiento };
+    }
+    return { origen: 'home-banking', ...(await transferencias.auditoriaDeOperacion(req, Number(rows[0].transferencia_id))) };
+  });
+
   // --- Bandeja de aprobación ---
   app.get('/aprobaciones', { preHandler: exigirAprobar }, async (req) => {
     const cuentas = [...(await cuentasHabilitadas(req.user.usuario)).keys()];
@@ -81,6 +91,7 @@ export default async function rutasTransferencias(app) {
     return lotes.previa(req, { nombre: archivo.filename, buffer });
   });
   app.post('/lotes/:id/confirmar', { preHandler: exigirCrear }, async (req) => lotes.confirmar(req, Number(req.params.id)));
+  app.post('/lotes/:id/descartar', { preHandler: exigirCrear }, async (req) => lotes.descartar(req, Number(req.params.id)));
   app.post('/lotes/:id/aprobar', { preHandler: exigirAprobar }, async (req) => lotes.decidir(req, Number(req.params.id), true));
   app.post('/lotes/:id/rechazar', { preHandler: exigirAprobar }, async (req) => lotes.decidir(req, Number(req.params.id), false));
 }

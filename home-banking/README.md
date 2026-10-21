@@ -1,4 +1,4 @@
-# Home Banking VALO — backend y despliegue
+# Home Banking VALO — frontend, backend y despliegue
 
 Backend (BFF) en Node.js 22 + Fastify, dos Postgres (base operativa de 3 meses y base histórica) y Nginx, todo con Docker Compose. Los usuarios se autentican en el SSO de VALO (`https://ssohomo.valo.ar/valo/realms/staff`) y solo el backend se conecta con las APIs del Banco de Valores, con una única credencial (la de VALO).
 
@@ -14,15 +14,15 @@ navegador ──HTTPS──> frontend (Nginx) ──/api──> backend ──> 
 ```sh
 cd home-banking
 sh scripts/generar-secretos.sh      # crea ./secrets/*.txt y un certificado autofirmado (solo desarrollo)
-cp .env.example .env                # completar OIDC_ISSUER, BDV_AMBIENTE, etc.
+cp .env.example .env                # completar OIDC_ISSUER, OIDC_ORIGIN, BDV_AMBIENTE, DOC_*_URL, etc.
 docker compose up -d --build        # homologación / producción (SSO de VALO)
 docker compose --profile dev up -d  # además, Keycloak local en http://localhost:8081 (realm "staff" de prueba)
 ```
 
 Después de levantar:
-1. Entrar con el **administrador de seguridad** y cargar la credencial API Banking en `PUT /api/admin/credenciales/homo` (URL, usuario, clave, DNI, terminal y llave pública RSA del banco). La clave se cifra con AES-256-GCM y nunca se vuelve a mostrar.
-2. Dar de alta empresas, asignarles cuentas y otorgar permisos Ver / Operar por empresa.
-3. Asignar los roles `transferencias:crear` y `transferencias:aprobar` a los usuarios (en el SSO o vía `PUT /api/admin/usuarios/{usuario}/roles`).
+1. Entrar en `https://<host>/` con el **administrador de seguridad** y cargar la credencial API Banking en **Credenciales API** (URL, usuario, clave, DNI, terminal y llave pública RSA del banco); queda probarla con “Probar conexión”. La clave se cifra con AES-256-GCM y nunca se vuelve a mostrar.
+2. En **Empresas**, dar de alta empresas y asignarles cuentas; en **Permisos**, otorgar Ver / Operar por empresa.
+3. En **Permisos**, asignar los roles Crear (`transferencias:crear`) y Aprobar (`transferencias:aprobar`); también se pueden asignar directamente en el SSO.
 
 ### Lo que tiene que crear el equipo de Identidad en el realm `staff`
 
@@ -65,8 +65,27 @@ Ninguno se sube al repositorio (`.gitignore`). En producción conviene reemplaza
 | `GET /transferencias?desde&hasta[&estado]` | operativos | Base operativa (máximo 3 meses) |
 | `GET /historico/transferencias?desde&hasta[&pagina]` | operativos | Base histórica (solo fechas anteriores al corte) |
 | `GET /transferencias/{id}/auditoria` | operativos | Historial completo de una operación (⚙) |
+| `GET /debitos/{movimiento}/auditoria` | operativos | Auditoría de un débito: si salió del Home Banking, la de su transferencia (⚙) |
+| `POST /lotes/{id}/descartar` | quien lo subió | Descarta un lote en detalle previo |
+| `GET /admin/usuarios` | administrador | Usuarios con roles de Home Banking en Keycloak |
 | `GET /auditoria` · `GET /historico/auditoria` | auditor, administrador | Auditoría general, cada base por separado |
 | `/admin/empresas`, `/admin/permisos/{usuario}`, `/admin/usuarios/{usuario}/roles`, `/admin/credenciales/{amb}` | administrador | Empresas, cuentas, permisos, roles y credencial API |
+
+## Frontend (`frontend/`)
+
+SPA en JavaScript (módulos ES, sin paso de build) servida por Nginx, con las pantallas del prototipo:
+
+| Perfil | Pestañas |
+|---|---|
+| Operador / Autorizante | Saldos · Movimientos · Débitos realizados · Consulta CBU · Transferencias · Ayuda; **Transferir** y **Carga masiva** con rol Crear; **Aprobaciones** con rol Aprobar |
+| Auditor | Saldos · Movimientos · Débitos realizados · Transferencias · Auditoría · Documentación · Ayuda |
+| Administrador de seguridad | Empresas · Permisos · Credenciales API · Auditoría · Documentación · Ayuda |
+
+- **Login** con el SSO de VALO (OIDC Authorization Code + PKCE, cliente público `home-banking-web`). La SPA nunca ve la contraseña; los tokens viven en `sessionStorage` y se renuevan con el refresh token.
+- **Configuración en tiempo de ejecución:** `40-config-runtime.sh` genera `/config.json` desde `OIDC_ISSUER`, `OIDC_CLIENT_ID` y `DOC_*_URL`; la misma imagen sirve para homologación y producción.
+- **CSP estricta** (`script-src 'self'; style-src 'self'`, sin estilos ni scripts en línea); `OIDC_ORIGIN` habilita solo el SSO. Todo dato se inserta como texto (`textContent`), nunca como HTML.
+- Logo y paleta VALO (Pantone 186 C / Cool Gray 10), botón de modo oscuro recordado por navegador, ⚙ de auditoría por transacción en Transferencias, Aprobaciones y Débitos.
+- Ocultar una pestaña es solo comodidad: cada permiso lo vuelve a validar el backend.
 
 ## Reglas que hace cumplir el backend (no solo la pantalla)
 
@@ -89,4 +108,3 @@ cd backend && npm install && npm test     # reglas: requests según el PDF, esta
 - Con el banco: qué campo de `getTransfersStatus` (`code` o `idTrn`) corresponde al `transactionId` devuelto al enviar; si los campos `ddjj*` de transferMep van como booleanos (ejemplo del PDF) o `S`/`N` (diccionario de datos).
 - Con Operaciones: layout definitivo del TXT de ancho fijo (hoy es una propuesta en `src/servicios/lotes.js`).
 - Con Cumplimiento: retención de la base histórica.
-- El frontend es un placeholder: falta el build de la SPA con las pantallas del prototipo.

@@ -48,3 +48,24 @@ export async function cambiarRol(usuario, rol, asignar) {
   const rep = await api(t, `/clients/${clientUuid}/roles/${encodeURIComponent(rol)}`);
   await api(t, `/users/${userId}/role-mappings/clients/${clientUuid}`, { method: asignar ? 'POST' : 'DELETE', body: JSON.stringify([rep]) });
 }
+
+// Usuarios con algún rol de la app y sus roles (para la pestaña Permisos)
+const ROLES_APP = ['operador', 'autorizante', 'auditor', 'administrador', ROL_CREAR, ROL_APROBAR];
+export async function listarUsuarios() {
+  const t = await token();
+  const [cli] = await api(t, `/clients?clientId=${encodeURIComponent(config.oidc.clienteRoles)}`);
+  const usuarios = new Map();
+  for (const rol of ROLES_APP) {
+    const lista = await api(t, `/clients/${cli.id}/roles/${encodeURIComponent(rol)}/users?max=1000`);
+    for (const u of lista) {
+      const x = usuarios.get(u.username) ?? { usuario: u.username, nombre: [u.firstName, u.lastName].filter(Boolean).join(' '), roles: [] };
+      x.roles.push(rol);
+      usuarios.set(u.username, x);
+    }
+  }
+  return [...usuarios.values()].map((u) => ({
+    ...u,
+    rol: ['administrador', 'auditor', 'autorizante', 'operador'].find((r) => u.roles.includes(r)) ?? 'sin_rol',
+    crear: u.roles.includes(ROL_CREAR), aprobar: u.roles.includes(ROL_APROBAR),
+  })).sort((a, b) => a.usuario.localeCompare(b.usuario));
+}

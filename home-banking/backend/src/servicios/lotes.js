@@ -173,3 +173,15 @@ export async function decidir(req, loteId, aprobarLote) {
   }
   return { loteId, estado: 'PROCESADO', resultados };
 }
+
+export async function descartar(req, loteId) {
+  return tx(operativa, async (c) => {
+    const lote = (await c.query('SELECT * FROM lote WHERE id = $1 FOR UPDATE', [loteId])).rows[0];
+    if (!lote) throw noEncontrado('Lote inexistente');
+    if (lote.creador !== req.user.usuario) throw prohibido('Solo quien subió el lote puede descartarlo');
+    if (lote.estado !== 'PREVIA') throw conflicto(`El lote está en estado ${lote.estado}`);
+    await c.query(`UPDATE lote SET estado = 'DESCARTADO' WHERE id = $1`, [loteId]);
+    await auditar(c, req, { tipo: 'Transferencias', accion: 'Descartó archivo masivo', ref: { tipo: 'lote', id: loteId }, detalle: `Lote ${loteId} · ${lote.archivo}` });
+    return { loteId, estado: 'DESCARTADO' };
+  });
+}
