@@ -69,10 +69,11 @@ async function pantallaApp() {
   $('#raiz').replaceChildren(h('div', { class: 'app' },
     h('header', { class: 'top' },
       h('div', { class: 'marca' }, ...logos(), h('h1', {}, 'Home Banking')),
-      h('div', { class: 'sesion' }, h('span', {}, 'Sesión: ', h('b', {}, `${me.usuario} · ${me.rol}`)),
+      h('div', { class: 'sesion' }, h('span', {}, 'Sesión: ', h('b', {}, `${me.usuario} · ${me.rol}`), ` · Banco: ${me.ambiente === 'prod' ? 'Producción' : 'Homologación'}`),
         h('a', { class: 'btn chico', href: '#ayuda' }, 'Ayuda'),
         h('button', { class: 'btn chico btn-tema', onclick: alternarTema }),
         h('button', { class: 'btn chico', onclick: logout }, 'Cerrar sesión'))),
+    me.soloConsultas && h('p', { class: 'aviso rojo' }, h('b', {}, 'Modo solo consultas. '), 'Saldos, movimientos, débitos y CBU son reales; las transferencias se pueden cargar pero ninguna aprobación las envía al banco.'),
     nav, main));
   aplicarTema(temaGuardado());
 

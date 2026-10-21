@@ -6,6 +6,7 @@ import { cuentasHabilitadas, exigirCuenta } from '../permisos.js';
 import { consultarCbu, cuentasPropias, detalleSaldos, movimientos } from '../bdv/cliente.js';
 import { filaMovimiento, xlsxMovimientos } from '../excel.js';
 import { fechaCorte } from '../db.js';
+import { config } from '../config.js';
 
 const hoyIso = () => new Date().toISOString().slice(0, 10);
 const rango = (q) => {
@@ -29,7 +30,7 @@ export default async function rutasConsultas(app) {
 
   app.get('/me', async (req) => {
     const { usuario, nombre, rol, puedeCrear, puedeAprobar } = req.user;
-    return { usuario, nombre, rol, puedeCrear, puedeAprobar, corte: fechaCorte() };
+    return { usuario, nombre, rol, puedeCrear, puedeAprobar, corte: fechaCorte(), ambiente: config.ambiente, soloConsultas: config.soloConsultas };
   });
 
   // Saldos: sin empresa = total de todas; con ?empresa= = solo esa

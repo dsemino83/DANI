@@ -25,6 +25,7 @@ export async function render(main, ctx) {
   };
   const acciones = (x, ruta, etiqueta) => (x.propia
     ? h('span', { class: 'bloqueado' }, 'La cargaste vos: no podés aprobarla.')
+    : ctx.me.soloConsultas ? h('span', { class: 'bloqueado' }, 'Modo solo consultas: no se envía al banco.')
     : h('span', {},
       h('button', { class: 'btn primario chico', title: 'Aprobar y enviar al banco', onclick: () => decidir(`${ruta}/aprobar`, `${etiqueta}: se enviará al banco ahora.`, true) }, 'Aprobar'),
       h('button', { class: 'btn chico', title: 'Rechazar sin enviar', onclick: () => decidir(`${ruta}/rechazar`, `${etiqueta}: no se enviará al banco.`, false) }, 'Rechazar')));

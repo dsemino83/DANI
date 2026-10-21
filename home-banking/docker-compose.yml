@@ -9,6 +9,7 @@ x-backend-env: &backend-env
   NODE_ENV: production
   BDV_AMBIENTE: ${BDV_AMBIENTE:-homo}
   BDV_URL_HOMO: ${BDV_URL_HOMO:-}   # solo homologación (simulador); producción es fija
+  BDV_SOLO_CONSULTAS: ${BDV_SOLO_CONSULTAS:-false}   # true: ninguna transferencia llega al banco
   OIDC_ISSUER: ${OIDC_ISSUER}
   OIDC_INTERNAL_URL: ${OIDC_INTERNAL_URL:-${OIDC_ISSUER}}
   OIDC_AUDIENCE: ${OIDC_AUDIENCE:-home-banking-api}

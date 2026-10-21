@@ -8,7 +8,7 @@ import { conflicto, invalido, noEncontrado, prohibido } from '../errores.js';
 import { cuentasHabilitadas, exigirCuenta } from '../permisos.js';
 import { consultarCbu, cuentasPropias } from '../bdv/cliente.js';
 import { armarRequest } from '../bdv/transferencias.js';
-import { crearPendiente, enviarUnaVez, idsUsados, normalizarId, registrarResultado } from './transferencias.js';
+import { crearPendiente, enviarUnaVez, exigirEnviosHabilitados, idsUsados, normalizarId, registrarResultado } from './transferencias.js';
 
 const COLUMNAS = ['id', 'tipo', 'cuenta_origen', 'destino', 'cuit', 'importe', 'concepto', 'titular', 'codigo_mep'];
 const TIPOS = { INMEDIATA: 'INMEDIATA', INTERNA: 'PROPIAS', PROPIAS: 'PROPIAS', TERCEROS: 'TERCEROS', MEP: 'MEP' };
@@ -147,6 +147,7 @@ export async function confirmar(req, loteId) {
 }
 
 export async function decidir(req, loteId, aprobarLote) {
+  if (aprobarLote) exigirEnviosHabilitados();
   const items = await tx(operativa, async (c) => {
     const { rows } = await c.query('SELECT * FROM lote WHERE id = $1 FOR UPDATE', [loteId]);
     const lote = rows[0];

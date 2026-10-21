@@ -14,6 +14,9 @@ const leer = (nombre, porDefecto) => {
 export const config = {
   puerto: Number(leer('PORT', '8080')),
   ambiente: leer('BDV_AMBIENTE', 'homo'), // 'homo' | 'prod': qué credencial API usa este backend
+  // Modo solo consultas: saldos, movimientos, débitos y CBU reales; ninguna transferencia llega al banco.
+  // Pensado para la primera prueba con producción.
+  soloConsultas: ['true', '1', 'si', 'sí'].includes(String(leer('BDV_SOLO_CONSULTAS', 'false')).toLowerCase()),
 
   oidc: {
     issuer: leer('OIDC_ISSUER'), // p. ej. https://ssohomo.valo.ar/valo/realms/staff (debe coincidir con el iss del token)

@@ -2,6 +2,12 @@
 import { operativa, historica, tx } from '../db.js';
 import { auditar } from '../auditoria.js';
 import { conflicto, noEncontrado, prohibido, invalido } from '../errores.js';
+import { config } from '../config.js';
+
+// Modo solo consultas: se rechaza la aprobación antes de tocar la transferencia (queda pendiente).
+export function exigirEnviosHabilitados() {
+  if (config.soloConsultas) throw conflicto('Modo solo consultas (BDV_SOLO_CONSULTAS): las transferencias no se envían al banco. Queda pendiente de aprobación.');
+}
 import { exigirCuenta } from '../permisos.js';
 import { cuentasPropias } from '../bdv/cliente.js';
 import { API_POR_TIPO, armarRequest, enviar } from '../bdv/transferencias.js'; // enviar: solo desde enviarUnaVez
@@ -101,6 +107,7 @@ async function tomarParaDecision(req, id, aprobar) {
 // una fila en envio_banco (clave primaria = id de la transferencia): si ya existe, la
 // operación ya salió (o está saliendo) y no se envía de nuevo, pase lo que pase.
 export async function enviarUnaVez(req, t) {
+  exigirEnviosHabilitados(); // segunda barrera: nunca se registra ni se envía nada en este modo
   await tx(operativa, async (c) => {
     const actual = (await c.query('SELECT estado FROM transferencia WHERE id = $1 FOR UPDATE', [t.id])).rows[0];
     if (actual?.estado !== 'ENVIANDO') throw conflicto(`OP-${t.id} está en estado ${actual?.estado ?? 'inexistente'}: no se envía`);
@@ -134,6 +141,7 @@ export async function registrarResultado(req, t, r) {
 }
 
 export async function aprobar(req, id) {
+  exigirEnviosHabilitados();
   const t = await tomarParaDecision(req, id, true);
   const r = await enviarUnaVez(req, t);
   await registrarResultado(req, t, r);

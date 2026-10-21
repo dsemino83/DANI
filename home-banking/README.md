@@ -34,6 +34,19 @@ Después de levantar:
 
 `keycloak/realm-staff-dev.json` es un ejemplo completo para desarrollo (usuarios `mgomez`, `lrodriguez`, `svillalba`, `admin.ti` con claves temporales).
 
+## Primera prueba con producción (sin mover dinero)
+
+La prueba se hace con la aplicación desplegada en la infraestructura de VALO: el prototipo no se conecta al banco y la credencial de producción nunca sale del backend.
+
+1. En `.env`: `BDV_AMBIENTE=prod` y `BDV_SOLO_CONSULTAS=true`. La URL pasa a ser `https://api.bancodevalores.com/…` sola.
+2. `docker compose up -d --build` (o `docker compose up -d backend` si ya estaba levantado).
+3. Confirmar con el banco que la IP de salida del servidor esté habilitada para producción.
+4. Entrar como administrador de seguridad → **Credenciales API** → **Producción**: cargar usuario, clave, DNI, terminal y llave RSA de producción → **Probar conexión** (solo hace `login` y `getUserEntityInformation`).
+5. Dar de alta las empresas, asignarles las cuentas reales y otorgar permisos **Ver** a quienes van a probar.
+6. Con un usuario operador: Saldos, Movimientos (Excel incluido), Débitos realizados y Consulta CBU con datos reales. El encabezado muestra "Banco: Producción" y el aviso de modo solo consultas.
+7. Si se carga una transferencia de prueba, queda pendiente: **Aprobar** la rechaza el backend y no llega al banco.
+8. Para habilitar transferencias reales: `BDV_SOLO_CONSULTAS=false` y reiniciar el backend. Conviene que la primera sea de importe mínimo entre cuentas propias.
+
 ## Secretos
 
 | Archivo en `./secrets` | Uso |
