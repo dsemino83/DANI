@@ -58,6 +58,31 @@ BDV_AMBIENTE=prod BDV_LOGIN=<usuario> BDV_PASSWORD_CIFRADA='<clave cifrada en ba
 BDV_TERMINAL=<terminal> BDV_IDENTIFICATION=<DNI> node scripts/probar-api.mjs
 ```
 
+## Imágenes publicadas (Docker Hub)
+
+El workflow `.github/workflows/home-banking-imagenes.yml` corre en cada push a `ALYC`:
+
+1. **Pruebas del backend** (`npm test`).
+2. **Prueba de humo:** levanta el stack completo con Docker (bases, backend, frontend y Keycloak local) y verifica frontend, `config.json`, CSP, `/api/health`, que la API pida token, Keycloak y el esquema de la base.
+3. **Publicación** en Docker Hub, solo si las dos anteriores pasan: `docker.io/<usuario>/home-banking-valo` con los tags `backend-alyc`, `frontend-alyc` y `backend-<commit>` / `frontend-<commit>`.
+
+Requiere dos secretos en GitHub (Settings → Secrets and variables → Actions): `DOCKERHUB_USERNAME` y `DOCKERHUB_TOKEN` (access token de Docker Hub con permiso Read & Write). Conviene que el repositorio de Docker Hub sea **privado**.
+
+Para desplegar sin compilar, en el `.env` del servidor:
+
+```env
+HB_IMAGEN=docker.io/<usuario>/home-banking-valo
+HB_VERSION=alyc        # o el commit, por ejemplo 73a4d34, para fijar una versión exacta
+```
+
+```sh
+docker login                      # solo si el repositorio de Docker Hub es privado
+docker compose pull
+docker compose up -d              # agregar --profile dev para el Keycloak local
+```
+
+Las imágenes no contienen secretos: claves, certificado y credencial del banco se generan o cargan en cada servidor.
+
 ## Secretos
 
 | Archivo en `./secrets` | Uso |

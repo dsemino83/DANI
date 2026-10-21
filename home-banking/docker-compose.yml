@@ -31,6 +31,8 @@ x-backend-env: &backend-env
 services:
   frontend:
     build: ./frontend
+    # Con HB_IMAGEN en .env se descarga la imagen publicada (docker compose pull) en lugar de compilarla
+    image: ${HB_IMAGEN:-home-banking-valo}:frontend-${HB_VERSION:-local}
     environment:
       OIDC_ISSUER: ${OIDC_ISSUER}
       OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-home-banking-web}
@@ -50,6 +52,7 @@ services:
 
   backend:
     build: ./backend
+    image: ${HB_IMAGEN:-home-banking-valo}:backend-${HB_VERSION:-local}
     environment: *backend-env
     secrets: [db_app_password, db_hist_ro_password, credenciales_master_key, keycloak_admin_client_secret]
     depends_on:
@@ -62,6 +65,7 @@ services:
 
   jobs:
     build: ./backend
+    image: ${HB_IMAGEN:-home-banking-valo}:backend-${HB_VERSION:-local}   # misma imagen que el backend
     command: ["node", "src/jobs/programador.js"]
     environment:
       <<: *backend-env

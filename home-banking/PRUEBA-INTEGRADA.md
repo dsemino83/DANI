@@ -64,6 +64,8 @@ HTTPS_PORT=443
 
 ## 5. Levantar
 
+> Si ya están publicadas las imágenes en Docker Hub (ver README, **Imágenes publicadas**), agregá `HB_IMAGEN` y `HB_VERSION` al `.env` y usá `docker compose pull` seguido de `docker compose --profile dev up -d`: no compila nada en la PC.
+
 ```sh
 docker compose --profile dev up -d --build
 docker compose ps

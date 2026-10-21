@@ -1,0 +1,138 @@
+# Home Banking VALO: pruebas, prueba de humo del stack completo en Docker y publicación de imágenes en Docker Hub.
+# Secretos del repositorio (Settings → Secrets and variables → Actions):
+#   DOCKERHUB_USERNAME  usuario u organización de Docker Hub
+#   DOCKERHUB_TOKEN     access token de Docker Hub con permiso Read & Write
+# Las imágenes no llevan secretos: claves, certificados y credenciales se montan al desplegar.
+name: Home Banking · imágenes Docker
+
+on:
+  push:
+    branches: [ALYC]
+    paths: ['home-banking/**', '.github/workflows/home-banking-imagenes.yml']
+  pull_request:
+    paths: ['home-banking/**', '.github/workflows/home-banking-imagenes.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: home-banking-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    working-directory: home-banking
+
+jobs:
+  pruebas:
+    name: Pruebas del backend
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm ci
+        working-directory: home-banking/backend
+      - run: npm test
+        working-directory: home-banking/backend
+
+  humo:
+    name: Prueba de humo (stack completo en Docker)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Secretos y certificado de prueba
+        run: sh scripts/generar-secretos.sh
+      - name: Configuración de prueba (Keycloak local, banco en homologación, solo consultas)
+        run: |
+          cat > .env <<'EOF'
+          BDV_AMBIENTE=homo
+          BDV_SOLO_CONSULTAS=true
+          OIDC_ISSUER=http://localhost:8081/realms/staff
+          OIDC_INTERNAL_URL=http://keycloak:8080/realms/staff
+          OIDC_ORIGIN=http://localhost:8081
+          OIDC_CLIENT_ID=home-banking-web
+          OIDC_AUDIENCE=home-banking-api
+          OIDC_ROLES_CLIENT=home-banking-api
+          KEYCLOAK_ADMIN_CLIENT_ID=home-banking-admin
+          HTTPS_PORT=443
+          EOF
+      - name: Levantar
+        run: docker compose --profile dev up -d --build --wait --wait-timeout 300
+      - name: Verificar
+        run: |
+          set -e
+          curl -fsSk https://localhost/ | grep -q 'js/app.js'                       && echo 'frontend OK'
+          curl -fsSk https://localhost/config.json | grep -q '"oidcIssuer"'        && echo 'config.json OK'
+          curl -fsSk https://localhost/api/health                                    && echo ' health OK'
+          test "$(curl -sk -o /dev/null -w '%{http_code}' https://localhost/api/me)" = 401 && echo '/api/me sin token → 401 OK'
+          curl -fsSk -I https://localhost/ | grep -qi 'content-security-policy'      && echo 'CSP OK'
+          for i in $(seq 1 30); do
+            curl -fs http://localhost:8081/realms/staff/.well-known/openid-configuration >/dev/null && break; sleep 5
+          done
+          curl -fs http://localhost:8081/realms/staff/.well-known/openid-configuration | grep -q '"issuer"' && echo 'Keycloak OK'
+          docker compose exec -T postgres psql -U postgres -d homebanking -Atc "SELECT count(*) FROM pg_tables WHERE tablename IN ('envio_banco','referencia_usada','credencial_api')" | grep -qx 3 && echo 'esquema OK'
+          docker compose ps
+      - name: Logs si falla
+        if: failure()
+        run: docker compose --profile dev logs --no-color --tail 200
+      - name: Bajar
+        if: always()
+        run: docker compose --profile dev down -v
+
+  publicar:
+    name: Publicar en Docker Hub
+    needs: [pruebas, humo]
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    env:
+      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+    steps:
+      - name: Verificar secretos
+        run: |
+          if [ -z "$DOCKERHUB_USERNAME" ] || [ -z "$DOCKERHUB_TOKEN" ]; then
+            echo "::error::Faltan los secretos DOCKERHUB_USERNAME y DOCKERHUB_TOKEN en el repositorio"; exit 1
+          fi
+        working-directory: .
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Nombre de la imagen
+        id: img
+        run: |
+          echo "nombre=docker.io/${DOCKERHUB_USERNAME}/home-banking-valo" >> "$GITHUB_OUTPUT"
+          echo "corto=$(echo "$GITHUB_SHA" | cut -c1-7)" >> "$GITHUB_OUTPUT"
+          echo "rama=$(echo "$GITHUB_REF_NAME" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9.\n-' '-')" >> "$GITHUB_OUTPUT"
+        working-directory: .
+      - name: Backend
+        uses: docker/build-push-action@v6
+        with:
+          context: home-banking/backend
+          push: true
+          tags: |
+            ${{ steps.img.outputs.nombre }}:backend-${{ steps.img.outputs.rama }}
+            ${{ steps.img.outputs.nombre }}:backend-${{ steps.img.outputs.corto }}
+      - name: Frontend
+        uses: docker/build-push-action@v6
+        with:
+          context: home-banking/frontend
+          push: true
+          tags: |
+            ${{ steps.img.outputs.nombre }}:frontend-${{ steps.img.outputs.rama }}
+            ${{ steps.img.outputs.nombre }}:frontend-${{ steps.img.outputs.corto }}
+      - name: Resumen
+        run: |
+          {
+            echo "### Imágenes publicadas"
+            echo "- \`${{ steps.img.outputs.nombre }}:backend-${{ steps.img.outputs.rama }}\` y \`backend-${{ steps.img.outputs.corto }}\`"
+            echo "- \`${{ steps.img.outputs.nombre }}:frontend-${{ steps.img.outputs.rama }}\` y \`frontend-${{ steps.img.outputs.corto }}\`"
+            echo ""
+            echo "En el servidor: \`HB_IMAGEN=${{ steps.img.outputs.nombre }}\` y \`HB_VERSION=${{ steps.img.outputs.rama }}\` en .env, después \`docker compose pull && docker compose up -d\`."
+          } >> "$GITHUB_STEP_SUMMARY"
+        working-directory: .
