@@ -47,6 +47,15 @@ La prueba se hace con la aplicación desplegada en la infraestructura de VALO: e
 7. Si se carga una transferencia de prueba, queda pendiente: **Aprobar** la rechaza el backend y no llega al banco.
 8. Para habilitar transferencias reales: `BDV_SOLO_CONSULTAS=false` y reiniciar el backend. Conviene que la primera sea de importe mínimo entre cuentas propias.
 
+### Probar la credencial sin desplegar
+
+`scripts/probar-api.mjs` hace solo lectura (login, getUserEntityInformation, getOwnAccounts y, opcional, movimientos del día) y nunca llama a una API de transferencia. La credencial va por variables de entorno; las cuentas se muestran enmascaradas. Tiene que correr desde una máquina con salida habilitada por el banco:
+
+```sh
+BDV_AMBIENTE=prod BDV_LOGIN=<usuario> BDV_PASSWORD_CIFRADA='<clave cifrada en base64>' \
+BDV_TERMINAL=<terminal> BDV_IDENTIFICATION=<DNI> node scripts/probar-api.mjs
+```
+
 ## Secretos
 
 | Archivo en `./secrets` | Uso |
