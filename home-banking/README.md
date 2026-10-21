@@ -16,7 +16,7 @@ cd home-banking
 sh scripts/generar-secretos.sh      # crea ./secrets/*.txt y un certificado autofirmado (solo desarrollo)
 cp .env.example .env                # completar OIDC_ISSUER, OIDC_ORIGIN, BDV_AMBIENTE, DOC_*_URL, etc.
 docker compose up -d --build        # homologación / producción (SSO de VALO)
-docker compose --profile dev up -d  # además, Keycloak local en http://localhost:8081 (realm "staff" de prueba)
+docker compose --profile sso-local up -d  # con Keycloak propio en https://<servidor>/auth (usuarios y perfiles desde Docker)
 ```
 
 Después de levantar:
@@ -80,7 +80,7 @@ HB_VERSION=alyc        # o el commit, por ejemplo 73a4d34, para fijar una versi�
 ```sh
 docker login                      # solo si el repositorio de Docker Hub es privado
 docker compose pull
-docker compose up -d              # agregar --profile dev para el Keycloak local
+docker compose up -d              # agregar --profile sso-local para el Keycloak propio
 ```
 
 Las imágenes no contienen secretos: claves, certificado y credencial del banco se generan o cargan en cada servidor.

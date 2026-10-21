@@ -69,7 +69,18 @@ KEYCLOAK_ADMIN_CLIENT_ID=home-banking-admin
 
 El secret de la service account `home-banking-admin` que entregue Identidad va en `secrets/keycloak_admin_client_secret.txt`, sin salto de línea. En el cliente `home-banking-web`, Identidad tiene que registrar `https://<dominio-del-servidor>/*` como redirect URI y `https://<dominio-del-servidor>` como web origin.
 
-> El Keycloak local (`--profile dev`) es solo para probar en una PC: su realm acepta únicamente `https://localhost`. En un servidor con otro nombre el login no funciona; hay que usar el SSO de VALO.
+### Alternativa: identidad en Docker (Keycloak propio)
+
+Mientras no estén los clientes en el SSO de VALO, usuarios, perfiles y roles se manejan con el Keycloak que viene en el kit (imagen `keycloak-dev`). Se publica por el mismo HTTPS de la app en `https://<servidor>/auth`, sin abrir otro puerto, y guarda los usuarios en el volumen `keycloak_datos`. En el `.env`:
+
+```env
+HB_URL_PUBLICA=https://<nombre-o-IP-del-servidor>
+OIDC_ISSUER=https://<nombre-o-IP-del-servidor>/auth/realms/staff
+OIDC_INTERNAL_URL=http://keycloak:8080/auth/realms/staff
+OIDC_ORIGIN=https://<nombre-o-IP-del-servidor>
+```
+
+Y en los comandos del paso 6 agregá `--profile sso-local` (`docker compose --profile sso-local pull`, `docker compose --profile sso-local up -d --no-build`). Ver **Usuarios, perfiles y permisos** más abajo.
 
 ## 6. Descargar y levantar
 
@@ -81,6 +92,18 @@ docker compose ps                         # postgres, postgres-historico, backen
 ```
 
 Después: `https://<dominio-del-servidor>` → entrar con un usuario del SSO que tenga el rol **administrador** → **Credenciales API** → cargar la credencial del banco → **Probar conexión**. Luego seguir con Empresas y Permisos, como en `PRUEBA-INTEGRADA.md`.
+
+## Usuarios, perfiles y permisos (Keycloak propio)
+
+| Qué | Dónde | Quién |
+|---|---|---|
+| Alta, baja, datos y clave de usuarios; **perfil** (operador, autorizante, auditor, administrador) | Consola del realm: `https://<servidor>/auth/admin/staff/console/` → **Users** → usuario → **Role mapping** → **Assign role** → *Filter by clients* → `home-banking-api` | `admin.ti` (administrador de seguridad) |
+| Roles **Crear** / **Aprobar** transferencias | En la app: **Permisos** → usuario (o en la consola, roles `transferencias:crear` / `transferencias:aprobar`) | `admin.ti` |
+| Empresas y permisos **Ver** / **Operar** por empresa | En la app: **Empresas** y **Permisos** | `admin.ti` |
+
+Usuarios iniciales: `admin.ti`, `mgomez` (operador, Crear), `lrodriguez` (autorizante, Aprobar) y `svillalba` (auditor), con clave temporal `Dev-<usuario>-1` (por ejemplo `Dev-admin-1`) que **se cambia obligatoriamente en el primer ingreso**. Para un usuario nuevo: crearlo en la consola, cargarle una clave temporal en **Credentials** y asignarle el perfil.
+
+La consola maestra (`https://<servidor>/auth/admin/`, usuario `admin`, clave en `secrets/keycloak_bootstrap_password.txt`) es solo para emergencias: el trabajo diario lo hace `admin.ti` en la consola del realm `staff`. Todo cambio de roles que se haga desde la app queda en la auditoría del Home Banking; los que se hagan en la consola quedan en los eventos de Keycloak.
 
 ## 7. Actualizar a una versión nueva
 

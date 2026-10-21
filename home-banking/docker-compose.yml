@@ -127,20 +127,22 @@ services:
     restart: unless-stopped
     networks: [interna]
 
-  # Solo desarrollo local: en homologación/producción se usa https://ssohomo.valo.ar/valo/realms/staff
+  # Keycloak propio (perfil "sso-local"): usuarios, perfiles y roles manejados desde Docker, para pruebas o
+  # mientras no esté el SSO de VALO. Se publica por el frontend en https://<servidor>/auth (sin puerto propio).
+  # Consola del administrador de seguridad: https://<servidor>/auth/admin/staff/console/
   keycloak:
-    build: ./keycloak              # Keycloak 26.0.5 + realm "staff" de prueba
+    build: ./keycloak              # Keycloak 26.0.5 + realm "staff"
     image: ${HB_IMAGEN:-home-banking-valo}:keycloak-dev-${HB_VERSION:-local}
-    profiles: [dev]
-    command: ["start-dev", "--import-realm"]
+    profiles: [dev, sso-local]
     environment:
-      KC_BOOTSTRAP_ADMIN_USERNAME: admin
-      KC_BOOTSTRAP_ADMIN_PASSWORD: admin
-      KC_HOSTNAME: http://localhost:8081          # issuer que ve el navegador
-      KC_HOSTNAME_BACKCHANNEL_DYNAMIC: "true"     # el backend lo consulta como http://keycloak:8080
-    ports:
-      - "8081:8080"
-    networks: [interna, publica]
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin                         # consola maestra; clave en secrets/
+      KC_HOSTNAME: ${HB_URL_PUBLICA:-https://localhost}/auth      # URL pública: issuer de los tokens
+      HB_URL_PUBLICA: ${HB_URL_PUBLICA:-https://localhost}        # redirect URI del cliente web
+    secrets: [keycloak_bootstrap_password, keycloak_admin_client_secret]
+    volumes:
+      - keycloak_datos:/opt/keycloak/data                         # usuarios y cambios persisten
+    restart: unless-stopped
+    networks: [interna]
 
 secrets:
   db_owner_password:
@@ -155,10 +157,13 @@ secrets:
     file: ./secrets/credenciales_master_key.txt
   keycloak_admin_client_secret:
     file: ./secrets/keycloak_admin_client_secret.txt
+  keycloak_bootstrap_password:
+    file: ./secrets/keycloak_bootstrap_password.txt
 
 volumes:
   pg_operativa:
   pg_historica:
+  keycloak_datos:
 
 networks:
   publica:

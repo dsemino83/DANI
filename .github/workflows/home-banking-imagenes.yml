@@ -50,9 +50,10 @@ jobs:
           cat > .env <<'EOF'
           BDV_AMBIENTE=homo
           BDV_SOLO_CONSULTAS=true
-          OIDC_ISSUER=http://localhost:8081/realms/staff
-          OIDC_INTERNAL_URL=http://keycloak:8080/realms/staff
-          OIDC_ORIGIN=http://localhost:8081
+          HB_URL_PUBLICA=https://localhost
+          OIDC_ISSUER=https://localhost/auth/realms/staff
+          OIDC_INTERNAL_URL=http://keycloak:8080/auth/realms/staff
+          OIDC_ORIGIN=https://localhost
           OIDC_CLIENT_ID=home-banking-web
           OIDC_AUDIENCE=home-banking-api
           OIDC_ROLES_CLIENT=home-banking-api
@@ -60,7 +61,7 @@ jobs:
           HTTPS_PORT=443
           EOF
       - name: Levantar
-        run: docker compose --profile dev up -d --build --wait --wait-timeout 300
+        run: docker compose --profile sso-local up -d --build --wait --wait-timeout 300
       - name: Verificar
         run: |
           set -e
@@ -69,18 +70,20 @@ jobs:
           curl -fsSk https://localhost/api/health                                    && echo ' health OK'
           test "$(curl -sk -o /dev/null -w '%{http_code}' https://localhost/api/me)" = 401 && echo '/api/me sin token → 401 OK'
           curl -fsSk -I https://localhost/ | grep -qi 'content-security-policy'      && echo 'CSP OK'
-          for i in $(seq 1 30); do
-            curl -fs http://localhost:8081/realms/staff/.well-known/openid-configuration >/dev/null && break; sleep 5
-          done
-          curl -fs http://localhost:8081/realms/staff/.well-known/openid-configuration | grep -q '"issuer"' && echo 'Keycloak OK'
+          for i in $(seq 1 40); do curl -fsk https://localhost/auth/realms/staff/.well-known/openid-configuration >/dev/null && break; sleep 5; done
+          curl -fsk https://localhost/auth/realms/staff/.well-known/openid-configuration | grep -q '"issuer":"https://localhost/auth/realms/staff"' && echo 'Keycloak en /auth OK'
+          AUTH='https://localhost/auth/realms/staff/protocol/openid-connect/auth?client_id=home-banking-web&response_type=code&scope=openid'
+          test "$(curl -sk -o /dev/null -w '%{http_code}' "$AUTH&redirect_uri=https%3A%2F%2Flocalhost%2F")" = 200 && echo 'redirect URI de la app aceptada'
+          test "$(curl -sk -o /dev/null -w '%{http_code}' "$AUTH&redirect_uri=https%3A%2F%2Fotro.example%2F")" = 400 && echo 'redirect URI ajena rechazada'
+          curl -fsk https://localhost/auth/realms/staff/protocol/openid-connect/token -d grant_type=client_credentials -d client_id=home-banking-admin --data-urlencode "client_secret=$(cat secrets/keycloak_admin_client_secret.txt)" | grep -q access_token && echo 'service account OK'
           docker compose exec -T postgres psql -U postgres -d homebanking -Atc "SELECT count(*) FROM pg_tables WHERE tablename IN ('envio_banco','referencia_usada','credencial_api')" | grep -qx 3 && echo 'esquema OK'
           docker compose ps
       - name: Logs si falla
         if: failure()
-        run: docker compose --profile dev logs --no-color --tail 200
+        run: docker compose --profile sso-local logs --no-color --tail 200
       - name: Bajar
         if: always()
-        run: docker compose --profile dev down -v
+        run: docker compose --profile sso-local down -v
 
   publicar:
     name: Publicar en Docker Hub
@@ -188,9 +191,10 @@ jobs:
           HB_VERSION=${corto}
           BDV_AMBIENTE=homo
           BDV_SOLO_CONSULTAS=true
-          OIDC_ISSUER=http://localhost:8081/realms/staff
-          OIDC_INTERNAL_URL=http://keycloak:8080/realms/staff
-          OIDC_ORIGIN=http://localhost:8081
+          HB_URL_PUBLICA=https://localhost
+          OIDC_ISSUER=https://localhost/auth/realms/staff
+          OIDC_INTERNAL_URL=http://keycloak:8080/auth/realms/staff
+          OIDC_ORIGIN=https://localhost
           OIDC_CLIENT_ID=home-banking-web
           OIDC_AUDIENCE=home-banking-api
           OIDC_ROLES_CLIENT=home-banking-api
@@ -204,8 +208,8 @@ jobs:
       - name: Descargar imágenes y levantar (sin compilar)
         working-directory: kit/home-banking-valo
         run: |
-          docker compose --profile dev pull
-          docker compose --profile dev up -d --no-build --wait --wait-timeout 300
+          docker compose --profile sso-local pull
+          docker compose --profile sso-local up -d --no-build --wait --wait-timeout 300
       - name: Verificar
         working-directory: kit/home-banking-valo
         run: |
@@ -213,8 +217,12 @@ jobs:
           curl -fsSk https://localhost/ | grep -q 'js/app.js'                      && echo 'frontend OK'
           curl -fsSk https://localhost/api/health                                   && echo ' backend OK'
           test "$(curl -sk -o /dev/null -w '%{http_code}' https://localhost/api/me)" = 401 && echo 'autenticación OK'
-          for i in $(seq 1 30); do curl -fs http://localhost:8081/realms/staff/.well-known/openid-configuration >/dev/null && break; sleep 5; done
-          curl -fs http://localhost:8081/realms/staff/.well-known/openid-configuration | grep -q '"issuer"' && echo 'Keycloak OK'
+          for i in $(seq 1 40); do curl -fsk https://localhost/auth/realms/staff/.well-known/openid-configuration >/dev/null && break; sleep 5; done
+          curl -fsk https://localhost/auth/realms/staff/.well-known/openid-configuration | grep -q '"issuer":"https://localhost/auth/realms/staff"' && echo 'Keycloak en /auth OK'
+          AUTH='https://localhost/auth/realms/staff/protocol/openid-connect/auth?client_id=home-banking-web&response_type=code&scope=openid'
+          test "$(curl -sk -o /dev/null -w '%{http_code}' "$AUTH&redirect_uri=https%3A%2F%2Flocalhost%2F")" = 200 && echo 'redirect URI de la app aceptada'
+          test "$(curl -sk -o /dev/null -w '%{http_code}' "$AUTH&redirect_uri=https%3A%2F%2Fotro.example%2F")" = 400 && echo 'redirect URI ajena rechazada'
+          curl -fsk https://localhost/auth/realms/staff/protocol/openid-connect/token -d grant_type=client_credentials -d client_id=home-banking-admin --data-urlencode "client_secret=$(cat secrets/keycloak_admin_client_secret.txt)" | grep -q access_token && echo 'service account OK'
           docker compose exec -T postgres psql -U postgres -d homebanking -Atc "SELECT count(*) FROM pg_tables WHERE tablename IN ('envio_banco','referencia_usada','credencial_api')" | grep -qx 3 && echo 'base operativa OK'
           docker compose exec -T postgres psql -U postgres -d homebanking -Atc "SELECT count(*) FROM pg_roles WHERE rolname = 'hb_app'" | grep -qx 1 && echo 'usuario hb_app OK'
           docker compose exec -T postgres-historico psql -U postgres -d homebanking_hist -Atc "SELECT count(*) FROM pg_roles WHERE rolname = 'hb_hist_ro'" | grep -qx 1 && echo 'base histórica OK'
@@ -222,11 +230,11 @@ jobs:
       - name: Logs si falla
         if: failure()
         working-directory: kit/home-banking-valo
-        run: docker compose --profile dev logs --no-color --tail 200
+        run: docker compose --profile sso-local logs --no-color --tail 200
       - name: Bajar
         if: always()
         working-directory: kit/home-banking-valo
-        run: docker compose --profile dev down -v
+        run: docker compose --profile sso-local down -v
       - name: Publicar el kit (sin secretos)
         if: success()
         working-directory: .

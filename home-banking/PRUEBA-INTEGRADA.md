@@ -6,7 +6,7 @@ La prueba con Power Automate mostró que el banco aceptó llamadas desde la nube
 
 ## 1. Requisitos de la PC
 
-- Windows 10/11, macOS o Linux, con 8 GB de RAM libres y los puertos **443** y **8081** sin usar.
+- Windows 10/11, macOS o Linux, con 8 GB de RAM libres y el puerto **443** sin usar.
 - **Docker**: Docker Desktop, o Rancher Desktop o Podman si la licencia de Docker Desktop no aplica a VALO (es paga para empresas grandes).
 - **Git** ([git-scm.com](https://git-scm.com)).
 
@@ -49,10 +49,11 @@ Dejá estos valores (si una línea ya existe, cambiá el valor; si no, agregala)
 BDV_AMBIENTE=prod
 BDV_SOLO_CONSULTAS=true
 
-# Keycloak local (perfil dev) en lugar del SSO de VALO
-OIDC_ISSUER=http://localhost:8081/realms/staff
-OIDC_INTERNAL_URL=http://keycloak:8080/realms/staff
-OIDC_ORIGIN=http://localhost:8081
+# Keycloak propio en Docker (perfil sso-local), en https://localhost/auth
+HB_URL_PUBLICA=https://localhost
+OIDC_ISSUER=https://localhost/auth/realms/staff
+OIDC_INTERNAL_URL=http://keycloak:8080/auth/realms/staff
+OIDC_ORIGIN=https://localhost
 OIDC_CLIENT_ID=home-banking-web
 OIDC_AUDIENCE=home-banking-api
 OIDC_ROLES_CLIENT=home-banking-api
@@ -64,10 +65,10 @@ HTTPS_PORT=443
 
 ## 5. Levantar
 
-> Si ya están publicadas las imágenes en Docker Hub (ver README, **Imágenes publicadas**), agregá `HB_IMAGEN` y `HB_VERSION` al `.env` y usá `docker compose --profile dev pull` seguido de `docker compose --profile dev up -d --no-build`: no compila nada en la PC (bases y Keycloak de prueba incluidos). Alcanza con el kit descargable (ver DESPLIEGUE.md, paso 2), sin clonar el código.
+> Si ya están publicadas las imágenes en Docker Hub (ver README, **Imágenes publicadas**), agregá `HB_IMAGEN` y `HB_VERSION` al `.env` y usá `docker compose --profile sso-local pull` seguido de `docker compose --profile sso-local up -d --no-build`: no compila nada en la PC (bases y Keycloak de prueba incluidos). Alcanza con el kit descargable (ver DESPLIEGUE.md, paso 2), sin clonar el código.
 
 ```sh
-docker compose --profile dev up -d --build
+docker compose --profile sso-local up -d --build
 docker compose ps
 ```
 
@@ -108,7 +109,7 @@ Ninguna cuenta fuera de las empresas con permiso tiene que aparecer en ninguna p
 ## 9. Al terminar
 
 ```sh
-docker compose --profile dev down -v
+docker compose --profile sso-local down -v
 ```
 
 `-v` borra las bases locales, con la credencial cifrada y los datos consultados. Después pedile al banco que cambie la clave, porque el texto cifrado circuló por canales no seguros.
@@ -121,5 +122,5 @@ docker compose --profile dev down -v
 | Falla con HTTP 403 o "Sin respuesta" | El banco filtra por IP: pedile que habilite la IP pública de esa red |
 | "El banco rechazó el login" | Usuario, DNI, terminal o clave incorrectos, o el texto cifrado no corresponde a producción. El mensaje trae el código del banco |
 | El login de la aplicación no abre o vuelve a la pantalla de ingreso | Keycloak todavía está arrancando (esperá 1 minuto), o el `.env` no tiene los valores del paso 4 |
-| El backend se reinicia con `EACCES: permission denied, open '/run/secrets/…'` (Linux/macOS) | Secretos generados con una versión anterior del script: `chmod 700 secrets && chmod 644 secrets/*.txt`, después `docker compose --profile dev down -v` (la base quedó a medio inicializar) y volver a levantar |
+| El backend se reinicia con `EACCES: permission denied, open '/run/secrets/…'` (Linux/macOS) | Secretos generados con una versión anterior del script: `chmod 700 secrets && chmod 644 secrets/*.txt`, después `docker compose --profile sso-local down -v` (la base quedó a medio inicializar) y volver a levantar |
 | `docker compose` falla en Windows con errores en archivos `.sh` | Clonado con fines de línea de Windows: volvé a clonar (el repositorio ya fuerza LF en esos archivos) |

@@ -25,11 +25,10 @@ Generar 'dbh_owner_password'
 Generar 'db_app_password'
 Generar 'db_hist_ro_password'
 Generar 'credenciales_master_key' 32
-# Secret de la service account de Keycloak: en desarrollo coincide con keycloak\realm-staff-dev.json
-if (-not (Test-Path 'secrets\keycloak_admin_client_secret.txt')) {
-  Guardar 'secrets\keycloak_admin_client_secret.txt' 'dev-solo-local-cambiar'
-  Write-Host 'creado secrets\keycloak_admin_client_secret.txt'
-}
+# Keycloak: secret de la service account home-banking-admin (el Keycloak propio lo toma de acá;
+# con el SSO de VALO, reemplazarlo por el que entregue Identidad) y clave inicial de la consola maestra.
+Generar 'keycloak_admin_client_secret' 32
+Generar 'keycloak_bootstrap_password'
 
 # Certificado autofirmado solo para desarrollo: se genera con openssl dentro de un contenedor
 if (-not (Test-Path 'frontend\certs\tls.crt')) {
