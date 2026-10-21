@@ -4,6 +4,7 @@ import { exigirRol, ROL_APROBAR, ROL_CREAR } from '../auth.js';
 import { auditar } from '../auditoria.js';
 import { operativa, tx } from '../db.js';
 import { conflicto, invalido, noEncontrado } from '../errores.js';
+import { esAmbiente, urlBase } from '../bdv/ambientes.js';
 import { cifrar, estadoCredencial, leerCredencial } from '../secretos.js';
 import { bdv, cuentasPropias, pemDesdeBase64 } from '../bdv/cliente.js';
 import { cambiarRol, listarUsuarios, rolesDeTransferencias } from '../keycloak-admin.js';
@@ -141,13 +142,16 @@ export default async function rutasAdmin(app) {
   });
 
   // ---------------- Credencial API Banking (clave de solo escritura) ----------------
-  app.get('/credenciales/:ambiente', async (req) => estadoCredencial(req.params.ambiente));
+  app.get('/credenciales/:ambiente', async (req) => {
+    if (!esAmbiente(req.params.ambiente)) throw invalido('Ambiente inválido');
+    return estadoCredencial(req.params.ambiente);
+  });
 
   app.put('/credenciales/:ambiente', async (req) => {
     const amb = req.params.ambiente;
-    if (!['homo', 'prod'].includes(amb)) throw invalido('Ambiente inválido');
+    if (!esAmbiente(amb)) throw invalido('Ambiente inválido');
     const b = req.body ?? {};
-    if (!/^https:\/\/\S+$/.test(b.url ?? '')) throw invalido('La URL base tiene que empezar con https://');
+    const url = urlBase(amb); // la URL la define el ambiente; si llega una en el pedido se ignora
     if (!b.usuario || !b.terminal) throw invalido('Faltan usuario o terminal');
     if (b.identification && !/^\d{7,11}$/.test(String(b.identification))) throw invalido('identification debe tener entre 7 y 11 dígitos');
     if (b.rsaPublicKey) { try { createPublicKey(pemDesdeBase64(b.rsaPublicKey)); } catch { throw invalido('La llave pública RSA no es válida'); } }
@@ -163,10 +167,10 @@ export default async function rutasAdmin(app) {
          VALUES ($1, $2, $3, $4, $5, '3', $6, $7, $8, $9, $10, $11, $12, now())
          ON CONFLICT (ambiente) DO UPDATE SET url = $2, usuario = $3, identification = $4, terminal = $5, rsa_public_key = $6,
            clave_cifrada = $7, clave_iv = $8, clave_tag = $9, clave_cargada_por = $10, clave_cargada_en = $11, actualizado_por = $12, actualizado_en = now()`,
-        [amb, b.url, b.usuario, String(b.identification), b.terminal, b.rsaPublicKey || prev.rsa_public_key, clave.cifrado, clave.iv, clave.tag,
+        [amb, url, b.usuario, String(b.identification), b.terminal, b.rsaPublicKey || prev.rsa_public_key, clave.cifrado, clave.iv, clave.tag,
           b.clave ? req.user.usuario : prev.clave_cargada_por, b.clave ? new Date() : prev.clave_cargada_en, req.user.usuario]);
       const cambios = [
-        prev?.url !== b.url && 'URL', prev?.usuario !== b.usuario && `usuario: ${prev?.usuario ?? '—'} → ${b.usuario}`,
+        prev && prev.url !== url && `URL: ${prev.url} → ${url}`, prev?.usuario !== b.usuario && `usuario: ${prev?.usuario ?? '—'} → ${b.usuario}`,
         prev?.identification !== String(b.identification) && 'identification', prev?.terminal !== b.terminal && `terminal: ${prev?.terminal ?? '—'} → ${b.terminal}`,
         b.clave && (prev ? 'clave reemplazada' : 'clave cargada'), b.rsaPublicKey && (prev ? 'llave RSA reemplazada' : 'llave RSA cargada'),
       ].filter(Boolean);
@@ -177,6 +181,7 @@ export default async function rutasAdmin(app) {
   });
 
   app.post('/credenciales/:ambiente/probar', async (req) => {
+    if (!esAmbiente(req.params.ambiente)) throw invalido('Ambiente inválido');
     const cred = await leerCredencial(req.params.ambiente);
     if (!cred) throw invalido('No hay credencial cargada para ese ambiente');
     try {

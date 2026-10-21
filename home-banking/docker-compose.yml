@@ -8,6 +8,7 @@ name: home-banking-valo
 x-backend-env: &backend-env
   NODE_ENV: production
   BDV_AMBIENTE: ${BDV_AMBIENTE:-homo}
+  BDV_URL_HOMO: ${BDV_URL_HOMO:-}   # solo homologación (simulador); producción es fija
   OIDC_ISSUER: ${OIDC_ISSUER}
   OIDC_INTERNAL_URL: ${OIDC_INTERNAL_URL:-${OIDC_ISSUER}}
   OIDC_AUDIENCE: ${OIDC_AUDIENCE:-home-banking-api}

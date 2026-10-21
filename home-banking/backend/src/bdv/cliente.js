@@ -4,6 +4,7 @@
 // - La cookie vive solo en memoria del backend; nunca viaja al navegador ni a los logs.
 import { constants, publicEncrypt } from 'node:crypto';
 import { config } from '../config.js';
+import { urlDelAmbiente } from './ambientes.js';
 import { leerCredencial } from '../secretos.js';
 
 export class ErrorBanco extends Error {
@@ -49,7 +50,9 @@ class ClienteBdv {
   async login(cred = null) {
     const c = cred ?? (await leerCredencial());
     if (!c) throw new ErrorBanco('No hay credencial API cargada para este ambiente');
+    const amb = c.ambiente ?? config.ambiente;
     const base = c.url.replace(/\/+$/, '');
+    if (!urlDelAmbiente(amb, base)) throw new ErrorBanco(`La URL ${base} no corresponde al ambiente ${amb}`);
     const res = await this.fetch(`${base}/security/login`, {
       login: c.usuario,
       password: cifrarClave(c.clave, c.rsaPublicKey),

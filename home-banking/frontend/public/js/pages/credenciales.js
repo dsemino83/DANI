@@ -13,7 +13,7 @@ export async function render(main) {
     poner(cuerpo, cargando());
     const e = await api(`/admin/credenciales/${amb}`);
     const f = {
-      url: h('input', { type: 'url', value: e.url ?? '', placeholder: 'https://…' }),
+      url: h('input', { value: e.url ?? '', readonly: true, title: 'La define el ambiente; no se edita' }),
       usuario: h('input', { value: e.usuario ?? '', autocomplete: 'off' }),
       identification: h('input', { inputmode: 'numeric', maxlength: 11, autocomplete: 'off', placeholder: e.configurada ? `${e.identification} · vacío = se conserva` : 'DNI / CUIT del usuario API' }),
       terminal: h('input', { value: e.terminal ?? '', autocomplete: 'off' }),
@@ -21,7 +21,7 @@ export async function render(main) {
       rsa: h('textarea', { rows: 4, spellcheck: false, placeholder: e.rsaCargada ? 'Vacío = se conserva la llave actual' : 'Llave pública RSA del banco (base64 o PEM)' }),
     };
     const guardar = async () => {
-      const body = { url: f.url.value.trim(), usuario: f.usuario.value.trim(), terminal: f.terminal.value.trim() };
+      const body = { usuario: f.usuario.value.trim(), terminal: f.terminal.value.trim() };
       if (f.identification.value.trim()) body.identification = f.identification.value.trim();
       if (f.clave.value) body.clave = f.clave.value;
       if (f.rsa.value.trim()) body.rsaPublicKey = f.rsa.value.trim();
@@ -39,9 +39,9 @@ export async function render(main) {
 
     poner(cuerpo, 
       h('div', { class: 'grid' },
-        card('Datos de acceso', 'La clave y la llave RSA se cifran en el backend (AES-256-GCM) y nunca se devuelven a la pantalla. channel = 3.',
+        card('Datos de acceso', 'La URL la fija el ambiente: Homologación usa apihomo.bancodevalores.com y Producción api.bancodevalores.com. La clave y la llave RSA se cifran en el backend (AES-256-GCM) y nunca se devuelven a la pantalla. channel = 3.',
           h('div', { class: 'campos' },
-            campo('URL base de la API', f.url), campo('Usuario', f.usuario), campo('identification', f.identification), campo('Terminal', f.terminal),
+            campo('URL de la API (según el ambiente)', f.url), campo('Usuario', f.usuario), campo('identification', f.identification), campo('Terminal', f.terminal),
             campo('Clave (solo escritura)', f.clave), campo('Llave pública RSA del banco', f.rsa)),
           h('div', { class: 'fila' },
             h('button', { class: 'btn primario', onclick: guardar }, 'Guardar'),

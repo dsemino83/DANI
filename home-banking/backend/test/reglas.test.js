@@ -14,6 +14,7 @@ const { cifrar, descifrar } = await import('../src/secretos.js');
 const { usuarioDesdeToken } = await import('../src/auth.js');
 const { leerTxt, formatoDe } = await import('../src/servicios/lotes.js');
 const { particionesAPasar, mesCorte } = await import('../src/jobs/pase-historico.js');
+const { urlBase, urlDelAmbiente, esAmbiente } = await import('../src/bdv/ambientes.js');
 
 const origenARS = { productId: 3, currencyId: 80, productNumber: '300100000000000', productAlias: 'X' };
 
@@ -106,4 +107,20 @@ test('pase histórico: solo particiones anteriores al corte de 3 meses', () => {
   assert.equal(mesCorte(new Date('2026-10-21T12:00:00Z')), '2026-07-01');
   const p = particionesAPasar(['auditoria_2026_05', 'auditoria_2026_06', 'auditoria_2026_07', 'auditoria_2026_10', 'auditoria_default'], 'auditoria', '2026-07-01');
   assert.deepEqual(p.map((x) => x.particion), ['auditoria_2026_05', 'auditoria_2026_06']);
+});
+
+test('URL del banco según el ambiente: producción en api.bancodevalores.com', () => {
+  assert.equal(urlBase('prod'), 'https://api.bancodevalores.com/CTSProxy/services/resources/channels/mobilebanking');
+  assert.equal(urlBase('homo'), 'https://apihomo.bancodevalores.com/CTSProxy/services/resources/channels/mobilebanking');
+  assert.ok(urlDelAmbiente('prod', urlBase('prod')));
+  assert.ok(!urlDelAmbiente('prod', urlBase('homo')), 'producción nunca usa homologación');
+  assert.ok(!urlDelAmbiente('homo', urlBase('prod')), 'homologación nunca usa producción');
+  assert.ok(!urlDelAmbiente('prod', 'https://api.bancodevalores.com.otro.com/x'));
+  assert.ok(!urlDelAmbiente('prod', 'http://api.bancodevalores.com/x'));
+  assert.ok(!esAmbiente('dev') && !esAmbiente('__proto__'));
+  process.env.BDV_URL_HOMO = 'http://simulador:8080/bdv/';
+  assert.equal(urlBase('homo'), 'http://simulador:8080/bdv', 'homologación se puede apuntar a un simulador');
+  assert.ok(urlBase('prod').startsWith('https://api.bancodevalores.com/'), 'producción no se puede cambiar');
+  delete process.env.BDV_URL_HOMO;
+  assert.throws(() => urlBase('dev'));
 });

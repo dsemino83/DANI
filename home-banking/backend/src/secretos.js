@@ -4,6 +4,7 @@
 import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
 import { config } from './config.js';
 import { operativa } from './db.js';
+import { urlBase } from './bdv/ambientes.js';
 
 export function cifrar(texto) {
   const iv = randomBytes(12);
@@ -24,7 +25,8 @@ export async function leerCredencial(ambiente = config.ambiente) {
   const r = rows[0];
   if (!r) return null;
   return {
-    url: r.url, usuario: r.usuario, identification: r.identification, terminal: r.terminal, channel: r.channel,
+    ambiente, url: urlBase(ambiente), // siempre la del ambiente, nunca una cargada a mano
+    usuario: r.usuario, identification: r.identification, terminal: r.terminal, channel: r.channel,
     rsaPublicKey: r.rsa_public_key,
     clave: descifrar({ cifrado: r.clave_cifrada, iv: r.clave_iv, tag: r.clave_tag }),
   };
@@ -38,9 +40,9 @@ export async function estadoCredencial(ambiente) {
             (rsa_public_key <> '') AS rsa_cargada
        FROM credencial_api WHERE ambiente = $1`, [ambiente]);
   const r = rows[0];
-  if (!r) return { ambiente, configurada: false };
+  if (!r) return { ambiente, configurada: false, url: urlBase(ambiente) };
   return {
-    ambiente, configurada: true, url: r.url, usuario: r.usuario,
+    ambiente, configurada: true, url: urlBase(ambiente), usuario: r.usuario,
     identification: r.identification.replace(/^(\d{2})\d+(\d{2})$/, '$1•••••$2'),
     terminal: r.terminal, channel: r.channel, rsaCargada: r.rsa_cargada,
     claveCargadaPor: r.clave_cargada_por, claveCargadaEn: r.clave_cargada_en,

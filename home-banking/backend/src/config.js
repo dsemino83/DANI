@@ -63,6 +63,9 @@ export const config = {
   retencionMesesOperativa: 3,
 };
 
+if (!['homo', 'prod'].includes(config.ambiente)) {
+  throw new Error('BDV_AMBIENTE debe ser homo o prod');
+}
 if (config.llaveMaestra.length !== 32) {
   throw new Error('CREDENCIALES_MASTER_KEY debe ser de 32 bytes en base64 (openssl rand -base64 32)');
 }

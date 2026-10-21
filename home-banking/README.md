@@ -20,7 +20,7 @@ docker compose --profile dev up -d  # además, Keycloak local en http://localhos
 ```
 
 Después de levantar:
-1. Entrar en `https://<host>/` con el **administrador de seguridad** y cargar la credencial API Banking en **Credenciales API** (URL, usuario, clave, DNI, terminal y llave pública RSA del banco); queda probarla con “Probar conexión”. La clave se cifra con AES-256-GCM y nunca se vuelve a mostrar.
+1. Entrar en `https://<host>/` con el **administrador de seguridad** y cargar la credencial API Banking en **Credenciales API** (usuario, clave, DNI, terminal y llave pública RSA del banco; la URL la define el ambiente); queda probarla con “Probar conexión”. La clave se cifra con AES-256-GCM y nunca se vuelve a mostrar.
 2. En **Empresas**, dar de alta empresas y asignarles cuentas; en **Permisos**, otorgar Ver / Operar por empresa.
 3. En **Permisos**, asignar los roles Crear (`transferencias:crear`) y Aprobar (`transferencias:aprobar`); también se pueden asignar directamente en el SSO.
 
@@ -89,6 +89,7 @@ SPA en JavaScript (módulos ES, sin paso de build) servida por Nginx, con las pa
 
 ## Reglas que hace cumplir el backend (no solo la pantalla)
 
+- **URL del banco según el ambiente**, nunca cargada a mano: `BDV_AMBIENTE=homo` usa `https://apihomo.bancodevalores.com/…` (la del PDF) y `BDV_AMBIENTE=prod` usa `https://api.bancodevalores.com/…`. Antes de cada login se verifica que la URL sea la del ambiente. `BDV_URL_HOMO` solo reemplaza la de homologación (simuladores); la de producción no se puede cambiar.
 - **Doble control:** quien carga no puede aprobar (validado en el backend y con `CHECK (aprobador <> creador)` en la base). La aprobación es un `UPDATE` condicional sobre `PENDIENTE_APROBACION`: dos aprobaciones simultáneas no pueden enviar dos veces.
 - **Las consultas no requieren aprobación; las operaciones sí.** Crear no toca el banco; solo aprobar envía.
 - **Permisos por empresa** en cada llamada: el banco devuelve todas las cuentas de VALO, así que el backend filtra por empresa activa y permiso Ver / Operar.
