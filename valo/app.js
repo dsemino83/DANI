@@ -1537,7 +1537,8 @@
         // Los reportes vienen en UTF-8; si no, en Windows-1252 (Ñ y acentos).
         let texto = new TextDecoder('utf-8').decode(buf);
         if (texto.includes('\ufffd')) texto = new TextDecoder('windows-1252').decode(buf);
-        const leido = M.leerInventarioGarantias(texto, f.name);
+        // ccusosob (uso de acuerdos de cuentas corrientes) → cuenta 131.804.015; el resto, reportes de garantías.
+        const leido = /ccusosob/i.test(f.name) || /ccusosob\.sqr/.test(texto.slice(0, 5000)) ? M.leerUsoAcuerdos(texto, f.name) : M.leerInventarioGarantias(texto, f.name);
         const i = inventario.findIndex(x => x.nombre === f.name);
         if (i > -1) inventario.splice(i, 1, { nombre: f.name, leido }); else inventario.push({ nombre: f.name, leido });
       } catch (e) { errores.push(esc(e.message || e)); }
@@ -1545,7 +1546,7 @@
     renderInventario(errores);
   }
 
-  const filasInventario = () => inventario.flatMap(x => x.leido.filas);
+  const filasInventario = () => inventario.filter(x => !x.leido.usoAcuerdos).flatMap(x => x.leido.filas);
   function filasInventarioFiltradas() {
     const pref = $('invPref').value, mon = $('invMoneda').value, ori = $('invOrigen').value, q = M.normalizar($('invBuscar').value);
     return filasInventario().filter(f => (!pref || (pref === 'S') === f.preferida) && (!mon || f.monedaDesc === mon) && (!ori || f.origen === ori)
@@ -1556,6 +1557,12 @@
     let html = errores.map(e => aviso('bad', e)).join('');
     html += inventario.map((x, i) => {
       const l = x.leido, malos = l.controles.filter(c => !c.ok);
+      if (l.usoAcuerdos) {
+        const conInt = l.filas.filter(f => f.moneda === 80 && (f.contratado || f.excedido)).length;
+        return `<p class="sub" style="margin:6px 0"><b>${esc(x.nombre)}</b> · Uso de acuerdos (131.804.015) · ${esc(l.oficinas.join(', '))} · proceso ${esc(fechaAr(l.fecha))} · ${fmtEntero(conInt)} usos con interés contratado o excedido · ` +
+          (malos.length ? `<span class="chip bad">${malos.length} cuentas no coinciden con su total de intereses</span>` : `<span class="chip ok">totales por cuenta OK</span>`) +
+          ` <a href="#" data-quitar-inv="${i}">Quitar</a></p>`;
+      }
       return `<p class="sub" style="margin:6px 0"><b>${esc(x.nombre)}</b> · ${esc(l.origen)} · al ${esc(l.fecha)} · ${fmtEntero(l.filas.length)} garantías · ` +
         (l.controles.length ? (malos.length ? `<span class="chip bad">${malos.length} subtotales no coinciden</span>` : `<span class="chip ok">subtotales del reporte OK</span>`) : '') +
         ` <a href="#" data-quitar-inv="${i}">Quitar</a></p>`;
@@ -1652,7 +1659,66 @@
   const padronInv = () => datos().padronInventario || { entes: {}, nombres: {}, garantias: {} };
   const fechaAr = iso => (iso ? iso.split('-').reverse().join('/') : '');
   const numeroTc = () => { const v = String($('invTc').value).trim(); if (!v) return null; const n = Number(/,/.test(v) ? v.replace(/\./g, '').replace(',', '.') : v); return n > 0 ? n : null; };
-  const reportesInv = () => inventario.filter(x => /garhi(con|sin)/i.test(x.leido.reporte + ' ' + x.nombre));
+  const reportesInv = () => inventario.filter(x => !x.leido.usoAcuerdos && /garhi(con|sin)/i.test(x.leido.reporte + ' ' + x.nombre));
+  const usosInv = () => inventario.filter(x => x.leido.usoAcuerdos).sort((a, b) => a.nombre.localeCompare(b.nombre)).flatMap(x => x.leido.filas)
+    .map((f, k) => Object.assign({ orden: k }, f)).sort((a, b) => a.oficinaNro - b.oficinaNro || a.orden - b.orden);
+  // Cuenta → CUIT desde Power BI (flujo "VALO Cuentas y clientes", tabla CuentasClientes del cubo PasivasComercial).
+  // Se consulta una vez por sesión al cargar un ccusosob; la dirección y la clave quedan en el padrón.
+  const cuentasPbi = { mapa: null, buscando: false, intentado: false };
+  const cuentasPbiCfg = () => padronInv().cuentasPbi || {};
+  async function traerCuentasPbi(manual) {
+    const c = cuentasPbiCfg();
+    if (cuentasPbi.buscando) return;
+    if (!c.url || !c.clave) { if (manual) informar('Falta la conexión', 'Cargá la dirección y la clave del flujo "VALO Cuentas y clientes" y guardala.'); return; }
+    cuentasPbi.buscando = true; cuentasPbi.intentado = true;
+    $('invPbiEstado').innerHTML = '<p class="sub">Consultando cuentas en Power BI…</p>';
+    try {
+      const j = await llamarFlujo({}, { url: c.url, clave: c.clave });
+      const filas = Array.isArray(j) ? j : (j.firstTableRows || j.filas || []);
+      cuentasPbi.mapa = M.leerCuentasPowerBI(filas);
+      const n = Object.keys(cuentasPbi.mapa).length;
+      $('invPbiEstado').innerHTML = aviso(n ? 'ok' : 'warn', n ? `Power BI: ${fmtEntero(n)} cuentas con CUIT.` : 'Power BI respondió sin cuentas: revisá la tabla CuentasClientes del modelo.');
+    } catch (e) { $('invPbiEstado').innerHTML = aviso('bad', 'No se pudieron traer las cuentas de Power BI: ' + esc(e.message || e)); }
+    cuentasPbi.buscando = false;
+    renderInvContable();
+  }
+  function cuentasPbiAuto() {
+    if (cuentasPbi.intentado || cuentasPbi.buscando) return;
+    const c = cuentasPbiCfg();
+    if (c.url && c.clave) setTimeout(() => traerCuentasPbi(false), 0);
+  }
+  function mostrarCuentasPbiCfg() {
+    const c = cuentasPbiCfg();
+    if (document.activeElement !== $('invPbiUrl')) $('invPbiUrl').value = c.url || '';
+    if (document.activeElement !== $('invPbiClave')) $('invPbiClave').value = c.clave || '';
+  }
+  $('btnInvPbiGuardar').addEventListener('click', async () => {
+    const url = $('invPbiUrl').value.trim(), clave = $('invPbiClave').value;
+    if (url && !/^https:\/\/\S+$/i.test(url)) return informar('Dirección inválida', 'La dirección del flujo tiene que empezar con <code>https://</code>.');
+    await guardarPadron(p => { p.cuentasPbi = { url, clave }; });
+    toast('Conexión guardada');
+    cuentasPbi.intentado = false; cuentasPbi.mapa = null;
+    if (url && clave && usosInv().length) traerCuentasPbi(true);
+  });
+  $('btnInvPbiTraer').addEventListener('click', () => traerCuentasPbi(true));
+  $('detInvPadron').addEventListener('toggle', () => { if ($('detInvPadron').open) mostrarCuentasPbiCfg(); });
+
+  // ccusosob no trae ente: el CUIT se busca por el nombre (18 caracteres) en la base de entes, una vez por nombre.
+  const cuitsNombreCache = {};
+  const nombresPedidos = new Set();
+  let nombresBuscando = false;
+  async function completarCuitsPorNombre(nombres) {
+    if (!almacen || typeof almacen.buscarEntesPorNombre !== 'function' || nombresBuscando) return;
+    const faltan = [...new Set(nombres)].filter(n => n && !nombresPedidos.has(n));
+    if (!faltan.length) return;
+    nombresBuscando = true;
+    try {
+      Object.assign(cuitsNombreCache, await almacen.buscarEntesPorNombre(faltan));
+      faltan.forEach(n => nombresPedidos.add(n));
+    } catch (e) { $('invBaseEstado').textContent = '· no se pudo consultar la base (' + (e.message || e) + ')'; }
+    nombresBuscando = false;
+    renderInvContable();
+  }
   // Base de entes (CUIT por código de ente): se consultan solo los entes de los reportes cargados.
   const entesCache = {};
   const entesPedidos = new Set();
@@ -1685,10 +1751,17 @@
       await guardarPadron(p => filas.filter(f => usados.has(f.ente)).forEach(f => { const e = p.entes[f.ente] || (p.entes[f.ente] = { cuit: '', historial: [] }); e.cuit = f.cuit; if (f.nombre) e.nombre = f.nombre; }));
     }
   }
+  // Cada inventario lleva disponible = si se cargó su reporte (garhicon/garhisin o ccusosob).
   function inventariosContables() {
-    const filas = reportesInv().flatMap(x => x.leido.filas);
+    const filas = reportesInv().flatMap(x => x.leido.filas), usos = usosInv();
     if (filas.length) completarEntes(filas.map(f => f.cliente));
-    return filas.length ? M.armarInventariosContables(filas, padronInv(), entesCache) : [];
+    if (!filas.length && !usos.length) return [];
+    const p = padronInv();
+    if (usos.length) cuentasPbiAuto();
+    const inv = M.armarInventariosContables(filas, p, entesCache, usos, { cuitsPorNombre: cuitsNombreCache, cuentasPbi: cuentasPbi.mapa });
+    const cc = inv.find(i => i.def.fuente === 'ccusosob');
+    if (cc) completarCuitsPorNombre(cc.filas.filter(f => f.faltaCuit).map(f => f.concepto));
+    return inv.map(i => Object.assign(i, { disponible: i.def.fuente === 'ccusosob' ? usos.length > 0 : filas.length > 0 }));
   }
   $('btnInvBaseSubir').addEventListener('click', () => $('archivoBaseEntes').click());
   $('archivoBaseEntes').addEventListener('change', async e => {
@@ -1722,10 +1795,10 @@
 
   let tcAutoPara = '';
   function renderInvContable() {
-    const reps = reportesInv();
-    $('cardInvContable').classList.toggle('oculto', !reps.length);
-    if (!reps.length) return;
-    if (!$('invFecha').value) $('invFecha').value = M.fechaInventarioDesdeReporte(reps.map(x => M.fechaReporteIso(x.leido.fecha)).filter(Boolean).sort().pop() || '');
+    const reps = reportesInv(), ccs = inventario.filter(x => x.leido.usoAcuerdos);
+    $('cardInvContable').classList.toggle('oculto', !reps.length && !ccs.length);
+    if (!reps.length && !ccs.length) return;
+    if (!$('invFecha').value) $('invFecha').value = M.fechaInventarioDesdeReporte(reps.map(x => M.fechaReporteIso(x.leido.fecha)).concat(ccs.map(x => x.leido.fecha)).filter(Boolean).sort().pop() || '');
     const p = padronInv();
     // TC guardado: solo si es del mes del inventario; si no, se busca solo (una vez por fecha de inventario).
     const mesInv = $('invFecha').value.slice(0, 7);
@@ -1736,12 +1809,13 @@
       tcAutoPara = $('invFecha').value;
       if (invTcLista.some(x => x.fecha.slice(0, 7) === mesInv)) elegirTcDelInventario(); else setTimeout(() => buscarTcAutomatico(false), 0);
     }
-    const faltaGarhi = ['garhicon', 'garhisin'].filter(r => !reps.some(x => new RegExp(r, 'i').test(x.leido.reporte + ' ' + x.nombre)));
+    const faltaGarhi = reps.length ? ['garhicon', 'garhisin'].filter(r => !reps.some(x => new RegExp(r, 'i').test(x.leido.reporte + ' ' + x.nombre))) : [];
     const inv = inventariosContables();
     const tc = numeroTc();
     let html = faltaGarhi.length ? aviso('warn', `Falta el reporte <b>${faltaGarhi.join(' y ')}</b>: los inventarios quedan incompletos.`) : '';
-    html += `<div class="tabla-caja"><table><thead><tr><th>Cuenta</th><th>Inventario</th><th class="num">Garantías</th><th class="num">Total moneda</th><th class="num">Total $</th><th>Faltan</th><th></th></tr></thead><tbody>` +
+    html += `<div class="tabla-caja"><table><thead><tr><th>Cuenta</th><th>Inventario</th><th class="num">Filas</th><th class="num">Total moneda</th><th class="num">Total $</th><th>Faltan</th><th></th></tr></thead><tbody>` +
       inv.map((i, k) => {
+        if (!i.disponible) return '';
         const usd = i.def.moneda === 'USD';
         const pesos = usd ? (tc ? M.round2(i.total * tc) : null) : i.total;
         const sinCuit = i.filas.filter(f => f.faltaCuit).length, sinFecha = i.def.columnas.includes('fecha') ? i.filas.filter(f => f.faltaFecha).length : 0;
@@ -1750,9 +1824,36 @@
           `<td>${sinCuit ? `<span class="chip warn">${sinCuit} sin CUIT</span> ` : ''}${sinFecha ? `<span class="chip warn">${sinFecha} sin fecha</span>` : ''}${!sinCuit && !sinFecha ? '<span class="chip ok">completo</span>' : ''}</td>` +
           `<td style="white-space:nowrap"><button class="btn" type="button" data-inv-excel="${k}">Excel</button> <button class="btn" type="button" data-inv-pdf="${k}">PDF</button></td></tr>`;
       }).join('') + '</tbody></table></div>';
+    html += avisoUsoAcuerdos(inv.find(i => i.def.fuente === 'ccusosob' && i.disponible), ccs);
     $('invContableResumen').innerHTML = html;
-    renderFaltantes(inv);
+    renderFaltantes(inv.filter(i => i.disponible));
   }
+
+  // 131.804.015: control contra el TOTAL GENERAL del reporte (es acumulado: el del último archivo cubre todas las oficinas)
+  // y cuentas con usos de más de un año, que se pueden sacar del inventario (queda guardado).
+  function avisoUsoAcuerdos(i, ccs) {
+    if (!i) return '';
+    const gen = ccs.flatMap(x => x.leido.generales).filter(g => g.moneda === 80).map(g => M.round2(g.contratado + g.excedido)).sort((a, b) => b - a)[0];
+    const usos = usosInv().filter(u => u.moneda === 80), todo = M.round2(usos.reduce((a, u) => a + u.contratado + u.excedido, 0));
+    const usd = usosInv().filter(u => u.moneda !== 80 && (u.contratado || u.excedido));
+    let html = '';
+    if (gen != null) html += Math.abs(gen - todo) < 0.01
+      ? aviso('ok', `131.804.015: los usos suman $ ${fmtMonto(todo)} = interés contratado + excedido del TOTAL GENERAL del reporte.`)
+      : aviso('warn', `131.804.015: los usos suman $ ${fmtMonto(todo)} y el TOTAL GENERAL del reporte (contratado + excedido) es $ ${fmtMonto(gen)}. ¿Falta el archivo de alguna oficina?`);
+    if (usd.length) html += aviso('warn', `Hay ${usd.length} usos en otra moneda con interés: no van a la 131.804.015 (solo pesos).`);
+    const excl = new Set(i.excluidos.map(x => x.cuenta));
+    const lista = i.antiguos.concat(i.excluidos.filter(x => !i.antiguos.some(a => a.cuenta === x.cuenta)));
+    if (lista.length) html += `<div class="aviso warn" style="margin-top:8px"><b>Cuentas con usos de más de un año</b> (o sacadas a mano). Marcá las que no van al inventario:` +
+      lista.map(x => `<label style="display:block;margin-top:4px"><input type="checkbox" data-cc-excluir="${esc(x.cuenta)}" ${excl.has(x.cuenta) ? 'checked' : ''} data-escribe> ` +
+        `${esc(x.nombre)} · ${esc(x.cuenta)} · ${fmtEntero(x.usos)} usos · $ ${fmtMonto(x.importe)}${excl.has(x.cuenta) ? ' <span class="chip gris">fuera del inventario</span>' : ''}</label>`).join('') + '</div>';
+    return html;
+  }
+  $('invContableResumen').addEventListener('change', e => {
+    const c = e.target.closest('[data-cc-excluir]');
+    if (!c) return;
+    const cuenta = c.dataset.ccExcluir, excluir = c.checked;
+    guardarPadron(p => { p.cuentasCC = p.cuentasCC || {}; p.cuentasCC[cuenta] = Object.assign({}, p.cuentasCC[cuenta], { excluir }); }).then(() => renderInvContable());
+  });
 
   // Entes y fechas: por defecto solo los entes sin CUIT; el filtro permite ver las garantías sin fecha o todos los entes.
   function renderFaltantes(inv) {
@@ -1778,7 +1879,7 @@
         : '<p class="sub">No hay garantías sin fecha.</p>';
     } else {
       const lista = (modo === 'todos' ? [...entes.values()] : sinCuit).filter(e => pasa(e.ente, e.nombre, e.cuit))
-        .sort((a, b) => (b.faltaCuit - a.faltaCuit) || Number(a.ente) - Number(b.ente));
+        .sort((a, b) => (b.faltaCuit - a.faltaCuit) || (Number(a.ente) - Number(b.ente)) || String(a.ente).localeCompare(String(b.ente)));
       html = lista.length ? `<table><thead><tr><th>Ente</th><th>Nombre</th><th>CUIT</th><th>Cuentas</th></tr></thead><tbody>` +
         lista.map(e => `<tr><td>${esc(e.ente)}</td><td><input data-ente-nombre="${esc(e.ente)}" value="${esc(e.nombre)}" style="min-width:240px" data-escribe></td>` +
           `<td><input data-padron-cuit="${esc(e.ente)}" value="${esc(e.cuit || '')}" placeholder="11 dígitos" inputmode="numeric" style="max-width:130px" data-escribe></td><td class="sub">${esc([...e.cuentas].join(', '))}</td></tr>`).join('') + '</tbody></table>'
@@ -1803,7 +1904,9 @@
       if (cuit && cuit.length !== 11) { toast('El CUIT tiene que tener 11 dígitos'); return; }
       const ente = c.dataset.padronCuit, fila = c.closest('tr');
       const nombre = fila ? ((fila.querySelector('[data-ente-nombre]') || {}).value || '').trim() : '';
-      if (cuit) guardarEntesBase([{ ente, cuit, nombre }]).then(() => renderInvContable(), err => informar('No se pudo guardar', esc(err.message || err)));
+      // Cuenta corriente (131.804.015, sin ente): el CUIT queda en el padrón por número de cuenta.
+      if (cuit && /^\d-\d{3}-\d{10}-\d$/.test(ente)) guardarPadron(p => { p.cuentasCC = p.cuentasCC || {}; p.cuentasCC[ente] = Object.assign({}, p.cuentasCC[ente], { cuit, nombre }); }).then(() => renderInvContable());
+      else if (cuit) guardarEntesBase([{ ente, cuit, nombre }]).then(() => renderInvContable(), err => informar('No se pudo guardar', esc(err.message || err)));
     }
     if (f) guardarPadron(p => { p.garantias[f.dataset.padronFecha] = Object.assign({}, p.garantias[f.dataset.padronFecha], { fecha: f.value }); });
   });
@@ -1812,7 +1915,8 @@
     const files = [...e.target.files]; e.target.value = '';
     try {
       let nuevo = { entes: {}, nombres: {}, garantias: {} };
-      for (const f of files) nuevo = M.unirPadron(nuevo, M.leerPadronDesdeInventarios(await leerHojas(f)));
+      for (const f of files) nuevo = M.unirPadron(nuevo, /\.pdf$/i.test(f.name) ? M.leerPadronDesdeLineasPdf(await lineasPdf(await f.arrayBuffer()))
+        : M.leerPadronDesdeInventarios(await leerHojas(f)));
       const n = Object.keys(nuevo.entes).length, m = Object.keys(nuevo.nombres).length;
       if (!n && !m) throw new Error('No se encontraron columnas CUIT (y Ente/Fecha) en esos archivos.');
       await guardarPadron(p => { const u = M.unirPadron(p, nuevo); Object.assign(p, u); });
@@ -1920,7 +2024,7 @@
   function datosInventario(i) {
     const usd = i.def.moneda === 'USD', tc = numeroTc();
     if (usd && !tc) throw new Error(`Falta el tipo de cambio para ${i.def.cuenta}: traelo del BCRA, subí com3500.xls o escribilo.`);
-    const etiquetas = { ente: 'Ente', fecha: 'Fecha', concepto: 'Concepto', cuit: 'CUIT', importe: usd ? 'Importe U$S' : 'Importe $' };
+    const etiquetas = { ente: 'Ente', fecha: 'Fecha', concepto: 'Concepto', cuit: 'CUIT', tipo: 'Tipo de Descubierto', importe: usd ? 'Importe U$S' : 'Importe $' };
     const cols = i.def.columnas;
     const totalPesos = usd ? M.round2(i.total * tc) : i.total;
     return { i, usd, tc, tcFecha: $('invTcFecha').value, cols, encabezados: cols.map(c => etiquetas[c]),
@@ -1933,7 +2037,7 @@
     const { i, usd, cols } = d;
     const ws = wb.addWorksheet(i.def.id, { pageSetup: { paperSize: 9, orientation: 'portrait', fitToPage: true, fitToWidth: 1, fitToHeight: 0, margins: { left: 0.5, right: 0.5, top: 0.6, bottom: 0.6, header: 0.3, footer: 0.3 } },
       views: [{ showGridLines: false }] });
-    const anchos = { ente: 10, fecha: 12, concepto: 52, cuit: 15, importe: 20 };
+    const anchos = { ente: 10, fecha: 12, concepto: 52, cuit: 15, tipo: 20, importe: 20 };
     ws.columns = cols.map(c => ({ width: anchos[c] }));
     const n = cols.length, ultima = String.fromCharCode(64 + n);
     const rojo = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF' + MARCA.rojo } };
@@ -1941,11 +2045,11 @@
     const fino = { style: 'thin', color: { argb: 'FFD0D0D2' } };
     ws.addImage(logoId, { tl: { col: 0, row: 0 }, ext: { width: 180, height: 60 } });
     ws.getRow(1).height = 22; ws.getRow(2).height = 22; ws.getRow(3).height = 16;
-    ws.mergeCells(`C1:${ultima}1`); ws.getCell('C1').value = 'Inventario de Garantías';
+    ws.mergeCells(`C1:${ultima}1`); ws.getCell('C1').value = i.def.encabezado || 'Inventario de Garantías';
     ws.getCell('C1').font = { bold: true, size: 14, color: { argb: 'FF' + MARCA.rojo } }; ws.getCell('C1').alignment = { horizontal: 'right', vertical: 'middle' };
     ws.mergeCells(`C2:${ultima}2`); ws.getCell('C2').value = `${i.def.titulo} · Inventario contable al ${fechaAr(d.fecha)}`;
     ws.getCell('C2').font = { size: 10, color: { argb: 'FF' + MARCA.gris } }; ws.getCell('C2').alignment = { horizontal: 'right', vertical: 'middle' };
-    const info = [['Número de Cuenta', 'Denominación'], [i.def.cuenta, M.INVENTARIO_DENOMINACION], [i.def.contra, ''], ['Sector', 'Activas'], ['Inventario contable al', d.fecha ? fechaExcel(d.fecha) : '']];
+    const info = [['Número de Cuenta', 'Denominación'], [i.def.cuenta, i.def.denominacion || M.INVENTARIO_DENOMINACION], [i.def.contra, ''], ['Sector', 'Activas'], ['Inventario contable al', d.fecha ? fechaExcel(d.fecha) : '']];
     info.forEach((r, k) => {
       const fila = 5 + k;
       ws.getCell(`A${fila}`).value = r[0];
@@ -1970,6 +2074,7 @@
         if (col === 'importe') c.numFmt = '#,##0.00';
         if (col === 'cuit') c.numFmt = '0';
         if (col === 'ente') c.alignment = { horizontal: 'left' };
+        if (col === 'tipo') c.alignment = { horizontal: 'center' };
         c.border = { bottom: fino };
         if (k % 2) c.fill = gris;
       });
@@ -2024,14 +2129,14 @@
     const W = doc.internal.pageSize.getWidth(), M0 = 14;
     doc.addImage(window.VALO_LOGO_PNG, 'PNG', M0, 10, 48, 16);
     doc.setFont('helvetica', 'bold'); doc.setFontSize(14); doc.setTextColor(...MARCA.rojoRgb);
-    doc.text('Inventario de Garantías', W - M0, 16, { align: 'right' });
+    doc.text(i.def.encabezado || 'Inventario de Garantías', W - M0, 16, { align: 'right' });
     doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(...MARCA.grisRgb);
     doc.text(`${i.def.titulo} · Inventario contable al ${fechaAr(d.fecha)}`, W - M0, 22, { align: 'right' });
     doc.setDrawColor(...MARCA.rojoRgb); doc.setLineWidth(0.6); doc.line(M0, 30, W - M0, 30);
     doc.autoTable({
       startY: 34, theme: 'plain', margin: { left: M0, right: M0 },
       head: [['Número de Cuenta', 'Denominación', 'Sector', 'Inventario contable al']],
-      body: [[`${i.def.cuenta}\n${i.def.contra}`, M.INVENTARIO_DENOMINACION, 'Activas', fechaAr(d.fecha)]],
+      body: [[`${i.def.cuenta}\n${i.def.contra}`, i.def.denominacion || M.INVENTARIO_DENOMINACION, 'Activas', fechaAr(d.fecha)]],
       headStyles: { fillColor: MARCA.rojoRgb, textColor: 255, fontStyle: 'bold', fontSize: 9 }, bodyStyles: { fontSize: 9 },
     });
     const derecha = cols.map(c => c === 'importe');
@@ -2047,8 +2152,8 @@
       headStyles: { fillColor: MARCA.rojoRgb, textColor: 255, fontStyle: 'bold', fontSize: 8.5 },
       bodyStyles: { fontSize: 8, textColor: 30 }, alternateRowStyles: { fillColor: [242, 242, 243] },
       footStyles: { fillColor: 255, textColor: MARCA.rojoRgb, fontStyle: 'bold', fontSize: 8.5, lineWidth: { top: 0.3 }, lineColor: MARCA.grisRgb },
-      columnStyles: Object.fromEntries(cols.map((c, j) => [j, { halign: derecha[j] ? 'right' : 'left', cellWidth: c === 'concepto' ? 'auto' : c === 'importe' ? 32 : c === 'cuit' ? 24 : c === 'fecha' ? 20 : 14 }])),
-      didParseCell: h => { if (h.section === 'head' && derecha[h.column.index]) h.cell.styles.halign = 'right'; },
+      columnStyles: Object.fromEntries(cols.map((c, j) => [j, { halign: derecha[j] ? 'right' : c === 'tipo' ? 'center' : 'left', cellWidth: c === 'concepto' ? 'auto' : c === 'importe' ? 32 : c === 'cuit' ? 24 : c === 'tipo' ? 32 : c === 'fecha' ? 20 : 14 }])),
+      didParseCell: h => { if (h.section === 'head' && derecha[h.column.index]) h.cell.styles.halign = 'right'; if (h.section === 'head' && cols[h.column.index] === 'tipo') h.cell.styles.halign = 'center'; },
     });
     let y = doc.lastAutoTable.finalY + 8;
     const H = doc.internal.pageSize.getHeight();
@@ -2091,7 +2196,8 @@
   async function exportarInventarios(tipo, indices) {
     const inv = inventariosContables();
     const lista = indices.map(k => inv[k]);
-    const nombre = lista.length === 1 ? `Inventario_${lista[0].def.id}_${sufijoFecha()}` : `Inventarios_garantias_${sufijoFecha()}`;
+    if (!lista.length) return;
+    const nombre = lista.length === 1 ? `Inventario_${lista[0].def.id}_${sufijoFecha()}` : `Inventarios_${lista.every(i => i.def.fuente !== 'ccusosob') ? 'garantias' : 'contables'}_${sufijoFecha()}`;
     try {
       if (tipo === 'excel') await descargarExcelInventarios(lista, nombre + '.xlsx');
       else await descargarPdfInventarios(lista, nombre + '.pdf');
@@ -2102,8 +2208,9 @@
     if (x) exportarInventarios('excel', [Number(x.dataset.invExcel)]);
     if (p) exportarInventarios('pdf', [Number(p.dataset.invPdf)]);
   });
-  $('btnInvTodosExcel').addEventListener('click', () => exportarInventarios('excel', M.INVENTARIOS_CONTABLES.map((d, k) => k)));
-  $('btnInvTodosPdf').addEventListener('click', () => exportarInventarios('pdf', M.INVENTARIOS_CONTABLES.map((d, k) => k)));
+  const indicesDisponibles = () => inventariosContables().map((i, k) => (i.disponible ? k : -1)).filter(k => k > -1);
+  $('btnInvTodosExcel').addEventListener('click', () => exportarInventarios('excel', indicesDisponibles()));
+  $('btnInvTodosPdf').addEventListener('click', () => exportarInventarios('pdf', indicesDisponibles()));
 
   // ============================================================ BASTANTEO DE FIRMANTES
   // PDF (resumen OCR) + Excel del cliente → un JSON por poder. Todo en el navegador; nada se guarda.
@@ -2332,7 +2439,7 @@
     if (!cliente.firmantes.length) { fila.estado = 'err'; fila.error = 'El Excel no tiene firmantes (no se encontró la tabla de firmantes)'; return fila; }
     // Sin razón social en el Excel: la del nombre del archivo (los poderes sin CUIT se encuentran por nombre).
     const r = M.complifDeEmpresa(docs, cliente.cuit, nombreCliente || fila.empresa.replace(/\s*-\s*(ex|cuenta)\b.*$/i, ''), { soloCuit });
-    const rv = M.aplicarRevocatorias(r.poderes);
+    const rv = M.aplicarRevocatorias(r.poderes, { ignorar: (excepBast.porCuit || {})[String(cliente.cuit || '').replace(/\D/g, '')] || [] });
     // Presidente / socio gerente (por acta, por el encabezado del resumen o "D" / "(Presidente)"): firma con todas las
     // facultades aunque no figure en los poderes.
     const presidencia = M.poderesFirmantesD(cliente, rv.vigentes, r.actas);
@@ -2378,6 +2485,7 @@
     mas.cerradas = fuentes.filter(f => /\.xlsx?$/i.test(f.nombre) && esCerrada(f.nombre)).length;
     if (!lista.length) { $('masEstado').innerHTML = aviso('warn', 'No hay archivos Excel para controlar.'); return; }
     Object.assign(mas, { filas: [], cancelar: false, corriendo: true });
+    await cargarExcepcionesBast();
     $('btnMasCancelar').disabled = false; $('btnMasExcel').disabled = true;
     const estado = t => { $('masEstado').innerHTML = `<p class="sub">${t}</p>`; };
     try {
@@ -2539,7 +2647,38 @@
   }
 
   // Ediciones por poder: escritura (por la fecha de emisión, entre las de la planilla), acta, tipo y CUIT de cada DNI.
+  // Excepciones de revocatorias (por CUIT de la empresa), guardadas en la base para todos.
+  const excepBast = { porCuit: null };
+  async function cargarExcepcionesBast() {
+    if (excepBast.porCuit) return;
+    try { excepBast.porCuit = (almacen && typeof almacen.excepcionesBastanteo === 'function') ? await almacen.excepcionesBastanteo() : {}; }
+    catch (e) { excepBast.porCuit = {}; }
+  }
+  const cuitEmpresaBast = poderes => String((bast.cliente && bast.cliente.cuit) || ((poderes || []).find(p => /\d{11}/.test(String(p.cuit_empresa || '').replace(/\D/g, ''))) || {}).cuit_empresa || '').replace(/\D/g, '');
+  async function cambiarExcepcionRev(clave, ignorar) {
+    const cuit = cuitEmpresaBast(bast.poderesTodos);
+    if (!cuit) return toast('No se sabe el CUIT de la empresa: cargá la planilla del cliente');
+    await cargarExcepcionesBast();
+    const l = new Set(excepBast.porCuit[cuit] || []);
+    if (ignorar) l.add(clave); else l.delete(clave);
+    excepBast.porCuit[cuit] = [...l];
+    if (!excepBast.porCuit[cuit].length) delete excepBast.porCuit[cuit];
+    try { await almacen.guardarExcepcionesBastanteo(excepBast.porCuit); toast(ignorar ? 'Revocatoria ignorada para esta empresa (queda guardado)' : 'Revocatoria aplicada de nuevo'); }
+    catch (e) { toast('Se aplica en esta sesión; no se pudo guardar: ' + (e.message || e)); }
+    prepararBastanteo();
+  }
+  $('bastEstado').addEventListener('click', e => {
+    const b = e.target.closest('[data-rev-ignorar], [data-rev-aplicar]');
+    if (!b) return;
+    if (b.dataset.revIgnorar != null) {
+      if (!confirm('¿Ignorar la revocatoria de este poder para esta empresa? Los poderes que anulaba vuelven a usarse en el bastanteo (y en el chequeo masivo).')) return;
+      cambiarExcepcionRev(b.dataset.revIgnorar, true);
+    } else cambiarExcepcionRev(b.dataset.revAplicar, false);
+  });
+
   async function prepararBastanteo() {
+    // Primero las excepciones (puede tardar): el estado del bastanteo se lee después, ya actualizado.
+    await cargarExcepcionesBast();
     // Se toman todos los poderes del PDF (sin filtrar por la empresa de la planilla).
     let todos = bast.poderesTodos || [];
     bast.avisoPresidente = '';
@@ -2553,8 +2692,10 @@
         bast.avisoPresidente = aviso('warn', `El PDF no tiene "Acreditación de Poderes": se toma al presidente del acta de designación (${esc(pp.fecha_emision || 's/f')}), ${quien}, que está en la planilla como apoderado, con <b>todas las facultades</b> y firma individual. Revisalo antes de usar el JSON.`);
       } else bast.avisoPresidente = aviso('bad', `El PDF no tiene "Acreditación de Poderes" y el presidente del acta, ${quien}, no figura en la planilla del cliente: no se arma el bastanteo.`);
     }
-    // Revocatorias: los poderes anteriores a uno que revoca quedan anulados.
-    const rv = M.aplicarRevocatorias(todos);
+    // Revocatorias: los poderes anteriores a uno que revoca quedan anulados (salvo las excepciones cargadas a mano).
+    const rv = M.aplicarRevocatorias(todos, { ignorar: excepBast.porCuit[cuitEmpresaBast(todos)] || [] });
+    bast.revocan = rv.revocan || [];
+    bast.ignorados = rv.ignorados || [];
     bast.anulados = rv.anulados;
     bast.quitados = rv.quitados || [];
     bast.avisosRev = rv.avisos || [];
@@ -2595,7 +2736,7 @@
     if (bast.cuitsBase[dni]) return { cuit: bast.cuitsBase[dni], fuente: 'base de entes' };
     return { cuit: '', fuente: '' };
   }
-  function jsonDe(i) {
+  function jsonDe(i, todosApoderados = false) {
     const ed = bast.ediciones[i];
     const cuits = {};
     const p = bast.poderes[i];
@@ -2606,7 +2747,7 @@
       if ((ed.cuits || {})[d]) cuits[d] = ed.cuits[d];
       else if (!(firmantes && M.firmanteDe(x, firmantes)) && bast.cuitsBase[d]) cuits[d] = bast.cuitsBase[d];
     });
-    return M.jsonPoder(p, bast.cliente, Object.assign({}, ed, { cuits }));
+    return M.jsonPoder(p, bast.cliente, Object.assign({}, ed, { cuits, todosApoderados }));
   }
 
   function renderBastanteo() {
@@ -2617,6 +2758,14 @@
     if ((bast.firmantesD || []).length) estado += aviso('warn', `<b>Presidente:</b> ${bast.firmantesD.map(p => esc(p.presidente.nombre_completo) + ' (grupo ' + esc(p.presidente.grupo) + ')').join(', ')} no está en los poderes; por el acta de directorio o el resumen ("D" / "Presidente") se lo toma como presidente con <b>todas las facultades</b> y firma individual.`);
     if ((bast.anulados || []).length) estado += aviso('warn', `<b>${bast.anulados.length} poder${bast.anulados.length > 1 ? 'es anulados' : ' anulado'} por revocatoria:</b> ` +
       bast.anulados.map(a => `${esc(a.poder.fecha_emision || 's/f')}${a.poder.deed_number ? ' (esc. ' + esc(a.poder.deed_number) + ')' : ''} — ${esc(a.motivo)}`).join(' · ') + '. No se usan en el bastanteo.');
+    // Revocatorias que se pueden ignorar a mano (excepción: Complif marcó como revocatorio un poder que no lo es).
+    const descPoder = p => `${esc(p.fecha_emision || 's/f')}${p.deed_number ? ' (esc. ' + esc(p.deed_number) + ')' : ''}`;
+    const efecto = (bast.revocan || []).map(r => ({ r, an: (bast.anulados || []).filter(a => a.revocante === r).length, qu: (bast.quitados || []).filter(q => q.revocante === r).length })).filter(x => x.an || x.qu);
+    if (efecto.length || (bast.ignorados || []).length) estado += `<div class="aviso warn"><b>Excepciones de revocatoria</b> (si Complif categorizó mal un poder):` +
+      efecto.map(x => `<div style="margin-top:4px">El poder del ${descPoder(x.r)} revoca: ${x.an ? x.an + ' poder' + (x.an > 1 ? 'es anulados' : ' anulado') : ''}${x.an && x.qu ? ', ' : ''}${x.qu ? x.qu + ' apoderado' + (x.qu > 1 ? 's quitados' : ' quitado') : ''}. ` +
+        `<button class="btn" type="button" data-rev-ignorar="${esc(M.claveRevocatoria(x.r))}" data-escribe>Ignorar esta revocatoria</button></div>`).join('') +
+      (bast.ignorados || []).map(p => `<div style="margin-top:4px"><span class="chip gris">excepción</span> La revocatoria del poder del ${descPoder(p)} está ignorada para esta empresa. ` +
+        `<button class="btn" type="button" data-rev-aplicar="${esc(M.claveRevocatoria(p))}" data-escribe>Volver a aplicarla</button></div>`).join('') + '</div>';
     (bast.avisosRev || []).forEach(a => { estado += aviso('warn', `<b>Revocatoria sin apoderados:</b> el poder del ${esc(a.poder.fecha_emision || 's/f')}${a.poder.deed_number ? ' (esc. ' + esc(a.poder.deed_number) + ')' : ''} ${esc(a.motivo)}.`); });
     if (hay && !bast.cliente) estado += aviso('warn', 'Falta la planilla del cliente: sin ella no se completan los CUIT de los firmantes ni la escritura, y se muestran todas las personas del PDF.');
     const otros = bast.otrosPoderes || [];
@@ -2630,6 +2779,7 @@
         return `<tr><td>${esc(f.nombre)}</td><td>${f.cuit ? esc(M.formatoCuit(f.cuit)) : 'DNI ' + esc(f.dni) + ' (sin CUIT)'}</td><td>${rev ? `<span class="chip bad">revocado</span> <span style="white-space:normal">${esc(rev)}</span>` : '<span class="chip warn">en la planilla, sin poder</span>'}</td></tr>`; }).join('') + '</tbody></table></div>';
     $('bastEstado').innerHTML = estado;
     renderBastUnico();
+    renderV1Avisos();
     renderControlResumen();
     $('bastPoderes').innerHTML = bast.poderes.map((p, i) => {
       const ed = bast.ediciones[i] || {};
@@ -2708,7 +2858,7 @@
   });
   // Un solo JSON con todos los poderes, agrupando apoderados por tipo de firma y facultades.
   const sinPoder = () => (bast.cliente ? M.firmantesSinPoder(bast.poderes, bast.cliente.firmantes).filter(f => !f.revocado) : []);
-  function jsonUnico() { return M.jsonBastanteoUnico(bast.poderes.map((p, i) => jsonDe(i)), bast.cliente && Object.assign({}, bast.cliente, { sinPoder: sinPoder() })); }
+  function jsonUnico(todosApoderados = false) { return M.jsonBastanteoUnico(bast.poderes.map((p, i) => jsonDe(i, todosApoderados)), bast.cliente && Object.assign({}, bast.cliente, { sinPoder: sinPoder() })); }
   // Control del resumen (Excel) contra los poderes, firmante por firmante: uso de firma, grupo, conjuntas y límite.
   function renderControlResumen() {
     if (!bast.poderes.length || !bast.cliente || !bast.cliente.firmantes.length) { $('bastControl').innerHTML = ''; return; }
@@ -2742,17 +2892,84 @@
       u.estructuras_de_firma.map(e => `<tr><td><b>${esc(e.grupo)}</b></td><td>${esc(e.tipo_de_firma || '')}</td><td>${esc((e.combinaciones || []).join('; '))}${e.combinaciones_sin_firmantes ? `<div style="color:var(--muted);font-size:12px" title="El poder la permite, pero no hay firmantes suficientes en la planilla">sin firmantes: ${esc(e.combinaciones_sin_firmantes.join('; '))}</div>` : ''}</td><td>${esc(u.apoderados.filter(a => e.apoderados.includes(a.numero_de_identificacion)).map(a => a.nombre_completo).join(', '))}</td>` +
         `<td class="num">${Object.values(e.facultades).filter(Boolean).length}</td><td>${esc(e.escrituras.join(', '))}</td><td style="min-width:260px">${diferencia(e)}</td></tr>`).join('') + '</tbody></table></div>';
   }
+  // JSON de bastanteo (formato 1.0). Grupos de la planilla o de los poderes (Complif / PDF).
+  const nombreBast = (razon, sufijo = '') => `BASTANTEO_${String(razon || 'cliente').replace(/[^A-Za-z0-9]+/g, '_').replace(/^_|_$/g, '').slice(0, 50)}${sufijo}.json`;
+  function jsonV1() {
+    const conLetras = bast.cliente && bast.cliente.firmantes.some(f => f.uso && f.uso.grupo);
+    const todos = $('bastTodosApod').checked;
+    return M.jsonBastanteoV1(jsonUnico(todos), bast.cliente, { jsons: bast.poderes.map((p, i) => jsonDe(i, todos)), fuente: conLetras ? $('bastFuenteGrupos').value : 'complif' });
+  }
+  function renderV1Avisos() {
+    if (!bast.poderes.length) { $('bastV1Avisos').innerHTML = ''; return; }
+    const j = jsonV1(), conLetras = bast.cliente && bast.cliente.firmantes.some(f => f.uso && f.uso.grupo);
+    const ren = Object.entries(j.renombre).filter(([a, b]) => a !== b);
+    $('bastV1Avisos').innerHTML = (!conLetras && $('bastFuenteGrupos').value === 'planilla' ? aviso('warn', 'La planilla no designa grupos con letra: se usan los grupos de los poderes (o los armados por agrupamiento).') : '') +
+      (ren.length ? aviso('ok', 'Grupos de la planilla: ' + ren.map(([a, b]) => `${esc(a)} del poder → ${esc(b)}`).join(' · ')) : '') +
+      (j.avisos.length ? aviso('warn', j.avisos.map(esc).join('<br>')) : '') +
+      (M.validarJsonBastanteo(j).length ? aviso('bad', '<b>No cumple las reglas del sistema:</b><br>' + M.validarJsonBastanteo(j).map(esc).join('<br>')) : aviso('ok', 'Cumple las reglas del sistema (quorum, grupos y firmantes).')) +
+      `<p class="sub">${j.apoderados.length} apoderados · ${j.reglasFirma.length} reglas de firma</p>`;
+    mostrarCorrecciones();
+  }
+  $('bastTodosApod').addEventListener('change', () => { renderV1Avisos(); if (!$('bastUnicoJson').classList.contains('oculto')) $('bastUnicoJson').textContent = JSON.stringify(jsonV1(), null, 2); });
+  $('bastFuenteGrupos').addEventListener('change', () => { renderV1Avisos(); if (!$('bastUnicoJson').classList.contains('oculto')) $('bastUnicoJson').textContent = JSON.stringify(jsonV1(), null, 2); });
   $('btnBastUnico').addEventListener('click', () => {
-    const u = jsonUnico();
-    descargar(`BASTANTEO_${String(u.razon_social || 'cliente').replace(/[^A-Za-z0-9]+/g, '_').replace(/^_|_$/g, '').slice(0, 50)}.json`, JSON.stringify(u, null, 2), true);
+    const j = jsonV1(), err = M.validarJsonBastanteo(j);
+    if (err.length && !confirm(`El JSON no cumple ${err.length} regla(s) del sistema:\n\n${err.slice(0, 8).join('\n')}\n\n¿Descargarlo igual?`)) return;
+    descargar(nombreBast(j.empresa.razonSocial), JSON.stringify(j, null, 2), true); });
+  $('btnBastUnicoVer').addEventListener('click', () => { const pre = $('bastUnicoJson'); pre.textContent = JSON.stringify(jsonV1(), null, 2); pre.classList.toggle('oculto'); });
+  $('btnBastDetalle').addEventListener('click', () => { const u = jsonUnico(); descargar(nombreBast(u.razon_social, '_detalle'), JSON.stringify(u, null, 2), true); });
+  // Marcar corrección: se guarda el JSON generado, el corregido y el comentario (colección bastanteoCorrecciones).
+  $('btnBastMarcar').addEventListener('click', () => {
+    $('bastCorrJson').value = JSON.stringify(jsonV1(), null, 2);
+    $('bastCorrComentario').value = '';
+    $('bastCorreccion').classList.remove('oculto');
+    $('bastCorrComentario').focus();
   });
-  $('btnBastUnicoVer').addEventListener('click', () => { const pre = $('bastUnicoJson'); pre.textContent = JSON.stringify(jsonUnico(), null, 2); pre.classList.toggle('oculto'); });
+  $('btnBastCorrCerrar').addEventListener('click', () => $('bastCorreccion').classList.add('oculto'));
+  $('btnBastCorrGuardar').addEventListener('click', async () => {
+    let corregido;
+    try { corregido = JSON.parse($('bastCorrJson').value); } catch (e) { return informar('JSON inválido', 'El JSON corregido no se puede leer: ' + esc(e.message)); }
+    const comentario = $('bastCorrComentario').value.trim();
+    const generado = jsonV1();
+    if (!comentario && JSON.stringify(corregido) === JSON.stringify(generado)) return toast('Escribí qué estaba mal o corregí el JSON');
+    try {
+      await almacen.guardarCorreccionBastanteo({ cuit: String(generado.empresa.cuit || '').replace(/\D/g, ''), razonSocial: generado.empresa.razonSocial, comentario,
+        fuenteGrupos: $('bastFuenteGrupos').value, origen: bast.pdf || '', planilla: bast.xls || '', generado, corregido, detalle: jsonUnico() });
+      $('bastCorreccion').classList.add('oculto');
+      toast('Corrección guardada');
+      correccionesCache.cuit = null;
+      mostrarCorrecciones();
+    } catch (e) { informar('No se pudo guardar', esc(e.message || e)); }
+  });
+  // Correcciones guardadas de la misma empresa: se puede bajar la versión corregida.
+  const correccionesCache = { cuit: null, lista: [] };
+  async function mostrarCorrecciones() {
+    if (!bast.poderes.length || !almacen || typeof almacen.correccionesBastanteo !== 'function') { $('bastCorrecciones').innerHTML = ''; return; }
+    const cuit = String(jsonUnico().cuit_empresa || '').replace(/\D/g, '');
+    if (!cuit) { $('bastCorrecciones').innerHTML = ''; return; }
+    if (correccionesCache.cuit !== cuit) {
+      correccionesCache.cuit = cuit;
+      try { correccionesCache.lista = await almacen.correccionesBastanteo(cuit); } catch (e) { correccionesCache.lista = []; }
+    }
+    const l = correccionesCache.lista;
+    $('bastCorrecciones').innerHTML = l.length ? aviso('warn', `<b>Hay ${l.length} corrección${l.length > 1 ? 'es' : ''} guardada${l.length > 1 ? 's' : ''} de esta empresa.</b>` +
+      l.slice(0, 5).map((c, k) => `<div style="margin-top:4px">${esc(String(c.creado || '').slice(0, 10).split('-').reverse().join('/'))} · ${esc(c.comentario || 'sin comentario')} ` +
+        `<a href="#" data-bast-corr="${k}">Descargar la versión corregida</a></div>`).join('')) : '';
+  }
+  $('bastCorrecciones').addEventListener('click', e => {
+    const a = e.target.closest('[data-bast-corr]');
+    if (!a) return;
+    e.preventDefault();
+    const c = correccionesCache.lista[Number(a.dataset.bastCorr)];
+    if (c && c.corregido) descargar(nombreBast(c.razonSocial, '_corregido'), JSON.stringify(c.corregido, null, 2), true);
+  });
   $('btnBastLimpiar').addEventListener('click', () => {
     $('cmpEstado').innerHTML = ''; $('cmpCuit').value = ''; $('cmpNombre').value = ''; cmp.crudo = null;
     Object.assign(bast, { pdf: null, xls: null, poderes: [], poderesTodos: [], poderPresidente: null, avisoPresidente: '', actas: [], otrosPoderes: [], edPorPoder: {}, cliente: null, ediciones: [], cuitsBase: {} });
     $('bastPdfNombre').textContent = 'Arrastrá el PDF o hacé clic';
     $('bastXlsNombre').textContent = 'Arrastrá el Excel o hacé clic';
     $('bastUnicoJson').classList.add('oculto');
+    $('bastCorreccion').classList.add('oculto');
     renderBastanteo();
     toast('Bastanteo limpio: cargá los archivos del próximo cliente');
   });
@@ -3350,14 +3567,21 @@
     const cf = fcicCfg(), f = datos().nocobisFlujo || {};
     if (!(cf.saldoUrl && cf.saldoClave) && !(f.pbiUrl && f.pbiClave)) return;
     if (!siempre && $('fcicPatrimonio').value.trim()) return;
+    // Si hay una consulta en curso, se repite al terminar (con la fecha que quedó).
+    if ($('btnFcicSaldoPbi').disabled) { fcic.otraVez = true; return; }
     $('btnFcicSaldoPbi').click();
   }
   function alAbrirFcic() { fcicSaldoAuto(false); }
   // Al cambiar la concesión a mano, el vencimiento se recalcula con la misma regla.
+  function fcicSetConcesion(c) {
+    $('fcicConcesion').value = isoDe(c);
+    $('fcicVto').value = isoDe(M.fechasNoCobis(c, M.FERIADOS_AR).vencimiento);
+    fcicInvalidar();
+    fcicSaldoAuto(true);   // el saldo de esa fecha
+  }
   $('fcicConcesion').addEventListener('change', () => {
     const c = deIso($('fcicConcesion').value);
-    if (c) $('fcicVto').value = isoDe(M.fechasNoCobis(c, M.FERIADOS_AR).vencimiento);
-    fcicInvalidar();
+    if (c) fcicSetConcesion(c); else fcicInvalidar();
   });
   $('fcicVto').addEventListener('change', fcicInvalidar);
 
@@ -3371,7 +3595,7 @@
     const b = fcicBase();
     $('fcicBase').textContent = isFinite(b) ? '$ ' + fmtMonto(b) : '—';
     $('btnFcicArmar').disabled = !(fcic.rep && isFinite(b) && deIso($('fcicConcesion').value) && deIso($('fcicVto').value));
-    $('btnFcicTxt').disabled = $('btnFcicExcel').disabled = true;
+    $('btnFcicTxt').disabled = $('btnFcicExcelRed').disabled = $('btnFcicExcel').disabled = true;
     $('fcicTabla').innerHTML = ''; $('fcicKpis').innerHTML = ''; $('fcicEstado').innerHTML = '';
   }
   $('fcicPatrimonio').addEventListener('input', () => { $('fcicSaldoEstado').innerHTML = ''; fcicInvalidar(); });
@@ -3393,19 +3617,27 @@
       const filas = M.leerFilasPowerBI(j).datos;
       if (!filas.length) throw new Error(`El modelo no tiene saldo hasta el ${fBarra(c)}.`);
       const saldo = Number(filas[0].Saldo), fecha = new Date(filas[0].Fecha);
-      // Patrimonio del fondo (tabla PatrimonioFondo1897, un valor: el del último día hábil del modelo), si la consulta lo trae.
-      const kPat = Object.keys(filas[0]).find(k => /patrimonio/i.test(k));
+      // Patrimonio del fondo (tabla PatrimonioFondo1897), si la consulta lo trae: por fecha (columna FechaPatrimonio) o un
+      // único valor (el del último día hábil del modelo).
+      const claves = Object.keys(filas[0]);
+      const kPat = claves.find(k => /^patrimonio$/i.test(k)) || claves.find(k => /patrimonio/i.test(k) && !/fecha/i.test(k));
       const patrimonio = kPat ? Number(String(filas[0][kPat]).replace(/[^\d.,-]/g, '').replace(/,(?=\d{3}\b)/g, '').replace(',', '.')) : NaN;
+      const fPat = filas[0].FechaPatrimonio ? new Date(filas[0].FechaPatrimonio) : null;
+      const diaUtc = d => d && !isNaN(d) ? new Date(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()) : null;
       if (!isFinite(saldo)) throw new Error('La respuesta no trae la columna Saldo: revisar que el flujo consulte el modelo de saldos (modelo = saldosContables).');
       $('fcicPatrimonio').value = saldo.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
       const igual = !isNaN(fecha) && isoDe(new Date(fecha.getUTCFullYear(), fecha.getUTCMonth(), fecha.getUTCDate())) === isoDe(c);
       fcicInvalidar();
       $('fcicSaldoEstado').innerHTML = aviso(igual ? 'ok' : 'warn', `Saldo de Power BI al ${isNaN(fecha) ? '?' : fBarra(new Date(fecha.getUTCFullYear(), fecha.getUTCMonth(), fecha.getUTCDate()))}: $ ${fmtMonto(saldo)}`
         + (igual ? '' : ` — <b>no hay saldo del ${fBarra(c)}</b>: se tomó el último anterior. Revisá que el modelo esté actualizado.`)
-        + (isFinite(patrimonio) && patrimonio > 0 ? `<br>Patrimonio pesificado del fondo (último día hábil del modelo): $ ${fmtMonto(patrimonio)} · el saldo es el <b>${(saldo / patrimonio * 100).toFixed(2).replace(".", ",")} %</b>` : ''));
+        + (isFinite(patrimonio) && patrimonio > 0 ? `<br>Patrimonio pesificado del fondo ${fPat ? 'al ' + fBarra(diaUtc(fPat)) : '(último día hábil del modelo)'}: $ ${fmtMonto(patrimonio)} · el saldo es el <b>${(saldo / patrimonio * 100).toFixed(2).replace('.', ',')} %</b>`
+          + (fPat && !isNaN(fecha) && isoDe(diaUtc(fPat)) !== isoDe(diaUtc(fecha)) ? ' — <b>el patrimonio es de otra fecha que el saldo</b>' : '') : ''));
     } catch (e) {
       $('fcicSaldoEstado').innerHTML = aviso('bad', esc(e.message || e));
-    } finally { $('btnFcicSaldoPbi').disabled = false; }
+    } finally {
+      $('btnFcicSaldoPbi').disabled = false;
+      if (fcic.otraVez) { fcic.otraVez = false; $('btnFcicSaldoPbi').click(); }
+    }
   });
 
   $('fcicArchivo').addEventListener('change', async e => {
@@ -3418,6 +3650,9 @@
       const rep = hojas.map(h => M.leerReporteCupones(h.filas, cfg.fondo)).sort((a, b) => b.cheques - a.cheques)[0];
       if (!rep || !rep.cheques) throw new Error(`No se encontraron cheques del fondo ${cfg.fondo} (columna Fondo) con importe actual.`);
       fcic.rep = rep; fcic.archivo = f.name;
+      // La concesión es la fecha del reporte (como en la planilla: reporte del 23/09 → concesión 23/09).
+      const fr = rep.fecha instanceof Date ? rep.fecha : (m => m ? new Date(+m[3], +m[2] - 1, +m[1]) : null)(String(rep.fecha || '').match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/));
+      if (fr && !isNaN(fr) && isoDe(fr) !== $('fcicConcesion').value) setTimeout(() => fcicSetConcesion(fr), 0);
       $('fcicReporte').innerHTML = aviso('ok', `<b>${esc(f.name)}</b>: ${fmtEntero(rep.cheques)} cheques del fondo ${esc(rep.fondo)} · ${rep.grupos.length} bancos · importe actual total $ ${fmtMonto(rep.total)}`
         + (rep.fecha ? ` · fecha del reporte ${esc(rep.fecha instanceof Date ? fBarra(rep.fecha) : String(rep.fecha))}` : ''));
     } catch (err) {
@@ -3456,16 +3691,102 @@
         + `<td class="num">${f.conDatos ? fmtMonto(f.monto) : ''}</td><td class="num">${f.conDatos ? (f.porcentaje * 100).toFixed(4) : '0'}</td><td class="num">${fmtMonto(f.saldo)}</td>`
         + `<td style="font-family:monospace;font-size:11px">${esc(f.linea)}</td></tr>`).join('') + '</tbody></table>';
     $('btnFcicTxt').disabled = !r.texto;
-    $('btnFcicExcel').disabled = false;
+    $('btnFcicExcel').disabled = $('btnFcicExcelRed').disabled = false;
   }
   // Nombre como en la solapa FORMATO: fideico_nocobis_aaaammdd.txt (fecha de hoy).
+  const fcicNombreTxt = () => { const h = new Date(); return `fideico_nocobis_${h.getFullYear()}${String(h.getMonth() + 1).padStart(2, '0')}${String(h.getDate()).padStart(2, '0')}.txt`; };
   $('btnFcicTxt').addEventListener('click', () => {
     if (!fcic.res || !fcic.res.texto) return;
-    const h = new Date();
-    descargar(`fideico_nocobis_${h.getFullYear()}${String(h.getMonth() + 1).padStart(2, '0')}${String(h.getDate()).padStart(2, '0')}.txt`, fcic.res.texto, true);
+    descargar(fcicNombreTxt(), fcic.res.texto, true);
   });
-  $('btnFcicExcel').addEventListener('click', () => {
-    const r = fcic.res; if (!r) return;
+  // Guardar también en la carpeta de red \\dmbi2019db\comercial. El navegador no puede escribir en una ruta por su
+  // cuenta: la carpeta se elige una vez (Edge / Chrome) y queda recordada en este navegador; después se pide permiso
+  // de escritura cuando hace falta.
+  const CARPETA_FCIC = '\\\\dmbi2019db\\comercial';
+  const carpetasDb = () => new Promise((ok, mal) => {
+    const r = indexedDB.open('valo-carpetas', 1);
+    r.onupgradeneeded = () => r.result.createObjectStore('h');
+    r.onsuccess = () => ok(r.result); r.onerror = () => mal(r.error);
+  });
+  const carpetasSesion = {};
+  async function carpetaGuardada(clave) {
+    if (carpetasSesion[clave]) return carpetasSesion[clave];
+    try { const db = await carpetasDb(); return await new Promise(ok => { const q = db.transaction('h').objectStore('h').get(clave); q.onsuccess = () => ok(q.result || null); q.onerror = () => ok(null); }); }
+    catch (e) { return null; }
+  }
+  async function recordarCarpeta(clave, h) {
+    carpetasSesion[clave] = h;
+    try { const db = await carpetasDb(); await new Promise(ok => { const t = db.transaction('h', 'readwrite'); t.objectStore('h').put(h, clave); t.oncomplete = ok; t.onerror = ok; }); } catch (e) { /* queda solo para esta vez */ }
+  }
+  async function elegirCarpetaFcic() {
+    await informar('Elegí la carpeta de red', `En la ventana que se abre, escribí <b>${esc(CARPETA_FCIC)}</b> en la barra de dirección, entrá a la carpeta y tocá <b>Seleccionar carpeta</b> (y después <b>Permitir</b> / <b>Ver archivos</b>). Queda recordada en este navegador.`);
+    const h = await window.showDirectoryPicker({ id: 'fcicComercial', mode: 'readwrite' });
+    if (!/^comercial$/i.test(h.name) && !confirm(`Elegiste la carpeta "${h.name}", no "comercial". ¿Usarla igual?`)) return null;
+    await recordarCarpeta('fcicComercial', h);
+    return h;
+  }
+  async function mostrarCarpetaFcic() {
+    if (!window.showDirectoryPicker) { $('fcicCarpetaEstado').textContent = 'Para guardar en la carpeta de red usá Edge o Chrome (fuera de claude.ai).'; return; }
+    const h = await carpetaGuardada('fcicComercial');
+    $('fcicCarpetaEstado').innerHTML = h ? `Carpeta de red: <b>${esc(h.name)}</b> · <a href="#" id="fcicCambiarCarpeta">cambiar</a>` : `La primera vez que guardes en ${esc(CARPETA_FCIC)} se te pide elegir la carpeta.`;
+  }
+  $('fcicCarpetaEstado').addEventListener('click', async e => {
+    if (!e.target.closest('#fcicCambiarCarpeta')) return;
+    e.preventDefault();
+    try { await elegirCarpetaFcic(); } catch (err) { if (err.name !== 'AbortError') informar('No se pudo elegir la carpeta', esc(err.message || err)); }
+    mostrarCarpetaFcic();
+  });
+  $('btnFcicExcelRed').addEventListener('click', async () => {
+    const libro = fcicLibro();
+    if (!libro) return;
+    const nombre = libro.nombre;
+    const contenido = new Blob([XLSX.write(libro.wb, { bookType: 'xlsx', type: 'array' })], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    const bajar = () => descargarLibro(libro.nombre, libro.wb);
+    if (!window.showDirectoryPicker) {
+      bajar();
+      return informar('No se pudo guardar en la carpeta de red', `Este navegador no permite que la página escriba en carpetas. Se descargó <b>${esc(nombre)}</b>: copialo a ${esc(CARPETA_FCIC)}, o abrí la página en Edge / Chrome (desde el sitio, no dentro de claude.ai).`);
+    }
+    try {
+      // Primero la carpeta (el permiso necesita el clic), después la descarga.
+      let h = await carpetaGuardada('fcicComercial');
+      if (h && (await h.queryPermission({ mode: 'readwrite' })) !== 'granted' && (await h.requestPermission({ mode: 'readwrite' })) !== 'granted') h = null;
+      if (!h) h = await elegirCarpetaFcic();
+      if (!h) return;
+      let existe = false;
+      try { await h.getFileHandle(nombre); existe = true; } catch (e) { /* no existe */ }
+      if (existe && !confirm(`Ya hay un ${nombre} en ${h.name}. ¿Reemplazarlo?`)) return;
+      // El navegador escribe en un temporal (.crswap) y lo renombra; en carpetas de red eso puede fallar
+      // (InvalidStateError) si el archivo ya existe o quedó bloqueado: se borra y se vuelve a intentar una vez.
+      const escribir = async () => {
+        const f = await h.getFileHandle(nombre, { create: true });
+        const w = await f.createWritable({ keepExistingData: false });
+        try { await w.write(contenido); await w.close(); }
+        catch (e) { try { await w.abort(); } catch (x) { /* ya cerrado */ } throw e; }
+      };
+      try { await escribir(); }
+      catch (e) {
+        if (e.name !== 'InvalidStateError' && e.name !== 'NoModificationAllowedError') throw e;
+        try { await h.removeEntry(nombre); } catch (x) { /* no estaba o no se puede borrar */ }
+        try { await h.removeEntry(nombre + '.crswap'); } catch (x) { /* sin temporal */ }
+        await escribir();
+      }
+      toast(`Guardado en ${h.name}\\${nombre}`);
+      $('fcicEstado').innerHTML = aviso('ok', `Excel guardado en <b>${esc(CARPETA_FCIC)}\\${esc(nombre)}</b> (carpeta elegida: ${esc(h.name)}) y descargado.`);
+      mostrarCarpetaFcic();
+      bajar();
+    } catch (e) {
+      if (e.name === 'AbortError') return;
+      bajar();
+      const causa = e.name === 'InvalidStateError' || e.name === 'NoModificationAllowedError'
+        ? 'La carpeta no deja que el navegador termine de grabar el archivo: Edge/Chrome escriben primero un temporal (<i>.crswap</i>) y después lo renombran, y en esa carpeta compartida no se puede renombrar o borrar (permiso de <b>Modificar</b>), o el archivo está abierto / bloqueado. Pedí a sistemas permiso de Modificar sobre la carpeta, o cerrá el archivo si está abierto.'
+        : e.name === 'NotAllowedError' ? 'El navegador no dio permiso de escritura sobre la carpeta (tocá Permitir cuando lo pida).' : `Revisá que tengas acceso de escritura a ${esc(CARPETA_FCIC)}.`;
+      informar('No se pudo guardar en la carpeta de red', `<b>${esc(e.name || 'Error')}</b>: ${esc(e.message || e)}<br><br>${causa}<br><br>Se descargó <b>${esc(nombre)}</b> igual: copialo a ${esc(CARPETA_FCIC)}.`);
+    }
+  });
+  mostrarCarpetaFcic();
+  // Excel de detalle: solapas DG, Reporte por banco y TXT DE NO COBIS.
+  function fcicLibro() {
+    const r = fcic.res; if (!r) return null;
     const dg = [['Ultimo dia habil del mes', fBarra(r.fechas.concesion)], ['vto de producto', fBarra(r.fechas.vencimiento)], ['Saldo cuenta 121049010', r.base], [],
       ['Ente', 'CUIT', 'Banco', 'Importe actual cheques', 'Porcentaje', 'Saldo de capital', 'Línea TXT']]
       .concat(r.filas.map(f => [Number(f.ente) || '', Number(f.cuit), f.nombre, f.conDatos ? f.monto : 0, f.porcentaje, f.saldo, f.linea]));
@@ -3473,8 +3794,9 @@
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(dg), 'DG');
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['Banco', 'Monto', 'Porcentaje']].concat(fcic.rep.grupos.map(g => [g.banco, g.monto, g.porcentaje]))), 'Reporte por banco');
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(r.filas.filter(f => f.linea).map(f => [f.linea])), 'TXT DE NO COBIS');
-    descargarLibro(`NoCobis_FCIC_MELI_${isoDe(r.fechas.concesion).replace(/-/g, '')}.xlsx`, wb);
-  });
+    return { nombre: `NoCobis_FCIC_MELI_${isoDe(r.fechas.concesion).replace(/-/g, '')}.xlsx`, wb };
+  }
+  $('btnFcicExcel').addEventListener('click', () => { const l = fcicLibro(); if (l) descargarLibro(l.nombre, l.wb); });
 
   // ---- lista DG y nombres de bancos (base compartida)
   function renderFcicCfg() {

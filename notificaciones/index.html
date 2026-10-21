@@ -48,8 +48,12 @@
   [hidden] { display: none !important; }
 
   /* ---------- Fondo animado (el mismo video de inicio de Superdiente) ---------- */
-  #fondo { position: fixed; inset: 0; z-index: 0; overflow: hidden; background: var(--fondo) center / cover no-repeat; }
+  #fondo { position: fixed; inset: 0; z-index: 0; overflow: hidden; background: var(--fondo) 20% 50% / cover no-repeat; }
   #fondo video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: 20% 50%; }
+  body.nina #fondo video { object-position: 24% 50%; }
+  body.nina #fondo { background-position: 24% 50%; }
+  body.nina.tema-hotel #fondo video { object-position: 40% 50%; }
+  body.nina.tema-hotel #fondo { background-position: 40% 50%; }
   #fondo::after { content: ''; position: absolute; inset: 0;
     background: linear-gradient(rgba(6,18,51,.15) 0%, rgba(6,18,51,.25) 35%, rgba(6,18,51,.8) 100%); }
   body.tema-hotel #fondo::after { background: linear-gradient(rgba(20,7,38,.15) 0%, rgba(20,7,38,.3) 35%, rgba(20,7,38,.85) 100%); }
@@ -142,6 +146,14 @@
   .pie { display: flex; gap: 12px; justify-content: center; margin-top: 22px; flex-wrap: wrap; }
 
   /* Escenarios (igual que la configuración de Superdiente) */
+  .sexos { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .sexos button { border-radius: 24px; background: var(--suave); padding: 8px 8px 6px; font-size: 22px; font-weight: 800;
+    color: var(--texto); line-height: 1.1; box-shadow: inset 0 -5px 0 rgba(0,0,0,.08); }
+  .sexos img { display: block; width: 100%; aspect-ratio: 1; object-fit: cover; object-position: 22% 30%; border-radius: 50%; margin: 0 auto 6px; max-width: 120px; }
+  .sexos button.elegida { background: var(--verde); color: #fff; box-shadow: 0 0 0 5px #BFE8C9, inset 0 -5px 0 rgba(0,0,0,.15); }
+  /* Fondo sin video: la imagen «respira» despacito para que no quede quieta. */
+  #fondo.quieto { animation: respira 14s ease-in-out infinite alternate; }
+  @keyframes respira { from { transform: scale(1); } to { transform: scale(1.06) translateY(-1%); } }
   .escenarios { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
   .escenarios button { border-radius: 24px; background: var(--suave); padding: 8px 8px 6px; font-size: 20px; font-weight: 800;
     color: var(--texto); line-height: 1.1; box-shadow: inset 0 -5px 0 rgba(0,0,0,.08); }
@@ -278,7 +290,7 @@
     </button>
   </div>
 
-  <h1 class="titulo"><span class="t1">Tareas de</span><span class="t2">Rami</span></h1>
+  <h1 class="titulo"><span class="t1">Tareas de</span><span class="t2" id="titulo-nombre">Rami</span></h1>
   <div class="saludo" id="saludo"></div>
 
   <div id="lista"></div>
@@ -296,10 +308,15 @@
     <p class="sub" id="config-sub">Antes de empezar, contanos tu nombre.</p>
     <label class="campo" for="config-nombre">¿Cómo te llamás?</label>
     <input class="entrada" id="config-nombre" type="text" maxlength="24" autocomplete="off" autocapitalize="words" spellcheck="false" placeholder="Tu nombre">
+    <div class="campo">¿Sos nene o nena?</div>
+    <div class="sexos">
+      <button data-sexo="nino"><img src="fondos/bano.jpg" alt="">Nene</button>
+      <button data-sexo="nina"><img src="fondos/nina-bano.jpg" alt="">Nena</button>
+    </div>
     <div class="campo">Fondo</div>
     <div class="escenarios">
-      <button data-fondo="bano"><img src="fondos/bano.jpg" alt="">Baño</button>
-      <button data-fondo="hotel"><img src="fondos/hotel.jpg" alt="">Hotel de monstruos</button>
+      <button data-fondo="bano"><img data-img="bano" src="fondos/bano.jpg" alt="">Baño</button>
+      <button data-fondo="hotel"><img data-img="hotel" src="fondos/hotel.jpg" alt="">Hotel de monstruos</button>
     </div>
     <div class="pie"><button class="boton" id="config-listo">Listo</button></div>
   </div>
@@ -465,40 +482,64 @@
     try { dl = JSON.parse(localStorage.getItem('dl-perfil') || 'null'); } catch (e) {}
     perfil = { nombre: '', fondo: dl && dl.fondo === 'hotel' ? 'hotel' : 'bano', sugerido: dl && dl.nombre ? dl.nombre : '' };
   }
-  function guardarPerfil() { try { localStorage.setItem('tr-perfil', JSON.stringify({ nombre: perfil.nombre, fondo: perfil.fondo })); } catch (e) {} }
+  if (perfil.sexo !== 'nina') perfil.sexo = 'nino';
+  function guardarPerfil() { try { localStorage.setItem('tr-perfil', JSON.stringify({ nombre: perfil.nombre, fondo: perfil.fondo, sexo: perfil.sexo })); } catch (e) {} }
 
+  // Fondo según nene o nena: video animado (fondos/[nina-]<fondo>.mp4) con su imagen.
+  // Si alguno no tiene video, se pone en false y se usa la imagen con movimiento suave.
+  var CON_VIDEO = { nino: true, nina: true };
+  function archivoFondo(sexo, f) { return 'fondos/' + (sexo === 'nina' ? 'nina-' : '') + f; }
   function aplicarFondo() {
-    var f = perfil.fondo === 'hotel' ? 'hotel' : 'bano';
+    var f = perfil.fondo === 'hotel' ? 'hotel' : 'bano', sx = perfil.sexo, clave = sx + '-' + f, base = archivoFondo(sx, f);
     document.body.classList.toggle('tema-hotel', f === 'hotel');
+    document.body.classList.toggle('nina', sx === 'nina');
     document.querySelector('meta[name=theme-color]').content = f === 'hotel' ? '#2E1452' : '#0E2F86';
     var v = $('video-fondo');
-    if (v.getAttribute('data-f') !== f) {
-      v.setAttribute('data-f', f);
-      $('fondo').style.backgroundImage = 'url(fondos/' + f + '.jpg)';
-      v.poster = 'fondos/' + f + '.jpg';
-      v.src = 'fondos/' + f + '.mp4';
-      var p = v.play(); if (p && p.catch) p.catch(function () {});
+    if (v.getAttribute('data-f') !== clave) {
+      v.setAttribute('data-f', clave);
+      $('fondo').style.backgroundImage = 'url(' + base + '.jpg)';
+      if (CON_VIDEO[sx]) {
+        v.hidden = false; $('fondo').classList.remove('quieto');
+        v.poster = base + '.jpg'; v.src = base + '.mp4';
+        var p = v.play(); if (p && p.catch) p.catch(function () {});
+      } else {
+        v.pause(); v.removeAttribute('src'); v.load(); v.hidden = true; $('fondo').classList.add('quieto');
+      }
     }
   }
   function aplicarNombre() {
+    var tn = perfil.nombre || 'Rami';
+    $('titulo-nombre').textContent = tn;
+    $('titulo-nombre').style.fontSize = tn.length > 6 ? 'clamp(40px, ' + Math.max(8, 108 / tn.length) + 'vw, 104px)' : '';
+    document.title = 'Tareas de ' + tn;
     $('saludo').innerHTML = perfil.nombre ? '¡Hola, <b></b>! ¿Qué toca hacer hoy?' : '';
     var b = $('saludo').querySelector('b'); if (b) b.textContent = perfil.nombre;
   }
 
-  var borradorFondo = null;
+  var borradorFondo = null, borradorSexo = null;
   function abrirConfig(primeraVez) {
     $('config-titulo').textContent = primeraVez ? '¡Hola!' : 'Configuración';
-    $('config-sub').textContent = primeraVez ? 'Antes de empezar, contanos tu nombre.' : 'Cambiá tu nombre o el fondo.';
+    $('config-sub').textContent = primeraVez ? 'Antes de empezar, contanos quién sos.' : 'Cambiá tu nombre, nene o nena y el fondo.';
     $('config-nombre').value = perfil.nombre || perfil.sugerido || '';
     $('config-nombre').classList.remove('falta');
-    borradorFondo = perfil.fondo;
+    borradorFondo = perfil.fondo; borradorSexo = perfil.sexo;
     marcarFondo();
     $('config').hidden = false;
     if (primeraVez) setTimeout(function () { $('config-nombre').focus(); }, 300);
   }
   function marcarFondo() {
     document.querySelectorAll('[data-fondo]').forEach(function (b) { b.classList.toggle('elegida', b.getAttribute('data-fondo') === borradorFondo); });
+    document.querySelectorAll('[data-sexo]').forEach(function (b) { b.classList.toggle('elegida', b.getAttribute('data-sexo') === borradorSexo); });
+    // las miniaturas de los fondos muestran al nene o a la nena según lo elegido
+    document.querySelectorAll('[data-img]').forEach(function (im) { im.src = archivoFondo(borradorSexo, im.getAttribute('data-img')) + '.jpg'; });
+    $('config-nombre').placeholder = borradorSexo === 'nina' ? 'Tu nombre (ej.: Sofi)' : 'Tu nombre';
   }
+  document.querySelectorAll('[data-sexo]').forEach(function (b) {
+    b.onclick = function () {
+      borradorSexo = b.getAttribute('data-sexo'); marcarFondo();
+      perfil.sexo = borradorSexo; aplicarFondo();
+    };
+  });
   document.querySelectorAll('[data-fondo]').forEach(function (b) {
     b.onclick = function () {
       borradorFondo = b.getAttribute('data-fondo'); marcarFondo();
@@ -508,7 +549,7 @@
   $('config-listo').onclick = function () {
     var n = $('config-nombre').value.trim();
     if (!n) { var c = $('config-nombre'); c.classList.remove('falta'); void c.offsetWidth; c.classList.add('falta'); c.focus(); return; }
-    perfil.nombre = n; perfil.fondo = borradorFondo; delete perfil.sugerido;
+    perfil.nombre = n; perfil.fondo = borradorFondo; perfil.sexo = borradorSexo; delete perfil.sugerido;
     guardarPerfil(); aplicarFondo(); aplicarNombre();
     $('config').hidden = true;
   };
