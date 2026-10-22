@@ -22,6 +22,7 @@ export async function render(main) {
       usuario: h('input', { value: e.usuario ?? '', autocomplete: 'off' }),
       identification: h('input', { inputmode: 'numeric', maxlength: 11, autocomplete: 'off', placeholder: e.configurada ? `${e.identification} · vacío = se conserva` : 'DNI / CUIT del usuario API' }),
       terminal: h('input', { value: e.terminal ?? '', autocomplete: 'off' }),
+      channel: h('input', { value: e.channel ?? '3', inputmode: 'numeric', maxlength: 4, autocomplete: 'off' }), // solo en envíos programados
       clave: h('input', { type: 'password', autocomplete: 'new-password', placeholder: e.configurada ? 'Vacío = se conserva la actual' : 'Clave del usuario API' }),
       yaCifrada: h('input', { type: 'checkbox', checked: !!e.claveYaCifrada }),
       aviso: h('div', {}),
@@ -29,6 +30,7 @@ export async function render(main) {
     };
     const guardar = async () => {
       const body = { usuario: f.usuario.value.trim(), terminal: f.terminal.value.trim() };
+      if (uso === 'envios') body.channel = f.channel.value.trim() || '3';
       if (f.identification.value.trim()) body.identification = f.identification.value.trim();
       if (f.clave.value) { body.clave = f.clave.value; body.claveYaCifrada = f.yaCifrada.checked; }
       if (f.rsa.value.trim()) body.rsaPublicKey = f.rsa.value.trim();
@@ -52,10 +54,11 @@ export async function render(main) {
     poner(cuerpo, 
       h('div', { class: 'grid' },
         card(uso === 'envios' ? 'Datos de acceso · envíos programados' : 'Datos de acceso · principal', uso === 'envios'
-          ? 'Usuario API exclusivo para los correos programados a los clientes: tiene su propia sesión en el banco, así los envíos no cortan la sesión del Home Banking. Tiene que ser un usuario distinto del principal. Misma URL, mismo cifrado.'
+          ? 'Usuario API exclusivo para los correos programados a los clientes: tiene su propia sesión en el banco, así los envíos no cortan la sesión del Home Banking. Tiene que ser un usuario distinto del principal. Misma URL, mismo cifrado. El channel es editable (por defecto 3).'
           : 'La URL la fija el ambiente: Homologación usa apihomo.bancodevalores.com y Producción api.bancodevalores.com. La clave y la llave RSA se cifran en el backend (AES-256-GCM) y nunca se devuelven a la pantalla. channel = 3.',
           h('div', { class: 'campos' },
             campo('URL de la API (según el ambiente)', f.url), campo('Usuario', f.usuario), campo('identification', f.identification), campo('Terminal', f.terminal),
+            uso === 'envios' && campo('channel', f.channel),
             campo('Clave (solo escritura)', f.clave),
             campo('La clave ya viene cifrada por el banco (texto base64): se envía tal cual y no hace falta la llave RSA', f.yaCifrada, 'check'),
             campo('Llave pública RSA del banco (solo si la clave está en texto plano)', f.rsa)),

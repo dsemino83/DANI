@@ -343,6 +343,8 @@ export default async function rutasAdmin(app) {
     const url = urlBase(amb); // la URL la define el ambiente; si llega una en el pedido se ignora
     if (!b.usuario || !b.terminal) throw invalido('Faltan usuario o terminal');
     if (b.identification && !/^\d{7,11}$/.test(String(b.identification))) throw invalido('identification debe tener entre 7 y 11 dígitos');
+    // El channel solo se edita en la credencial de envíos programados; la principal usa siempre el 3
+    if (uso === 'envios' && b.channel != null && !/^\d{1,4}$/.test(String(b.channel).trim())) throw invalido('channel tiene que ser un número de 1 a 4 dígitos');
     const yaCifrada = b.claveYaCifrada === true;
     if (b.clave && yaCifrada && !/^[A-Za-z0-9+/]{100,}={0,2}$/.test(String(b.clave).replace(/\s+/g, ''))) throw invalido('La clave cifrada tiene que ser el texto base64 que entrega el banco');
     if (b.rsaPublicKey) { try { createPublicKey(pemDesdeBase64(b.rsaPublicKey)); } catch { throw invalido('La llave pública RSA no es válida'); } }
@@ -360,18 +362,20 @@ export default async function rutasAdmin(app) {
       if (!modo && !b.rsaPublicKey && !prev?.rsa_public_key) throw invalido('Con la clave en texto plano se requiere la llave pública RSA del banco. Si la clave es el texto cifrado que entregó el banco, tildá "La clave ya viene cifrada por el banco"');
       if (!b.identification && !prev) throw invalido('identification debe tener entre 7 y 11 dígitos');
       b.identification = String(b.identification || prev.identification); // vacío = se conserva (la pantalla la muestra enmascarada)
+      const channel = uso === 'envios' ? (String(b.channel ?? '').trim() || prev?.channel || '3') : '3';
       const clave = b.clave ? cifrar(yaCifrada ? String(b.clave).replace(/\s+/g, '') : String(b.clave)) : { cifrado: prev.clave_cifrada, iv: prev.clave_iv, tag: prev.clave_tag };
       await c.query(
         `INSERT INTO credencial_api (ambiente, url, usuario, identification, terminal, channel, rsa_public_key, clave_cifrada, clave_iv, clave_tag,
                                      clave_cargada_por, clave_cargada_en, actualizado_por, actualizado_en, clave_ya_cifrada, uso)
-         VALUES ($1, $2, $3, $4, $5, '3', $6, $7, $8, $9, $10, $11, $12, now(), $13, $14)
-         ON CONFLICT (ambiente, uso) DO UPDATE SET url = $2, usuario = $3, identification = $4, terminal = $5, rsa_public_key = $6,
+         VALUES ($1, $2, $3, $4, $5, $15, $6, $7, $8, $9, $10, $11, $12, now(), $13, $14)
+         ON CONFLICT (ambiente, uso) DO UPDATE SET url = $2, usuario = $3, identification = $4, terminal = $5, channel = $15, rsa_public_key = $6,
            clave_cifrada = $7, clave_iv = $8, clave_tag = $9, clave_cargada_por = $10, clave_cargada_en = $11, actualizado_por = $12, actualizado_en = now(), clave_ya_cifrada = $13`,
         [amb, url, b.usuario, String(b.identification), b.terminal, b.rsaPublicKey || prev?.rsa_public_key || '', clave.cifrado, clave.iv, clave.tag,
-          b.clave ? req.user.usuario : prev.clave_cargada_por, b.clave ? new Date() : prev.clave_cargada_en, req.user.usuario, modo, uso]);
+          b.clave ? req.user.usuario : prev.clave_cargada_por, b.clave ? new Date() : prev.clave_cargada_en, req.user.usuario, modo, uso, channel]);
       const cambios = [
         prev && prev.url !== url && `URL: ${prev.url} → ${url}`, prev?.usuario !== b.usuario && `usuario: ${prev?.usuario ?? '—'} → ${b.usuario}`,
         prev?.identification !== String(b.identification) && 'identification', prev?.terminal !== b.terminal && `terminal: ${prev?.terminal ?? '—'} → ${b.terminal}`,
+        prev?.channel !== channel && `channel: ${prev?.channel ?? '—'} → ${channel}`,
         b.clave && `${prev ? 'clave reemplazada' : 'clave cargada'} (${yaCifrada ? 'ya cifrada por el banco' : 'texto plano'})`, b.rsaPublicKey && (prev ? 'llave RSA reemplazada' : 'llave RSA cargada'),
       ].filter(Boolean);
       await auditar(c, req, { tipo: 'Administración', accion: 'Actualizó credencial API Banking', api: 'Gestor de secretos', detalle: `${amb} · ${USOS[uso]} · ${cambios.join(' · ') || 'sin cambios'}` }); // nunca el valor de la clave
