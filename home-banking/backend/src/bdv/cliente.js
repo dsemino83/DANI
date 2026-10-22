@@ -74,15 +74,24 @@ class ClienteBdv {
       cookie = (res.headers.getSetCookie?.() ?? []).map((v) => v.split(';')[0]).join('; ');
       // Diagnóstico sin datos sensibles: solo nombres de encabezados y de campos de la respuesta
       if (!cookie) console.warn(`[banco] login sin Set-Cookie (intento ${intento}/3) · encabezados: ${[...res.headers.keys()].join(', ')} · campos: ${Object.keys(json ?? {}).join(', ')}`);
-      // El banco no entrega cookie nueva si la sesión anterior del mismo usuario sigue abierta de su lado:
-      // si la cookie anterior todavía funciona, se sigue usando esa.
-      if (!cookie && !cred && this.cookieAnterior) {
-        const r = await this.fetch(`${base}/enrollment/getUserEntityInformation`, {}, this.cookieAnterior).catch(() => null);
-        const j = r?.ok ? await r.json().catch(() => null) : null;
-        if (j?.success) { console.warn('[banco] se reusa la sesión anterior (sigue vigente en el banco)'); cookie = this.cookieAnterior; }
+      // Sin Set-Cookie, la sesión puede venir en el campo sessionId de la respuesta, o seguir vigente la
+      // anterior. Se prueba cada forma con getUserEntityInformation y se usa la primera que el banco acepta.
+      if (!cookie) {
+        const sid = json?.sessionId != null ? String(json.sessionId) : '';
+        const candidatas = [
+          ...(sid ? [['sessionId como cookie JSESSIONID', { cookie: `JSESSIONID=${sid}` }], ['sessionId como encabezado', { sessionId: sid }],
+            ['sessionId como cookie sessionId', { cookie: `sessionId=${sid}` }]] : []),
+          ...(!cred && this.cookieAnterior ? [['sesión anterior', this.cookieAnterior]] : []),
+        ];
+        for (const [nombre, credencialSesion] of candidatas) {
+          const r = await this.fetch(`${base}/enrollment/getUserEntityInformation`, {}, credencialSesion).catch(() => null);
+          const j = r?.ok ? await r.json().catch(() => null) : null;
+          console.warn(`[banco] prueba de sesión "${nombre}": ${j?.success ? 'aceptada' : `rechazada (HTTP ${r?.status ?? '—'})`}`);
+          if (j?.success) { cookie = credencialSesion; break; }
+        }
       }
     }
-    if (!cookie) throw new ErrorBanco('El login no devolvió cookie de sesión (3 intentos). Probá de nuevo en un minuto.');
+    if (!cookie) throw new ErrorBanco('El banco no entregó una sesión utilizable (3 intentos). Probá de nuevo en un minuto.');
     // getUserEntityInformation carga datos del lado servidor necesarios para las demás APIs
     const r2 = await this.fetch(`${base}/enrollment/getUserEntityInformation`, {}, cookie);
     const j2 = await r2.json().catch(() => null);
@@ -94,11 +103,13 @@ class ClienteBdv {
     return { entidad: j2, login: json };
   }
 
+  // cookie: el texto de la cookie de sesión, o un objeto con los encabezados de sesión que acepta el banco
   async fetch(url, body, cookie = this.cookie, { sinRespuesta = false } = {}) {
+    const sesion = !cookie ? {} : typeof cookie === 'object' ? cookie : { cookie };
     try {
       return await fetch(url, {
         method: 'POST',
-        headers: { 'content-type': 'application/json', ...(cookie ? { cookie } : {}) },
+        headers: { 'content-type': 'application/json', ...sesion },
         body: JSON.stringify(body),
         signal: AbortSignal.timeout(config.bdv.timeoutMs),
       });
