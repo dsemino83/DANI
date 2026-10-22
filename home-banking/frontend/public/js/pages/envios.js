@@ -1,5 +1,5 @@
 // Envíos programados (aprobador / perfil autorizante, sobre las empresas que ve): correos automáticos a las empresas con saldos y/o movimientos del
-// día, una vez al día o cada hora dentro de una franja, por días de la semana, con inicio, fin y feriados.
+// día, una vez al día o cada hora / cada 30 minutos dentro de una franja, por días de la semana, con inicio, fin y feriados.
 import { api } from '../api.js';
 import { h, poner, card, campo, tabla, pill, toast, error, cargando, confirmar, fechaHora, contiene, sinPerderFoco } from '../ui.js';
 
@@ -33,7 +33,8 @@ export async function render(main) {
       nombre: h('input', { value: p?.nombre ?? '', placeholder: 'Resumen diario de saldos' }),
       contenido: h('select', {}, CONTENIDO.map(([v, t]) => h('option', { value: v, selected: (p?.contenido ?? 'saldos') === v }, t))),
       formato: h('select', {}, FORMATO.map(([v, t]) => h('option', { value: v, selected: (p?.formato ?? 'cuerpo') === v }, t))),
-      frecuencia: h('select', {}, h('option', { value: 'diaria', selected: (p?.frecuencia ?? 'diaria') === 'diaria' }, '1 vez al día'), h('option', { value: 'horaria', selected: p?.frecuencia === 'horaria' }, '1 vez cada hora')),
+      frecuencia: h('select', {}, h('option', { value: 'diaria', selected: (p?.frecuencia ?? 'diaria') === 'diaria' }, '1 vez al día'), h('option', { value: 'horaria', selected: p?.frecuencia === 'horaria' }, '1 vez cada hora'),
+        h('option', { value: 'media_hora', selected: p?.frecuencia === 'media_hora' }, '1 vez cada 30 minutos')),
       hora: h('input', { type: 'time', value: String(p?.hora ?? '09:00').slice(0, 5) }),
       horaHasta: h('input', { type: 'time', value: String(p?.hora_hasta ?? '18:00').slice(0, 5) }),
       inicio: h('input', { type: 'date', value: p?.fecha_inicio ?? hoy() }),
@@ -96,7 +97,7 @@ export async function render(main) {
       await cargar(); pintarCola();
     };
 
-    poner(editor, card(p ? `Editar · ${p.nombre}` : 'Nuevo envío programado', 'Hora de Argentina. "1 vez cada hora" envía a la hora en punto de "Desde" y cada hora hasta "Hasta", inclusive.',
+    poner(editor, card(p ? `Editar · ${p.nombre}` : 'Nuevo envío programado', 'Hora de Argentina. "1 vez cada hora" y "1 vez cada 30 minutos" envían a la hora de "Desde" y después cada hora o cada 30 minutos hasta "Hasta", inclusive.',
       h('div', { class: 'fila' }, campo('Nombre', f.nombre), campo('Contenido', f.contenido), campo('Formato', f.formato), campo('Repetición', f.frecuencia)),
       h('p', { class: 'nota' }, 'Con Excel adjunto el cuerpo del correo se completa igual; el Excel trae el detalle completo (hoja Saldos y/o Movimientos, con todos los movimientos).'),
       franja,

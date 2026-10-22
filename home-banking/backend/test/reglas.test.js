@@ -219,6 +219,9 @@ test('envíos programados: turnos, días, feriados, inicio y fin', async () => {
   assert.deepEqual(turnosDelDia(base), ['09:00']);
   assert.deepEqual(turnosDelDia({ ...base, frecuencia: 'horaria', hora: '09:30', hora_hasta: '12:30' }), ['09:30', '10:30', '11:30', '12:30']);
   assert.deepEqual(turnosDelDia({ ...base, frecuencia: 'horaria', hora: '09:00', hora_hasta: '11:59' }), ['09:00', '10:00', '11:00']);
+  assert.deepEqual(turnosDelDia({ ...base, frecuencia: 'media_hora', hora: '09:00', hora_hasta: '11:00' }), ['09:00', '09:30', '10:00', '10:30', '11:00']);
+  assert.deepEqual(turnosDelDia({ ...base, frecuencia: 'media_hora', hora: '09:15', hora_hasta: '10:30' }), ['09:15', '09:45', '10:15']);
+  assert.deepEqual(turnosDelDia({ ...base, frecuencia: 'media_hora', hora: '23:00', hora_hasta: '23:59' }), ['23:00', '23:30'], 'no pasa de medianoche');
   // 2026-10-22 es jueves; 2026-10-24 sábado
   assert.equal(enArgentina(new Date('2026-10-22T12:00:00Z')).hora, '09:00', 'UTC-3');
   assert.ok(diaHabilitado(base, '2026-10-22'));
@@ -236,6 +239,10 @@ test('envíos programados: turnos, días, feriados, inicio y fin', async () => {
   assert.equal(turnoVencido(base, new Date('2026-10-22T12:05:00Z'), feriado), null);
   const hor = { ...base, frecuencia: 'horaria', hora: '09:00', hora_hasta: '18:00', ultimo_turno: '2026-10-22T09:00' };
   assert.equal(turnoVencido(hor, new Date('2026-10-22T13:10:00Z')), '2026-10-22T10:00');
+  const media = { ...hor, frecuencia: 'media_hora' };
+  assert.equal(turnoVencido(media, new Date('2026-10-22T12:35:00Z')), '2026-10-22T09:30');
+  assert.equal(turnoVencido({ ...media, ultimo_turno: '2026-10-22T09:30' }, new Date('2026-10-22T12:50:00Z')), null, 'ya enviado; el próximo es 10:00');
+  assert.equal(proximoTurno(media, new Date('2026-10-22T12:35:00Z')).toISOString(), '2026-10-22T13:00:00.000Z');
   // próximo: jueves 22 a las 10:00 → viernes 23 09:00; viernes 18:00 → lunes 26 09:00 (con feriado el lunes → martes)
   assert.equal(proximoTurno(base, new Date('2026-10-22T13:00:00Z')).toISOString(), '2026-10-23T12:00:00.000Z');
   assert.equal(proximoTurno(base, new Date('2026-10-23T21:00:00Z')).toISOString(), '2026-10-26T12:00:00.000Z');
@@ -245,6 +252,9 @@ test('envíos programados: turnos, días, feriados, inicio y fin', async () => {
   const ok = { nombre: 'Resumen diario', contenido: 'saldos', frecuencia: 'horaria', hora: '09:00', horaHasta: '18:00', diasSemana: [5, 1, 1], fechaInicio: '2026-10-22' };
   assert.deepEqual(validarProgramacion(ok).dias, [1, 5]);
   assert.throws(() => validarProgramacion({ ...ok, horaHasta: '08:00' }));
+  assert.equal(validarProgramacion({ ...ok, frecuencia: 'media_hora' }).horaHasta, '18:00');
+  assert.throws(() => validarProgramacion({ ...ok, frecuencia: 'media_hora', horaHasta: '' }));
+  assert.throws(() => validarProgramacion({ ...ok, frecuencia: 'cada_minuto' }));
   assert.throws(() => validarProgramacion({ ...ok, diasSemana: [] }));
   assert.throws(() => validarProgramacion({ ...ok, fechaFin: '2026-10-01' }));
   assert.throws(() => validarProgramacion({ ...ok, todasEmpresas: false, destinos: [] }));

@@ -12,7 +12,7 @@ const CONTENIDO = { saldos: 'saldos', movimientos: 'movimientos del día', saldo
 const DIAS = ['', 'lun', 'mar', 'mié', 'jue', 'vie', 'sáb', 'dom'];
 const destinoTxt = (p) => (p.todas_empresas ? 'todos sus clientes' : `${(p.destinos ?? []).length} cliente(s)${(p.destinos ?? []).some((d) => d.cuentas?.length) ? ' (con cuentas elegidas)' : ''}`);
 export const describir = (p) => `${CONTENIDO[p.contenido]}${p.formato === 'cuerpo_excel' ? ' con Excel adjunto' : ' en el cuerpo del correo'} · ${p.frecuencia === 'diaria' ? `diaria a las ${String(p.hora).slice(0, 5)}`
-  : `cada hora de ${String(p.hora).slice(0, 5)} a ${String(p.hora_hasta).slice(0, 5)}`} · ${(p.dias_semana ?? []).map((d) => DIAS[d]).join(', ')}`
+  : `${p.frecuencia === 'media_hora' ? 'cada 30 minutos' : 'cada hora'} de ${String(p.hora).slice(0, 5)} a ${String(p.hora_hasta).slice(0, 5)}`} · ${(p.dias_semana ?? []).map((d) => DIAS[d]).join(', ')}`
   + `${p.saltar_feriados ? ' · sin feriados' : ''} · desde ${String(p.fecha_inicio).slice(0, 10)}${p.fecha_fin ? ` hasta ${String(p.fecha_fin).slice(0, 10)}` : ''}`;
 
 export default async function rutasEnvios(app) {
