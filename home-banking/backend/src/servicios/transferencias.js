@@ -9,6 +9,7 @@ export function exigirEnviosHabilitados() {
   if (config.soloConsultas) throw conflicto('Modo solo consultas (BDV_SOLO_CONSULTAS): las transferencias no se envían al banco. Queda pendiente de aprobación.');
 }
 import { exigirCuenta } from '../permisos.js';
+import { avisarPendiente, textoTransferencia } from './mensajes.js';
 import { cuentasPropias } from '../bdv/cliente.js';
 import { API_POR_TIPO, armarRequest, enviar } from '../bdv/transferencias.js'; // enviar: solo desde enviarUnaVez
 
@@ -74,6 +75,9 @@ export async function crear(req, { tipo, cuentaOrigen, ...datos }) {
       tipo: 'Transferencias', accion: `Cargó transferencia ${tipo}`, ref: { tipo: 'transferencia', id: t.id },
       detalle: `OP-${t.id} · ID ${t.referencia} · ${datos.titular ?? ''} ${datos.destino ?? ''} · ${datos.importe} · queda pendiente de aprobación`,
     });
+    // Aviso en el buzón de las personas asociadas al cliente de la cuenta de origen
+    await avisarPendiente(c, req, { refTipo: 'transferencia', refId: t.id, cuentas: [cuentaOrigen],
+      ...textoTransferencia(req, { id: t.id, tipo, importe: datos.importe, moneda: Number(origen.currencyId) === 80 ? 'ARS' : 'USD', cuenta_origen: cuentaOrigen, titular: datos.titular, destino: datos.destino }) });
     return { id: t.id, referencia: t.referencia, estado: 'PENDIENTE_APROBACION', request: t.request };
   });
 }

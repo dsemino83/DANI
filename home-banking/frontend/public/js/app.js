@@ -2,6 +2,7 @@
 import { autenticado, iniciar, login, logout } from './auth.js';
 import { api, actualizarDatos, alCambiarDatos, horaDatos } from './api.js';
 import { $, h, poner, card, error } from './ui.js';
+import { buzon } from './buzon.js';
 import * as saldos from './pages/saldos.js';
 import * as movimientos from './pages/movimientos.js';
 import * as debitos from './pages/debitos.js';
@@ -78,6 +79,7 @@ async function pantallaApp() {
       h('div', { class: 'sesion' }, h('span', {}, 'Sesión: ', h('b', {}, `${me.usuario} · ${me.rol}`), ` · Banco: ${me.ambiente === 'prod' ? 'Producción' : 'Homologación'}`),
         me.rol !== 'administrador' && marcaDatos,
         me.rol !== 'administrador' && h('button', { class: 'btn chico', title: 'Volver a consultar saldos, movimientos y débitos al banco', onclick: () => { actualizarDatos(); mostrar(); } }, '↻ Actualizar datos'),
+        me.rol !== 'administrador' && buzon(ctx),
         h('a', { class: 'btn chico', href: '#ayuda' }, 'Ayuda'),
         h('button', { class: 'btn chico btn-tema', onclick: alternarTema }),
         h('button', { class: 'btn chico', onclick: logout }, 'Cerrar sesión'))),

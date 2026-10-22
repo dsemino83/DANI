@@ -20,7 +20,7 @@ export const TABLAS = [
 const NO_FINALES = ['PENDIENTE_APROBACION', 'ENVIANDO', 'ENVIADA', 'PEND_AUTORIZACION'];
 const LOTE = 5000;
 
-// Tablas sin partición: se pasan por filas, solo las terminadas (lo pendiente sigue en la operativa).
+// Tablas sin partición: se pasan por filas, solo las terminadas (lo pendiente o no leído sigue en la operativa).
 // La histórica las crea si no existen (bases creadas antes de que existieran estas tablas).
 export const TABLAS_FILAS = [
   {
@@ -34,6 +34,13 @@ export const TABLAS_FILAS = [
       CREATE INDEX IF NOT EXISTS h_cola_envio_prog_idx ON cola_envio (programacion_id, encolada_en);
       ALTER TABLE cola_envio ADD COLUMN IF NOT EXISTS formato text NOT NULL DEFAULT 'cuerpo';
       ALTER TABLE cola_envio ADD COLUMN IF NOT EXISTS frecuencia text NOT NULL DEFAULT 'diaria'`,  // migraciones 007 y 008
+  },
+  {
+    tabla: 'mensaje', columna: 'creado_en', terminadas: 'visto_en IS NOT NULL',
+    ddl: `CREATE TABLE IF NOT EXISTS mensaje (
+      id bigint PRIMARY KEY, usuario text NOT NULL, tipo text NOT NULL, titulo text NOT NULL, texto text NOT NULL,
+      empresas text[] NOT NULL, ref_tipo text, ref_id bigint, creado_por text NOT NULL, creado_en timestamptz NOT NULL, visto_en timestamptz);
+      CREATE INDEX IF NOT EXISTS h_mensaje_usuario_idx ON mensaje (usuario, creado_en)`,
   },
   {
     tabla: 'envio_mail_log', columna: 'en', terminadas: 'true',

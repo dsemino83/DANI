@@ -154,6 +154,10 @@ Para probar sin instalar nada: una máquina virtual de GitHub con Docker que lev
 - La credencial del banco queda cifrada en la base de la máquina. Al terminar la prueba, **borrá el Codespace** (**Code** → **Codespaces** → **⋯** → **Delete**): se borra todo.
 - Si "Probar conexión" no llega al banco, el banco puede estar filtrando por IP: las máquinas de Codespaces no tienen una IP fija.
 
+## Buzón de mensajes
+
+En el encabezado, **✉ Mensajes** (con la cantidad sin leer). Cuando alguien carga una transferencia o confirma un lote que necesita autorización, les llega un mensaje a **todas las personas asociadas a esos clientes** (permiso Ver sobre la empresa en *Usuarios y permisos*), salvo a quien la cargó. El mensaje aparece solo en pantalla (se revisa cada 30 segundos) y queda **visto** cuando el destinatario lo abre; **Aceptar** lleva a **Aprobaciones** (a quien no tiene el rol de aprobar, al registro de Transferencias). En la lista se ve el estado actual de cada operación. Los mensajes ya leídos pasan a la base histórica con el pase mensual.
+
 ## Envíos programados de correo a las empresas
 
 Pestaña **Envíos programados**, solo del **aprobador** (perfil autorizante) y solo sobre las empresas que él ve. Cada programación define:

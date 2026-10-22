@@ -8,6 +8,7 @@ import { conflicto, invalido, noEncontrado, prohibido } from '../errores.js';
 import { cuentasHabilitadas, exigirCuenta } from '../permisos.js';
 import { consultarCbu, cuentasPropias } from '../bdv/cliente.js';
 import { armarRequest } from '../bdv/transferencias.js';
+import { avisarPendiente, textoLote } from './mensajes.js';
 import { crearPendiente, enviarUnaVez, exigirEnviosHabilitados, idsUsados, normalizarId, registrarResultado } from './transferencias.js';
 
 const COLUMNAS = ['id', 'tipo', 'cuenta_origen', 'destino', 'cuit', 'importe', 'concepto', 'titular', 'codigo_mep'];
@@ -142,6 +143,7 @@ export async function confirmar(req, loteId) {
       tipo: 'Transferencias', accion: 'Cargó lote masivo de transferencias', ref: { tipo: 'lote', id: loteId },
       detalle: `Lote ${loteId} · ${lote.archivo} · ${filas.length} transferencias · ${lote.importe} · queda pendiente de aprobación`,
     });
+    await avisarPendiente(c, req, { refTipo: 'lote', refId: loteId, cuentas: filas.map((f) => f.datos.cuenta_origen), ...textoLote(req, lote, filas.length) });
     return { loteId, estado: 'PENDIENTE_APROBACION', transferencias: filas.length };
   });
 }

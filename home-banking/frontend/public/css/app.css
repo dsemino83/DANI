@@ -149,3 +149,14 @@ pre { background: var(--bg); border: 1px solid var(--line); border-radius: var(-
 }
 .dest-cliente { border-bottom: 1px solid var(--line); padding: 6px 0; }
 .dest-cuentas { display: flex; flex-wrap: wrap; gap: 4px 16px; padding: 4px 0 4px 28px; }
+
+/* Buzón de mensajes */
+.buzon { position: relative; }
+.buzon.con-nuevos { border-color: var(--rojo); color: var(--rojo); font-weight: 600; }
+.buzon-n { display: inline-block; min-width: 18px; margin-left: 6px; padding: 0 5px; border-radius: 999px; background: var(--rojo); color: var(--rojo-txt); font-size: 11px; line-height: 18px; text-align: center; }
+.buzon-lista { list-style: none; margin: 0; padding: 0; }
+.buzon-lista li { border-bottom: 1px solid var(--line); }
+.buzon-item { display: flex; flex-direction: column; gap: 2px; width: 100%; text-align: left; background: transparent; border: 0; padding: 10px 6px; cursor: pointer; color: inherit; font: inherit; }
+.buzon-item:hover, .buzon-item:focus-visible { background: var(--bg); }
+.buzon-lista li.nuevo .buzon-tit { font-weight: 700; }
+.buzon-lista li.visto { opacity: .8; }

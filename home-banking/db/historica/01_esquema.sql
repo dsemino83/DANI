@@ -97,3 +97,11 @@ CREATE TRIGGER h_cola_envio_inmutable BEFORE UPDATE OR DELETE ON cola_envio
   FOR EACH ROW EXECUTE FUNCTION hb_solo_lectura();
 CREATE TRIGGER h_envio_mail_log_inmutable BEFORE UPDATE OR DELETE ON envio_mail_log
   FOR EACH ROW EXECUTE FUNCTION hb_solo_lectura();
+
+-- Buzón de mensajes (solo los ya leídos pasan a la histórica)
+CREATE TABLE mensaje (
+  id bigint PRIMARY KEY, usuario text NOT NULL, tipo text NOT NULL, titulo text NOT NULL, texto text NOT NULL,
+  empresas text[] NOT NULL, ref_tipo text, ref_id bigint, creado_por text NOT NULL, creado_en timestamptz NOT NULL, visto_en timestamptz);
+CREATE INDEX h_mensaje_usuario_idx ON mensaje (usuario, creado_en);
+CREATE TRIGGER h_mensaje_inmutable BEFORE UPDATE OR DELETE ON mensaje
+  FOR EACH ROW EXECUTE FUNCTION hb_solo_lectura();
