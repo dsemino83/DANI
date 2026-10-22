@@ -27,6 +27,8 @@ x-backend-env: &backend-env
   CREDENCIALES_MASTER_KEY_FILE: /run/secrets/credenciales_master_key
   BDV_SESION_MINUTOS: ${BDV_SESION_MINUTOS:-20}
   # Correo saliente (envíos programados): vacío = buzón de prueba Mailpit; clave en secrets/smtp_password.txt
+  # Meses completos que conserva la base operativa además del mes en curso; lo anterior pasa a la histórica el día 1
+  HB_RETENCION_MESES: ${HB_RETENCION_MESES:-1}
   HB_SMTP_HOST: ${HB_SMTP_HOST:-mailpit}
   HB_SMTP_PORT: ${HB_SMTP_PORT:-}
   HB_SMTP_FROM: ${HB_SMTP_FROM:-homebanking@valo.test}

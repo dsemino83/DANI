@@ -15,6 +15,7 @@ const { usuarioDesdeToken } = await import('../src/auth.js');
 const { leerTxt, formatoDe } = await import('../src/servicios/lotes.js');
 const { normalizarId } = await import('../src/servicios/transferencias.js');
 const { particionesAPasar, mesCorte } = await import('../src/jobs/pase-historico.js');
+const { retencionMeses } = await import('../src/corte.js');
 const { urlBase, urlDelAmbiente, esAmbiente } = await import('../src/bdv/ambientes.js');
 
 const origenARS = { productId: 3, currencyId: 80, productNumber: '300100000000000', productAlias: 'X' };
@@ -105,8 +106,18 @@ test('carga masiva: formatos y TXT de ancho fijo', () => {
   assert.equal(f.importe, '420000.50');
 });
 
-test('pase histórico: solo particiones anteriores al corte de 3 meses', () => {
-  assert.equal(mesCorte(new Date('2026-10-21T12:00:00Z')), '2026-07-01');
+test('pase histórico: corte por meses de retención (1 por defecto)', () => {
+  assert.equal(retencionMeses(undefined), 1);
+  assert.equal(retencionMeses('3'), 3);
+  assert.throws(() => retencionMeses('0'));
+  assert.throws(() => retencionMeses('tres'));
+  assert.equal(mesCorte(new Date('2026-10-21T12:00:00Z'), 1), '2026-09-01', 'octubre: queda septiembre y octubre');
+  assert.equal(mesCorte(new Date('2026-11-01T05:10:00Z'), 1), '2026-10-01', 'el 1/11 pasa septiembre');
+  assert.equal(mesCorte(new Date('2026-01-15T12:00:00Z'), 1), '2025-12-01', 'cambio de año');
+  assert.equal(mesCorte(new Date('2026-10-21T12:00:00Z'), 3), '2026-07-01');
+});
+
+test('pase histórico: solo particiones anteriores al corte', () => {
   const p = particionesAPasar(['auditoria_2026_05', 'auditoria_2026_06', 'auditoria_2026_07', 'auditoria_2026_10', 'auditoria_default'], 'auditoria', '2026-07-01');
   assert.deepEqual(p.map((x) => x.particion), ['auditoria_2026_05', 'auditoria_2026_06']);
 });

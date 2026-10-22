@@ -1,6 +1,7 @@
-// Dos pools: base operativa (lectura/escritura, últimos 3 meses) y base histórica (solo lectura).
+// Dos pools: base operativa (lectura/escritura, mes en curso + HB_RETENCION_MESES) y base histórica (solo lectura).
 import pg from 'pg';
 import { config } from './config.js';
+import { mesCorte } from './corte.js';
 
 // numeric -> number para importes (dos decimales; dentro del rango seguro de JS)
 pg.types.setTypeParser(1700, (v) => (v === null ? null : Number(v)));
@@ -26,8 +27,14 @@ export async function tx(pool, fn) {
   }
 }
 
-// Fecha de corte: lo anterior vive en la base histórica.
-export function fechaCorte(hoy = new Date()) {
-  const d = new Date(Date.UTC(hoy.getUTCFullYear(), hoy.getUTCMonth() - config.retencionMesesOperativa, hoy.getUTCDate()));
-  return d.toISOString().slice(0, 10);
+// Fecha de corte de una tabla: lo anterior vive en la base histórica. Es el primer día del mes de retención,
+// salvo que la operativa todavía tenga un mes anterior sin pasar (el pase corre el día 1 de madrugada, o se
+// omitió porque había transferencias abiertas): entonces el corte es ese mes, porque ahí están los datos.
+export async function fechaCorte(tabla = 'transferencia', hoy = new Date()) {
+  const corte = mesCorte(hoy, config.retencionMesesOperativa);
+  const { rows: [r] } = await operativa.query(
+    `SELECT min(to_date(substring(c.relname from '_(\\d{4}_\\d{2})$'), 'YYYY_MM'))::text AS desde
+       FROM pg_inherits i JOIN pg_class c ON c.oid = i.inhrelid JOIN pg_class p ON p.oid = i.inhparent
+      WHERE p.relname = $1 AND c.relname ~ '_\\d{4}_\\d{2}$'`, [tabla]);
+  return r?.desde && r.desde < corte ? r.desde : corte;
 }

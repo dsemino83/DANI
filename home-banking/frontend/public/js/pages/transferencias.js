@@ -1,4 +1,4 @@
-// Registro de transferencias: base operativa (hoy / últimos 3 meses) o base histórica, por separado.
+// Registro de transferencias: base operativa (hoy / desde el corte) o base histórica, por separado.
 import { api } from '../api.js';
 import { h, poner, card, tabla, campo, seg, dinero, iso, fecha, fechaHora, estadoPill, ESTADOS, engranaje, cargando, error, toast } from '../ui.js';
 import { auditoriaTransferencia } from '../auditoria-modal.js';
@@ -17,9 +17,9 @@ export async function render(main, ctx) {
     const d2 = h('input', { type: 'date', value: arch ? st.tArchHasta : st.tHasta, min: arch ? null : corte, max: arch ? diaAntes(corte) : iso() });
     const filas = (datos ?? []).filter((t) => (!estado || t.estado === estado) && (!q || [t.id, t.referencia, t.destino, t.titular, t.creador, t.aprobador, t.tipo, t.transaction_id].join(' ').toLowerCase().includes(q)));
     const conteo = Object.keys(ESTADOS).map((e) => [e, (datos ?? []).filter((t) => t.estado === e).length]).filter(([e, n]) => n || e === estado);
-    poner(main, card('Transferencias · registro histórico', 'Todo lo cargado, individual y por lote, con su estado, quién lo cargó y aprobó y la respuesta del banco. La consulta diaria usa la base operativa (últimos 3 meses); lo anterior se consulta aparte en la base histórica.',
+    poner(main, card('Transferencias · registro histórico', 'Todo lo cargado, individual y por lote, con su estado, quién lo cargó y aprobó y la respuesta del banco. La consulta diaria usa la base operativa (mes en curso y el anterior); lo anterior se consulta aparte en la base histórica.',
       h('div', { class: 'fila' },
-        campo('Período', seg([['hoy', 'Hoy'], ['hist', 'Últimos 3 meses'], ['arch', 'Base histórica']], st.tModo, (v) => { st.tModo = v; cargar(); })),
+        campo('Período', seg([['hoy', 'Hoy'], ['hist', 'Base operativa'], ['arch', 'Base histórica']], st.tModo, (v) => { st.tModo = v; cargar(); })),
         st.tModo !== 'hoy' && [campo('Desde', d1), campo('Hasta', d2), h('button', { class: 'btn primario', onclick: () => {
           if (!d1.value || !d2.value || d1.value > d2.value) return toast('Ingresá un rango de fechas válido.', true);
           if (!arch && d1.value < corte) return toast(`La base operativa guarda desde el ${fecha(corte)}. Para fechas anteriores usá “Base histórica”.`, true);
@@ -29,7 +29,7 @@ export async function render(main, ctx) {
         } }, 'Consultar')],
         campo('Buscar', h('input', { type: 'search', value: q, placeholder: 'OP, ID, destino, titular, usuario…', oninput: (e) => { q = e.target.value.toLowerCase(); dibujar(); } }))),
       h('p', { class: `aviso ${arch ? '' : 'rojo'}` }, h('b', {}, arch ? 'Base histórica · solo lectura. ' : 'Base operativa. '),
-        arch ? `Operaciones anteriores al ${fecha(corte)}.` : `Últimos 3 meses (desde el ${fecha(corte)}); es la que usa la consulta diaria.`),
+        arch ? `Operaciones anteriores al ${fecha(corte)}.` : `Base operativa: desde el ${fecha(corte)}; es la que usa la consulta diaria. El día 1 de cada mes lo más viejo pasa a la base histórica.`),
       datos ? [
         h('div', { class: 'chips' }, h('button', { class: 'chip', 'aria-pressed': String(!estado), onclick: () => { estado = ''; dibujar(); } }, 'Todas', h('b', {}, datos.length)),
           conteo.map(([e, n]) => h('button', { class: 'chip', 'aria-pressed': String(estado === e), onclick: () => { estado = estado === e ? '' : e; dibujar(); } }, ESTADOS[e][0], h('b', {}, n)))),

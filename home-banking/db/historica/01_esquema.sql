@@ -1,4 +1,4 @@
--- Base histórica del Home Banking VALO: lo que tiene más de 3 meses.
+-- Base histórica del Home Banking VALO: lo anterior al corte (mes en curso + HB_RETENCION_MESES).
 -- Solo lectura para la aplicación; la escribe únicamente el job del pase mensual.
 -- Mismas columnas que la base operativa para copiar filas sin transformar.
 
@@ -78,4 +78,21 @@ CREATE TRIGGER h_auditoria_inmutable BEFORE UPDATE OR DELETE ON auditoria
 CREATE TRIGGER h_transferencia_inmutable BEFORE UPDATE OR DELETE ON transferencia
   FOR EACH ROW EXECUTE FUNCTION hb_solo_lectura();
 CREATE TRIGGER h_transferencia_estado_inmutable BEFORE UPDATE OR DELETE ON transferencia_estado
+  FOR EACH ROW EXECUTE FUNCTION hb_solo_lectura();
+
+-- Envíos programados de correo: cola y log, por filas (el job del pase también las crea si faltan).
+CREATE TABLE cola_envio (
+  id bigint PRIMARY KEY, programacion_id bigint, programacion text NOT NULL, turno text NOT NULL,
+  empresa_id bigint NOT NULL, empresa text NOT NULL, cuentas text[] NOT NULL, contenido text NOT NULL,
+  responsable text NOT NULL, manual boolean NOT NULL, estado text NOT NULL, intentos smallint NOT NULL,
+  max_intentos smallint NOT NULL, disponible_en timestamptz NOT NULL, encolada_en timestamptz NOT NULL,
+  tomada_en timestamptz, terminada_en timestamptz, destinatarios text[] NOT NULL, detalle text);
+CREATE INDEX h_cola_envio_prog_idx ON cola_envio (programacion_id, encolada_en);
+CREATE TABLE envio_mail_log (
+  id bigint PRIMARY KEY, programacion_id bigint, turno text NOT NULL, empresa_id bigint, empresa text,
+  destinatarios text[] NOT NULL, estado text NOT NULL, detalle text, manual boolean NOT NULL, en timestamptz NOT NULL);
+CREATE INDEX h_envio_mail_log_prog_idx ON envio_mail_log (programacion_id, en);
+CREATE TRIGGER h_cola_envio_inmutable BEFORE UPDATE OR DELETE ON cola_envio
+  FOR EACH ROW EXECUTE FUNCTION hb_solo_lectura();
+CREATE TRIGGER h_envio_mail_log_inmutable BEFORE UPDATE OR DELETE ON envio_mail_log
   FOR EACH ROW EXECUTE FUNCTION hb_solo_lectura();

@@ -256,8 +256,8 @@ CREATE TRIGGER transferencia_transicion BEFORE UPDATE OF estado ON transferencia
   FOR EACH ROW EXECUTE FUNCTION hb_transicion_valida();
 
 -- ---------------------------------------------------------------------------
--- Particiones mensuales: crea las del mes pasado a +2 meses (idempotente).
--- La llama el job del pase histórico cada mes y una vez acá.
+-- Particiones mensuales: crea las de los últimos meses a +2 meses (idempotente).
+-- La llama el job del pase histórico cada mes (desde el corte, para no recrear meses ya pasados) y una vez acá.
 -- ---------------------------------------------------------------------------
 CREATE FUNCTION hb_asegurar_particiones(desde date DEFAULT (date_trunc('month', now()) - interval '3 months')::date,
                                         hasta date DEFAULT (date_trunc('month', now()) + interval '2 months')::date)

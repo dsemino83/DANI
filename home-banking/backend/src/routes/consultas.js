@@ -30,7 +30,8 @@ export default async function rutasConsultas(app) {
 
   app.get('/me', async (req) => {
     const { usuario, nombre, rol, puedeCrear, puedeAprobar } = req.user;
-    return { usuario, nombre, rol, puedeCrear, puedeAprobar, corte: fechaCorte(), ambiente: config.ambiente, soloConsultas: config.soloConsultas };
+    const [corte, corteAuditoria] = await Promise.all([fechaCorte('transferencia'), fechaCorte('auditoria')]);
+    return { usuario, nombre, rol, puedeCrear, puedeAprobar, corte, corteAuditoria, retencionMeses: config.retencionMesesOperativa, ambiente: config.ambiente, soloConsultas: config.soloConsultas };
   });
 
   // Saldos: sin empresa = total de todas; con ?empresa= = solo esa

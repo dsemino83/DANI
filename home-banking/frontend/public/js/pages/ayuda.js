@@ -32,11 +32,11 @@ const SECCIONES = [
     'En “Estado de las transferencias aprobadas” seguís el resultado en el banco: Pendiente de autorización o Debitada.'] },
   { t: 'Transferencias', para: (m) => m.rol !== 'administrador', pasos: [
     'Registro de todo lo cargado, individual y por lote, con estado, quién lo cargó y aprobó y la respuesta del banco.',
-    '“Hoy” y “Últimos 3 meses” consultan la base operativa; lo anterior se consulta aparte en “Base histórica”.',
+    '“Hoy” y “Base operativa” consultan la base operativa; lo anterior se consulta aparte en “Base histórica”.',
     'La ruedita ⚙ abre el historial completo de la transferencia: creación, aprobación y cada cambio de estado.'] },
   { t: 'Auditoría', para: (m) => ['auditor', 'administrador'].includes(m.rol), pasos: [
     'Registro de solo lectura de cada acción. Filtrá por fechas, usuario, tipo o texto.',
-    'La base operativa tiene los últimos 3 meses; lo anterior está en la base histórica.'] },
+    'La base operativa tiene el mes en curso y el mes anterior completo; el día 1 de cada mes lo más viejo pasa a la base histórica.'] },
   { t: 'Administración de seguridad', para: (m) => m.rol === 'administrador', pasos: [
     'Empresas: dá de alta empresas, asignales cuentas sin asignar, desactivalas (suspende los permisos) o eliminalas (libera cuentas y quita permisos).',
     'Permisos: asigná los roles Crear / Aprobar y los permisos Ver / Operar por empresa a cada usuario.',

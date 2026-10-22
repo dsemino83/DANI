@@ -1,5 +1,5 @@
 // Auditoría general: solo lectura para auditor y administrador de seguridad.
-// Base operativa (últimos 3 meses) e histórica se consultan por separado.
+// Base operativa (desde el corte) e histórica se consultan por separado.
 import { exigirRol } from '../auth.js';
 import { auditar } from '../auditoria.js';
 import { fechaCorte, historica, operativa } from '../db.js';
@@ -24,7 +24,7 @@ export default async function rutasAuditoria(app) {
   app.addHook('preHandler', exigirRol('auditor', 'administrador'));
 
   app.get('/auditoria', async (req) => {
-    const corte = fechaCorte();
+    const corte = await fechaCorte('auditoria');
     const desde = req.query.desde ?? corte, hasta = req.query.hasta ?? new Date().toISOString().slice(0, 10);
     if (!fechaOk(desde) || !fechaOk(hasta) || desde > hasta) throw invalido('Rango de fechas inválido');
     if (desde < corte) throw invalido(`La base operativa guarda desde el ${corte}. Para fechas anteriores usá /historico/auditoria`);
@@ -32,7 +32,7 @@ export default async function rutasAuditoria(app) {
   });
 
   app.get('/historico/auditoria', async (req) => {
-    const corte = fechaCorte();
+    const corte = await fechaCorte('auditoria');
     const { desde, hasta } = req.query;
     if (!fechaOk(desde) || !fechaOk(hasta) || desde > hasta) throw invalido('Indicá desde y hasta (AAAA-MM-DD)');
     if (hasta >= corte) throw invalido(`La base histórica tiene lo anterior al ${corte}`);

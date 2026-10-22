@@ -1,6 +1,7 @@
 // Configuración por variables de entorno. Los secretos se leen de archivos
 // (Docker secrets) indicados con la variable <NOMBRE>_FILE; nunca de la imagen.
 import { readFileSync } from 'node:fs';
+import { retencionMeses } from './corte.js';
 
 const leer = (nombre, porDefecto) => {
   const archivo = process.env[`${nombre}_FILE`];
@@ -63,7 +64,8 @@ export const config = {
   // el estado real lo devuelve el banco (nroControl / getTransfersStatus).
   limiteSinAutorizacion: Number(leer('BDV_LIMITE_SIN_AUTORIZACION', '0')),
 
-  retencionMesesOperativa: 3,
+  // Meses completos que conserva la base operativa además del mes en curso; lo anterior pasa a la histórica
+  retencionMesesOperativa: retencionMeses(),
 };
 
 if (!['homo', 'prod'].includes(config.ambiente)) {

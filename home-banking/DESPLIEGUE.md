@@ -57,6 +57,7 @@ HB_VERSION=alyc                 # o un commit (p. ej. bea7a2e) para fijar la ver
 # Banco
 BDV_AMBIENTE=prod               # homo | prod (define la URL del banco)
 BDV_SOLO_CONSULTAS=true         # true hasta validar; false habilita el envío de transferencias
+HB_RETENCION_MESES=1            # meses completos que quedan en la base operativa además del mes en curso
 
 # SSO de VALO (Identidad tiene que crear los clientes; ver README)
 OIDC_ISSUER=https://ssohomo.valo.ar/valo/realms/staff
@@ -191,6 +192,28 @@ sh scripts/migrar-bases.sh                # cambios de esquema de la versión nu
 **Volver atrás:** poner el `HB_VERSION` anterior y repetir los dos comandos. Si una versión nueva cambió el esquema de la base, consultar antes de volver atrás.
 
 ## 8. Resguardo de las bases
+
+### Base operativa e histórica
+
+Todas las tablas con movimiento tienen su parte activa (base operativa, `postgres`) y su parte histórica (`postgres-historico`, solo lectura para la aplicación). La operativa conserva el **mes en curso y el mes anterior completo** (`HB_RETENCION_MESES=1`). El **día 1 de cada mes a las 02:10** el servicio `jobs` pasa a la histórica todo mes anterior:
+
+| Tabla | Cómo pasa |
+|---|---|
+| `transferencia`, `transferencia_estado`, `auditoria` | la partición del mes entera |
+| `cola_envio`, `envio_mail_log` (envíos de correo) | las filas terminadas del mes (lo pendiente queda) |
+
+Cada mes se copia, se verifica filas + hash en la histórica y recién entonces se borra de la operativa; queda en `pase_historico` (operativa), `pase_recibido` (histórica) y en Auditoría. Si un mes tiene transferencias sin estado final se omite y se reintenta el mes siguiente; mientras tanto las pantallas consultan ese mes en la operativa, así nada queda invisible. En las pantallas, "Base operativa" y "Base histórica" se eligen por separado.
+
+Para correr el pase a mano (por ejemplo para probarlo):
+
+```sh
+docker compose exec jobs node src/jobs/pase-historico.js
+docker compose exec postgres psql -U postgres -d homebanking -c "SELECT tabla, periodo, filas, estado, detalle, ejecutado_en FROM pase_historico ORDER BY id DESC LIMIT 20"
+```
+
+La configuración (empresas, permisos, credenciales, programaciones, feriados) no pasa: vive solo en la operativa. Cuánto se guarda la histórica lo define Cumplimiento.
+
+### Copias
 
 Los datos viven en los volúmenes `pg_operativa` y `pg_historica`. Copia diaria, por ejemplo con cron a las 03:00:
 

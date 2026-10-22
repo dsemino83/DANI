@@ -55,7 +55,7 @@ export async function render(main, ctx) {
     const est = ['PEND_AUTORIZACION', 'DEBITADA', 'ENVIADA', 'ERROR_API', 'RECHAZADA_BANCO'];
     poner(aprobadas, 
       h('div', { class: 'fila' },
-        seg([['hoy', 'Hoy'], ['7', 'Últimos 7 días'], ['todo', 'Últimos 3 meses']], periodo, (v) => { periodo = v; cargarAprobadas(); })),
+        seg([['hoy', 'Hoy'], ['7', 'Últimos 7 días'], ['todo', 'Base operativa']], periodo, (v) => { periodo = v; cargarAprobadas(); })),
       h('div', { class: 'chips' }, h('button', { class: 'chip', 'aria-pressed': String(!estadoF), onclick: () => { estadoF = ''; cargarAprobadas(); } }, 'Todas', h('b', {}, lista.length)),
         est.map((e) => [e, lista.filter((t) => t.estado === e).length]).filter(([, n]) => n).map(([e, n]) =>
           h('button', { class: 'chip', 'aria-pressed': String(estadoF === e), onclick: () => { estadoF = estadoF === e ? '' : e; cargarAprobadas(); } }, ESTADOS[e][0], h('b', {}, n)))),

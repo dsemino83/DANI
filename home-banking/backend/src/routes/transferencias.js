@@ -18,9 +18,9 @@ export default async function rutasTransferencias(app) {
     return transferencias.crear(req, req.body ?? {});
   });
 
-  // --- Base operativa: hoy o hasta 3 meses ---
+  // --- Base operativa: desde el corte (mes en curso + meses de retención) ---
   app.get('/transferencias', operativos, async (req) => {
-    const corte = fechaCorte();
+    const corte = await fechaCorte('transferencia');
     const desde = req.query.desde ?? new Date().toISOString().slice(0, 10), hasta = req.query.hasta ?? desde;
     if (!fechaOk(desde) || !fechaOk(hasta) || desde > hasta) throw invalido('Rango de fechas inválido');
     if (desde < corte) throw invalido(`La base operativa guarda desde el ${corte}. Para fechas anteriores usá /historico/transferencias`);
@@ -37,7 +37,7 @@ export default async function rutasTransferencias(app) {
 
   // --- Base histórica: solo fechas anteriores al corte, paginado en el servidor ---
   app.get('/historico/transferencias', operativos, async (req) => {
-    const corte = fechaCorte();
+    const corte = await fechaCorte('transferencia');
     const { desde, hasta } = req.query;
     if (!fechaOk(desde) || !fechaOk(hasta) || desde > hasta) throw invalido('Indicá desde y hasta (AAAA-MM-DD)');
     if (hasta >= corte) throw invalido(`La base histórica tiene lo anterior al ${corte}. Para fechas posteriores usá /transferencias`);

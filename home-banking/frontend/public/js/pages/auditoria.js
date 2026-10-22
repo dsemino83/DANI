@@ -6,7 +6,7 @@ const TIPOS = ['', 'Transferencias', 'Administración', 'Consultas'];
 const diaAntes = (d) => iso(new Date(new Date(`${d}T12:00:00`).getTime() - 864e5));
 
 export async function render(main, ctx) {
-  const corte = ctx.me.corte;
+  const corte = ctx.me.corteAuditoria ?? ctx.me.corte;
   const f = { base: 'operativa', desde: corte, hasta: iso(), hDesde: iso(new Date(new Date(`${corte}T12:00:00`).getTime() - 90 * 864e5)), hHasta: diaAntes(corte), usuario: '', tipo: '', q: '' };
   let pagina = 0, datos = null;
 
@@ -38,7 +38,7 @@ export async function render(main, ctx) {
 
     poner(main, card('Auditoría', 'Registro inalterable (solo inserción) de cada acción: quién, cuándo, con qué rol, qué API se invocó y con qué resultado. Esta pantalla es de solo lectura.',
       h('div', { class: 'fila' },
-        campo('Base', seg([['operativa', 'Operativa (últimos 3 meses)'], ['historica', 'Base histórica']], f.base, (v) => { f.base = v; pagina = 0; cargar(); })),
+        campo('Base', seg([['operativa', 'Base operativa'], ['historica', 'Base histórica']], f.base, (v) => { f.base = v; pagina = 0; cargar(); })),
         campo('Desde', d1), campo('Hasta', d2), campo('Usuario', usuario), campo('Tipo', tipo), campo('Buscar', q),
         h('button', { class: 'btn primario', onclick: consultar }, 'Consultar')),
       h('p', { class: `aviso ${hist ? '' : 'rojo'}` }, h('b', {}, hist ? 'Base histórica · solo lectura. ' : 'Base operativa. '),

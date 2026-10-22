@@ -1,10 +1,10 @@
 # Home Banking VALO — frontend, backend y despliegue
 
-Backend (BFF) en Node.js 22 + Fastify, dos Postgres (base operativa de 3 meses y base histórica) y Nginx, todo con Docker Compose. Los usuarios se autentican en el SSO de VALO (`https://ssohomo.valo.ar/valo/realms/staff`) y solo el backend se conecta con las APIs del Banco de Valores, con una única credencial (la de VALO).
+Backend (BFF) en Node.js 22 + Fastify, dos Postgres (base operativa: mes en curso + `HB_RETENCION_MESES`, 1 por defecto; y base histórica) y Nginx, todo con Docker Compose. Los usuarios se autentican en el SSO de VALO (`https://ssohomo.valo.ar/valo/realms/staff`) y solo el backend se conecta con las APIs del Banco de Valores, con una única credencial (la de VALO).
 
 ```
 navegador ──HTTPS──> frontend (Nginx) ──/api──> backend ──> APIs Banco de Valores
-     │                                             │ ├──> postgres (operativa, 3 meses, particionada por mes)
+     │                                             │ ├──> postgres (operativa, mes en curso + N, particionada por mes)
      └── login OIDC + PKCE ──> SSO VALO <── JWKS ───┘ └──> postgres-historico (solo lectura)
                                          jobs: estado de transferencias (cada 5 min) y pase histórico (mensual)
 ```
@@ -115,7 +115,7 @@ Ninguno se sube al repositorio (`.gitignore`). En producción conviene reemplaza
 | `POST /lotes` (multipart `archivo`) | rol Crear | CSV / XLSX / TXT con columna `id` → detalle previo (sin APIs de transferencia) |
 | `POST /lotes/{id}/confirmar` | quien lo subió | Crea una transferencia pendiente por fila válida |
 | `POST /lotes/{id}/aprobar` · `/rechazar` | rol Aprobar, distinto de quien lo subió | Una llamada al banco por fila |
-| `GET /transferencias?desde&hasta[&estado]` | operativos | Base operativa (máximo 3 meses) |
+| `GET /transferencias?desde&hasta[&estado]` | operativos | Base operativa (desde el corte) |
 | `GET /historico/transferencias?desde&hasta[&pagina]` | operativos | Base histórica (solo fechas anteriores al corte) |
 | `GET /transferencias/{id}/auditoria` | operativos | Historial completo de una operación (⚙) |
 | `GET /debitos/{movimiento}/auditoria` | operativos | Auditoría de un débito: si salió del Home Banking, la de su transferencia (⚙) |
@@ -156,7 +156,7 @@ SPA en JavaScript (módulos ES, sin paso de build) servida por Nginx, con las pa
 - **Permisos por empresa** en cada llamada: el banco devuelve todas las cuentas de VALO, así que el backend filtra por empresa activa y permiso Ver / Operar.
 - **Administrador de seguridad** sin acceso a saldos ni operaciones, aunque el token traiga roles de operación.
 - **Auditoría en la misma transacción** que cada acción; tablas de auditoría e historial de estados de solo inserción (trigger + permisos).
-- **Pase mensual a la base histórica** (día 1, 02:10): copia cada partición de más de 3 meses, verifica filas + hash y recién entonces la separa y elimina de la operativa. Si un mes tiene transferencias sin estado final, se omite y se reintenta el mes siguiente.
+- **Pase mensual a la base histórica** (día 1, 02:10): la operativa conserva el mes en curso y `HB_RETENCION_MESES` meses completos anteriores (1 por defecto). Todo mes anterior se copia a la histórica, se verifica filas + hash y recién entonces se elimina de la operativa: transferencias, historial de estados y auditoría (partición del mes entera) y cola y log de envíos de correo (filas terminadas). Si un mes tiene transferencias sin estado final, se omite y se reintenta el mes siguiente; mientras tanto el corte de las consultas se corre a ese mes para que nada quede invisible.
 
 ## Pruebas
 
