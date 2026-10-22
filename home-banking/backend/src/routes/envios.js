@@ -11,8 +11,8 @@ import { enArgentina, proximoTurno, validarProgramacion } from '../servicios/pro
 const CONTENIDO = { saldos: 'saldos', movimientos: 'movimientos del día', saldos_movimientos: 'saldos y movimientos del día' };
 const DIAS = ['', 'lun', 'mar', 'mié', 'jue', 'vie', 'sáb', 'dom'];
 const destinoTxt = (p) => (p.todas_empresas ? 'todos sus clientes' : `${(p.destinos ?? []).length} cliente(s)${(p.destinos ?? []).some((d) => d.cuentas?.length) ? ' (con cuentas elegidas)' : ''}`);
-export const describir = (p) => `${CONTENIDO[p.contenido]}${p.formato === 'cuerpo_excel' ? ' con Excel adjunto' : ' en el cuerpo del correo'} · ${p.frecuencia === 'diaria' ? `diaria a las ${String(p.hora).slice(0, 5)}`
-  : `${p.frecuencia === 'media_hora' ? 'cada 30 minutos' : 'cada hora'} de ${String(p.hora).slice(0, 5)} a ${String(p.hora_hasta).slice(0, 5)}`} · ${(p.dias_semana ?? []).map((d) => DIAS[d]).join(', ')}`
+export const describir = (p) => `${p.frecuencia === 'diaria' ? `Extracto diario (${CONTENIDO[p.contenido]}) a las ${String(p.hora).slice(0, 5)}`
+  : `Alerta de movimientos de la última media hora, ${p.frecuencia === 'media_hora' ? 'cada 30 minutos' : 'cada hora'} de ${String(p.hora).slice(0, 5)} a ${String(p.hora_hasta).slice(0, 5)}`}${p.formato === 'cuerpo_excel' ? ' · cuerpo + Excel' : ' · en el cuerpo del correo'} · ${(p.dias_semana ?? []).map((d) => DIAS[d]).join(', ')}`
   + `${p.saltar_feriados ? ' · sin feriados' : ''} · desde ${String(p.fecha_inicio).slice(0, 10)}${p.fecha_fin ? ` hasta ${String(p.fecha_fin).slice(0, 10)}` : ''}`;
 
 export default async function rutasEnvios(app) {
@@ -49,6 +49,20 @@ export default async function rutasEnvios(app) {
         const activas = (await c.query(`SELECT empresa_id::int AS e, product_number FROM empresa_cbu WHERE estado = 'activa' AND empresa_id = ANY($1)`, [d.destinos.map((x) => x.empresaId)])).rows;
         const ajenas = d.destinos.flatMap((x) => x.cuentas.filter((n) => !activas.some((a) => a.e === x.empresaId && a.product_number === n)));
         if (ajenas.length) throw invalido(`Cuentas que no son del cliente elegido: ${ajenas.join(', ')}`);
+      }
+      // Un cliente puede tener una sola programación activa por tipo: extracto diario, y alerta (cada hora o cada 30 minutos)
+      if (d.activa) {
+        const mias = await visibles(req.user.usuario);
+        const propios = d.todas ? mias.map((e) => Number(e.id)) : d.destinos.map((x) => x.empresaId);
+        const otras = (await c.query("SELECT * FROM programacion_envio WHERE activa AND (frecuencia = 'diaria') = ($1 = 'diaria') AND id <> $2", [d.frecuencia, id == null ? 0 : Number(id(req))])).rows;
+        for (const o of otras) {
+          const suyos = o.todas_empresas ? (await visibles(o.actualizada_por ?? o.creada_por)).map((e) => Number(e.id)) : (o.destinos ?? []).map((x) => Number(x.empresaId));
+          const repetidos = propios.filter((x) => suyos.includes(x));
+          if (repetidos.length) {
+            const nombres = repetidos.map((x) => mias.find((e) => Number(e.id) === x)?.razon_social ?? `cliente ${x}`).join(', ');
+            throw invalido(`${nombres} ya ${repetidos.length > 1 ? 'tienen' : 'tiene'} ${d.frecuencia === 'diaria' ? 'un extracto diario' : 'una alerta de movimientos'} en "${o.nombre}". Cada cliente puede tener un solo extracto diario y una sola alerta (cada hora o cada 30 minutos); pausá o editá la otra.`);
+          }
+        }
       }
       const v = [d.nombre, d.contenido, d.todas, d.destinos.map((x) => x.empresaId), d.frecuencia, d.hora, d.horaHasta, d.dias, d.saltarFeriados, d.fechaInicio, d.fechaFin, d.activa, req.user.usuario, JSON.stringify(d.destinos), d.formato];
       const { rows } = id == null

@@ -272,12 +272,28 @@ test('envíos programados: Excel adjunto con saldos y todos los movimientos', as
   const cuentas = [{ productNumber: '100', productName: 'CC', currencyId: 80, availableBalance: 1234.5, accountingBalance: 1300, movimientos: movs },
     { productNumber: '101', productName: 'CA', currencyId: 2, availableBalance: 7, accountingBalance: 7, movimientos: [] }];
   const leer = async (buf) => { const wb = new ExcelJS.Workbook(); await wb.xlsx.load(buf); return wb; };
-  let wb = await leer(await xlsxEnvio({ razon_social: 'ALFA SA', cuit: '30712345671' }, cuentas, 'saldos_movimientos'));
+  const logo = (await import('node:fs')).readFileSync(new URL('../src/assets/logo-valo.png', import.meta.url));
+  let wb = await leer(await xlsxEnvio({ razon_social: 'ALFA SA', cuit: '30712345671' }, cuentas, 'saldos_movimientos', { titulo: 'Extracto diario al 22/10/2026', logo }));
   assert.deepEqual(wb.worksheets.map((w) => w.name), ['Saldos', 'Movimientos']);
-  assert.equal(wb.getWorksheet('Saldos').getRow(2).getCell(6).value, 1234.5, 'importes como números');
-  assert.equal(wb.getWorksheet('Saldos').getRow(3).getCell(5).value, 'USD');
-  assert.equal(wb.getWorksheet('Movimientos').rowCount, 151, 'todos los movimientos, sin el tope del cuerpo');
-  assert.equal(wb.getWorksheet('Movimientos').getRow(3).getCell(12).value, -10, 'débito en negativo');
+  const sal = wb.getWorksheet('Saldos'), mov = wb.getWorksheet('Movimientos');
+  assert.equal(sal.getCell('C1').value, 'Extracto diario al 22/10/2026');
+  assert.match(sal.getCell('C2').value, /ALFA SA · CUIT 30712345671/);
+  assert.equal(sal.getImages().length, 1, 'logo del banco'); assert.equal(mov.getImages().length, 1);
+  assert.equal(sal.getRow(5).getCell(1).value, 'Cuenta', 'encabezado en la fila 5');
+  assert.equal(sal.getRow(6).getCell(4).value, 1234.5, 'importes como números');
+  assert.equal(sal.getRow(7).getCell(3).value, 'USD');
+  assert.equal(mov.rowCount, 155, 'todos los movimientos, sin el tope del cuerpo');
+  assert.equal(mov.getRow(7).getCell(12).value, -10, 'débito en negativo');
   wb = await leer(await xlsxEnvio({ razon_social: 'ALFA SA', cuit: '30712345671' }, cuentas, 'saldos'));
   assert.deepEqual(wb.worksheets.map((w) => w.name), ['Saldos']);
+});
+
+test('alerta de movimientos: franja de 29:59 antes de la ejecución', async () => {
+  const { franjaDeTurno, segundosDeHora, enFranja } = await import('../src/servicios/programacion.js');
+  const f = franjaDeTurno('2026-10-22T10:00');
+  assert.equal(f.desdeTxt.horaSeg, '09:30:01'); assert.equal(f.hastaTxt.horaSeg, '10:00:00'); assert.deepEqual(f.fechas, ['2026-10-22']);
+  assert.deepEqual(['09:30:00', '09:30:01', '09:45', '10:00:00', '10:00:01'].map((hour) => enFranja({ hour }, '2026-10-22', f)), [false, true, true, true, false]);
+  assert.deepEqual(franjaDeTurno('2026-10-22T00:00').fechas, ['2026-10-21', '2026-10-22'], 'cruza la medianoche: consulta los dos días');
+  assert.equal(franjaDeTurno('manual 2026-10-22T13:15:42.900Z').hastaTxt.horaSeg, '10:15:42', 'Ejecutar ahora: hasta el momento en que se pidió');
+  assert.deepEqual(['10:21', '10:21:33', '10:21:33 PM', '12:05 AM', '102133', '', 'x'].map(segundosDeHora), [37260, 37293, 80493, 300, 37293, null, null]);
 });

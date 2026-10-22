@@ -33,8 +33,8 @@ export async function render(main) {
       nombre: h('input', { value: p?.nombre ?? '', placeholder: 'Resumen diario de saldos' }),
       contenido: h('select', {}, CONTENIDO.map(([v, t]) => h('option', { value: v, selected: (p?.contenido ?? 'saldos') === v }, t))),
       formato: h('select', {}, FORMATO.map(([v, t]) => h('option', { value: v, selected: (p?.formato ?? 'cuerpo') === v }, t))),
-      frecuencia: h('select', {}, h('option', { value: 'diaria', selected: (p?.frecuencia ?? 'diaria') === 'diaria' }, '1 vez al día'), h('option', { value: 'horaria', selected: p?.frecuencia === 'horaria' }, '1 vez cada hora'),
-        h('option', { value: 'media_hora', selected: p?.frecuencia === 'media_hora' }, '1 vez cada 30 minutos')),
+      frecuencia: h('select', {}, h('option', { value: 'diaria', selected: (p?.frecuencia ?? 'diaria') === 'diaria' }, '1 vez al día · extracto diario'), h('option', { value: 'horaria', selected: p?.frecuencia === 'horaria' }, '1 vez cada hora · alerta de movimientos'),
+        h('option', { value: 'media_hora', selected: p?.frecuencia === 'media_hora' }, '1 vez cada 30 minutos · alerta de movimientos')),
       hora: h('input', { type: 'time', value: String(p?.hora ?? '09:00').slice(0, 5) }),
       horaHasta: h('input', { type: 'time', value: String(p?.hora_hasta ?? '18:00').slice(0, 5) }),
       inicio: h('input', { type: 'date', value: p?.fecha_inicio ?? hoy() }),
@@ -69,8 +69,17 @@ export async function render(main) {
     buscar.dataset.foco = 'envios-empresa';
     f.todas.addEventListener('change', pintarEmpresas);
     const franja = h('div', { class: 'fila' });
-    const pintarFranja = () => poner(franja, f.frecuencia.value === 'diaria' ? campo('Hora del envío', f.hora)
-      : [campo('Desde (primer envío)', f.hora), campo('Hasta (último envío)', f.horaHasta)]);
+    const explicacion = h('p', { class: 'nota' });
+    const pintarFranja = () => {
+      const diaria = f.frecuencia.value === 'diaria';
+      poner(franja, diaria ? campo('Hora del envío', f.hora) : [campo('Desde (primer envío)', f.hora), campo('Hasta (último envío)', f.horaHasta)]);
+      // La alerta (cada hora o cada 30 minutos) siempre informa movimientos: el contenido solo se elige en el extracto diario
+      f.contenido.disabled = !diaria;
+      if (!diaria) f.contenido.value = 'movimientos';
+      poner(explicacion, diaria
+        ? 'Extracto diario: asunto "Envío de extracto diario", saludo al cliente, saldos y/o movimientos del día por cuenta (débitos y créditos separados). Con Excel, el cuerpo va igual y se adjunta el extracto con el logo del banco y todos los movimientos.'
+        : 'Alerta de movimientos: en cada ejecución consulta los movimientos del día de las cuentas elegidas entre esa hora y 29:59 minutos antes (ej. 10:00 → de 09:30:01 a 10:00:00). Solo se envía si hubo movimientos: asunto "Alerta de movimientos", la franja horaria y, por cuenta, débitos y créditos en tablas con todo el detalle.');
+    };
     f.frecuencia.addEventListener('change', pintarFranja);
     pintarFranja(); pintarEmpresas();
 
@@ -97,9 +106,9 @@ export async function render(main) {
       await cargar(); pintarCola();
     };
 
-    poner(editor, card(p ? `Editar · ${p.nombre}` : 'Nuevo envío programado', 'Hora de Argentina. "1 vez cada hora" y "1 vez cada 30 minutos" envían a la hora de "Desde" y después cada hora o cada 30 minutos hasta "Hasta", inclusive.',
-      h('div', { class: 'fila' }, campo('Nombre', f.nombre), campo('Contenido', f.contenido), campo('Formato', f.formato), campo('Repetición', f.frecuencia)),
-      h('p', { class: 'nota' }, 'Con Excel adjunto el cuerpo del correo se completa igual; el Excel trae el detalle completo (hoja Saldos y/o Movimientos, con todos los movimientos).'),
+    poner(editor, card(p ? `Editar · ${p.nombre}` : 'Nuevo envío programado', 'Hora de Argentina. "1 vez cada hora" y "1 vez cada 30 minutos" ejecutan a la hora de "Desde" y después cada hora o cada 30 minutos hasta "Hasta", inclusive. Cada cliente puede tener una sola programación activa de cada tipo (un extracto diario y una alerta). Las consultas al banco usan la credencial de envíos programados.',
+      h('div', { class: 'fila' }, campo('Nombre', f.nombre), campo('Tipo y repetición', f.frecuencia), campo('Contenido', f.contenido), campo('Formato', f.formato)),
+      explicacion,
       franja,
       h('div', { class: 'fila' }, h('span', { class: 'nota' }, 'Días:'), ...dias.map(([, x, t]) => h('label', { class: 'campo check' }, x, t))),
       h('div', { class: 'fila' }, campo('Inicio', f.inicio), campo('Fin (vacío = sin fin)', f.fin),

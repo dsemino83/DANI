@@ -32,7 +32,8 @@ export const TABLAS_FILAS = [
       max_intentos smallint NOT NULL, disponible_en timestamptz NOT NULL, encolada_en timestamptz NOT NULL,
       tomada_en timestamptz, terminada_en timestamptz, destinatarios text[] NOT NULL, detalle text);
       CREATE INDEX IF NOT EXISTS h_cola_envio_prog_idx ON cola_envio (programacion_id, encolada_en);
-      ALTER TABLE cola_envio ADD COLUMN IF NOT EXISTS formato text NOT NULL DEFAULT 'cuerpo'`,  // migración 007
+      ALTER TABLE cola_envio ADD COLUMN IF NOT EXISTS formato text NOT NULL DEFAULT 'cuerpo';
+      ALTER TABLE cola_envio ADD COLUMN IF NOT EXISTS frecuencia text NOT NULL DEFAULT 'diaria'`,  // migraciones 007 y 008
   },
   {
     tabla: 'envio_mail_log', columna: 'en', terminadas: 'true',

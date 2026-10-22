@@ -66,6 +66,38 @@ export function proximoTurno(p, ahora = new Date(), esFeriado) {
   return null;
 }
 
+// Franja de una alerta de movimientos: desde 29:59 antes de la hora de ejecución hasta esa hora, inclusive
+// (turno 10:00 → de 09:30:01 a 10:00:00). Turno programado 'AAAA-MM-DDTHH:MM' o manual 'manual <ISO>' (hasta = ese instante).
+export const FRANJA_SEG = 29 * 60 + 59;
+export function franjaDeTurno(turno) {
+  const hasta = String(turno).startsWith('manual ') ? new Date(Math.floor(new Date(turno.slice(7)).getTime() / 1000) * 1000)
+    : instante(turno.slice(0, 10), turno.slice(11, 16));
+  const desde = new Date(hasta.getTime() - FRANJA_SEG * 1000);
+  const a = enArgentinaSeg(desde), b = enArgentinaSeg(hasta);
+  return { desde, hasta, fechas: [...new Set([a.fecha, b.fecha])], desdeTxt: a, hastaTxt: b };
+}
+const enArgentinaSeg = (d) => { const x = enArgentina(d); return { ...x, horaSeg: `${x.hora}:${pad(new Date(d.getTime() - OFFSET_MS).getUTCSeconds())}` }; };
+
+// Hora del movimiento que informa el banco ('10:21', '10:21:33', '10:21:33 AM', '102133') → segundos del día; null si no se entiende
+export function segundosDeHora(hora) {
+  const t = String(hora ?? '').trim();
+  let m = t.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?(?:[.,]\d+)?\s*([AaPp]\.?\s*[Mm]\.?)?$/);
+  if (!m) { const d = t.match(/^(\d{2})(\d{2})(\d{2})?$/); if (d) m = [t, d[1], d[2], d[3], null]; }
+  if (!m) return null;
+  let h = Number(m[1]); const min = Number(m[2]), s = Number(m[3] ?? 0);
+  if (m[4]) { const pm = /p/i.test(m[4]); if (h === 12) h = pm ? 12 : 0; else if (pm) h += 12; }
+  if (h > 23 || min > 59 || s > 59) return null;
+  return h * 3600 + min * 60 + s;
+}
+
+// ¿El movimiento (del día "fecha" consultado al banco) cae en la franja?
+export function enFranja(mov, fecha, franja) {
+  const s = segundosDeHora(mov.hour);
+  if (s == null) return false;
+  const t = instante(fecha, '00:00').getTime() + s * 1000;
+  return t >= franja.desde.getTime() && t <= franja.hasta.getTime();
+}
+
 // Validación de lo que carga el administrador
 export function validarProgramacion(d) {
   const nombre = String(d.nombre ?? '').trim();
@@ -95,6 +127,7 @@ export function validarProgramacion(d) {
   }
   const destinos = [...porEmpresa].map(([empresaId, cuentas]) => ({ empresaId, cuentas }));
   if (!todas && !destinos.length) throw invalido('Elegí al menos un cliente o "todos"');
-  return { nombre, contenido: d.contenido, formato, frecuencia: d.frecuencia, hora, horaHasta, dias, saltarFeriados: d.saltarFeriados !== false,
+  // Cada hora / cada 30 minutos = alerta de movimientos de la franja: el contenido es siempre movimientos
+  return { nombre, contenido: d.frecuencia !== 'diaria' ? 'movimientos' : d.contenido, formato, frecuencia: d.frecuencia, hora, horaHasta, dias, saltarFeriados: d.saltarFeriados !== false,
     fechaInicio: d.fechaInicio, fechaFin: d.fechaFin || null, todas, destinos, activa: d.activa !== false };
 }

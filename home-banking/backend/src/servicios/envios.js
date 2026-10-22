@@ -1,50 +1,110 @@
-// Ejecución de los envíos programados: arma por empresa un correo con saldos y/o movimientos del día
-// y lo manda a sus emails. Lo corre el servicio jobs cada minuto (y el administrador con "Ejecutar ahora").
+// Ejecución de los envíos programados: por cliente, un extracto diario o una alerta de movimientos de la
+// última media hora, a sus emails. Lo corre el servicio jobs cada minuto (y el administrador con "Ejecutar ahora").
 import { operativa } from '../db.js';
 import { bdvEnvios, cuentasPropias, movimientos } from '../bdv/cliente.js';
 import { enviarCorreo } from '../correo.js';
+import { readFileSync } from 'node:fs';
 import { xlsxEnvio } from '../excel.js';
 import { feriadosCargados } from './feriados.js';
-import { enArgentina, turnoVencido } from './programacion.js';
+import { enArgentina, enFranja, franjaDeTurno, turnoVencido } from './programacion.js';
 
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const dinero = (v, mon) => `${mon === 'USD' ? 'US$' : '$'} ${Number(v ?? 0).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const monedaDe = (c) => (Number(c.currencyId) === 80 ? 'ARS' : 'USD');
 const MAX_MOVS = 100;
 
-// formato 'cuerpo': todo en el cuerpo del correo; 'cuerpo_excel': el mismo cuerpo y además un Excel adjunto
-export function armarCorreo(empresa, cuentas, contenido, fecha, formato = 'cuerpo') {
+// Dos tipos de envío:
+// - diaria: EXTRACTO DIARIO (saldos y/o movimientos del día); con formato 'cuerpo_excel' además va el Excel con el logo.
+// - horaria: ALERTA DE MOVIMIENTOS de la franja (29:59 antes de la ejecución); si no hubo movimientos no se envía.
+// En los dos el cuerpo del correo va completo: por cuenta (como título), débitos y créditos en tablas separadas.
+export const LOGO_CID = 'logo-valo@homebanking';
+const dmy = (fecha) => { const [a, m, d] = fecha.split('-'); return `${d}/${m}/${a}`; };
+const nombreArchivo = (tipo, empresa, fecha) => `VALO_${tipo}_${empresa.cuit}_${fecha}.xlsx`;
+
+function tabla(cab, filas, pie = null) {
+  const th = cab.map(([t, num]) => `<th align="${num ? 'right' : 'left'}" style="background:#CE162E;color:#fff;padding:6px 8px;font-weight:bold">${t}</th>`).join('');
+  const tds = (fila) => fila.map(([v, num]) => `<td align="${num ? 'right' : 'left'}" style="padding:6px 8px;border-bottom:1px solid #eee${num ? ';white-space:nowrap' : ''}">${v}</td>`).join('');
+  return `<table cellpadding="0" cellspacing="0" style="border-collapse:collapse;font-size:12px;width:100%;margin:4px 0 12px">
+    <tr>${th}</tr>${filas.map((f) => `<tr>${tds(f)}</tr>`).join('')}${pie ? `<tr>${pie.map(([v, num]) => `<td align="${num ? 'right' : 'left'}" style="padding:6px 8px;font-weight:bold;border-top:2px solid #ccc;white-space:nowrap">${v}</td>`).join('')}</tr>` : ''}</table>`;
+}
+
+// Movimientos de una cuenta: débitos y créditos por separado, con todo el detalle que da el banco
+function movimientosHtml(c, movs, max) {
+  const mon = monedaDe(c);
+  let html = '', texto = '';
+  for (const [dc, titulo] of [['D', 'Débitos'], ['C', 'Créditos']]) {
+    const lista = movs.filter((m) => m.signDC === dc);
+    const total = lista.reduce((a, m) => a + Number(m.amount ?? 0), 0);
+    html += `<h4 style="margin:10px 0 2px;color:${dc === 'D' ? '#9b1022' : '#1b6e3a'}">${titulo} (${lista.length})</h4>`;
+    texto += `  ${titulo}: ${lista.length} · total ${dinero(total, mon)}\n`;
+    if (!lista.length) { html += `<p style="margin:0 0 8px;color:#727274">Sin ${titulo.toLowerCase()}.</p>`; continue; }
+    html += tabla([['Fecha'], ['Hora'], ['Descripción'], ['Beneficiario / Ordenante'], ['CUIT'], ['CBU origen'], ['ID'], ['Importe', 1], ['Saldo', 1]],
+      lista.slice(0, max).map((m) => [[esc(m.processDate)], [esc(m.hour)], [esc(m.description)], [esc(m.beneficiary)], [esc(m.documentNumber)], [esc(m.cbuOri)],
+        [esc(m.transactionId ?? m.sequential)], [dinero(m.amount, mon), 1], [m.availableBalance == null ? '' : dinero(m.availableBalance, mon), 1]]),
+      [['Total'], [''], [''], [''], [''], [''], [''], [dinero(total, mon), 1], ['']]);
+    for (const m of lista.slice(0, max)) texto += `    ${m.hour ?? ''} ${m.description ?? ''} ${m.beneficiary ?? ''} ${dinero(m.amount, mon)}\n`;
+    if (lista.length > max) html += `<p style="margin:0 0 8px">… y ${lista.length - max} ${titulo.toLowerCase()} más.</p>`;
+  }
+  return { html, texto };
+}
+
+const encabezado = (titulo) => `<div style="font-family:Arial,Helvetica,sans-serif;color:#2a2a2d;max-width:900px">
+  <table cellpadding="0" cellspacing="0" style="width:100%;border-bottom:3px solid #CE162E;margin-bottom:16px"><tr>
+    <td style="padding:0 0 10px"><img src="cid:${LOGO_CID}" alt="VALO · Banco de Valores" width="145" height="48" style="display:block"></td>
+    <td align="right" style="padding:0 0 10px;font-size:14px;color:#727274">${titulo}</td></tr></table>`;
+const pie = `<p style="font-size:11px;color:#727274;margin-top:24px;border-top:1px solid #eee;padding-top:8px">Correo automático del Home Banking VALO · Banco de Valores. No responder este mensaje. Ante cualquier duda comuníquese con su oficial de cuenta.</p></div>`;
+const tituloCuenta = (c) => `<h3 style="margin:18px 0 4px;padding:6px 10px;background:#f4f4f5;border-left:4px solid #CE162E">Cuenta ${esc(c.productNumber)} · ${esc(c.productName ?? '')} · ${monedaDe(c)}</h3>`;
+
+// Alerta de movimientos de la franja. Devuelve null si no hubo movimientos (no se envía nada).
+export function armarAlerta(empresa, cuentas, franja, formato = 'cuerpo') {
+  const conMovs = cuentas.filter((c) => c.errorMovimientos || c.movimientos?.length);
+  if (!cuentas.some((c) => c.movimientos?.length)) return null;
+  const f = `de las ${franja.desdeTxt.horaSeg} a las ${franja.hastaTxt.horaSeg} del ${dmy(franja.hastaTxt.fecha)}`
+    + (franja.desdeTxt.fecha !== franja.hastaTxt.fecha ? ` (desde el ${dmy(franja.desdeTxt.fecha)})` : '');
+  const n = cuentas.reduce((a, c) => a + (c.movimientos?.length ?? 0), 0);
+  let html = `${encabezado('Alerta de movimientos')}
+    <p>Estimado cliente <b>${esc(empresa.razon_social)}</b>:</p>
+    <p>Queremos informarle los movimientos registrados en sus cuentas en la franja horaria <b>${f}</b> (hora de Argentina).
+    Se registraron <b>${n}</b> movimiento(s).</p>`;
+  let texto = `Estimado cliente ${empresa.razon_social}:\nQueremos informarle los movimientos registrados en sus cuentas en la franja horaria ${f} (hora de Argentina).\n`;
+  for (const c of conMovs) {
+    html += tituloCuenta(c); texto += `\nCUENTA ${c.productNumber} (${monedaDe(c)})\n`;
+    if (c.errorMovimientos) { html += `<p>No se pudieron consultar: ${esc(c.errorMovimientos)}</p>`; continue; }
+    const m = movimientosHtml(c, c.movimientos, 500); html += m.html; texto += m.texto;
+  }
+  const archivo = formato === 'cuerpo_excel' ? nombreArchivo('Alerta_de_movimientos', empresa, `${franja.hastaTxt.fecha}_${franja.hastaTxt.hora.replace(':', '')}`) : null;
+  if (archivo) { html += `<p>Se adjunta el detalle en Excel: <b>${esc(archivo)}</b>.</p>`; texto += `\nSe adjunta el detalle en Excel: ${archivo}\n`; }
+  html += pie;
+  const asunto = `Alerta de movimientos · ${empresa.razon_social} · ${dmy(franja.hastaTxt.fecha)} ${franja.desdeTxt.hora} a ${franja.hastaTxt.hora}`;
+  return { asunto, html, texto, archivo, titulo: `Alerta de movimientos · franja ${f}` };
+}
+
+// Extracto diario: saldos y/o movimientos del día de las cuentas elegidas (se envía aunque no haya movimientos)
+export function armarExtracto(empresa, cuentas, contenido, fecha, formato = 'cuerpo') {
   const conSaldos = contenido !== 'movimientos', conMovs = contenido !== 'saldos';
-  const [a, m, d] = fecha.split('-'), dia = `${d}/${m}/${a}`;
-  const tabla = (cab, filas) => `<table cellpadding="6" cellspacing="0" style="border-collapse:collapse;font-size:13px;width:100%">
-    <tr>${cab.map((c) => `<th align="left" style="border-bottom:1px solid #ccc">${c}</th>`).join('')}</tr>${filas.join('')}</table>`;
-  const td = (v, num) => `<td${num ? ' align="right"' : ''} style="border-bottom:1px solid #eee">${v}</td>`;
-  let html = `<div style="font-family:Arial,sans-serif;color:#2a2a2d"><h2 style="color:#CE162E;margin:0 0 4px">Banco de Valores · VALO</h2>
-    <p style="margin:0 0 16px">${esc(empresa.razon_social)} · CUIT ${esc(empresa.cuit)} · ${dia}</p>`;
-  let texto = `VALO · ${empresa.razon_social} (CUIT ${empresa.cuit}) · ${dia}\n`;
+  let html = `${encabezado('Extracto diario')}
+    <p>Estimado cliente <b>${esc(empresa.razon_social)}</b>:</p>
+    <p>Le enviamos el extracto diario de sus cuentas en Banco de Valores correspondiente al <b>${dmy(fecha)}</b>${conSaldos && conMovs ? ', con los saldos y los movimientos del día' : conSaldos ? ', con los saldos' : ', con los movimientos del día'}.</p>`;
+  let texto = `Estimado cliente ${empresa.razon_social}:\nLe enviamos el extracto diario de sus cuentas en Banco de Valores correspondiente al ${dmy(fecha)}.\n`;
   if (conSaldos) {
-    html += `<h3>Saldos</h3>${tabla(['Cuenta', 'Nombre', 'Disponible', 'Contable'], cuentas.map((c) => `<tr>${td(esc(c.productNumber))}${td(esc(c.productName))}${td(dinero(c.availableBalance, monedaDe(c)), 1)}${td(dinero(c.accountingBalance, monedaDe(c)), 1)}</tr>`))}`;
+    html += `<h3 style="margin:18px 0 4px">Saldos</h3>${tabla([['Cuenta'], ['Nombre'], ['Moneda'], ['Disponible', 1], ['Contable', 1]],
+      cuentas.map((c) => [[esc(c.productNumber)], [esc(c.productName)], [monedaDe(c)], [dinero(c.availableBalance, monedaDe(c)), 1], [dinero(c.accountingBalance, monedaDe(c)), 1]]))}`;
     texto += `\nSALDOS\n${cuentas.map((c) => `${c.productNumber} ${c.productName ?? ''}: disponible ${dinero(c.availableBalance, monedaDe(c))}`).join('\n')}\n`;
   }
   if (conMovs) {
     for (const c of cuentas) {
-      const movs = c.movimientos ?? [];
-      html += `<h3>Movimientos del día · cuenta ${esc(c.productNumber)}</h3>`;
+      html += tituloCuenta(c); texto += `\nCUENTA ${c.productNumber} (${monedaDe(c)})\n`;
       if (c.errorMovimientos) { html += `<p>No se pudieron consultar: ${esc(c.errorMovimientos)}</p>`; continue; }
-      if (!movs.length) { html += '<p>Sin movimientos.</p>'; continue; }
-      html += tabla(['Hora', 'Descripción', 'D/C', 'Importe'], movs.slice(0, MAX_MOVS).map((x) => `<tr>${td(esc(x.hour))}${td(esc(x.description))}${td(esc(x.signDC))}${td(dinero(x.amount, monedaDe(c)), 1)}</tr>`));
-      if (movs.length > MAX_MOVS) html += `<p>… y ${movs.length - MAX_MOVS} movimientos más (${formato === 'cuerpo_excel' ? 'todos están en el Excel adjunto' : 'ver el Home Banking'}).</p>`;
-      texto += `\nMOVIMIENTOS ${c.productNumber}: ${movs.length}\n`;
+      if (!c.movimientos?.length) { html += '<p style="color:#727274">Sin movimientos en el día.</p>'; texto += '  Sin movimientos.\n'; continue; }
+      const m = movimientosHtml(c, c.movimientos, MAX_MOVS); html += m.html; texto += m.texto;
     }
   }
-  const archivo = `VALO_${contenido === 'movimientos' ? 'Movimientos' : contenido === 'saldos' ? 'Saldos' : 'Saldos_y_movimientos'}_${empresa.cuit}_${fecha}.xlsx`;
-  if (formato === 'cuerpo_excel') {
-    html += `<p style="margin-top:16px">Se adjunta el detalle en Excel: <b>${esc(archivo)}</b>.</p>`;
-    texto += `\nSe adjunta el detalle en Excel: ${archivo}\n`;
-  }
-  html += '<p style="font-size:11px;color:#727274;margin-top:20px">Correo automático del Home Banking VALO. No responder.</p></div>';
-  const asunto = `VALO · ${contenido === 'movimientos' ? 'Movimientos' : contenido === 'saldos' ? 'Saldos' : 'Saldos y movimientos'} · ${empresa.razon_social} · ${dia}`;
-  return { asunto, html, texto, archivo: formato === 'cuerpo_excel' ? archivo : null };
+  const archivo = formato === 'cuerpo_excel' ? nombreArchivo('Extracto_diario', empresa, fecha) : null;
+  if (archivo) { html += `<p>Se adjunta el extracto en Excel con todos los movimientos: <b>${esc(archivo)}</b>.</p>`; texto += `\nSe adjunta el extracto en Excel: ${archivo}\n`; }
+  else if (conMovs && cuentas.some((c) => (c.movimientos?.length ?? 0) > MAX_MOVS)) html += '<p>Para ver todos los movimientos, ingrese al Home Banking.</p>';
+  html += pie;
+  const asunto = `Envío de extracto diario · ${empresa.razon_social} · ${dmy(fecha)}`;
+  return { asunto, html, texto, archivo, titulo: `Extracto diario al ${dmy(fecha)}` };
 }
 
 // ---------------- Cola de envíos ----------------
@@ -66,9 +126,9 @@ export async function encolarTurno(p, turno, { manual = false } = {}) {
   let encoladas = 0;
   for (const d of destinos) {
     const e = visibles.find((x) => Number(x.id) === Number(d.empresaId));
-    const r = await operativa.query(`INSERT INTO cola_envio (programacion_id, programacion, turno, empresa_id, empresa, cuentas, contenido, responsable, manual, formato)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) ON CONFLICT (programacion_id, turno, empresa_id) DO NOTHING`,
-    [p.id, p.nombre, turno, d.empresaId, e?.razon_social ?? `Empresa ${d.empresaId}`, d.cuentas ?? [], p.contenido, responsable, manual, p.formato ?? 'cuerpo']);
+    const r = await operativa.query(`INSERT INTO cola_envio (programacion_id, programacion, turno, empresa_id, empresa, cuentas, contenido, responsable, manual, formato, frecuencia)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) ON CONFLICT (programacion_id, turno, empresa_id) DO NOTHING`,
+    [p.id, p.nombre, turno, d.empresaId, e?.razon_social ?? `Empresa ${d.empresaId}`, d.cuentas ?? [], p.contenido, responsable, manual, p.formato ?? 'cuerpo', p.frecuencia]);
     encoladas += r.rowCount;
   }
   return encoladas;
@@ -85,6 +145,8 @@ async function tomarTarea() {
 const terminar = (t, estado, detalle, destinatarios = []) => operativa.query(
   `UPDATE cola_envio SET estado = $2, detalle = $3, destinatarios = $4, terminada_en = now() WHERE id = $1`, [t.id, estado, String(detalle ?? '').slice(0, 1000), destinatarios]);
 
+const LOGO = readFileSync(new URL('../assets/logo-valo.png', import.meta.url));
+
 let banco = { cuando: 0, cuentas: null };
 const cuentasDelBanco = async () => { // una consulta al banco por minuto como mucho, para toda la cola
   if (!banco.cuentas || Date.now() - banco.cuando > 60_000) banco = { cuando: Date.now(), cuentas: await cuentasPropias(bdvEnvios) };
@@ -99,16 +161,33 @@ export async function procesarTarea(t) {
   const nums = new Set(t.cuentas?.length ? t.cuentas.filter((c) => activas.includes(c)) : activas);
   if (!nums.size) return terminar(t, 'omitido', 'El cliente no tiene (o ya no tiene) las cuentas elegidas');
   try {
-    const fecha = enArgentina().fecha;
+    const alerta = t.frecuencia !== 'diaria'; // cada hora o cada 30 minutos
     const cuentas = (await cuentasDelBanco()).filter((c) => nums.has(String(c.productNumber))).map((c) => ({ ...c }));
-    if (t.contenido !== 'saldos') {
+    let correo, fecha = enArgentina().fecha;
+    if (alerta) {
+      // Movimientos del día (y del anterior si la franja cruza la medianoche) filtrados por la franja
+      const franja = franjaDeTurno(t.turno); // turno programado, o 'manual <instante>' de "Ejecutar ahora"
       for (const c of cuentas) {
-        try { c.movimientos = (await movimientos(c, fecha, fecha, bdvEnvios)).movimientos; } catch (x) { c.errorMovimientos = x.message; }
+        try {
+          c.movimientos = [];
+          for (const dia of franja.fechas) c.movimientos.push(...(await movimientos(c, dia, dia, bdvEnvios)).movimientos.filter((m) => enFranja(m, dia, franja)));
+        } catch (x) { c.errorMovimientos = x.message; }
       }
+      if (cuentas.length && cuentas.every((c) => c.errorMovimientos)) throw new Error(`No se pudieron consultar los movimientos: ${cuentas[0].errorMovimientos}`);
+      correo = armarAlerta(e, cuentas, franja, t.formato);
+      if (!correo) return terminar(t, 'omitido', `Sin movimientos de ${franja.desdeTxt.horaSeg} a ${franja.hastaTxt.horaSeg}: no se envía alerta`);
+      fecha = franja.hastaTxt.fecha;
+    } else {
+      if (t.contenido !== 'saldos') {
+        for (const c of cuentas) {
+          try { c.movimientos = (await movimientos(c, fecha, fecha, bdvEnvios)).movimientos; } catch (x) { c.errorMovimientos = x.message; }
+        }
+      }
+      correo = armarExtracto(e, cuentas, t.contenido, fecha, t.formato);
     }
-    const correo = armarCorreo(e, cuentas, t.contenido, fecha, t.formato);
-    const adjuntos = correo.archivo ? [{ filename: correo.archivo, content: await xlsxEnvio(e, cuentas, t.contenido),
-      contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }] : [];
+    const adjuntos = [{ filename: 'logo-valo.png', content: LOGO, cid: LOGO_CID }];
+    if (correo.archivo) adjuntos.push({ filename: correo.archivo, content: await xlsxEnvio(e, cuentas, alerta ? 'movimientos' : t.contenido, { titulo: correo.titulo, logo: LOGO }),
+      contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
     await enviarCorreo({ para: e.emails, asunto: correo.asunto, html: correo.html, texto: correo.texto, adjuntos });
     return terminar(t, 'enviado', `${correo.asunto}${correo.archivo ? ` · adjunto ${correo.archivo}` : ''}`, e.emails);
   } catch (x) {
