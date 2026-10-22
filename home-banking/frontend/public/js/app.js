@@ -107,6 +107,7 @@ async function esperarBackend() {
     ctx.me = await esperarBackend();
     await pantallaApp();
   } catch (e) {
+    if (e.reintentar) return login();
     pantallaLogin(e.message);
   }
 })();
