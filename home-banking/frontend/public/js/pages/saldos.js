@@ -1,6 +1,6 @@
 // Saldos: total de todas las empresas al ingresar; al elegir una, todo pasa a esa empresa.
 import { api } from '../api.js';
-import { h, poner, card, kpi, tabla, dinero, iso, pill, cargando, error } from '../ui.js';
+import { h, poner, card, campo, kpi, tabla, dinero, iso, pill, cargando, error, contiene } from '../ui.js';
 
 const sumar = (cs, mon) => cs.filter((c) => c.moneda === mon).reduce((s, c) => s + Number(c.disponible), 0);
 
@@ -20,6 +20,33 @@ export async function render(main, ctx) {
   const etiquetaDeb = (d) => (d.n ? pill([d.ars && `−${dinero(d.ars)}`, d.usd && `−${dinero(d.usd, 'USD')}`].filter(Boolean).join(' · ') + ` · ${d.n} ${d.n === 1 ? 'débito' : 'débitos'}`, 'bad') : h('span', { class: 'nota' }, 'Sin débitos hoy'));
 
   let cli = ctx.estado.cliSaldos ?? null, sel = null;
+  // Buscador de clientes y cuentas: "contiene" en razón social, CUIT, nombre (producto), alias o número de cuenta.
+  // Filtra las dos listas sin redibujar el resto (no vuelve a consultar al banco mientras se escribe).
+  const buscar = h('input', { type: 'search', value: ctx.estado.buscarSaldos ?? '', placeholder: 'Nombre de la cuenta, alias, número, cliente o CUIT' });
+  const cuentaCoincide = (c) => contiene(buscar.value, c.producto, c.alias, c.cuenta, c.empresa.razonSocial, c.empresa.cuit);
+  const listaClientes = h('div', {}), listaCuentas = h('div', {});
+  const pintarListas = () => {
+    ctx.estado.buscarSaldos = buscar.value;
+    const emp = empresas.find((e) => e.id === cli);
+    const alcance = (emp ? cuentas.filter((c) => c.empresa.id === cli) : cuentas).filter(cuentaCoincide);
+    poner(listaClientes, tabla([
+      { t: 'Cliente', v: (e) => e.razonSocial }, { t: 'CUIT', v: (e) => e.cuit, cls: 'mono' },
+      { t: 'Cuentas', v: (e) => cuentas.filter((c) => c.empresa.id === e.id).length, cls: 'num' },
+      { t: 'Disponible $', v: (e) => dinero(sumar(cuentas.filter((c) => c.empresa.id === e.id), 'ARS')), cls: 'num' },
+      { t: 'Disponible US$', v: (e) => dinero(sumar(cuentas.filter((c) => c.empresa.id === e.id), 'USD'), 'USD'), cls: 'num' },
+      { t: 'Débitos realizados', v: (e) => etiquetaDeb(debDe(cuentas.filter((c) => c.empresa.id === e.id))) },
+    ], empresas.filter((e) => cuentas.some((c) => c.empresa.id === e.id && cuentaCoincide(c))),
+    { alClic: (e) => { cli = cli === e.id ? null : e.id; ctx.estado.cliSaldos = cli; dibujar(); }, sel: (e) => e.id === cli,
+      vacio: empresas.length ? 'Ningún cliente ni cuenta coincide con la búsqueda.' : 'No tenés clientes habilitados. Pedile al administrador de seguridad permisos por empresa.' }));
+    poner(listaCuentas, tabla([
+      { t: 'Cuenta', v: (c) => c.cuenta, cls: 'mono' }, { t: 'Nombre', v: (c) => c.producto }, { t: 'Alias', v: (c) => c.alias }, { t: 'Moneda', v: (c) => c.moneda },
+      { t: 'Disponible', v: (c) => dinero(c.disponible, c.moneda), cls: 'num' }, { t: 'Contable', v: (c) => dinero(c.contable, c.moneda), cls: 'num' },
+      { t: 'Débitos realizados', v: (c) => etiquetaDeb(debDe([c])) },
+      { t: 'Movimientos', v: (c) => h('button', { class: 'btn chico', onclick: (ev) => { ev.stopPropagation(); ctx.ir('movimientos', { cuenta: c.cuenta, movModo: 'hoy' }); } }, 'Ver del día') },
+    ], alcance, { alClic: (c) => { sel = c.cuenta; dibujar(); }, sel: (c) => c.cuenta === sel, vacio: 'Ninguna cuenta coincide con la búsqueda.' }));
+  };
+  buscar.addEventListener('input', pintarListas);
+
   const dibujar = async () => {
     const emp = empresas.find((e) => e.id === cli);
     const alcance = emp ? cuentas.filter((c) => c.empresa.id === cli) : cuentas;
@@ -38,22 +65,12 @@ export async function render(main, ctx) {
       card(null, null,
         h('div', { class: 'fila' }, h('h2', {}, 'Clientes'), emp && h('button', { class: 'btn chico', onclick: () => { cli = null; dibujar(); } }, 'Ver todas las empresas')),
         h('p', { class: 'nota' }, 'Empresas que tenés habilitadas. Al ingresar se muestra el total de todas; elegí un cliente para ver solo sus datos (tocalo de nuevo para volver al total).'),
-        tabla([
-          { t: 'Cliente', v: (e) => e.razonSocial }, { t: 'CUIT', v: (e) => e.cuit, cls: 'mono' },
-          { t: 'Cuentas', v: (e) => cuentas.filter((c) => c.empresa.id === e.id).length, cls: 'num' },
-          { t: 'Disponible $', v: (e) => dinero(sumar(cuentas.filter((c) => c.empresa.id === e.id), 'ARS')), cls: 'num' },
-          { t: 'Disponible US$', v: (e) => dinero(sumar(cuentas.filter((c) => c.empresa.id === e.id), 'USD'), 'USD'), cls: 'num' },
-          { t: 'Débitos realizados', v: (e) => etiquetaDeb(debDe(cuentas.filter((c) => c.empresa.id === e.id))) },
-        ], empresas, { alClic: (e) => { cli = cli === e.id ? null : e.id; ctx.estado.cliSaldos = cli; dibujar(); }, sel: (e) => e.id === cli, vacio: 'No tenés clientes habilitados. Pedile al administrador de seguridad permisos por empresa.' })),
-      card(`Cuentas de ${nombre}`, 'Hacé clic en una cuenta para ver su detalle, o entrá directo a sus movimientos del día.',
-        tabla([
-          { t: 'Cuenta', v: (c) => c.cuenta, cls: 'mono' }, { t: 'Producto', v: (c) => c.producto }, { t: 'Alias', v: (c) => c.alias }, { t: 'Moneda', v: (c) => c.moneda },
-          { t: 'Disponible', v: (c) => dinero(c.disponible, c.moneda), cls: 'num' }, { t: 'Contable', v: (c) => dinero(c.contable, c.moneda), cls: 'num' },
-          { t: 'Débitos realizados', v: (c) => etiquetaDeb(debDe([c])) },
-          { t: 'Movimientos', v: (c) => h('button', { class: 'btn chico', onclick: (ev) => { ev.stopPropagation(); ctx.ir('movimientos', { cuenta: c.cuenta, movModo: 'hoy' }); } }, 'Ver del día') },
-        ], alcance, { alClic: (c) => { sel = c.cuenta; dibujar(); }, sel: (c) => c.cuenta === sel })),
+        h('div', { class: 'fila' }, campo('Buscar cliente o cuenta (contiene)', buscar)),
+        listaClientes),
+      card(`Cuentas de ${nombre}`, 'Hacé clic en una cuenta para ver su detalle, o entrá directo a sus movimientos del día.', listaCuentas),
       detalleCard,
     );
+    pintarListas();
     await cargarDetalle();
   };
 

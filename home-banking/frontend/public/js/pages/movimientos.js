@@ -1,6 +1,6 @@
 // Movimientos de una cuenta: hoy por defecto o histórico; el backend pagina de a 900 contra el banco.
 import { api, descargar } from '../api.js';
-import { h, poner, card, kpi, tabla, campo, seg, dinero, iso, haceDias, fecha, cargando, error, toast } from '../ui.js';
+import { h, poner, card, kpi, tabla, campo, seg, dinero, iso, haceDias, fecha, cargando, error, toast, contiene, sinPerderFoco } from '../ui.js';
 
 const PAGINA = 900;
 
@@ -12,14 +12,22 @@ export async function render(main, ctx) {
   st.movModo ??= 'hoy'; st.movDesde ??= haceDias(30); st.movHasta ??= iso();
   if (!cuentas.some((c) => c.cuenta === st.cuenta)) st.cuenta = cuentas[0]?.cuenta;
   let datos = null, pagina = 0, q = '';
+  // Buscador de cliente o cuenta: "contiene" en nombre (producto), alias, número, razón social o CUIT.
+  const buscarCta = h('input', { type: 'search', value: st.buscarMov ?? '', 'data-foco': 'cta', placeholder: 'Nombre de la cuenta, alias, número o cliente' });
+  buscarCta.addEventListener('input', () => { st.buscarMov = buscarCta.value; redibujar(); });
+  const coincide = (x) => contiene(buscarCta.value, x.producto, x.alias, x.cuenta, x.empresa.razonSocial, x.empresa.cuit);
+  const redibujar = () => sinPerderFoco(dibujar);
 
   const dibujar = () => {
     const c = cuentas.find((x) => x.cuenta === st.cuenta);
+    const encontradas = buscarCta.value.trim() ? cuentas.filter(coincide) : [];
     const desde = st.movModo === 'hoy' ? iso() : st.movDesde, hasta = st.movModo === 'hoy' ? iso() : st.movHasta;
     const selCli = h('select', { onchange: (e) => { st.cuenta = cuentas.find((x) => String(x.empresa.id) === e.target.value)?.cuenta; cargar(); } },
-      empresas.map((e) => h('option', { value: e.id, selected: c?.empresa.id === e.id }, e.razonSocial)));
+      empresas.filter((e) => e.id === c?.empresa.id || cuentas.some((x) => x.empresa.id === e.id && coincide(x)))
+        .map((e) => h('option', { value: e.id, selected: c?.empresa.id === e.id }, e.razonSocial)));
     const selCta = h('select', { onchange: (e) => { st.cuenta = e.target.value; cargar(); } },
-      cuentas.filter((x) => x.empresa.id === c?.empresa.id).map((x) => h('option', { value: x.cuenta, selected: x.cuenta === st.cuenta }, `${x.alias} · ${x.cuenta} (${x.moneda})`)));
+      cuentas.filter((x) => x.empresa.id === c?.empresa.id && (x.cuenta === st.cuenta || coincide(x)))
+        .map((x) => h('option', { value: x.cuenta, selected: x.cuenta === st.cuenta }, `${x.producto ? `${x.producto} · ` : ''}${x.alias} · ${x.cuenta} (${x.moneda})`)));
     const d1 = h('input', { type: 'date', value: st.movDesde, max: iso() }), d2 = h('input', { type: 'date', value: st.movHasta, max: iso() });
     const movs = (datos?.movimientos ?? []).filter((m) => !q || [m.description, m.beneficiary, m.documentNumber, m.transactionId].join(' ').toLowerCase().includes(q));
     const cred = movs.filter((m) => m.signDC === 'C').reduce((s, m) => s + Number(m.amount), 0), deb = movs.filter((m) => m.signDC === 'D').reduce((s, m) => s + Number(m.amount), 0);
@@ -27,6 +35,13 @@ export async function render(main, ctx) {
     pagina = Math.min(pagina, paginas - 1);
     const vista = movs.slice(pagina * PAGINA, (pagina + 1) * PAGINA);
     poner(main, 
+      h('div', { class: 'fila' }, campo('Buscar cliente o cuenta (contiene)', buscarCta)),
+      encontradas.length > 0 && card(`Cuentas que coinciden (${encontradas.length})`, 'Elegí una para ver sus movimientos.',
+        h('div', { class: 'lista-scroll' }, tabla([
+          { t: 'Cliente', v: (x) => x.empresa.razonSocial }, { t: 'Nombre', v: (x) => x.producto }, { t: 'Alias', v: (x) => x.alias },
+          { t: 'Cuenta', v: (x) => x.cuenta, cls: 'mono' }, { t: 'Moneda', v: (x) => x.moneda },
+        ], encontradas, { alClic: (x) => { st.cuenta = x.cuenta; cargar(); }, sel: (x) => x.cuenta === st.cuenta }))),
+      buscarCta.value.trim() && !encontradas.length && h('p', { class: 'aviso' }, 'Ninguna cuenta coincide con la búsqueda.'),
       h('div', { class: 'fila' },
         campo('Cliente', selCli), campo('Cuenta', selCta),
         campo('Período', seg([['hoy', 'Hoy'], ['hist', 'Histórico']], st.movModo, (v) => { st.movModo = v; cargar(); })),
@@ -34,7 +49,7 @@ export async function render(main, ctx) {
           if (!d1.value || !d2.value || d1.value > d2.value) return toast('Ingresá un rango de fechas válido.', true);
           st.movDesde = d1.value; st.movHasta = d2.value; cargar();
         } }, 'Consultar')],
-        campo('Buscar', h('input', { type: 'search', value: q, placeholder: 'Descripción, beneficiario, CUIT…', oninput: (e) => { q = e.target.value.toLowerCase(); pagina = 0; dibujar(); } }))),
+        campo('Buscar movimiento', h('input', { type: 'search', value: q, 'data-foco': 'mov', placeholder: 'Descripción, beneficiario, CUIT…', oninput: (e) => { q = e.target.value.toLowerCase(); pagina = 0; redibujar(); } }))),
       h('p', { class: 'nota' }, `Período consultado: ${st.movModo === 'hoy' ? `hoy, ${fecha(desde)}` : `${fecha(desde)} al ${fecha(hasta)}`}.`),
       datos ? [
         h('div', { class: 'kpis' }, kpi('Créditos', dinero(cred, c?.moneda), 'pos'), kpi('Débitos', dinero(deb, c?.moneda), 'neg'), kpi('Cantidad de movimientos', movs.length)),

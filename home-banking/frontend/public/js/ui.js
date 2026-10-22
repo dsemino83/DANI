@@ -17,6 +17,21 @@ export function h(tag, attrs = {}, ...hijos) {
 }
 
 // poner(el, ...hijos): reemplaza el contenido de el con las mismas reglas que h() (aplana listas, ignora false/null).
+// Búsqueda "contiene" sin distinguir mayúsculas ni acentos: true si algún campo incluye el texto.
+const plano = (v) => String(v ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+export const contiene = (texto, ...campos) => !String(texto ?? '').trim() || campos.flat().some((c) => plano(c).includes(plano(texto).trim()));
+
+// Redibuja sin perder el foco ni el cursor del campo que se está escribiendo (marcado con data-foco).
+export function sinPerderFoco(fn) {
+  const a = document.activeElement, clave = a?.dataset?.foco, pos = a?.selectionStart;
+  const r = fn();
+  if (clave) {
+    const n = document.querySelector(`[data-foco="${clave}"]`);
+    if (n) { n.focus(); if (pos != null) n.setSelectionRange(pos, pos); }
+  }
+  return r;
+}
+
 export const poner = (el, ...hijos) => el.replaceChildren(...h('div', {}, ...hijos).childNodes);
 
 const nf = new Intl.NumberFormat('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
