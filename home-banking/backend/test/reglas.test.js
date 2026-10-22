@@ -188,6 +188,8 @@ test('CBU de la cuenta y datos de COELSA', async () => {
   const cbu = '0650001000000000000100';
   assert.equal(cbuDeCuenta({ cbu }), cbu);
   assert.equal(cbuDeCuenta({ cbuNumber: '065-0001-000000000000100' }), cbu);
+  assert.equal(cbuDeCuenta({ productNumber: '300100000057020', accountCBU: cbu }), cbu, 'cualquier nombre con cbu');
+  assert.equal(cbuDeCuenta({ productNumber: '300100000057020', clave: cbu }), cbu, 'valor de 22 dígitos');
   assert.equal(cbuDeCuenta({ cbu: '123' }), null);
   assert.equal(cbuDeCuenta({}), null);
   assert.deepEqual(filaCoelsa({ cbu }, { cbu, alias: 'acme.pagos', headline: 'ACME SA', cuit: 30712345678 }), { cbu, alias: 'acme.pagos', titular: 'ACME SA', cuitTitular: '30712345678' });

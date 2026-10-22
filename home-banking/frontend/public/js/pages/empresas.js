@@ -5,7 +5,7 @@ import { h, poner, card, campo, tabla, pill, fecha, confirmar, toast, error, car
 
 // Búsqueda "contiene" sin distinguir mayúsculas ni acentos (igual que el backend)
 const plano = (s) => String(s ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
-const coincide = (c, texto) => !texto.trim() || [c.nombre, c.alias, c.cuenta].some((v) => plano(v).includes(plano(texto).trim()));
+const coincide = (c, texto) => !texto.trim() || [c.nombre, c.alias, c.cuenta, c.cbu].some((v) => plano(v).includes(plano(texto).trim()));
 const separarEmails = (texto) => String(texto).split(/[,;\n]+/).map((e) => e.trim()).filter(Boolean);
 
 export async function render(main) {
@@ -76,7 +76,7 @@ export async function render(main) {
     try { disponibles = await api('/admin/cuentas-disponibles'); } catch (x) { return error(x); }
     if (!disponibles.length) return toast('No quedan cuentas sin asignar.', true);
     const elegidas = new Set();
-    const buscar = h('input', { type: 'search', placeholder: 'Buscar por nombre, alias o número (contiene)', autofocus: true });
+    const buscar = h('input', { type: 'search', placeholder: 'Buscar por nombre, descripción, número o CBU (contiene)', autofocus: true });
     const cuerpo = h('div', {}), contador = h('span', { class: 'nota' }), boton = h('button', { class: 'btn primario', disabled: true }, 'Agregar seleccionadas');
     const filtradas = () => disponibles.filter((c) => coincide(c, buscar.value));
     const actualizar = () => {
@@ -91,7 +91,9 @@ export async function render(main) {
         h('label', { class: 'campo check' }, todas, `Seleccionar las ${f.length} que se ven`),
         h('div', { class: 'lista-scroll' }, tabla([
           { t: '', cls: 'c', v: (c) => { const x = h('input', { type: 'checkbox', checked: elegidas.has(c.cuenta), 'aria-label': `Elegir ${c.cuenta}` }); x.addEventListener('change', () => { x.checked ? elegidas.add(c.cuenta) : elegidas.delete(c.cuenta); dibujar(); }); return x; } },
-          { t: 'Nombre', v: (c) => c.nombre }, { t: 'Cuenta', v: (c) => c.cuenta, cls: 'mono' }, { t: 'Alias', v: (c) => c.alias }, { t: 'Moneda', v: (c) => c.moneda },
+          { t: 'Nombre', v: (c) => c.nombre }, { t: 'Cuenta', v: (c) => c.cuenta, cls: 'mono' },
+          { t: 'CBU', v: (c) => (c.cbu ? h('span', { class: 'mono' }, c.cbu) : pill('Sin CBU del banco', 'warn')) },
+          { t: 'Descripción', v: (c) => c.alias }, { t: 'Moneda', v: (c) => c.moneda },
         ], f, { vacio: 'Ninguna cuenta coincide con la búsqueda.' })));
       actualizar();
     };

@@ -19,9 +19,14 @@ export function normalizarEmails(entrada) {
 const plano = (s) => String(s ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
 export const coincide = (cuenta, texto) => !texto || [cuenta.nombre, cuenta.alias, cuenta.cuenta].some((v) => plano(v).includes(plano(texto).trim()));
 
-// CBU de una cuenta propia según getOwnAccounts (el nombre del campo varía); null si no viene.
-export const cbuDeCuenta = (c) => [c?.cbu, c?.cbuNumber, c?.productCbu, c?.cbuCvu]
-  .map((v) => String(v ?? '').replace(/\D/g, '')).find((v) => v.length === 22) ?? null;
+// CBU de una cuenta propia según getOwnAccounts. El nombre del campo no está documentado: se toma el
+// primer campo cuyo nombre contenga "cbu" con 22 dígitos y, si no hay, cualquier valor de 22 dígitos.
+export function cbuDeCuenta(c) {
+  if (!c || typeof c !== 'object') return null;
+  const valores = Object.entries(c).map(([k, v]) => [k.toLowerCase(), String(v ?? '').replace(/[\s-]/g, '')]);
+  const ok = (v) => /^\d{22}$/.test(v);
+  return valores.find(([k, v]) => k.includes('cbu') && ok(v))?.[1] ?? valores.find(([, v]) => ok(v))?.[1] ?? null;
+}
 
 // Arma la fila de empresa_cbu con la respuesta de COELSA; valida que el CBU sea el de la cuenta.
 export function filaCoelsa(cuenta, r) {

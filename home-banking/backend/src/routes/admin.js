@@ -90,7 +90,7 @@ export default async function rutasAdmin(app) {
   });
 
   // Cuentas del banco que no tienen relación activa con ninguna empresa (para "Agregar cuentas")
-  const vista = (c) => ({ cuenta: String(c.productNumber), nombre: c.productName ?? '', alias: c.aliasName ?? c.productAlias ?? '', moneda: Number(c.currencyId) === 80 ? 'ARS' : 'USD' });
+  const vista = (c) => ({ cuenta: String(c.productNumber), nombre: c.productName ?? '', alias: c.aliasName ?? c.productAlias ?? '', cbu: cbuDeCuenta(c), moneda: Number(c.currencyId) === 80 ? 'ARS' : 'USD' });
   app.get('/cuentas-disponibles', async () => {
     const activas = new Set((await operativa.query(`SELECT product_number FROM empresa_cbu WHERE estado = 'activa'`)).rows.map((r) => r.product_number));
     return (await cuentasPropias()).map(vista).filter((c) => !activas.has(c.cuenta));
@@ -110,8 +110,9 @@ export default async function rutasAdmin(app) {
 
   // Consulta COELSA por el CBU de la cuenta (o por su alias si el banco no informa el CBU)
   const consultarCoelsa = async (cuenta) => {
-    const cbu = cbuDeCuenta(cuenta), alias = cuenta.aliasName ?? cuenta.productAlias ?? '';
-    if (!cbu && !alias) throw new Error('el banco no informa CBU ni alias de la cuenta');
+    // productAlias suele ser una descripción ("BVSA COBRANZAS"): solo se usa si tiene forma de alias CBU
+    const cbu = cbuDeCuenta(cuenta), alias = [cuenta.aliasName, cuenta.productAlias].find((a) => /^[a-zA-Z0-9.-]{6,20}$/.test(String(a ?? ''))) ?? '';
+    if (!cbu && !alias) throw new Error('el banco no informa el CBU de la cuenta');
     return filaCoelsa(cuenta, await consultarCbu(cbu ? { cbu } : { alias }));
   };
 
