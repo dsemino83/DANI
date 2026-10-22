@@ -1,6 +1,6 @@
 // Ejecución de los envíos programados: por cliente, un extracto diario o una alerta de movimientos de la
 // última media hora, a sus emails. Lo corre el servicio jobs cada minuto (y el administrador con "Ejecutar ahora").
-import { operativa } from '../db.js';
+import { operativa, tx } from '../db.js';
 import { bdvEnvios, cuentasPropias, movimientos } from '../bdv/cliente.js';
 import { enviarCorreo } from '../correo.js';
 import { readFileSync } from 'node:fs';
@@ -121,19 +121,43 @@ async function clientesVisibles(usuario) {
     WHERE e.activa ORDER BY e.razon_social`, [usuario])).rows;
 }
 
+// Id transaccional de cada ejecución (un turno de una programación o un "Ejecutar ahora"): agrupa sus tareas de la cola
+export const codigoEjecucion = (id) => (id == null ? null : `EJ-${String(id).padStart(6, '0')}`);
+
+// Encola un turno: en UNA transacción crea (o retoma) la ejecución y una tarea por cliente con su ejecucion_id.
+// Un turno se encola una sola vez por cliente (UNIQUE de la cola) y una sola ejecución por turno (UNIQUE).
 export async function encolarTurno(p, turno, { manual = false } = {}) {
   const responsable = p.actualizada_por ?? p.creada_por;
   const visibles = await clientesVisibles(responsable);
   const destinos = p.todas_empresas ? visibles.map((e) => ({ empresaId: Number(e.id), cuentas: [] })) : (p.destinos ?? []);
-  let encoladas = 0;
-  for (const d of destinos) {
-    const e = visibles.find((x) => Number(x.id) === Number(d.empresaId));
-    const r = await operativa.query(`INSERT INTO cola_envio (programacion_id, programacion, turno, empresa_id, empresa, cuentas, contenido, responsable, manual, formato, frecuencia)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) ON CONFLICT (programacion_id, turno, empresa_id) DO NOTHING`,
-    [p.id, p.nombre, turno, d.empresaId, e?.razon_social ?? `Empresa ${d.empresaId}`, d.cuentas ?? [], p.contenido, responsable, manual, p.formato ?? 'cuerpo', p.frecuencia]);
-    encoladas += r.rowCount;
-  }
-  return encoladas;
+  return tx(operativa, async (c) => {
+    const { rows: [ej] } = await c.query(`INSERT INTO ejecucion_envio (programacion_id, programacion, turno, frecuencia, manual, responsable)
+      VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (programacion_id, turno) DO UPDATE SET programacion = EXCLUDED.programacion RETURNING id`,
+    [p.id, p.nombre, turno, p.frecuencia, manual, responsable]);
+    let encoladas = 0;
+    for (const d of destinos) {
+      const e = visibles.find((x) => Number(x.id) === Number(d.empresaId));
+      const q = await c.query(`INSERT INTO cola_envio (programacion_id, programacion, turno, empresa_id, empresa, cuentas, contenido, responsable, manual, formato, frecuencia, ejecucion_id)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) ON CONFLICT (programacion_id, turno, empresa_id) DO NOTHING`,
+      [p.id, p.nombre, turno, d.empresaId, e?.razon_social ?? `Empresa ${d.empresaId}`, d.cuentas ?? [], p.contenido, responsable, manual, p.formato ?? 'cuerpo', p.frecuencia, ej.id]);
+      encoladas += q.rowCount;
+    }
+    await actualizarEjecucion(c, ej.id);
+    return { encoladas, ejecucionId: Number(ej.id), ejecucion: codigoEjecucion(ej.id) };
+  });
+}
+
+// Totales de la ejecución a partir de sus tareas; queda terminada cuando no le queda nada en cola ni en proceso
+async function actualizarEjecucion(c, id) {
+  if (id == null) return;
+  await c.query(`UPDATE ejecucion_envio e SET tareas = x.tareas, enviadas = x.enviadas, omitidas = x.omitidas, errores = x.errores,
+      estado = CASE WHEN x.abiertas = 0 THEN 'terminada' ELSE 'en_curso' END,
+      terminada_en = CASE WHEN x.abiertas = 0 THEN coalesce(e.terminada_en, now()) ELSE NULL END
+    FROM (SELECT count(*)::int AS tareas, count(*) FILTER (WHERE estado = 'enviado')::int AS enviadas,
+                 count(*) FILTER (WHERE estado = 'omitido')::int AS omitidas, count(*) FILTER (WHERE estado = 'error')::int AS errores,
+                 count(*) FILTER (WHERE estado IN ('pendiente', 'procesando'))::int AS abiertas
+            FROM cola_envio WHERE ejecucion_id = $1) x
+   WHERE e.id = $1`, [id]);
 }
 
 // Toma la próxima tarea disponible (SKIP LOCKED: si hubiera otro proceso, nunca toman la misma)
@@ -144,16 +168,42 @@ async function tomarTarea() {
   return rows[0] ?? null;
 }
 
-const terminar = (t, estado, detalle, destinatarios = []) => operativa.query(
-  `UPDATE cola_envio SET estado = $2, detalle = $3, destinatarios = $4, terminada_en = now() WHERE id = $1`, [t.id, estado, String(detalle ?? '').slice(0, 1000), destinatarios]);
+// Cierra la tarea, suma sus consultas al banco a la tarea y a su ejecución, y actualiza los totales de la ejecución
+async function terminar(t, estado, detalle, destinatarios = [], banco = { consultas: 0 }) {
+  await tx(operativa, async (c) => {
+    await c.query(`UPDATE cola_envio SET estado = $2, detalle = $3, destinatarios = $4, terminada_en = now(), consultas_banco = consultas_banco + $5 WHERE id = $1`,
+      [t.id, estado, String(detalle ?? '').slice(0, 1000), destinatarios, banco.consultas]);
+    if (t.ejecucion_id != null) await c.query('UPDATE ejecucion_envio SET consultas_banco = consultas_banco + $2 WHERE id = $1', [t.ejecucion_id, banco.consultas]);
+    await actualizarEjecucion(c, t.ejecucion_id);
+  });
+}
 
 const LOGO = readFileSync(new URL('../assets/logo-valo.png', import.meta.url));
 
-let banco = { cuando: 0, cuentas: null };
-const cuentasDelBanco = async () => { // una consulta al banco por minuto como mucho, para toda la cola
-  if (!banco.cuentas || Date.now() - banco.cuando > 60_000) banco = { cuando: Date.now(), cuentas: await cuentasPropias(bdvEnvios) };
-  return banco.cuentas;
-};
+// ---------------- Consultas al banco, optimizadas para toda la cola ----------------
+// Caché compartida por todas las tareas (un solo trabajador, de a una): cada clave se consulta una vez y, mientras está
+// vigente, las demás tareas la reutilizan (también una consulta en vuelo). Solo cuentan como consultas las reales.
+//  - Cuentas y saldos (getOwnAccounts): 60 s, para toda la cola.
+//  - Movimientos de una cuenta y un día (getMovementsDetail): el día en curso 60 s (extracto y alerta del mismo cliente
+//    en el mismo turno usan una sola consulta); días cerrados 30 min (no cambian).
+// Solo se pide lo necesario: saldos sin movimientos no consultan movimientos; solo las cuentas elegidas del cliente; la
+// alerta solo el día de la franja (y el anterior solo si cruza la medianoche); tareas omitidas no consultan nada.
+const cacheBanco = new Map();
+export const TTL_BANCO = { cuentas: 60_000, hoy: 60_000, cerrado: 30 * 60_000 };
+function alBanco(clave, ttl, consultar, banco) {
+  const hit = cacheBanco.get(clave);
+  if (hit && Date.now() - hit.cuando < ttl) return hit.promesa;
+  banco.consultas++;
+  const promesa = consultar();
+  cacheBanco.set(clave, { cuando: Date.now(), promesa });
+  promesa.catch(() => cacheBanco.delete(clave)); // un error no queda guardado: la próxima tarea vuelve a consultar
+  for (const [k, v] of cacheBanco) if (Date.now() - v.cuando > TTL_BANCO.cerrado) cacheBanco.delete(k);
+  return promesa;
+}
+export const limpiarCacheBanco = () => cacheBanco.clear();
+const cuentasDelBanco = (banco) => alBanco('cuentas', TTL_BANCO.cuentas, () => cuentasPropias(bdvEnvios), banco);
+const movimientosDelDia = (c, dia, banco) => alBanco(`movs|${c.productNumber}|${dia}`, dia < enArgentina().fecha ? TTL_BANCO.cerrado : TTL_BANCO.hoy,
+  async () => (await movimientos(c, dia, dia, bdvEnvios)).movimientos, banco);
 
 export async function procesarTarea(t) {
   const e = (await clientesVisibles(t.responsable)).find((x) => Number(x.id) === Number(t.empresa_id));
@@ -162,9 +212,10 @@ export async function procesarTarea(t) {
   const activas = (await operativa.query(`SELECT product_number FROM empresa_cbu WHERE empresa_id = $1 AND estado = 'activa'`, [e.id])).rows.map((r) => r.product_number);
   const nums = new Set(t.cuentas?.length ? t.cuentas.filter((c) => activas.includes(c)) : activas);
   if (!nums.size) return terminar(t, 'omitido', 'El cliente no tiene (o ya no tiene) las cuentas elegidas');
+  const banco = { consultas: 0 }; // consultas reales al banco de esta tarea
   try {
     const alerta = t.frecuencia !== 'diaria'; // cada hora o cada 30 minutos
-    const cuentas = (await cuentasDelBanco()).filter((c) => nums.has(String(c.productNumber))).map((c) => ({ ...c }));
+    const cuentas = (await cuentasDelBanco(banco)).filter((c) => nums.has(String(c.productNumber))).map((c) => ({ ...c }));
     let correo, fecha = enArgentina().fecha;
     if (alerta) {
       // Movimientos del día (y del anterior si la franja cruza la medianoche) filtrados por la franja
@@ -172,17 +223,17 @@ export async function procesarTarea(t) {
       for (const c of cuentas) {
         try {
           c.movimientos = [];
-          for (const dia of franja.fechas) c.movimientos.push(...(await movimientos(c, dia, dia, bdvEnvios)).movimientos.filter((m) => enFranja(m, dia, franja)));
+          for (const dia of franja.fechas) c.movimientos.push(...(await movimientosDelDia(c, dia, banco)).filter((m) => enFranja(m, dia, franja)));
         } catch (x) { c.errorMovimientos = x.message; }
       }
       if (cuentas.length && cuentas.every((c) => c.errorMovimientos)) throw new Error(`No se pudieron consultar los movimientos: ${cuentas[0].errorMovimientos}`);
       correo = armarAlerta(e, cuentas, franja, t.formato);
-      if (!correo) return terminar(t, 'omitido', `Sin movimientos de ${franja.desdeTxt.horaSeg} a ${franja.hastaTxt.horaSeg}: no se envía alerta`);
+      if (!correo) return terminar(t, 'omitido', `Sin movimientos de ${franja.desdeTxt.horaSeg} a ${franja.hastaTxt.horaSeg}: no se envía alerta`, [], banco);
       fecha = franja.hastaTxt.fecha;
     } else {
       if (t.contenido !== 'saldos') {
         for (const c of cuentas) {
-          try { c.movimientos = (await movimientos(c, fecha, fecha, bdvEnvios)).movimientos; } catch (x) { c.errorMovimientos = x.message; }
+          try { c.movimientos = [...(await movimientosDelDia(c, fecha, banco))]; } catch (x) { c.errorMovimientos = x.message; }
         }
       }
       correo = armarExtracto(e, cuentas, t.contenido, fecha, t.formato);
@@ -191,14 +242,16 @@ export async function procesarTarea(t) {
     if (correo.archivo) adjuntos.push({ filename: correo.archivo, content: await xlsxEnvio(e, alerta ? cuentas.filter((c) => c.movimientos?.length) : cuentas, alerta ? 'movimientos' : t.contenido, { titulo: correo.titulo, logo: LOGO, conSaldo: !alerta }),
       contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
     await enviarCorreo({ para: e.emails, asunto: correo.asunto, html: correo.html, texto: correo.texto, adjuntos });
-    return terminar(t, 'enviado', `${correo.asunto}${correo.archivo ? ` · adjunto ${correo.archivo}` : ''}`, e.emails);
+    return terminar(t, 'enviado', `${correo.asunto}${correo.archivo ? ` · adjunto ${correo.archivo}` : ''}`, e.emails, banco);
   } catch (x) {
     if (t.intentos < t.max_intentos) { // vuelve a la cola con espera creciente
       const espera = ESPERAS_MIN[Math.min(t.intentos - 1, ESPERAS_MIN.length - 1)];
-      return operativa.query(`UPDATE cola_envio SET estado = 'pendiente', detalle = $2, disponible_en = now() + make_interval(mins => $3) WHERE id = $1`,
-        [t.id, `Intento ${t.intentos} falló: ${x.message}. Se reintenta en ${espera} min`, espera]);
+      await operativa.query(`UPDATE cola_envio SET estado = 'pendiente', detalle = $2, disponible_en = now() + make_interval(mins => $3), consultas_banco = consultas_banco + $4 WHERE id = $1`,
+        [t.id, `Intento ${t.intentos} falló: ${x.message}. Se reintenta en ${espera} min`, espera, banco.consultas]);
+      if (t.ejecucion_id != null) await operativa.query('UPDATE ejecucion_envio SET consultas_banco = consultas_banco + $2 WHERE id = $1', [t.ejecucion_id, banco.consultas]);
+      return;
     }
-    return terminar(t, 'error', `Falló ${t.intentos} veces: ${x.message}`, e.emails);
+    return terminar(t, 'error', `Falló ${t.intentos} veces: ${x.message}`, e.emails, banco);
   }
 }
 
@@ -227,7 +280,7 @@ export async function ejecutarEnviosPendientes(ahora = new Date()) {
     if (!turno) continue;
     const r = await operativa.query('UPDATE programacion_envio SET ultimo_turno = $2 WHERE id = $1 AND (ultimo_turno IS NULL OR ultimo_turno < $2) RETURNING id', [p.id, turno]);
     if (!r.rowCount) continue;
-    hechos.push({ programacion: p.nombre, turno, encoladas: await encolarTurno(p, turno) });
+    hechos.push({ programacion: p.nombre, turno, ...(await encolarTurno(p, turno)) });
   }
   return hechos;
 }

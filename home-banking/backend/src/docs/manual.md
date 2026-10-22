@@ -88,6 +88,7 @@ Correos automáticos a los clientes, solo sobre los clientes que ves.
 4. **Días**, **inicio**, **fin** y **No enviar en feriados** (los feriados se traen de fuentes públicas; los bancarios se cargan a mano).
 5. Un cliente puede tener **un solo extracto diario y una sola alerta** activos.
 6. **Cola de envíos:** cada envío es una tarea; se procesan de a una, se reintentan a los 1, 5 y 15 minutos y quedan en **Error** con **Reintentar**. **Ejecutar ahora** encola un envío de prueba.
+7. **Ejecuciones:** cada turno tiene un id transaccional (**EJ-000123**) que agrupa sus tareas; al elegir una programación ves sus ejecuciones con tareas, enviadas, omitidas, errores y consultas hechas al banco.
 
 Los correos salen de **alyc@valo.ar**, con el logo de VALO.
 

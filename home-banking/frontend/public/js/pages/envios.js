@@ -102,7 +102,7 @@ export async function render(main) {
     };
     const ejecutar = async () => {
       if (!(await confirmar('Ejecutar ahora', `Se encola ya un envío por cliente de "${p.nombre}". La cola los procesa de a uno en los próximos segundos (no cambia la programación).`, 'Encolar ahora'))) return;
-      try { const r = await api(`/envios/${p.id}/ejecutar`, { method: 'POST' }); toast(`${r.encoladas} envío(s) encolado(s). Seguilos en "Cola de envíos".`); } catch (x) { error(x); }
+      try { const r = await api(`/envios/${p.id}/ejecutar`, { method: 'POST' }); toast(`Ejecución ${r.ejecucion}: ${r.encoladas} envío(s) encolado(s). Seguilos en "Cola de envíos".`); } catch (x) { error(x); }
       await cargar(); pintarCola();
     };
 
@@ -124,8 +124,17 @@ export async function render(main) {
 
   const pintarHistorial = async () => {
     if (!elegida) return poner(historial);
-    const filas = await api(`/envios/${elegida.id}/historial`).catch(() => []);
-    poner(historial, card(`Historial · ${elegida.nombre}`, 'Últimas 200 tareas (una por cliente y turno).', tablaTareas(filas, false)));
+    const [ejecuciones, filas] = await Promise.all([api(`/envios/${elegida.id}/ejecuciones`).catch(() => []), api(`/envios/${elegida.id}/historial`).catch(() => [])]);
+    poner(historial,
+      card(`Ejecuciones · ${elegida.nombre}`, 'Cada ejecución (un turno o un "Ejecutar ahora") tiene un id transaccional que agrupa sus tareas de la cola. "Consultas al banco" cuenta solo las llamadas reales: lo que ya estaba consultado se reutiliza.',
+        tabla([
+          { t: 'Ejecución', v: (x) => x.codigo, cls: 'mono' }, { t: 'Turno', v: (x) => (x.manual ? 'manual' : x.turno.replace('T', ' ')), cls: 'mono' },
+          { t: 'Inicio', v: (x) => fechaHora(x.creada_en) }, { t: 'Fin', v: (x) => (x.terminada_en ? fechaHora(x.terminada_en) : '—') },
+          { t: 'Estado', v: (x) => pill(x.estado === 'terminada' ? 'Terminada' : 'En curso', x.estado === 'terminada' ? (x.errores ? 'bad' : 'ok') : 'warn') },
+          { t: 'Tareas', v: (x) => x.tareas, cls: 'num' }, { t: 'Enviadas', v: (x) => x.enviadas, cls: 'num' }, { t: 'Omitidas', v: (x) => x.omitidas, cls: 'num' },
+          { t: 'Errores', v: (x) => x.errores, cls: 'num' }, { t: 'Consultas al banco', v: (x) => x.consultas_banco, cls: 'num' },
+        ], ejecuciones, { vacio: 'Todavía no hay ejecuciones.' })),
+      card(`Historial · ${elegida.nombre}`, 'Últimas 200 tareas (una por cliente y turno).', tablaTareas(filas, false)));
   };
 
   // Tareas de la cola (también se usa para el historial de una programación)
@@ -135,10 +144,12 @@ export async function render(main) {
     pintarCola(); pintarHistorial();
   };
   const tablaTareas = (filas, conProgramacion) => tabla([
+    { t: 'Ejecución', v: (x) => x.ejecucion ?? '—', cls: 'mono' },
     { t: 'Encolada', v: (x) => fechaHora(x.encolada_en) }, conProgramacion && { t: 'Programación', v: (x) => x.programacion },
     { t: 'Turno', v: (x) => (x.manual ? 'manual' : x.turno.replace('T', ' ')), cls: 'mono' }, { t: 'Cliente', v: (x) => x.empresa },
     { t: 'Cuentas', v: (x) => (x.cuentas?.length ? x.cuentas.join(', ') : 'todas') },
     { t: 'Estado', v: (x) => pill(...ESTADO[x.estado]) }, { t: 'Intentos', v: (x) => `${x.intentos}/${x.max_intentos}`, cls: 'num' },
+    { t: 'Consultas al banco', v: (x) => x.consultas_banco ?? 0, cls: 'num' },
     { t: 'Detalle', v: (x) => [x.detalle ?? '', x.destinatarios?.length ? ` → ${x.destinatarios.join(', ')}` : ''].join('') },
     { t: '', cls: 'acc', v: (x) => x.estado === 'error' && h('button', { class: 'btn chico', onclick: () => reintentar(x) }, 'Reintentar') },
   ].filter(Boolean), filas, { vacio: 'No hay tareas.' });
@@ -150,7 +161,7 @@ export async function render(main) {
     poner(cola, card('Cola de envíos', 'Cada turno genera una tarea por cliente. Un único proceso las toma de a una, en orden, así no se superponen; cada tarea termina en un correo. Si falla, se reintenta a los 1, 5 y 15 minutos.',
       h('div', { class: 'fila' },
         pill(`En cola ${r.tareas.filter((t) => t.estado === 'pendiente').length}`, 'warn'), pill(`Procesando ${r.tareas.filter((t) => t.estado === 'procesando').length}`, 'warn'),
-        h('span', { class: 'nota' }, `Últimas 24 h: ${n('enviado')} enviados · ${n('error')} con error · ${n('omitido')} omitidos`),
+        h('span', { class: 'nota' }, `Últimas 24 h: ${n('enviado')} enviados · ${n('error')} con error · ${n('omitido')} omitidos · ${n('consultasBanco')} consultas al banco`),
         h('button', { class: 'btn chico', onclick: pintarCola }, '↻ Actualizar')),
       h('div', { class: 'lista-scroll' }, tablaTareas(r.tareas, true))));
   };

@@ -33,7 +33,17 @@ export const TABLAS_FILAS = [
       tomada_en timestamptz, terminada_en timestamptz, destinatarios text[] NOT NULL, detalle text);
       CREATE INDEX IF NOT EXISTS h_cola_envio_prog_idx ON cola_envio (programacion_id, encolada_en);
       ALTER TABLE cola_envio ADD COLUMN IF NOT EXISTS formato text NOT NULL DEFAULT 'cuerpo';
-      ALTER TABLE cola_envio ADD COLUMN IF NOT EXISTS frecuencia text NOT NULL DEFAULT 'diaria'`,  // migraciones 007 y 008
+      ALTER TABLE cola_envio ADD COLUMN IF NOT EXISTS frecuencia text NOT NULL DEFAULT 'diaria';
+      ALTER TABLE cola_envio ADD COLUMN IF NOT EXISTS ejecucion_id bigint;
+      ALTER TABLE cola_envio ADD COLUMN IF NOT EXISTS consultas_banco int NOT NULL DEFAULT 0`,  // migraciones 007, 009 y 012
+  },
+  {
+    tabla: 'ejecucion_envio', columna: 'creada_en', terminadas: "estado = 'terminada'",
+    ddl: `CREATE TABLE IF NOT EXISTS ejecucion_envio (
+      id bigint PRIMARY KEY, programacion_id bigint, programacion text NOT NULL, turno text NOT NULL, frecuencia text NOT NULL,
+      manual boolean NOT NULL, responsable text NOT NULL, estado text NOT NULL, tareas int NOT NULL, enviadas int NOT NULL,
+      omitidas int NOT NULL, errores int NOT NULL, consultas_banco int NOT NULL, creada_en timestamptz NOT NULL, terminada_en timestamptz);
+      CREATE INDEX IF NOT EXISTS h_ejecucion_envio_prog_idx ON ejecucion_envio (programacion_id, creada_en)`,
   },
   {
     tabla: 'mensaje', columna: 'creado_en', terminadas: 'visto_en IS NOT NULL',

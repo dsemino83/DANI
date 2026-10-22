@@ -87,7 +87,15 @@ CREATE TABLE cola_envio (
   responsable text NOT NULL, manual boolean NOT NULL, estado text NOT NULL, intentos smallint NOT NULL,
   max_intentos smallint NOT NULL, disponible_en timestamptz NOT NULL, encolada_en timestamptz NOT NULL,
   tomada_en timestamptz, terminada_en timestamptz, destinatarios text[] NOT NULL, detalle text,
-  formato text NOT NULL DEFAULT 'cuerpo', frecuencia text NOT NULL DEFAULT 'diaria');
+  formato text NOT NULL DEFAULT 'cuerpo', frecuencia text NOT NULL DEFAULT 'diaria', ejecucion_id bigint,
+  consultas_banco int NOT NULL DEFAULT 0);
+CREATE TABLE ejecucion_envio (
+  id bigint PRIMARY KEY, programacion_id bigint, programacion text NOT NULL, turno text NOT NULL, frecuencia text NOT NULL,
+  manual boolean NOT NULL, responsable text NOT NULL, estado text NOT NULL, tareas int NOT NULL, enviadas int NOT NULL,
+  omitidas int NOT NULL, errores int NOT NULL, consultas_banco int NOT NULL, creada_en timestamptz NOT NULL, terminada_en timestamptz);
+CREATE INDEX h_ejecucion_envio_prog_idx ON ejecucion_envio (programacion_id, creada_en);
+CREATE TRIGGER h_ejecucion_envio_inmutable BEFORE UPDATE OR DELETE ON ejecucion_envio
+  FOR EACH ROW EXECUTE FUNCTION hb_solo_lectura();
 CREATE INDEX h_cola_envio_prog_idx ON cola_envio (programacion_id, encolada_en);
 CREATE TABLE envio_mail_log (
   id bigint PRIMARY KEY, programacion_id bigint, turno text NOT NULL, empresa_id bigint, empresa text,

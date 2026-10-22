@@ -53,11 +53,11 @@ Roles: `operador`, `autorizante`, `auditor`, `administrador`, `transferencias:cr
 | `credencial_api` | Por ambiente y uso (`principal` / `envios`), clave cifrada AES-256-GCM, channel |
 | `transferencia`, `transferencia_estado`, `auditoria` | Particionadas por mes |
 | `lote`, `lote_fila`, `envio_banco`, `referencia_usada`, `debito_transferencia` | Carga masiva, envío único, ID único, vínculo débito ↔ transferencia |
-| `programacion_envio`, `cola_envio`, `envio_mail_log`, `feriado` | Envíos programados de correo |
+| `programacion_envio`, `ejecucion_envio`, `cola_envio`, `envio_mail_log`, `feriado` | Envíos programados de correo (programación → ejecución EJ-… → tareas) |
 | `mensaje` | Buzón: destinatario, operación, leído (`visto_en`, `visto_motivo`) |
 | `pase_historico` | Registro de cada pase a la histórica |
 
-Migraciones idempotentes en `db/operativa/migraciones` (001 a 011): una base nueva las aplica al crearse; `scripts/migrar-bases.sh` (y `hb-actualizar`) en una existente.
+Migraciones idempotentes en `db/operativa/migraciones` (001 a 012): una base nueva las aplica al crearse; `scripts/migrar-bases.sh` (y `hb-actualizar`) en una existente.
 
 ## Envíos programados de correo
 
@@ -66,6 +66,8 @@ Migraciones idempotentes en `db/operativa/migraciones` (001 a 011): una base nue
 - **Diaria = extracto:** saldos y/o movimientos del día. **Horaria / 30 min = alerta:** movimientos con hora en `[turno − 29:59, turno]` (si cruza la medianoche consulta los dos días); sin movimientos no se envía.
 - **Correo:** nodemailer por `HB_SMTP_*` (remitente `alyc@valo.ar`), logo embebido (CID). Adjunto opcional: un Excel con una pestaña por cuenta, logo, título y cliente (exceljs).
 - Un cliente: un extracto y una alerta activos como máximo.
+- **Id transaccional de ejecución** (`ejecucion_envio`, código `EJ-000123`): cada turno (o "Ejecutar ahora") crea, en la misma transacción que encola, una ejecución única por programación y turno; cada tarea de la cola lleva su `ejecucion_id`. La ejecución acumula tareas, enviadas, omitidas, errores y **consultas reales al banco**, y queda *terminada* cuando no le queda nada en cola.
+- **Consultas al banco optimizadas:** caché compartida por toda la cola con una sola consulta en vuelo por clave: `getOwnAccounts` 60 s; `getMovementsDetail` por cuenta y día, 60 s el día en curso y 30 min los días cerrados. Solo se consultan las cuentas elegidas, los movimientos solo si el contenido los necesita, la alerta solo el día de la franja (y el anterior si cruza la medianoche), y las tareas omitidas no consultan nada. Los errores no se guardan en la caché.
 
 ## Base operativa e histórica
 

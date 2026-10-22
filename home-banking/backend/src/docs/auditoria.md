@@ -75,7 +75,8 @@ Toda acción queda registrada en el momento, en un registro **de solo inserción
 
 - Los programa el **autorizante**, solo sobre clientes que ve; al enviar se vuelve a validar con sus permisos.
 - Un cliente puede tener **un solo extracto diario y una sola alerta** activos.
-- Cola de tareas sin superposición, con reintentos; cada tarea termina en un correo y queda registrada (destinatarios, estado, detalle).
+- Cada ejecución tiene un **id transaccional** (EJ-000123) que agrupa sus tareas y registra sus totales y las consultas hechas al banco.
+- Cola de tareas sin superposición, con reintentos; cada tarea termina en un correo y queda registrada (ejecución, destinatarios, estado, detalle).
 - Remitente **alyc@valo.ar**; los correos llevan saldos y movimientos, por eso el servidor SMTP debe usar TLS.
 
 ## Base operativa e histórica

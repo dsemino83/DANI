@@ -15,6 +15,9 @@ export const describir = (p) => `${p.frecuencia === 'diaria' ? `Extracto diario 
   : `Alerta de movimientos de la última media hora, ${p.frecuencia === 'media_hora' ? 'cada 30 minutos' : 'cada hora'} de ${String(p.hora).slice(0, 5)} a ${String(p.hora_hasta).slice(0, 5)}`}${p.formato === 'cuerpo_excel' ? ' · cuerpo + Excel' : ' · en el cuerpo del correo'} · ${(p.dias_semana ?? []).map((d) => DIAS[d]).join(', ')}`
   + `${p.saltar_feriados ? ' · sin feriados' : ''} · desde ${String(p.fecha_inicio).slice(0, 10)}${p.fecha_fin ? ` hasta ${String(p.fecha_fin).slice(0, 10)}` : ''}`;
 
+// Id transaccional de la ejecución de cada tarea
+const EJ = `CASE WHEN c.ejecucion_id IS NULL THEN NULL ELSE 'EJ-' || lpad(c.ejecucion_id::text, 6, '0') END`;
+
 export default async function rutasEnvios(app) {
   app.addHook('preHandler', exigirRol('autorizante'));
   app.addHook('onError', async (req, reply, error) => {
@@ -92,28 +95,36 @@ export default async function rutasEnvios(app) {
   app.post('/envios/:id/ejecutar', async (req) => {
     const p = (await operativa.query('SELECT * FROM programacion_envio WHERE id = $1', [req.params.id])).rows[0];
     if (!p) throw noEncontrado('Programación inexistente');
-    const encoladas = await encolarTurno(p, `manual ${new Date().toISOString()}`, { manual: true });
-    await auditar(null, req, { tipo: 'Administración', accion: 'Encoló envío programado a mano', ref: { tipo: 'envio', id: p.id }, detalle: `${p.nombre} · ${encoladas} tarea(s)` });
-    return { encoladas };
+    const r = await encolarTurno(p, `manual ${new Date().toISOString()}`, { manual: true });
+    await auditar(null, req, { tipo: 'Administración', accion: 'Encoló envío programado a mano', ref: { tipo: 'envio', id: p.id }, detalle: `${p.nombre} · ${r.ejecucion} · ${r.encoladas} tarea(s)` });
+    return r;
   });
 
-  // Historial de una programación (las tareas de la cola)
+  // Historial de una programación (las tareas de la cola, con su id de ejecución)
   app.get('/envios/:id/historial', async (req) => (await operativa.query(
-    'SELECT * FROM cola_envio WHERE programacion_id = $1 ORDER BY encolada_en DESC, id DESC LIMIT 200', [req.params.id])).rows);
+    `SELECT c.*, ${EJ} AS ejecucion FROM cola_envio c WHERE programacion_id = $1 ORDER BY encolada_en DESC, id DESC LIMIT 200`, [req.params.id])).rows);
+
+  // Ejecuciones de una programación (id transaccional EJ-…): tareas, resultado y consultas reales al banco
+  app.get('/envios/:id/ejecuciones', async (req) => (await operativa.query(
+    `SELECT e.*, 'EJ-' || lpad(e.id::text, 6, '0') AS codigo FROM ejecucion_envio e WHERE programacion_id = $1 ORDER BY creada_en DESC, id DESC LIMIT 100`,
+    [req.params.id])).rows);
 
   // Cola: lo pendiente y en proceso, más lo último terminado
   app.get('/envios/cola', async () => {
-    const { rows } = await operativa.query(`(SELECT * FROM cola_envio WHERE estado IN ('pendiente', 'procesando') ORDER BY disponible_en, id LIMIT 500)
-      UNION ALL (SELECT * FROM cola_envio WHERE estado NOT IN ('pendiente', 'procesando') ORDER BY terminada_en DESC NULLS LAST LIMIT 50)`);
+    const { rows } = await operativa.query(`(SELECT c.*, ${EJ} AS ejecucion FROM cola_envio c WHERE estado IN ('pendiente', 'procesando') ORDER BY disponible_en, id LIMIT 500)
+      UNION ALL (SELECT c.*, ${EJ} AS ejecucion FROM cola_envio c WHERE estado NOT IN ('pendiente', 'procesando') ORDER BY terminada_en DESC NULLS LAST LIMIT 50)`);
     const resumen = (await operativa.query(`SELECT estado, count(*)::int AS n FROM cola_envio WHERE encolada_en > now() - interval '24 hours' GROUP BY estado`)).rows;
-    return { tareas: rows, ultimas24h: Object.fromEntries(resumen.map((r) => [r.estado, r.n])) };
+    const banco = (await operativa.query(`SELECT coalesce(sum(consultas_banco), 0)::int AS n FROM ejecucion_envio WHERE creada_en > now() - interval '24 hours'`)).rows[0].n;
+    return { tareas: rows, ultimas24h: { ...Object.fromEntries(resumen.map((r) => [r.estado, r.n])), consultasBanco: banco } };
   });
 
   // Reintentar una tarea que terminó con error (vuelve al final de la cola)
   app.post('/envios/cola/:id/reintentar', async (req) => {
     const r = await operativa.query(`UPDATE cola_envio SET estado = 'pendiente', intentos = 0, disponible_en = now(), detalle = 'Reintento manual', terminada_en = NULL
-      WHERE id = $1 AND estado = 'error' RETURNING programacion, empresa, turno`, [req.params.id]);
+      WHERE id = $1 AND estado = 'error' RETURNING programacion, empresa, turno, ejecucion_id`, [req.params.id]);
     if (!r.rowCount) throw invalido('Solo se reintentan tareas con error');
+    // La ejecución vuelve a quedar en curso hasta que la tarea termine
+    await operativa.query(`UPDATE ejecucion_envio SET estado = 'en_curso', terminada_en = NULL WHERE id = $1`, [r.rows[0].ejecucion_id]);
     await auditar(null, req, { tipo: 'Administración', accion: 'Reintentó envío de la cola', detalle: `${r.rows[0].programacion} · ${r.rows[0].empresa} · ${r.rows[0].turno}` });
     return { reintentada: Number(req.params.id) };
   });
