@@ -51,7 +51,10 @@ export async function render(main, ctx) {
         } }, 'Consultar')],
         campo('Buscar movimiento', h('input', { type: 'search', value: q, 'data-foco': 'mov', placeholder: 'Descripción, beneficiario, CUIT…', oninput: (e) => { q = e.target.value.toLowerCase(); pagina = 0; redibujar(); } }))),
       h('p', { class: 'nota' }, `Período consultado: ${st.movModo === 'hoy' ? `hoy, ${fecha(desde)}` : `${fecha(desde)} al ${fecha(hasta)}`}.`),
-      datos ? [
+      datos?.error ? card('No se pudieron consultar los movimientos', null,
+        h('p', { class: 'aviso rojo' }, `El banco no respondió: ${datos.error}. No es que la cuenta no tenga movimientos.`),
+        h('div', { class: 'fila' }, h('button', { class: 'btn primario', onclick: () => cargar() }, 'Reintentar')))
+      : datos ? [
         h('div', { class: 'kpis' }, kpi('Créditos', dinero(cred, c?.moneda), 'pos'), kpi('Débitos', dinero(deb, c?.moneda), 'neg'), kpi('Cantidad de movimientos', movs.length)),
         card('Detalle de movimientos', 'getMovementsDetail: el backend pide de a 900 movimientos y pagina con sequential/uniqueSequential hasta recibir menos de 900. Orden descendente.',
           h('div', { class: 'fila' },
@@ -78,7 +81,7 @@ export async function render(main, ctx) {
     dibujar();
     if (!st.cuenta) return;
     const desde = st.movModo === 'hoy' ? iso() : st.movDesde, hasta = st.movModo === 'hoy' ? iso() : st.movHasta;
-    try { datos = await api(`/cuentas/${st.cuenta}/movimientos?desde=${desde}&hasta=${hasta}`); } catch (e) { error(e); datos = { movimientos: [], completo: true }; }
+    try { datos = await api(`/cuentas/${st.cuenta}/movimientos?desde=${desde}&hasta=${hasta}`); } catch (e) { datos = { error: e.message }; }
     dibujar();
   };
   if (!cuentas.length) return poner(main, h('p', { class: 'vacio' }, 'No tenés cuentas habilitadas.'));
