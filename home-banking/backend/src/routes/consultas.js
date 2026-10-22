@@ -1,11 +1,11 @@
 // Consultas: no requieren aprobación (solo permiso Ver sobre la empresa). Igual se auditan.
 import { auditar } from '../auditoria.js';
 import { exigirRol, ROLES_OPERATIVOS } from '../auth.js';
-import { invalido } from '../errores.js';
+import { invalido, noEncontrado } from '../errores.js';
 import { cuentasHabilitadas, exigirCuenta } from '../permisos.js';
 import { consultarCbu, cuentasPropias, detalleSaldos, movimientos } from '../bdv/cliente.js';
 import { filaMovimiento, xlsxMovimientos } from '../excel.js';
-import { fechaCorte } from '../db.js';
+import { fechaCorte, operativa } from '../db.js';
 import { config } from '../config.js';
 
 const hoyIso = () => new Date().toISOString().slice(0, 10);
@@ -42,6 +42,16 @@ export default async function rutasConsultas(app) {
       disponible: c.availableBalance, contable: c.accountingBalance,
       empresa: { id: c.empresa.empresa_id, razonSocial: c.empresa.razon_social, cuit: c.empresa.cuit, operar: c.empresa.operar },
     }));
+  });
+
+  // Constancia de CBU: los datos guardados al vincular la cuenta a la empresa (COELSA). No consulta al banco.
+  app.get('/cuentas/:numero/constancia', soloOperativos, async (req) => {
+    const hab = await exigirCuenta(req.user.usuario, req.params.numero);
+    const f = (await operativa.query(`SELECT * FROM empresa_cbu WHERE product_number = $1 AND estado = 'activa'`, [req.params.numero])).rows[0];
+    if (!f) throw noEncontrado('La cuenta no tiene una vinculación activa');
+    if (!f.cbu) throw invalido('La cuenta todavía no tiene CBU guardado: el administrador tiene que usar "Consultar COELSA" en Empresas');
+    await auditar(null, req, { tipo: 'Consultas', accion: 'Emitió constancia de CBU', detalle: `${req.params.numero} · ${hab.razon_social}` });
+    return { cuenta: f.product_number, cbu: f.cbu, alias: f.alias, titular: f.titular ?? hab.razon_social, cuit: f.cuit_titular ?? hab.cuit, moneda: f.moneda, vinculadaEn: f.asignada_en, coelsaEn: f.coelsa_en };
   });
 
   app.get('/cuentas/:numero/detalle', soloOperativos, async (req) => {

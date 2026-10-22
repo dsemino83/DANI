@@ -1,5 +1,6 @@
 // Saldos: total de todas las empresas al ingresar; al elegir una, todo pasa a esa empresa.
 import { api } from '../api.js';
+import { mostrarConstancia } from '../constancia.js';
 import { h, poner, card, campo, kpi, tabla, dinero, iso, pill, cargando, error, contiene } from '../ui.js';
 
 const sumar = (cs, mon) => cs.filter((c) => c.moneda === mon).reduce((s, c) => s + Number(c.disponible), 0);
@@ -47,6 +48,7 @@ export async function render(main, ctx) {
       { t: 'Disponible', v: (c) => dinero(c.disponible, c.moneda), cls: 'num' }, { t: 'Contable', v: (c) => dinero(c.contable, c.moneda), cls: 'num' },
       { t: 'Débitos realizados', v: (c) => etiquetaDeb(debDe([c]), { cliDebitos: c.empresa.id, debCuenta: c.cuenta }) },
       { t: 'Movimientos', v: (c) => h('button', { class: 'btn chico', onclick: (ev) => { ev.stopPropagation(); ctx.ir('movimientos', { cuenta: c.cuenta, movModo: 'hoy' }); } }, 'Ver del día') },
+      { t: 'CBU', v: (c) => h('button', { class: 'btn chico', title: 'Constancia de CBU para compartir o imprimir', onclick: (ev) => { ev.stopPropagation(); mostrarConstancia(c); } }, 'Constancia') },
     ], alcance, { alClic: (c) => { sel = c.cuenta; dibujar(); }, sel: (c) => c.cuenta === sel, vacio: 'Ninguna cuenta coincide con la búsqueda.' }));
   };
   buscar.addEventListener('input', pintarListas);

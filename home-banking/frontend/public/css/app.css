@@ -131,3 +131,19 @@ pre { background: var(--bg); border: 1px solid var(--line); border-radius: var(-
 .causal-fila { cursor: pointer; }
 .causal-fila:hover td, .causal-fila:focus-visible td { background: var(--panel-2); }
 .vh { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+/* Constancia de CBU: siempre en claro (es un comprobante), lista para imprimir o guardar en PDF */
+.constancia { background: #fff; color: #1f1f22; max-width: 460px; margin: 0 auto; padding: 28px 32px; border: 1px solid #e0e0e3; border-radius: 8px; text-align: center; }
+.const-logo { height: 40px; display: block; margin: 0 0 18px; }
+.const-titulo { font-size: 17px; margin: 0 0 14px; }
+.const-etq { font-size: 13px; color: #555; margin: 10px 0 2px; }
+.const-dato { font-size: 21px; font-weight: 700; margin: 0; letter-spacing: .02em; word-break: break-all; }
+.const-sep { border: 0; border-top: 1px dashed #9a9aa0; margin: 22px 0 10px; }
+.const-fila { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; text-align: left; padding: 10px 0; font-size: 14px; }
+.const-fila span { color: #444; }
+.const-pie { font-size: 11px; color: #727274; margin: 18px 0 0; text-align: left; }
+@media print {
+  body.imprimiendo-constancia { background: #fff; }
+  body.imprimiendo-constancia * { visibility: hidden; }
+  body.imprimiendo-constancia .constancia, body.imprimiendo-constancia .constancia * { visibility: visible; }
+  body.imprimiendo-constancia .constancia { position: absolute; left: 0; right: 0; top: 0; border: 0; }
+}
