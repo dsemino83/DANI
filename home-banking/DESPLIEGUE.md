@@ -154,6 +154,10 @@ Para probar sin instalar nada: una máquina virtual de GitHub con Docker que lev
 - La credencial del banco queda cifrada en la base de la máquina. Al terminar la prueba, **borrá el Codespace** (**Code** → **Codespaces** → **⋯** → **Delete**): se borra todo.
 - Si "Probar conexión" no llega al banco, el banco puede estar filtrando por IP: las máquinas de Codespaces no tienen una IP fija.
 
+## Documentación
+
+El manual de usuario, la documentación para auditoría y la técnica viajan **dentro de la aplicación** (`backend/src/docs/*.md`): pestaña **Documentación** (administrador y auditor; cada consulta queda auditada) y **Ayuda → Abrir el manual completo** para todos. Se leen en pantalla y se imprimen o guardan en PDF. Se actualizan con cada versión; no hay que configurar links.
+
 ## Buzón de mensajes
 
 En el encabezado, **✉ Mensajes** (con la cantidad sin leer). Cuando alguien carga una transferencia o confirma un lote que necesita autorización, les llega un mensaje a **todas las personas asociadas a esos clientes** (permiso Ver sobre la empresa en *Usuarios y permisos*), salvo a quien la cargó. Se revisa cada 30 segundos: mientras haya mensajes sin leer el botón queda **rojo y latiendo**, y cuando llega uno nuevo se sacude y se abre solo con una **franja roja parpadeante**. Un mensaje queda **leído** cuando el destinatario lo abre (solo ese: si había varios, los demás siguen sin leer); **Aceptar** lleva a **Aprobaciones** (a quien no tiene el rol de aprobar, al registro de Transferencias). Si la operación de un mensaje sin leer ya fue autorizada o resuelta por otro, al actualizar pasa sola a leído. El buzón muestra **solo los últimos 7 días**. Los mensajes ya leídos pasan a la base histórica con el pase mensual.

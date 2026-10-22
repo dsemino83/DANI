@@ -1,13 +1,16 @@
 # Home Banking VALO — frontend, backend y despliegue
 
-Backend (BFF) en Node.js 22 + Fastify, dos Postgres (base operativa: mes en curso + `HB_RETENCION_MESES`, 1 por defecto; y base histórica) y Nginx, todo con Docker Compose. Los usuarios se autentican en el SSO de VALO (`https://ssohomo.valo.ar/valo/realms/staff`) y solo el backend se conecta con las APIs del Banco de Valores, con una única credencial (la de VALO).
+Backend (BFF) en Node.js 22 + Fastify, dos Postgres (base operativa: mes en curso + `HB_RETENCION_MESES`, 1 por defecto; y base histórica) y Nginx, todo con Docker Compose. Los usuarios se autentican en el SSO de VALO (`https://ssohomo.valo.ar/valo/realms/staff`) y solo el backend se conecta con las APIs del Banco de Valores, con la credencial de VALO (más una adicional, exclusiva de los envíos programados de correo).
 
 ```
 navegador ──HTTPS──> frontend (Nginx) ──/api──> backend ──> APIs Banco de Valores
      │                                             │ ├──> postgres (operativa, mes en curso + N, particionada por mes)
      └── login OIDC + PKCE ──> SSO VALO <── JWKS ───┘ └──> postgres-historico (solo lectura)
-                                         jobs: estado de transferencias (cada 5 min) y pase histórico (mensual)
+                                         jobs: estado de transferencias (cada 5 min), envíos programados de correo (cola),
+                                               feriados (diario) y pase a la base histórica (día 1)
 ```
+
+**Documentación:** el manual de usuario, la documentación para auditoría y la técnica están en `backend/src/docs/` y viajan dentro de la aplicación (pestaña **Documentación** para administrador y auditor; el manual también en **Ayuda**).
 
 ## Puesta en marcha
 
@@ -16,7 +19,7 @@ navegador ──HTTPS──> frontend (Nginx) ──/api──> backend ──> 
 ```sh
 cd home-banking
 sh scripts/generar-secretos.sh      # crea ./secrets/*.txt y un certificado autofirmado (solo desarrollo)
-cp .env.example .env                # completar OIDC_ISSUER, OIDC_ORIGIN, BDV_AMBIENTE, DOC_*_URL, etc.
+cp .env.example .env                # completar OIDC_ISSUER, OIDC_ORIGIN, BDV_AMBIENTE, etc.
 docker compose up -d --build        # homologación / producción (SSO de VALO)
 docker compose --profile sso-local up -d  # con Keycloak propio en https://<servidor>/auth (usuarios y perfiles desde Docker)
 ```
@@ -136,7 +139,7 @@ SPA en JavaScript (módulos ES, sin paso de build) servida por Nginx, con las pa
 | Administrador de seguridad | Empresas · Permisos · Credenciales API · Auditoría · Documentación · Ayuda |
 
 - **Login** con el SSO de VALO (OIDC Authorization Code + PKCE, cliente público `home-banking-web`). La SPA nunca ve la contraseña; los tokens viven en `sessionStorage` y se renuevan con el refresh token.
-- **Configuración en tiempo de ejecución:** `40-config-runtime.sh` genera `/config.json` desde `OIDC_ISSUER`, `OIDC_CLIENT_ID` y `DOC_*_URL`; la misma imagen sirve para homologación y producción.
+- **Configuración en tiempo de ejecución:** `40-config-runtime.sh` genera `/config.json` desde `OIDC_ISSUER` y `OIDC_CLIENT_ID`; la misma imagen sirve para homologación y producción.
 - **CSP estricta** (`script-src 'self'; style-src 'self'`, sin estilos ni scripts en línea); `OIDC_ORIGIN` habilita solo el SSO. Todo dato se inserta como texto (`textContent`), nunca como HTML.
 - Logo y paleta VALO (Pantone 186 C / Cool Gray 10), botón de modo oscuro recordado por navegador, ⚙ de auditoría por transacción en Transferencias, Aprobaciones y Débitos.
 - Ocultar una pestaña es solo comodidad: cada permiso lo vuelve a validar el backend.

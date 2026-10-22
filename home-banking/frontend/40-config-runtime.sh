@@ -5,11 +5,6 @@ set -eu
 cat > /usr/share/nginx/html/config.json <<EOF
 {
   "oidcIssuer": "${OIDC_ISSUER}",
-  "oidcClientId": "${OIDC_CLIENT_ID:-home-banking-web}",
-  "docs": {
-    "auditoria": "${DOC_AUDITORIA_URL:-}",
-    "tecnica": "${DOC_TECNICA_URL:-}",
-    "manual": "${DOC_MANUAL_URL:-}"
-  }
+  "oidcClientId": "${OIDC_CLIENT_ID:-home-banking-web}"
 }
 EOF

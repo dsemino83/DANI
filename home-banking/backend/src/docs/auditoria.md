@@ -1,0 +1,116 @@
+# Home Banking VALO — Documentación para auditoría
+
+## Alcance y objetivo
+
+Este documento describe los controles del Home Banking VALO, aplicación interna que consulta saldos y movimientos y opera transferencias de las empresas clientes a través de las APIs del Banco de Valores (Documentación Técnica APIs Banco de Valores v1.22). Incluye además los envíos programados de correo a los clientes y el buzón de avisos interno.
+
+| Elemento | Detalle |
+| --- | --- |
+| Sistema | Home Banking VALO: frontend, backend, proceso de tareas (jobs), base operativa y base histórica, con Docker |
+| Usuarios | Personal de VALO autenticado en el SSO corporativo (Keycloak, realm `staff`) |
+| Funciones auditadas | Consultas (saldos, movimientos, débitos, CBU, constancias); carga y aprobación de transferencias; administración de empresas, usuarios, permisos y credenciales; envíos programados de correo; pase a la base histórica |
+| APIs del banco | login, getUserEntityInformation, getOwnAccounts, getBalancesDetail, getMovementsDetail, getCustomerInformationCbu, immediates, transferBetweenOwnAccount, transferThirdPartyAccount, transferMep, getTransfersStatus |
+| Fuera de alcance | eCheq; conciliación por ID de movimiento (no disponible en la API v1.22) |
+
+## Roles y segregación de funciones
+
+Ninguna transferencia llega al banco sin dos personas distintas: una la carga (rol Crear) y otra la aprueba (rol Aprobar). El sistema rechaza que un usuario apruebe lo que él mismo cargó, aunque tenga ambos roles. El administrador de seguridad no opera ni ve saldos.
+
+| Función | Operador | Autorizante | Auditor | Administrador de seguridad |
+| --- | --- | --- | --- | --- |
+| Saldos, movimientos, débitos (empresas habilitadas) | Sí | Sí | Sí | No |
+| Consulta de CBU / constancia | Sí | Sí | No | No |
+| Crear transferencias y lotes (rol Crear) | Sí | No | No | No |
+| Aprobar y enviar al banco (rol Aprobar) | No | Sí | No | No |
+| Cartera de oficiales | No | Sí | No | No |
+| Envíos programados de correo | No | Sí | No | No |
+| Auditoría general (solo lectura) | No | No | Sí | Sí |
+| Empresas, usuarios, permisos, credenciales | No | No | No | Sí |
+| Documentación de auditoría y técnica | No | No | Sí | Sí |
+
+- Los roles y permisos los asigna el administrador; no puede asignárselos a sí mismo.
+- Nadie aprueba lo que creó: el backend lo valida en cada aprobación.
+
+## Control de acceso
+
+1. **Autenticación:** OIDC (Authorization Code + PKCE) contra el SSO de VALO. La aplicación nunca recibe la contraseña; bloqueos y recupero de clave los gestiona el SSO.
+2. **Autorización por rol:** el backend valida firma (JWKS), emisor, audiencia y vencimiento del token en cada pedido.
+3. **Autorización por empresa:** permisos **Ver** / **Operar** por usuario y empresa. Sin permiso sobre la empresa, sus cuentas no existen para el usuario. Un oficial con cartera asignada ve solo esos clientes.
+4. **Empresa desactivada:** suspende sus permisos al instante; **eliminada:** libera sus cuentas y borra los permisos.
+5. **Modo solo consultas** (`BDV_SOLO_CONSULTAS=true`): ninguna aprobación envía transferencias al banco.
+
+## Circuito de transferencias
+
+Cada paso queda registrado con fecha, hora y usuario: carga → **Pendiente de aprobación** → aprobación (o rechazo) → envío al banco → **Enviada / Debitada / Pendiente de autorización en el banco / Error API**. Lo rechazado nunca llega al banco. El estado se concilia con getTransfersStatus.
+
+- **Un solo envío por operación:** la aprobación es condicional, cada envío deja antes un registro único (`envio_banco`) y los envíos no se reintentan automáticamente.
+- **ID de operación único:** una misma referencia no se puede volver a cargar nunca (`referencia_usada`).
+- **Aviso a los autorizantes:** al cargarse una operación pendiente se crea, en la misma transacción, un mensaje en el buzón de cada persona asociada al cliente (salvo quien la cargó). Queda registrado cuándo lo leyó cada destinatario, o que se marcó solo porque la operación ya fue resuelta.
+
+## Registro de auditoría
+
+Toda acción queda registrada en el momento, en un registro **de solo inserción** (ni la aplicación ni nadie puede editarlo ni borrarlo). Lo consultan el auditor y el administrador de seguridad.
+
+**Campos:** ID, fecha y hora, usuario, rol, tipo, acción, API invocada, detalle (antes → después) y resultado.
+
+| Tipo | Eventos registrados |
+| --- | --- |
+| Accesos | Inicio y cierre de sesión, intentos rechazados |
+| Transferencias | Carga individual y de lote, aprobación, rechazo, envío y cambios de estado |
+| Administración | Empresas, emails (incluye "cambió X por Y"), cuentas, permisos, roles, usuarios, credenciales API (sin el valor de la clave), programaciones de envíos, feriados; acciones rechazadas |
+| Consultas | Saldos, movimientos, CBU, constancias de CBU, exportaciones a Excel, consultas a la base histórica |
+| Sistema | Pase mensual a la base histórica (por tabla y mes, con filas y hash) |
+
+- **Integridad:** la auditoría se escribe en la misma transacción que la acción.
+- **Nunca se registra:** el valor de la clave API, la cookie de sesión del banco ni tokens.
+- **Auditoría por operación (⚙):** historial completo de cada transferencia o débito.
+
+## Credenciales y secretos
+
+- **Dos credenciales API por ambiente:** la **principal** (Home Banking) y una **exclusiva de envíos programados** (usuario API distinto, su propia sesión en el banco). Solo las carga el administrador de seguridad; la clave es de solo escritura y se cifra con AES-256-GCM (llave maestra en un secreto de Docker).
+- La URL del banco la fija el ambiente: producción nunca puede apuntar a homologación.
+- Contraseñas de bases, del SMTP y del SSO: secretos de Docker, fuera del repositorio.
+
+## Envíos programados de correo
+
+- Los programa el **autorizante**, solo sobre clientes que ve; al enviar se vuelve a validar con sus permisos.
+- Un cliente puede tener **un solo extracto diario y una sola alerta** activos.
+- Cola de tareas sin superposición, con reintentos; cada tarea termina en un correo y queda registrada (destinatarios, estado, detalle).
+- Remitente **alyc@valo.ar**; los correos llevan saldos y movimientos, por eso el servidor SMTP debe usar TLS.
+
+## Base operativa e histórica
+
+- La base operativa conserva el **mes en curso y el mes anterior completo** (`HB_RETENCION_MESES=1`).
+- El **día 1 de cada mes** el proceso de tareas pasa a la base histórica (solo lectura) las transferencias, su historial de estados y la auditoría (por mes), y las filas terminadas de la cola y log de envíos y los mensajes leídos.
+- Cada pase se **verifica por cantidad de filas y hash** antes de borrar el origen y queda en `pase_historico`, `pase_recibido` y en la auditoría.
+- Si un mes tiene transferencias sin estado final, se omite y se reintenta; mientras tanto las consultas lo siguen mostrando desde la operativa.
+
+## Matriz de controles
+
+| ID | Control | Riesgo que mitiga | Evidencia |
+| --- | --- | --- | --- |
+| C01 | Autenticación por SSO corporativo (OIDC + PKCE) | Acceso no autorizado | Configuración del cliente en el realm; eventos de login |
+| C02 | Doble control: Crear y Aprobar en usuarios distintos | Transferencia de una sola persona | Registro de transferencias (cargó / aprobó) |
+| C03 | Bloqueo de autoaprobación | Evadir el doble control | Prueba: usuario con ambos roles no aprueba lo propio |
+| C04 | Permisos por empresa validados en el backend | Acceso a cuentas de otra empresa | Matriz de permisos; auditoría de cambios |
+| C05 | Desactivar / eliminar empresa suspende o borra permisos | Accesos remanentes | Auditoría de altas y bajas |
+| C06 | Administrador sin acceso a operaciones | Conflicto de funciones | Pestañas por rol |
+| C07 | Auditoría de solo inserción, en la misma transacción | Acciones sin rastro | Permisos de la tabla; muestra de registros |
+| C08 | Credenciales API de solo escritura, cifradas; credencial separada para envíos | Filtración de la credencial; cortes de sesión | Secreto de la llave maestra; auditoría de cambios |
+| C09 | Detalle previo obligatorio en carga masiva | Envío de filas inválidas | Validación por fila |
+| C10 | Validación de CBU destino en COELSA | Desvío por CBU inválido | Auditoría de consultas |
+| C11 | Pase mensual verificado (filas + hash) | Pérdida o alteración al archivar | `pase_historico` y `pase_recibido` |
+| C12 | Base histórica de solo lectura | Modificación de históricos | Permisos y triggers de la base histórica |
+| C13 | Documentación de auditoría y técnica solo para auditor y administrador | Exposición de controles | Acceso validado en el backend |
+| C14 | Seguridad del navegador: CSP estricta, HSTS | Robo de sesión o inyección | Encabezados de Nginx |
+| C15 | Un solo envío al banco por operación | Doble débito | `envio_banco` |
+| C16 | ID de operación único | Carga duplicada | `referencia_usada` |
+| C17 | Envíos programados: solo clientes visibles, uno por tipo, cola sin superposición | Envío de datos a destinatarios no autorizados o duplicados | Programaciones auditadas; cola e historial por tarea |
+| C18 | Buzón de avisos a los asociados del cliente, con lectura registrada | Operaciones pendientes sin atender | Tabla `mensaje` (destinatario, leído, motivo) |
+
+## Pendientes
+
+- Retención de la base histórica: a definir por Cumplimiento.
+- Credencial API exclusiva del Home Banking y de envíos, y rotación de la actual: a gestionar con el banco.
+- Servidor SMTP de producción, dominio y certificado: a definir con Infraestructura.
+- Prueba integrada de punta a punta en producción con evidencia para auditoría.

@@ -46,9 +46,6 @@ services:
       OIDC_ISSUER: ${OIDC_ISSUER}
       OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-home-banking-web}
       OIDC_ORIGIN: ${OIDC_ORIGIN:-https://ssohomo.valo.ar}   # para la CSP (connect-src / form-action)
-      DOC_AUDITORIA_URL: ${DOC_AUDITORIA_URL:-}
-      DOC_TECNICA_URL: ${DOC_TECNICA_URL:-}
-      DOC_MANUAL_URL: ${DOC_MANUAL_URL:-}
     ports:
       - "${HTTPS_PORT:-443}:443"
     volumes:

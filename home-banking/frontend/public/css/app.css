@@ -182,3 +182,20 @@ pre { background: var(--bg); border: 1px solid var(--line); border-radius: var(-
 @keyframes buzon-borde { 50% { box-shadow: 0 0 0 6px rgba(206, 22, 46, .35); } }
 @keyframes buzon-parpadeo { 50% { background: #9b1022; } }
 @media (prefers-reduced-motion: reduce) { .buzon.con-nuevos, .buzon.llego, .modal.modal-alerta, .alerta-nueva { animation: none; } }
+
+/* Documentación incluida (markdown) */
+.markdown { line-height: 1.55; }
+.markdown h1 { font-size: 22px; margin: 6px 0 14px; color: var(--rojo); }
+.markdown h2 { font-size: 17px; margin: 22px 0 8px; padding-bottom: 4px; border-bottom: 1px solid var(--line); }
+.markdown h3 { font-size: 15px; margin: 16px 0 6px; }
+.markdown ul, .markdown ol { padding-left: 22px; }
+.markdown li { margin: 3px 0; }
+.markdown pre { background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 10px; overflow-x: auto; font-size: 12.5px; }
+.markdown code { font-size: 12.5px; }
+.markdown .tabla { margin: 8px 0 14px; }
+@media print {
+  body.imprimiendo-doc * { visibility: hidden; }
+  body.imprimiendo-doc .doc-md, body.imprimiendo-doc .doc-md * { visibility: visible; }
+  body.imprimiendo-doc .doc-md { position: absolute; inset: 0 auto auto 0; width: 100%; border: 0; box-shadow: none; }
+  body.imprimiendo-doc .doc-md .no-imprimir { display: none; }
+}
