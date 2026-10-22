@@ -37,12 +37,14 @@ class ClienteBdv {
   }
 
   invalidar() {
+    if (this.cookie) this.cookieAnterior = this.cookie;
     this.cookie = null;
     this.vence = 0;
   }
 
   async sesion() {
     if (this.cookie && Date.now() < this.vence) return;
+    if (this.cookie) this.cookieAnterior = this.cookie; // renovación preventiva: se guarda por si el banco no da otra
     if (!this.renovando) this.renovando = this.login().finally(() => { this.renovando = null; });
     await this.renovando;
   }
@@ -72,6 +74,13 @@ class ClienteBdv {
       cookie = (res.headers.getSetCookie?.() ?? []).map((v) => v.split(';')[0]).join('; ');
       // Diagnóstico sin datos sensibles: solo nombres de encabezados y de campos de la respuesta
       if (!cookie) console.warn(`[banco] login sin Set-Cookie (intento ${intento}/3) · encabezados: ${[...res.headers.keys()].join(', ')} · campos: ${Object.keys(json ?? {}).join(', ')}`);
+      // El banco no entrega cookie nueva si la sesión anterior del mismo usuario sigue abierta de su lado:
+      // si la cookie anterior todavía funciona, se sigue usando esa.
+      if (!cookie && !cred && this.cookieAnterior) {
+        const r = await this.fetch(`${base}/enrollment/getUserEntityInformation`, {}, this.cookieAnterior).catch(() => null);
+        const j = r?.ok ? await r.json().catch(() => null) : null;
+        if (j?.success) { console.warn('[banco] se reusa la sesión anterior (sigue vigente en el banco)'); cookie = this.cookieAnterior; }
+      }
     }
     if (!cookie) throw new ErrorBanco('El login no devolvió cookie de sesión (3 intentos). Probá de nuevo en un minuto.');
     // getUserEntityInformation carga datos del lado servidor necesarios para las demás APIs
