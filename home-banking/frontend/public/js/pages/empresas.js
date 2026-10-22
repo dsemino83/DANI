@@ -29,10 +29,10 @@ export async function render(main) {
     await cargar();
   };
   const eliminar = async (e) => {
-    if (!(await confirmar('Eliminar empresa', `${e.razon_social}: se liberan sus cuentas (quedan sin asignar) y se quitan todos los permisos sobre ella. Queda registrado en auditoría.`, 'Eliminar'))) return;
+    if (!(await confirmar('Eliminar empresa', `${e.razon_social}: sus cuentas pasan a estado "baja" (quedan en el historial con el CUIT) y se quitan todos los permisos sobre ella. Queda registrado en auditoría.`, 'Eliminar'))) return;
     try {
       const r = await api(`/admin/empresas/${e.id}`, { method: 'DELETE' });
-      toast(`${e.razon_social} eliminada · ${r.cuentasLiberadas} cuentas liberadas · ${r.permisosQuitados} permisos quitados.`);
+      toast(`${e.razon_social} eliminada · ${r.cuentasLiberadas.length} cuentas dadas de baja · ${r.permisosQuitados.length} permisos quitados.`);
       if (elegida?.id === e.id) elegida = null;
     } catch (x) { error(x); }
     await cargar();
@@ -98,13 +98,18 @@ export async function render(main) {
     buscar.addEventListener('input', dibujar);
     const cerrar = modal(`Agregar cuentas a ${e.razon_social}`,
       h('p', { class: 'nota' }, 'Solo se listan las cuentas que no están asignadas a ninguna empresa. Una cuenta pertenece a una sola empresa.'),
+      h('p', { class: 'nota' }, 'Al agregar, cada cuenta se consulta en COELSA y se guardan su CBU, alias y titular.'),
       campo('Buscar', buscar), cuerpo, h('div', { class: 'fila' }, boton, contador));
     boton.addEventListener('click', async () => {
+      boton.disabled = true; boton.textContent = `Consultando COELSA (${elegidas.size})…`;
       try {
         const r = await api(`/admin/empresas/${e.id}/cuentas`, { method: 'POST', body: { cuentas: [...elegidas] } });
-        toast(`${r.agregadas.length} cuenta(s) agregada(s) a ${e.razon_social}.`);
         cerrar();
-      } catch (x) { error(x); return; }
+        if (r.rechazadas.length) {
+          modal('Cuentas no agregadas', h('p', {}, `${r.agregadas.length} agregada(s). Estas no se agregaron porque COELSA no devolvió su CBU y alias:`),
+            tabla([{ t: 'Cuenta', v: (x) => x.cuenta, cls: 'mono' }, { t: 'Motivo', v: (x) => x.motivo }], r.rechazadas));
+        } else toast(`${r.agregadas.length} cuenta(s) agregada(s) a ${e.razon_social} con CBU y alias de COELSA.`);
+      } catch (x) { error(x); boton.disabled = false; boton.textContent = 'Agregar seleccionadas'; return; }
       await cargar();
     });
     dibujar();
@@ -112,8 +117,12 @@ export async function render(main) {
   };
 
   const quitarCuenta = async (e, c) => {
-    if (!(await confirmar('Quitar cuenta', `${c.cuenta}${c.nombre ? ` (${c.nombre})` : ''} deja de pertenecer a ${e.razon_social} y queda sin asignar. Los usuarios con permiso sobre la empresa dejan de verla.`, 'Quitar'))) return;
-    try { await api(`/admin/empresas/${e.id}/cuentas/${encodeURIComponent(c.cuenta)}`, { method: 'DELETE' }); toast(`Cuenta ${c.cuenta} quitada.`); } catch (x) { error(x); }
+    if (!(await confirmar('Dar de baja cuenta', `${c.cuenta}${c.alias ? ` (alias ${c.alias})` : ''} deja de pertenecer a ${e.razon_social}: la relación pasa a estado "baja" y queda en el historial. Los usuarios con permiso sobre la empresa dejan de verla y la cuenta vuelve a estar disponible.`, 'Dar de baja'))) return;
+    try { await api(`/admin/empresas/${e.id}/cuentas/${encodeURIComponent(c.cuenta)}`, { method: 'DELETE' }); toast(`Cuenta ${c.cuenta} dada de baja.`); } catch (x) { error(x); }
+    await cargar();
+  };
+  const reconsultar = async (e, c) => {
+    try { const r = await api(`/admin/empresas/${e.id}/cuentas/${encodeURIComponent(c.cuenta)}/coelsa`, { method: 'POST' }); toast(`COELSA: CBU ${r.cbu} · alias ${r.alias ?? '—'}.`); } catch (x) { error(x); }
     await cargar();
   };
 
@@ -124,13 +133,24 @@ export async function render(main) {
     let cuentas;
     try { cuentas = await api(`/admin/empresas/${e.id}/cuentas`); } catch (x) { return poner(detalle, cardEmails(e), card(`Cuentas de ${e.razon_social}`, null, h('p', { class: 'aviso rojo' }, `No se pudieron leer las cuentas del banco: ${x.message}`))); }
     if (elegida?.id !== e.id) return; // se eligió otra mientras cargaba
-    poner(detalle, cardEmails(e), card(`Cuentas de ${e.razon_social}`, 'Una cuenta pertenece a una sola empresa. "Agregar cuentas" muestra solo las que no tienen empresa.',
+    const activas = cuentas.filter((c) => c.estado === 'activa'), bajas = cuentas.filter((c) => c.estado === 'baja');
+    const cbu = (c) => (c.cbu ? h('span', { class: 'mono' }, c.cbu) : pill('CBU pendiente', 'warn'));
+    poner(detalle, cardEmails(e), card(`Cuentas de ${e.razon_social} · CUIT ${e.cuit}`, 'Cada cuenta (CBU) tiene una sola relación activa con una empresa. "Agregar cuentas" muestra solo las que no tienen empresa; el CBU y el alias salen de COELSA.',
       !e.activa && h('p', { class: 'aviso rojo' }, 'Empresa inactiva: los permisos sobre estas cuentas están suspendidos.'),
       h('div', { class: 'fila' }, h('button', { class: 'btn primario', onclick: () => agregarCuentas(e) }, 'Agregar cuentas')),
       tabla([
-        { t: 'Nombre', v: (c) => c.nombre }, { t: 'Cuenta', v: (c) => c.cuenta, cls: 'mono' }, { t: 'Alias', v: (c) => c.alias }, { t: 'Moneda', v: (c) => c.moneda },
-        { t: 'Acción', cls: 'acc', v: (c) => h('button', { class: 'btn chico', onclick: () => quitarCuenta(e, c) }, 'Quitar') },
-      ], cuentas, { vacio: 'La empresa todavía no tiene cuentas. Usá "Agregar cuentas".' })));
+        { t: 'Nombre', v: (c) => c.nombre }, { t: 'Cuenta', v: (c) => c.cuenta, cls: 'mono' }, { t: 'CBU', v: cbu }, { t: 'Alias (COELSA)', v: (c) => c.alias ?? '' },
+        { t: 'Titular', v: (c) => [c.titular, c.cuitTitular].filter(Boolean).join(' · ') }, { t: 'Moneda', v: (c) => c.moneda },
+        { t: 'Alta', v: (c) => `${fecha(c.asignadaEn)} · ${c.asignadaPor}` },
+        { t: 'Acción', cls: 'acc', v: (c) => h('span', {},
+          !c.cbu && h('button', { class: 'btn chico', onclick: () => reconsultar(e, c) }, 'Consultar COELSA'),
+          h('button', { class: 'btn chico', onclick: () => quitarCuenta(e, c) }, 'Dar de baja')) },
+      ], activas, { vacio: 'La empresa no tiene cuentas activas. Usá "Agregar cuentas".' }),
+      bajas.length > 0 && h('details', {}, h('summary', {}, `Historial: ${bajas.length} cuenta(s) dada(s) de baja`),
+        tabla([
+          { t: 'Cuenta', v: (c) => c.cuenta, cls: 'mono' }, { t: 'CBU', v: cbu }, { t: 'Alias', v: (c) => c.alias ?? '' },
+          { t: 'Estado', v: () => pill('Baja', 'warn') }, { t: 'Alta', v: (c) => `${fecha(c.asignadaEn)} · ${c.asignadaPor}` }, { t: 'Baja', v: (c) => `${fecha(c.bajaEn)} · ${c.bajaPor}` },
+        ], bajas))));
   };
 
   const razon = h('input', { placeholder: 'Razón social' }), cuit = h('input', { placeholder: '30712345678', inputmode: 'numeric', maxlength: 11 });

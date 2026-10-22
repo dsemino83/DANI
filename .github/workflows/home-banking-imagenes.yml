@@ -80,6 +80,7 @@ jobs:
           sh scripts/configurar-correo.sh
           sh scripts/migrar-bases.sh && sh scripts/migrar-bases.sh   # idempotente sobre una base nueva
           docker compose exec -T postgres psql -U postgres -d homebanking -Atc "SELECT count(*) FROM pg_constraint WHERE conname = 'empresa_emails_max'" | grep -qx 1 && echo 'migraciones OK'
+          docker compose exec -T postgres psql -U postgres -d homebanking -Atc "SELECT to_regclass('empresa_cbu') IS NOT NULL AND to_regclass('cuenta_empresa') IS NULL AND has_table_privilege('hb_app', 'empresa_cbu', 'UPDATE') AND NOT has_table_privilege('hb_app', 'empresa_cbu', 'DELETE')" | grep -qx t && echo 'empresa_cbu OK (hb_app sin DELETE)'
           # Cambio de dirección pública (p. ej. ealyc.valo.ar) sobre un realm ya importado, y vuelta atrás
           HB_URL_PUBLICA=https://ealyc.valo.ar sh scripts/configurar-dominio.sh
           test "$(curl -sk -o /dev/null -w '%{http_code}' "$AUTH&redirect_uri=https%3A%2F%2Fealyc.valo.ar%2F")" = 200 && echo 'dominio nuevo aceptado'

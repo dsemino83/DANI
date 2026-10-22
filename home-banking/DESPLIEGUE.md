@@ -111,7 +111,9 @@ Todo se hace desde la aplicación con `admin.ti` (administrador de seguridad), e
 | Roles **Crear** / **Aprobar** transferencias | **Roles de transferencias** del usuario |
 | Permisos **Ver** / **Operar** por empresa | **Empresas** del usuario (y el maestro de empresas en **Empresas**) |
 
-**Empresas** (también del administrador): cada empresa tiene uno o más **emails** (se cargan al darla de alta, separados por coma, y después se agregan o quitan con ✕). Sus cuentas se asignan con **Agregar cuentas**: lista solo las cuentas sin empresa, con buscador por nombre, alias o número (contiene) y selección múltiple. Cada cuenta se quita de a una con **Quitar** y vuelve a quedar disponible.
+**Empresas** (también del administrador): el CUIT es único (la pantalla y la base rechazan una segunda empresa con el mismo CUIT). Cada empresa tiene uno o más **emails** (se cargan al darla de alta, separados por coma, y después se agregan o quitan con ✕). Sus cuentas se asignan con **Agregar cuentas**: lista solo las cuentas sin empresa, con buscador por nombre, alias o número (contiene) y selección múltiple. Al agregarlas, cada cuenta se consulta en **COELSA** y se guardan su CBU, alias y titular en la tabla `empresa_cbu`; las que COELSA no resuelve no se agregan y se muestran con el motivo. **Dar de baja** una cuenta no la borra: la relación pasa a estado `baja` (queda en el historial de la empresa) y la cuenta vuelve a estar disponible. La base garantiza que cada CBU y cada cuenta tenga **una sola relación activa** con una empresa.
+
+**Log del administrador:** cada acción queda en **Auditoría** (tipo *Administración*) con usuario, fecha, IP y detalle; también los intentos rechazados (CUIT repetido, cuenta ya asignada, error de COELSA o del SSO), con el motivo.
 
 La ficha de cada usuario muestra su estado: **Habilitado / Deshabilitado**, **Bloqueado por intentos fallidos** y **Debe cambiar la clave**.
 

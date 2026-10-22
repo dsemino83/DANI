@@ -3,12 +3,12 @@
 import { exigirRol, ROL_APROBAR, ROL_CREAR } from '../auth.js';
 import { auditar } from '../auditoria.js';
 import { operativa, tx } from '../db.js';
-import { conflicto, invalido, noEncontrado } from '../errores.js';
+import { conflicto, ErrorHttp, invalido, noEncontrado } from '../errores.js';
 import { esAmbiente, urlBase } from '../bdv/ambientes.js';
 import { cifrar, estadoCredencial, leerCredencial } from '../secretos.js';
-import { bdv, cuentasPropias, pemDesdeBase64 } from '../bdv/cliente.js';
+import { bdv, consultarCbu, cuentasPropias, pemDesdeBase64 } from '../bdv/cliente.js';
 import { cambiarPerfil, cambiarRol, crearUsuario, desbloquearUsuario, editarDatosUsuario, eliminarUsuario, enviarCorreoClave, estadoUsuario, forzarCambioClave, habilitarUsuario, listarUsuarios, restablecerClave, rolesDeTransferencias } from '../keycloak-admin.js';
-import { normalizarEmails } from '../servicios/empresas.js';
+import { cbuDeCuenta, filaCoelsa, normalizarEmails } from '../servicios/empresas.js';
 import { createPublicKey } from 'node:crypto';
 
 const nivel = (p) => (!p ? 'sin acceso' : p.operar ? 'ver+operar' : p.ver ? 'ver' : 'sin acceso');
@@ -16,10 +16,18 @@ const nivel = (p) => (!p ? 'sin acceso' : p.operar ? 'ver+operar' : p.ver ? 'ver
 export default async function rutasAdmin(app) {
   app.addHook('preHandler', exigirRol('administrador'));
 
+  // Log de acciones rechazadas: las que salen bien se auditan dentro de su transacción; las que fallan
+  // (validación, permisos, conflicto, error del SSO o del banco) se registran acá con el motivo.
+  app.addHook('onError', async (req, reply, error) => {
+    if (req.method === 'GET') return;
+    await auditar(null, req, { tipo: 'Administración', accion: `Acción rechazada: ${req.method} ${req.routeOptions?.url ?? req.url}`,
+      detalle: error.message, resultado: 'Error' }).catch(() => {});
+  });
+
   // ---------------- Empresas ----------------
   app.get('/empresas', async () => (await operativa.query(
-    `SELECT e.*, count(ce.product_number)::int AS cuentas
-       FROM empresa e LEFT JOIN cuenta_empresa ce ON ce.empresa_id = e.id
+    `SELECT e.*, count(ce.id)::int AS cuentas
+       FROM empresa e LEFT JOIN empresa_cbu ce ON ce.empresa_id = e.id AND ce.estado = 'activa'
       GROUP BY e.id ORDER BY e.razon_social`)).rows);
 
   app.post('/empresas', async (req, reply) => {
@@ -52,11 +60,11 @@ export default async function rutasAdmin(app) {
     return rows[0];
   }));
 
-  // Eliminar: libera sus cuentas y borra los permisos de todos los usuarios sobre ella.
+  // Eliminar: da de baja sus cuentas (quedan en el historial con el CUIT) y borra los permisos sobre ella.
   app.delete('/empresas/:id', async (req) => tx(operativa, async (c) => {
     const { rows } = await c.query('SELECT * FROM empresa WHERE id = $1 FOR UPDATE', [req.params.id]);
     if (!rows[0]) throw noEncontrado('Empresa inexistente');
-    const cuentas = (await c.query('UPDATE cuenta_empresa SET empresa_id = NULL, asignada_por = $2, asignada_en = now() WHERE empresa_id = $1 RETURNING product_number', [req.params.id, req.user.usuario])).rows.map((r) => r.product_number);
+    const cuentas = (await c.query(`UPDATE empresa_cbu SET estado = 'baja', baja_por = $2, baja_en = now() WHERE empresa_id = $1 AND estado = 'activa' RETURNING product_number`, [req.params.id, req.user.usuario])).rows.map((r) => r.product_number);
     const us = (await c.query('DELETE FROM permiso_empresa WHERE empresa_id = $1 RETURNING usuario', [req.params.id])).rows.map((r) => r.usuario);
     await c.query('DELETE FROM empresa WHERE id = $1', [req.params.id]);
     await auditar(c, req, {
@@ -81,52 +89,96 @@ export default async function rutasAdmin(app) {
     });
   });
 
-  // Cuentas del banco con su asignación (solo número, nombre, alias y moneda; sin saldos)
-  const cuentasConAsignacion = async () => {
-    const asignadas = new Map((await operativa.query('SELECT product_number, empresa_id FROM cuenta_empresa WHERE empresa_id IS NOT NULL')).rows.map((r) => [r.product_number, String(r.empresa_id)]));
-    return (await cuentasPropias()).map((c) => ({
-      cuenta: String(c.productNumber), nombre: c.productName ?? '', alias: c.aliasName ?? c.productAlias ?? '',
-      moneda: Number(c.currencyId) === 80 ? 'ARS' : 'USD', empresaId: asignadas.get(String(c.productNumber)) ?? null,
+  // Cuentas del banco que no tienen relación activa con ninguna empresa (para "Agregar cuentas")
+  const vista = (c) => ({ cuenta: String(c.productNumber), nombre: c.productName ?? '', alias: c.aliasName ?? c.productAlias ?? '', moneda: Number(c.currencyId) === 80 ? 'ARS' : 'USD' });
+  app.get('/cuentas-disponibles', async () => {
+    const activas = new Set((await operativa.query(`SELECT product_number FROM empresa_cbu WHERE estado = 'activa'`)).rows.map((r) => r.product_number));
+    return (await cuentasPropias()).map(vista).filter((c) => !activas.has(c.cuenta));
+  });
+
+  // Cuentas de la empresa (activas y dadas de baja), con el CBU y alias de COELSA guardados.
+  // El nombre de la cuenta sale del banco; si el banco no responde se muestran igual los datos guardados.
+  app.get('/empresas/:id/cuentas', async (req) => {
+    const filas = (await operativa.query('SELECT * FROM empresa_cbu WHERE empresa_id = $1 ORDER BY estado, asignada_en DESC', [req.params.id])).rows;
+    const banco = new Map((await cuentasPropias().catch(() => [])).map((c) => [String(c.productNumber), vista(c)]));
+    return filas.map((f) => ({
+      id: f.id, cuenta: f.product_number, nombre: banco.get(f.product_number)?.nombre ?? '', moneda: f.moneda ?? banco.get(f.product_number)?.moneda ?? '',
+      cbu: f.cbu, alias: f.alias, titular: f.titular, cuitTitular: f.cuit_titular, estado: f.estado,
+      asignadaPor: f.asignada_por, asignadaEn: f.asignada_en, bajaPor: f.baja_por, bajaEn: f.baja_en, coelsaEn: f.coelsa_en,
     }));
+  });
+
+  // Consulta COELSA por el CBU de la cuenta (o por su alias si el banco no informa el CBU)
+  const consultarCoelsa = async (cuenta) => {
+    const cbu = cbuDeCuenta(cuenta), alias = cuenta.aliasName ?? cuenta.productAlias ?? '';
+    if (!cbu && !alias) throw new Error('el banco no informa CBU ni alias de la cuenta');
+    return filaCoelsa(cuenta, await consultarCbu(cbu ? { cbu } : { alias }));
   };
 
-  // Cuentas de la empresa
-  app.get('/empresas/:id/cuentas', async (req) => (await cuentasConAsignacion()).filter((c) => c.empresaId === String(req.params.id)));
-
-  // Cuentas sin asignar a ninguna empresa (para "Agregar cuentas"; el buscador filtra en la pantalla)
-  app.get('/cuentas-disponibles', async () => (await cuentasConAsignacion()).filter((c) => c.empresaId == null));
-
-  // Agregar una o más cuentas sin asignar a la empresa
+  // Agregar cuentas: por cada una consulta COELSA y guarda CBU, alias y titular. Las que COELSA no resuelve
+  // no se agregan y vuelven con el motivo. La base rechaza un CBU o cuenta con otra relación activa.
   app.post('/empresas/:id/cuentas', async (req) => {
     const pedidas = [...new Set((req.body?.cuentas ?? []).map(String))];
     if (!pedidas.length) throw invalido('Elegí al menos una cuenta');
-    const delBanco = new Set((await cuentasPropias()).map((c) => String(c.productNumber)));
+    const emp0 = (await operativa.query('SELECT * FROM empresa WHERE id = $1', [req.params.id])).rows[0];
+    if (!emp0) throw noEncontrado('Empresa inexistente');
+    const delBanco = new Map((await cuentasPropias()).map((c) => [String(c.productNumber), c]));
     const ajenas = pedidas.filter((n) => !delBanco.has(n));
     if (ajenas.length) throw invalido(`Cuentas que el banco no informa para VALO: ${ajenas.join(', ')}`);
+    const resueltas = [], rechazadas = [];
+    for (const n of pedidas) {
+      try { resueltas.push({ n, moneda: vista(delBanco.get(n)).moneda, ...(await consultarCoelsa(delBanco.get(n))) }); }
+      catch (e) { rechazadas.push({ cuenta: n, motivo: `COELSA: ${e.message}` }); }
+    }
+    if (!resueltas.length) {
+      await auditar(null, req, { tipo: 'Administración', accion: 'Agregar cuentas a empresa: sin cambios', api: 'getCustomerInformationCbu', ref: { tipo: 'empresa', id: req.params.id },
+        detalle: `${emp0.razon_social} · ${rechazadas.map((r) => `${r.cuenta}: ${r.motivo}`).join(' | ')}`, resultado: 'Error' });
+      return { agregadas: [], rechazadas };
+    }
     return tx(operativa, async (c) => {
       const emp = (await c.query('SELECT * FROM empresa WHERE id = $1 FOR UPDATE', [req.params.id])).rows[0];
       if (!emp) throw noEncontrado('Empresa inexistente');
-      const ocupadas = (await c.query('SELECT product_number FROM cuenta_empresa WHERE empresa_id IS NOT NULL AND product_number = ANY($1) FOR UPDATE', [pedidas])).rows.map((r) => r.product_number);
-      if (ocupadas.length) throw conflicto(`Cuentas ya asignadas a una empresa: ${ocupadas.join(', ')}`);
-      for (const n of pedidas) {
-        await c.query(`INSERT INTO cuenta_empresa (product_number, empresa_id, asignada_por, asignada_en) VALUES ($1, $2, $3, now())
-                       ON CONFLICT (product_number) DO UPDATE SET empresa_id = $2, asignada_por = $3, asignada_en = now()`, [n, req.params.id, req.user.usuario]);
+      const ocupadas = (await c.query(`SELECT product_number, cbu FROM empresa_cbu WHERE estado = 'activa' AND (product_number = ANY($1) OR cbu = ANY($2))`,
+        [resueltas.map((r) => r.n), resueltas.map((r) => r.cbu)])).rows;
+      if (ocupadas.length) throw conflicto(`Ya tienen una relación activa con una empresa: ${ocupadas.map((r) => `${r.product_number} (CBU ${r.cbu ?? 'pendiente'})`).join(', ')}`);
+      for (const r of resueltas) {
+        await c.query(`INSERT INTO empresa_cbu (empresa_id, empresa_cuit, product_number, cbu, alias, titular, cuit_titular, moneda, coelsa_en, asignada_por)
+                       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now(), $9)`,
+          [emp.id, emp.cuit, r.n, r.cbu, r.alias, r.titular, r.cuitTitular, r.moneda, req.user.usuario]);
       }
-      await auditar(c, req, { tipo: 'Administración', accion: 'Agregó cuentas a empresa', ref: { tipo: 'empresa', id: req.params.id },
-        detalle: `${emp.razon_social} · ${pedidas.length} cuenta(s): ${pedidas.join(', ')}` });
-      return { agregadas: pedidas };
-    });
+      await auditar(c, req, { tipo: 'Administración', accion: 'Agregó cuentas a empresa', api: 'getCustomerInformationCbu', ref: { tipo: 'empresa', id: req.params.id },
+        detalle: `${emp.razon_social} (CUIT ${emp.cuit}) · ${resueltas.map((r) => `${r.n} CBU ${r.cbu} alias ${r.alias ?? '—'}`).join(' | ')}`
+          + (rechazadas.length ? ` · no agregadas: ${rechazadas.map((r) => `${r.cuenta} (${r.motivo})`).join(', ')}` : '') });
+      return { agregadas: resueltas.map((r) => ({ cuenta: r.n, cbu: r.cbu, alias: r.alias })), rechazadas };
+    }).catch((e) => { if (e.code === '23505') throw conflicto('El CBU o la cuenta ya tiene una relación activa con una empresa'); throw e; });
   });
 
-  // Quitar una cuenta de la empresa (queda sin asignar)
+  // Volver a consultar COELSA para una cuenta activa (completa el CBU de asignaciones anteriores o actualiza el alias)
+  app.post('/empresas/:id/cuentas/:cuenta/coelsa', async (req) => {
+    const cuenta = (await cuentasPropias()).find((c) => String(c.productNumber) === req.params.cuenta);
+    if (!cuenta) throw invalido('El banco no informa esa cuenta para VALO');
+    let d;
+    try { d = await consultarCoelsa(cuenta); } catch (e) { throw new ErrorHttp(502, 'coelsa', `COELSA: ${e.message}`); }
+    return tx(operativa, async (c) => {
+      const f = (await c.query(`SELECT * FROM empresa_cbu WHERE empresa_id = $1 AND product_number = $2 AND estado = 'activa' FOR UPDATE`, [req.params.id, req.params.cuenta])).rows[0];
+      if (!f) throw noEncontrado('La cuenta no tiene una relación activa con esta empresa');
+      await c.query('UPDATE empresa_cbu SET cbu = $2, alias = $3, titular = $4, cuit_titular = $5, coelsa_en = now() WHERE id = $1', [f.id, d.cbu, d.alias, d.titular, d.cuitTitular]);
+      await auditar(c, req, { tipo: 'Administración', accion: 'Actualizó datos COELSA de cuenta', api: 'getCustomerInformationCbu', ref: { tipo: 'empresa', id: req.params.id },
+        detalle: `cuenta ${f.product_number} · CBU ${f.cbu ?? 'pendiente'} → ${d.cbu} · alias ${f.alias ?? '—'} → ${d.alias ?? '—'}` });
+      return { cuenta: f.product_number, ...d };
+    }).catch((e) => { if (e.code === '23505') throw conflicto('Ese CBU ya tiene una relación activa con otra empresa'); throw e; });
+  });
+
+  // Quitar una cuenta: no se borra, pasa a estado "baja" (queda en el historial) y la cuenta vuelve a estar disponible
   app.delete('/empresas/:id/cuentas/:cuenta', async (req) => tx(operativa, async (c) => {
     const emp = (await c.query('SELECT * FROM empresa WHERE id = $1', [req.params.id])).rows[0];
     if (!emp) throw noEncontrado('Empresa inexistente');
-    const r = await c.query('UPDATE cuenta_empresa SET empresa_id = NULL, asignada_por = $3, asignada_en = now() WHERE product_number = $1 AND empresa_id = $2', [req.params.cuenta, req.params.id, req.user.usuario]);
-    if (!r.rowCount) throw noEncontrado('La cuenta no está asignada a esta empresa');
-    await auditar(c, req, { tipo: 'Administración', accion: 'Quitó cuenta de empresa', ref: { tipo: 'empresa', id: req.params.id },
-      detalle: `${emp.razon_social} · cuenta ${req.params.cuenta} liberada` });
-    return { quitada: req.params.cuenta };
+    const r = await c.query(`UPDATE empresa_cbu SET estado = 'baja', baja_por = $3, baja_en = now()
+                              WHERE product_number = $1 AND empresa_id = $2 AND estado = 'activa' RETURNING cbu, alias`, [req.params.cuenta, req.params.id, req.user.usuario]);
+    if (!r.rowCount) throw noEncontrado('La cuenta no tiene una relación activa con esta empresa');
+    await auditar(c, req, { tipo: 'Administración', accion: 'Dio de baja cuenta de empresa', ref: { tipo: 'empresa', id: req.params.id },
+      detalle: `${emp.razon_social} (CUIT ${emp.cuit}) · cuenta ${req.params.cuenta} · CBU ${r.rows[0].cbu ?? 'pendiente'} · alias ${r.rows[0].alias ?? '—'} · estado activa → baja` });
+    return { cuenta: req.params.cuenta, estado: 'baja' };
   }));
 
   // ---------------- Permisos por empresa ----------------

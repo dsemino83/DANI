@@ -182,3 +182,15 @@ test('edición de datos de usuario', async () => {
   assert.throws(() => validarDatos({ nombre: 'Ana', apellido: '', email: 'ana@valo.ar' }));
   assert.throws(() => validarDatos({ nombre: 'Ana', apellido: 'Gómez', email: 'ana' }));
 });
+
+test('CBU de la cuenta y datos de COELSA', async () => {
+  const { cbuDeCuenta, filaCoelsa } = await import('../src/servicios/empresas.js');
+  const cbu = '0650001000000000000100';
+  assert.equal(cbuDeCuenta({ cbu }), cbu);
+  assert.equal(cbuDeCuenta({ cbuNumber: '065-0001-000000000000100' }), cbu);
+  assert.equal(cbuDeCuenta({ cbu: '123' }), null);
+  assert.equal(cbuDeCuenta({}), null);
+  assert.deepEqual(filaCoelsa({ cbu }, { cbu, alias: 'acme.pagos', headline: 'ACME SA', cuit: 30712345678 }), { cbu, alias: 'acme.pagos', titular: 'ACME SA', cuitTitular: '30712345678' });
+  assert.throws(() => filaCoelsa({ cbu }, { cbu: '0650001000000000000999' }), /otro CBU/);
+  assert.throws(() => filaCoelsa({}, { alias: 'x' }), /CBU válido/);
+});

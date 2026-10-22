@@ -16,14 +16,31 @@ CREATE TABLE empresa (
   emails        text[]      NOT NULL DEFAULT '{}' CONSTRAINT empresa_emails_max CHECK (cardinality(emails) <= 20)  -- contactos de la empresa
 );
 
--- Una cuenta pertenece a una sola empresa; empresa_id NULL = sin asignar.
-CREATE TABLE cuenta_empresa (
-  product_number text PRIMARY KEY,
-  empresa_id     bigint REFERENCES empresa(id) ON DELETE SET NULL,
-  asignada_por   text,
-  asignada_en    timestamptz
+-- Cuentas (CBU) de cada empresa, con historial: quitar una cuenta no borra la fila, la pasa a estado 'baja'.
+-- La base garantiza que un CBU (y una cuenta) tenga a lo sumo UNA relación activa con una empresa.
+-- cbu/alias/titular/cuit_titular salen de COELSA (getCustomerInformationCbu) al asignar.
+CREATE TABLE empresa_cbu (
+  id               bigserial PRIMARY KEY,
+  empresa_id       bigint REFERENCES empresa(id) ON DELETE SET NULL,
+  empresa_cuit     char(11) NOT NULL,          -- copia: se conserva aunque la empresa se elimine
+  product_number   text NOT NULL,
+  cbu              char(22) CHECK (cbu ~ '^[0-9]{22}$'),   -- NULL solo en asignaciones anteriores a COELSA
+  alias            text,
+  titular          text,
+  cuit_titular     text,
+  moneda           text,
+  coelsa_en        timestamptz,
+  estado           text NOT NULL DEFAULT 'activa' CHECK (estado IN ('activa', 'baja')),
+  asignada_por     text NOT NULL,
+  asignada_en      timestamptz NOT NULL DEFAULT now(),
+  baja_por         text,
+  baja_en          timestamptz,
+  CHECK (estado = 'baja' OR empresa_id IS NOT NULL),
+  CHECK ((estado = 'baja') = (baja_en IS NOT NULL))
 );
-CREATE INDEX cuenta_empresa_empresa_idx ON cuenta_empresa (empresa_id);
+CREATE UNIQUE INDEX empresa_cbu_cbu_activa    ON empresa_cbu (cbu)            WHERE estado = 'activa';
+CREATE UNIQUE INDEX empresa_cbu_cuenta_activa ON empresa_cbu (product_number) WHERE estado = 'activa';
+CREATE INDEX empresa_cbu_empresa_idx ON empresa_cbu (empresa_id, estado);
 
 -- usuario = preferred_username del token del SSO.
 CREATE TABLE permiso_empresa (
