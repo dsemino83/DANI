@@ -215,6 +215,10 @@ test('Power BI: consulta DAX, filas y CBU por cuenta', async () => {
   ]);
   assert.deepEqual([...m.keys()], ['300100000057013', '100100000095899']);
   assert.equal(m.get(claveCuenta('000300100000057013')), '1980001730000000570133');
+  // Flujo con la consulta propia: columnas con el nombre del modelo
+  const m2 = mapaCbus(leerFilas([{ 'Cuenta[Cuenta Numero]': '300100000057013', 'Cuenta[Cuenta CBU]': '1980001730000000570133' }]),
+    { colCuenta: 'Cuenta Numero', colCbu: 'Cuenta CBU' });
+  assert.equal(m2.get('300100000057013'), '1980001730000000570133');
   // COELSA tiene que devolver el mismo CBU que Power BI (si el banco no informa uno)
   const cbu = '1980001730000000570133';
   assert.equal(filaCoelsa({}, { cbu, alias: 'valo.pagos' }, cbu).alias, 'valo.pagos');

@@ -178,7 +178,7 @@ El área y el modelo ya vienen cargados (`PBI_GRUPO`, `PBI_MODELO`; también `PB
 3. Área **Patrimonios** → *Administrar acceso* → agregar la aplicación como **Miembro** o **Colaborador** (con *Visor* no alcanza).
 4. En `.env`: `PBI_TENANT_ID` y `PBI_CLIENT_ID`; el secreto de cliente en `secrets/powerbi_secreto.txt`.
 
-**B) Flujo de Power Automate.** Igual que el flujo de la rama VALO (`valo/powerautomate/POWERBI.md`): disparador HTTP (*Cualquiera*), valida la clave y ejecuta *Ejecutar una consulta en un conjunto de datos* sobre **Patrimonios / CUENTAS CBU** con el texto `outputs('Pedido')?['consulta']`, y responde 200 con *First table rows*. En `.env`: `PBI_FLUJO_URL` (la HTTP URL del disparador); la clave del flujo en `secrets/powerbi_secreto.txt`. Si están las dos configuradas, se usa el flujo.
+**B) Flujo de Power Automate.** Igual que el flujo *VALO Cuentas y clientes* de la rama VALO (`valo/powerautomate/POWERBI.md`): disparador HTTP (*Cualquiera*), valida la clave y ejecuta *Ejecutar una consulta en un conjunto de datos* sobre **Patrimonios / CUENTAS CBU** con la consulta de arriba (fija en el flujo, o `outputs('Pedido')?['consulta']`), y responde 200 con *First table rows*. El backend manda `{"clave", "consulta"}` como texto, igual que la página de VALO. En `.env`: `PBI_FLUJO_URL` (la HTTP URL del disparador); la clave del flujo en `secrets/powerbi_secreto.txt`. Si están las dos configuradas, se usa el flujo.
 
 Si el modelo tiene seguridad por filas (RLS), la API no deja consultarlo con service principal.
 

@@ -27,11 +27,13 @@ export const claveCuenta = (n) => String(n ?? '').replace(/\D/g, '').replace(/^0
 
 // { cuenta → CBU }. Un CBU numérico de más de 15 dígitos pierde precisión en JSON y queda descartado por el largo;
 // una cuenta con dos CBU distintos en el modelo queda sin CBU (no se adivina).
-export function mapaCbus(filas) {
+// Acepta las columnas como las nombra la consulta (cuenta, cbu) o con su nombre en el modelo (Cuenta Numero, Cuenta CBU).
+export function mapaCbus(filas, { colCuenta, colCbu } = pbi) {
   const m = new Map(), dudosas = new Set();
   for (const f of filas) {
-    const cuenta = claveCuenta(f.cuenta);
-    const cbu = typeof f.cbu === 'string' ? f.cbu.replace(/\D/g, '') : '';
+    const cuenta = claveCuenta(f.cuenta ?? f[colCuenta.toLowerCase()]);
+    const valor = f.cbu ?? f[colCbu.toLowerCase()];
+    const cbu = typeof valor === 'string' ? valor.replace(/\D/g, '') : '';
     if (!cuenta || cbu.length !== 22) continue;
     if (m.has(cuenta) && m.get(cuenta) !== cbu) dudosas.add(cuenta);
     m.set(cuenta, cbu);
@@ -67,7 +69,9 @@ export async function consultarPowerBI(dax) {
   const modo = modoPowerBI();
   if (!modo) throw new Error('Power BI no está configurado (PBI_TENANT_ID, PBI_CLIENT_ID y secreto, o PBI_FLUJO_URL y clave)');
   if (modo === 'flujo') {
-    return leerFilas(await pedir(pbi.flujoUrl, { method: 'POST', headers: { 'content-type': 'application/json' },
+    // text/plain como en la rama VALO: el flujo lee el pedido con json(triggerBody()). Un flujo con la consulta
+    // fija (como "VALO Cuentas y clientes") ignora "consulta".
+    return leerFilas(await pedir(pbi.flujoUrl, { method: 'POST', headers: { 'content-type': 'text/plain;charset=UTF-8' },
       body: JSON.stringify({ clave: pbi.secreto, consulta: dax }) }, 'el flujo de Power BI'));
   }
   const url = `https://api.powerbi.com/v1.0/myorg/groups/${pbi.grupo}/datasets/${pbi.modelo}/executeQueries`;
