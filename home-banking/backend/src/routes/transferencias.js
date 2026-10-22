@@ -9,6 +9,8 @@ import { evaluarRiesgo } from '../servicios/riesgo.js';
 import * as lotes from '../servicios/lotes.js';
 
 const fechaOk = (f) => /^\d{4}-\d{2}-\d{2}$/.test(f ?? '');
+// Id numérico de la URL: uno mal armado es un pedido inválido (400), no un error de la base (500)
+const idDe = (req) => { const id = Number(req.params.id); if (!Number.isSafeInteger(id) || id < 1) throw invalido('Id inválido'); return id; };
 
 export default async function rutasTransferencias(app) {
   const operativos = { preHandler: exigirRol(...ROLES_OPERATIVOS) };
@@ -55,7 +57,7 @@ export default async function rutasTransferencias(app) {
   });
 
   // --- Auditoría de una operación (ruedita ⚙) ---
-  app.get('/transferencias/:id/auditoria', operativos, async (req) => transferencias.auditoriaDeOperacion(req, Number(req.params.id)));
+  app.get('/transferencias/:id/auditoria', operativos, async (req) => transferencias.auditoriaDeOperacion(req, idDe(req)));
 
   // Auditoría de un débito (⚙ en Débitos realizados): si lo originó una transferencia de la app, su historial
   app.get('/debitos/:movimiento/auditoria', operativos, async (req) => {
@@ -92,8 +94,8 @@ export default async function rutasTransferencias(app) {
     };
   });
 
-  app.post('/transferencias/:id/aprobar', { preHandler: exigirAprobar }, async (req) => transferencias.aprobar(req, Number(req.params.id)));
-  app.post('/transferencias/:id/rechazar', { preHandler: exigirAprobar }, async (req) => transferencias.rechazar(req, Number(req.params.id)));
+  app.post('/transferencias/:id/aprobar', { preHandler: exigirAprobar }, async (req) => transferencias.aprobar(req, idDe(req)));
+  app.post('/transferencias/:id/rechazar', { preHandler: exigirAprobar }, async (req) => transferencias.rechazar(req, idDe(req)));
 
   // --- Carga masiva ---
   app.post('/lotes', { preHandler: exigirCrear }, async (req, reply) => {
@@ -103,8 +105,8 @@ export default async function rutasTransferencias(app) {
     reply.code(201);
     return lotes.previa(req, { nombre: archivo.filename, buffer });
   });
-  app.post('/lotes/:id/confirmar', { preHandler: exigirCrear }, async (req) => lotes.confirmar(req, Number(req.params.id)));
-  app.post('/lotes/:id/descartar', { preHandler: exigirCrear }, async (req) => lotes.descartar(req, Number(req.params.id)));
-  app.post('/lotes/:id/aprobar', { preHandler: exigirAprobar }, async (req) => lotes.decidir(req, Number(req.params.id), true));
-  app.post('/lotes/:id/rechazar', { preHandler: exigirAprobar }, async (req) => lotes.decidir(req, Number(req.params.id), false));
+  app.post('/lotes/:id/confirmar', { preHandler: exigirCrear }, async (req) => lotes.confirmar(req, idDe(req)));
+  app.post('/lotes/:id/descartar', { preHandler: exigirCrear }, async (req) => lotes.descartar(req, idDe(req)));
+  app.post('/lotes/:id/aprobar', { preHandler: exigirAprobar }, async (req) => lotes.decidir(req, idDe(req), true));
+  app.post('/lotes/:id/rechazar', { preHandler: exigirAprobar }, async (req) => lotes.decidir(req, idDe(req), false));
 }
