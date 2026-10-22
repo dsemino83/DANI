@@ -283,7 +283,7 @@ test('envíos programados: Excel adjunto con saldos y todos los movimientos', as
   assert.equal(sal.getRow(6).getCell(4).value, 1234.5, 'importes como números');
   assert.equal(sal.getRow(7).getCell(3).value, 'USD');
   assert.equal(mov.rowCount, 155, 'todos los movimientos, sin el tope del cuerpo');
-  assert.equal(mov.getRow(7).getCell(12).value, -10, 'débito en negativo');
+  assert.equal(mov.getRow(7).getCell(13).value, -10, 'débito en negativo (columna Importe)');
   wb = await leer(await xlsxEnvio({ razon_social: 'ALFA SA', cuit: '30712345671' }, cuentas, 'saldos'));
   assert.deepEqual(wb.worksheets.map((w) => w.name), ['Saldos']);
 });
@@ -296,4 +296,25 @@ test('alerta de movimientos: franja de 29:59 antes de la ejecución', async () =
   assert.deepEqual(franjaDeTurno('2026-10-22T00:00').fechas, ['2026-10-21', '2026-10-22'], 'cruza la medianoche: consulta los dos días');
   assert.equal(franjaDeTurno('manual 2026-10-22T13:15:42.900Z').hastaTxt.horaSeg, '10:15:42', 'Ejecutar ahora: hasta el momento en que se pidió');
   assert.deepEqual(['10:21', '10:21:33', '10:21:33 PM', '12:05 AM', '102133', '', 'x'].map(segundosDeHora), [37260, 37293, 80493, 300, 37293, null, null]);
+});
+
+test('movimientos: CBU origen solo en las causales 366 y 367 (campo reference)', async () => {
+  const ExcelJS = (await import('exceljs')).default;
+  const { causalDe, cbuOrigen, filaMovimiento, xlsxMovimientos } = await import('../src/excel.js');
+  const cbu = '0720000720000001234567';
+  assert.equal(causalDe({ reference: '741' }), '741');
+  assert.equal(causalDe({ reference: '0366' }), '366');
+  assert.equal(causalDe({ reference: null, causeId: 367 }), '367');
+  assert.equal(causalDe({}), null);
+  assert.equal(cbuOrigen({ reference: '366', cbuOri: cbu }), cbu);
+  assert.equal(cbuOrigen({ reference: '367', cbuOri: ` ${cbu} ` }), cbu);
+  assert.equal(cbuOrigen({ reference: '741', cbuOri: cbu }), '', 'otras causales en blanco');
+  assert.equal(cbuOrigen({ reference: '366', cbuOri: null }), '');
+  const filas = [{ reference: '366', cbuOri: cbu }, { reference: '741', cbuOri: cbu }].map((m) => filaMovimiento({ ...m, signDC: 'D', amount: 1, availableBalance: 1, transactionId: 1 }, { cuenta: '100', cliente: 'ALFA', moneda: 'ARS' }));
+  const wb = new ExcelJS.Workbook(); await wb.xlsx.load(await xlsxMovimientos(filas, { hoja: 'Débitos', titulo: 'Débitos realizados · 22/10/2026', subtitulo: 'ALFA' }));
+  const ws = wb.getWorksheet('Débitos');
+  assert.equal(ws.getImages().length, 1, 'logo del banco'); assert.equal(ws.getCell('C1').value, 'Débitos realizados · 22/10/2026'); assert.equal(ws.getCell('C2').value, 'ALFA');
+  const cab = ws.getRow(5).values; const col = cab.indexOf('CBU origen (causal 366/367)');
+  assert.ok(col > 0 && cab.includes('Causal'));
+  assert.equal(ws.getRow(6).getCell(col).value, cbu); assert.ok(!ws.getRow(7).getCell(col).value, 'causal 741 en blanco');
 });

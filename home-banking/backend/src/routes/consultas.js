@@ -25,6 +25,8 @@ async function cuentasVisibles(usuario, empresaId = null) {
     .filter((c) => !empresaId || String(c.empresa.empresa_id) === String(empresaId));
 }
 
+const dmy = (iso) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.slice(0, 4)}`;
+
 export default async function rutasConsultas(app) {
   const soloOperativos = { preHandler: exigirRol(...ROLES_OPERATIVOS) };
 
@@ -95,7 +97,9 @@ export default async function rutasConsultas(app) {
       await auditar(null, req, { tipo: 'Consultas', accion: 'Exportó a Excel', api: 'getMovementsDetail', detalle: `Débitos ${desde} a ${hasta} · ${filas.length} filas` });
       return reply.header('content-type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
         .header('content-disposition', `attachment; filename="debitos_realizados_${desde}_${hasta}.xlsx"`)
-        .send(Buffer.from(await xlsxMovimientos(filas, { hoja: 'Débitos' })));
+        .send(Buffer.from(await xlsxMovimientos(filas, { hoja: 'Débitos', // con el logo del banco arriba
+          titulo: `Débitos realizados · ${dmy(desde)}${hasta !== desde ? ` al ${dmy(hasta)}` : ''}`,
+          subtitulo: req.query.empresa ? (cuentas[0]?.empresa.razon_social ?? `Empresa ${req.query.empresa}`) : 'Todos los clientes habilitados' })));
     }
     await auditar(null, req, { tipo: 'Consultas', accion: 'Consultó débitos realizados', api: 'getMovementsDetail', detalle: `${desde} a ${hasta}` });
     return { desde, hasta, debitos: filas };

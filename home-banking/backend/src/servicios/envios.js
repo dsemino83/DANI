@@ -4,7 +4,7 @@ import { operativa } from '../db.js';
 import { bdvEnvios, cuentasPropias, movimientos } from '../bdv/cliente.js';
 import { enviarCorreo } from '../correo.js';
 import { readFileSync } from 'node:fs';
-import { xlsxEnvio } from '../excel.js';
+import { cbuOrigen, xlsxEnvio } from '../excel.js';
 import { feriadosCargados } from './feriados.js';
 import { enArgentina, enFranja, franjaDeTurno, turnoVencido } from './programacion.js';
 
@@ -39,7 +39,7 @@ function movimientosHtml(c, movs, max) {
     texto += `  ${titulo}: ${lista.length} · total ${dinero(total, mon)}\n`;
     if (!lista.length) { html += `<p style="margin:0 0 8px;color:#727274">Sin ${titulo.toLowerCase()}.</p>`; continue; }
     html += tabla([['Fecha'], ['Hora'], ['Descripción'], ['Beneficiario / Ordenante'], ['CUIT'], ['CBU origen'], ['ID'], ['Importe', 1], ['Saldo', 1]],
-      lista.slice(0, max).map((m) => [[esc(m.processDate)], [esc(m.hour)], [esc(m.description)], [esc(m.beneficiary)], [esc(m.documentNumber)], [esc(m.cbuOri)],
+      lista.slice(0, max).map((m) => [[esc(m.processDate)], [esc(m.hour)], [esc(m.description)], [esc(m.beneficiary)], [esc(m.documentNumber)], [esc(cbuOrigen(m))],
         [esc(m.transactionId ?? m.sequential)], [dinero(m.amount, mon), 1], [m.availableBalance == null ? '' : dinero(m.availableBalance, mon), 1]]),
       [['Total'], [''], [''], [''], [''], [''], [''], [dinero(total, mon), 1], ['']]);
     for (const m of lista.slice(0, max)) texto += `    ${m.hour ?? ''} ${m.description ?? ''} ${m.beneficiary ?? ''} ${dinero(m.amount, mon)}\n`;
