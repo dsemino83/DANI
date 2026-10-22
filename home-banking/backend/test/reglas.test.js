@@ -274,18 +274,24 @@ test('envíos programados: Excel adjunto con saldos y todos los movimientos', as
   const leer = async (buf) => { const wb = new ExcelJS.Workbook(); await wb.xlsx.load(buf); return wb; };
   const logo = (await import('node:fs')).readFileSync(new URL('../src/assets/logo-valo.png', import.meta.url));
   let wb = await leer(await xlsxEnvio({ razon_social: 'ALFA SA', cuit: '30712345671' }, cuentas, 'saldos_movimientos', { titulo: 'Extracto diario al 22/10/2026', logo }));
-  assert.deepEqual(wb.worksheets.map((w) => w.name), ['Saldos', 'Movimientos']);
-  const sal = wb.getWorksheet('Saldos'), mov = wb.getWorksheet('Movimientos');
-  assert.equal(sal.getCell('C1').value, 'Extracto diario al 22/10/2026');
-  assert.match(sal.getCell('C2').value, /ALFA SA · CUIT 30712345671/);
-  assert.equal(sal.getImages().length, 1, 'logo del banco'); assert.equal(mov.getImages().length, 1);
-  assert.equal(sal.getRow(5).getCell(1).value, 'Cuenta', 'encabezado en la fila 5');
-  assert.equal(sal.getRow(6).getCell(4).value, 1234.5, 'importes como números');
-  assert.equal(sal.getRow(7).getCell(3).value, 'USD');
-  assert.equal(mov.rowCount, 155, 'todos los movimientos, sin el tope del cuerpo');
-  assert.equal(mov.getRow(7).getCell(13).value, -10, 'débito en negativo (columna Importe)');
-  wb = await leer(await xlsxEnvio({ razon_social: 'ALFA SA', cuit: '30712345671' }, cuentas, 'saldos'));
-  assert.deepEqual(wb.worksheets.map((w) => w.name), ['Saldos']);
+  assert.deepEqual(wb.worksheets.map((w) => w.name), ['100 ARS', '101 USD'], 'un solo Excel, una pestaña por cuenta');
+  const cc = wb.getWorksheet('100 ARS'), ca = wb.getWorksheet('101 USD');
+  assert.equal(cc.getCell('C1').value, 'Extracto diario al 22/10/2026');
+  assert.match(cc.getCell('C2').value, /ALFA SA · CUIT 30712345671/);
+  assert.match(cc.getCell('C3').value, /Cuenta 100 · CC · ARS · Disponible \$ 1\.234,50 · Contable \$ 1\.300,00/);
+  assert.equal(cc.getImages().length, 1, 'logo del banco'); assert.equal(ca.getImages().length, 1);
+  const cab = cc.getRow(5).values;
+  assert.ok(cab.includes('Saldo') && cab.includes('Importe') && !cab.includes('Cliente'));
+  assert.equal(cc.rowCount, 155, 'todos los movimientos de la cuenta, sin el tope del cuerpo');
+  assert.equal(cc.getRow(7).getCell(cab.indexOf('Importe')).value, -10, 'débito en negativo');
+  assert.equal(ca.getRow(6).getCell(1).value, 'Sin movimientos');
+  // Alerta: sin la columna Saldo
+  wb = await leer(await xlsxEnvio({ razon_social: 'ALFA SA', cuit: '30712345671' }, [cuentas[0]], 'movimientos', { titulo: 'Alerta', logo, conSaldo: false }));
+  assert.ok(!wb.getWorksheet('100 ARS').getRow(5).values.includes('Saldo'));
+  // Solo saldos: una pestaña por cuenta con su saldo
+  wb = await leer(await xlsxEnvio({ razon_social: 'ALFA SA', cuit: '30712345671' }, cuentas, 'saldos', { titulo: 'Extracto', logo }));
+  assert.deepEqual(wb.worksheets.map((w) => w.name), ['100 ARS', '101 USD']);
+  assert.equal(wb.getWorksheet('100 ARS').getRow(6).getCell(4).value, 1234.5);
 });
 
 test('alerta de movimientos: franja de 29:59 antes de la ejecución', async () => {

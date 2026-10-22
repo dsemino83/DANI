@@ -63,24 +63,37 @@ function hojaConLogo(wb, nombre, columnas, filas, { titulo, empresa = null, subt
   return ws;
 }
 
-// Adjunto de un envío programado (extracto diario o alerta): hoja Saldos y/o Movimientos con todos los
-// movimientos (sin el tope del cuerpo del correo), con el logo del banco.
-export async function xlsxEnvio(empresa, cuentas, contenido, { titulo = 'Extracto', logo = null } = {}) {
+const pesos = (v, mon) => `${mon === 'USD' ? 'US$' : '$'} ${Number(v ?? 0).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+// Adjunto de un envío programado (extracto diario o alerta): un solo Excel con una pestaña por cuenta. Cada pestaña
+// lleva el logo, el título, el cliente y la cuenta (con sus saldos si corresponde) y todos sus movimientos (sin el
+// tope del cuerpo del correo). conSaldo = false (alertas): sin la columna Saldo de cada movimiento.
+export async function xlsxEnvio(empresa, cuentas, contenido, { titulo = 'Extracto', logo = null, conSaldo = true } = {}) {
   const wb = libro();
   const moneda = (c) => (Number(c.currencyId) === 80 ? 'ARS' : 'USD');
-  const op = { titulo, empresa, logo };
-  if (contenido !== 'movimientos') {
-    hojaConLogo(wb, 'Saldos', [
-      { header: 'Cuenta', key: 'cuenta', width: 18 }, { header: 'Nombre', key: 'nombre', width: 30 }, { header: 'Moneda', key: 'moneda', width: 10 },
-      { header: 'Disponible', key: 'disponible', width: 18, style: { numFmt: '#,##0.00' } },
-      { header: 'Contable', key: 'contable', width: 18, style: { numFmt: '#,##0.00' } },
-    ], cuentas.map((c) => ({ cuenta: c.productNumber, nombre: c.productName ?? '', moneda: moneda(c),
-      disponible: Number(c.availableBalance ?? 0), contable: Number(c.accountingBalance ?? 0) })), op);
+  const conSaldos = contenido !== 'movimientos', conMovs = contenido !== 'saldos';
+  const columnas = conMovs
+    ? COLUMNAS_MOVIMIENTOS.filter((x) => !['cliente', 'cuenta', 'moneda'].includes(x.key) && (conSaldo || x.key !== 'saldo'))
+    : [{ header: 'Cuenta', key: 'cuenta', width: 18 }, { header: 'Nombre', key: 'nombre', width: 30 }, { header: 'Moneda', key: 'moneda', width: 10 },
+      { header: 'Disponible', key: 'disponible', width: 18, style: { numFmt: '#,##0.00' } }, { header: 'Contable', key: 'contable', width: 18, style: { numFmt: '#,##0.00' } }];
+  const usados = new Set();
+  for (const c of cuentas) {
+    const mon = moneda(c);
+    // Nombre de la pestaña: número de cuenta y moneda (Excel admite hasta 31 caracteres, sin repetir)
+    let nombre = `${c.productNumber} ${mon}`.replace(/[\\/?*[\]:]/g, '').slice(0, 31);
+    for (let k = 2; usados.has(nombre); k++) nombre = `${String(c.productNumber).slice(0, 26)} (${k})`;
+    usados.add(nombre);
+    const filas = conMovs
+      ? (c.movimientos ?? []).map((m) => filaMovimiento(m, { cuenta: c.productNumber, cliente: empresa.razon_social, moneda: mon }))
+      : [{ cuenta: c.productNumber, nombre: c.productName ?? '', moneda: mon, disponible: Number(c.availableBalance ?? 0), contable: Number(c.accountingBalance ?? 0) }];
+    const ws = hojaConLogo(wb, nombre, columnas, filas, { titulo, empresa, logo });
+    ws.getCell('C3').value = `Cuenta ${c.productNumber} · ${c.productName ?? ''} · ${mon}`
+      + (conSaldos && conMovs ? ` · Disponible ${pesos(c.availableBalance, mon)} · Contable ${pesos(c.accountingBalance, mon)}` : '');
+    ws.getCell('C3').font = { bold: true, color: { argb: 'FF2A2A2D' }, size: 10 };
+    if (conMovs && c.errorMovimientos) ws.addRow([`No se pudieron consultar los movimientos: ${c.errorMovimientos}`]);
+    else if (conMovs && !filas.length) ws.addRow(['Sin movimientos']);
   }
-  if (contenido !== 'saldos') {
-    hojaConLogo(wb, 'Movimientos', COLUMNAS_MOVIMIENTOS, cuentas.flatMap((c) => (c.movimientos ?? [])
-      .map((m) => filaMovimiento(m, { cuenta: c.productNumber, cliente: empresa.razon_social, moneda: moneda(c) }))), op);
-  }
+  if (!cuentas.length) hojaConLogo(wb, 'Sin cuentas', [{ header: 'Detalle', key: 'd', width: 40 }], [{ d: 'Sin cuentas para informar' }], { titulo, empresa, logo });
   return Buffer.from(await wb.xlsx.writeBuffer());
 }
 

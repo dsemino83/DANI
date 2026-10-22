@@ -29,7 +29,8 @@ function tabla(cab, filas, pie = null) {
 }
 
 // Movimientos de una cuenta: débitos y créditos por separado, con todo el detalle que da el banco
-function movimientosHtml(c, movs, max) {
+// conSaldo: el extracto muestra el saldo de cada movimiento; la alerta no
+function movimientosHtml(c, movs, max, { conSaldo = true } = {}) {
   const mon = monedaDe(c);
   let html = '', texto = '';
   for (const [dc, titulo] of [['D', 'Débitos'], ['C', 'Créditos']]) {
@@ -38,10 +39,11 @@ function movimientosHtml(c, movs, max) {
     html += `<h4 style="margin:10px 0 2px;color:${dc === 'D' ? '#9b1022' : '#1b6e3a'}">${titulo} (${lista.length})</h4>`;
     texto += `  ${titulo}: ${lista.length} · total ${dinero(total, mon)}\n`;
     if (!lista.length) { html += `<p style="margin:0 0 8px;color:#727274">Sin ${titulo.toLowerCase()}.</p>`; continue; }
-    html += tabla([['Fecha'], ['Hora'], ['Descripción'], ['Beneficiario / Ordenante'], ['CUIT'], ['CBU origen'], ['ID'], ['Importe', 1], ['Saldo', 1]],
+    const saldo = (m) => (conSaldo ? [[m.availableBalance == null ? '' : dinero(m.availableBalance, mon), 1]] : []);
+    html += tabla([['Fecha'], ['Hora'], ['Descripción'], ['Beneficiario'], ['CUIT'], ['CBU origen'], ['ID'], ['Importe', 1], ...(conSaldo ? [['Saldo', 1]] : [])],
       lista.slice(0, max).map((m) => [[esc(m.processDate)], [esc(m.hour)], [esc(m.description)], [esc(m.beneficiary)], [esc(m.documentNumber)], [esc(cbuOrigen(m))],
-        [esc(m.transactionId ?? m.sequential)], [dinero(m.amount, mon), 1], [m.availableBalance == null ? '' : dinero(m.availableBalance, mon), 1]]),
-      [['Total'], [''], [''], [''], [''], [''], [''], [dinero(total, mon), 1], ['']]);
+        [esc(m.transactionId ?? m.sequential)], [dinero(m.amount, mon), 1], ...saldo(m)]),
+      [['Total'], [''], [''], [''], [''], [''], [''], [dinero(total, mon), 1], ...(conSaldo ? [['']] : [])]);
     for (const m of lista.slice(0, max)) texto += `    ${m.hour ?? ''} ${m.description ?? ''} ${m.beneficiary ?? ''} ${dinero(m.amount, mon)}\n`;
     if (lista.length > max) html += `<p style="margin:0 0 8px">… y ${lista.length - max} ${titulo.toLowerCase()} más.</p>`;
   }
@@ -70,7 +72,7 @@ export function armarAlerta(empresa, cuentas, franja, formato = 'cuerpo') {
   for (const c of conMovs) {
     html += tituloCuenta(c); texto += `\nCUENTA ${c.productNumber} (${monedaDe(c)})\n`;
     if (c.errorMovimientos) { html += `<p>No se pudieron consultar: ${esc(c.errorMovimientos)}</p>`; continue; }
-    const m = movimientosHtml(c, c.movimientos, 500); html += m.html; texto += m.texto;
+    const m = movimientosHtml(c, c.movimientos, 500, { conSaldo: false }); html += m.html; texto += m.texto;
   }
   const archivo = formato === 'cuerpo_excel' ? nombreArchivo('Alerta_de_movimientos', empresa, `${franja.hastaTxt.fecha}_${franja.hastaTxt.hora.replace(':', '')}`) : null;
   if (archivo) { html += `<p>Se adjunta el detalle en Excel: <b>${esc(archivo)}</b>.</p>`; texto += `\nSe adjunta el detalle en Excel: ${archivo}\n`; }
@@ -186,7 +188,7 @@ export async function procesarTarea(t) {
       correo = armarExtracto(e, cuentas, t.contenido, fecha, t.formato);
     }
     const adjuntos = [{ filename: 'logo-valo.png', content: LOGO, cid: LOGO_CID }];
-    if (correo.archivo) adjuntos.push({ filename: correo.archivo, content: await xlsxEnvio(e, cuentas, alerta ? 'movimientos' : t.contenido, { titulo: correo.titulo, logo: LOGO }),
+    if (correo.archivo) adjuntos.push({ filename: correo.archivo, content: await xlsxEnvio(e, alerta ? cuentas.filter((c) => c.movimientos?.length) : cuentas, alerta ? 'movimientos' : t.contenido, { titulo: correo.titulo, logo: LOGO, conSaldo: !alerta }),
       contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
     await enviarCorreo({ para: e.emails, asunto: correo.asunto, html: correo.html, texto: correo.texto, adjuntos });
     return terminar(t, 'enviado', `${correo.asunto}${correo.archivo ? ` · adjunto ${correo.archivo}` : ''}`, e.emails);
