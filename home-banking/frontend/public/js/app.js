@@ -1,7 +1,7 @@
 // Shell de la SPA: login con el SSO, encabezado, pestañas según rol y ruteo por hash.
 import { autenticado, iniciar, login, logout } from './auth.js';
 import { api, actualizarDatos, alCambiarDatos, horaDatos } from './api.js';
-import { $, h, error } from './ui.js';
+import { $, h, poner, card, error } from './ui.js';
 import * as saldos from './pages/saldos.js';
 import * as movimientos from './pages/movimientos.js';
 import * as debitos from './pages/debitos.js';
@@ -88,7 +88,11 @@ async function pantallaApp() {
     const pag = tabs.includes(location.hash.slice(1)) ? location.hash.slice(1) : tabs[0];
     nav.replaceChildren(...tabs.map((p) => h('a', { href: `#${p}`, 'aria-current': p === pag ? 'page' : null }, PAGINAS[p][0])));
     main.replaceChildren();
-    try { await PAGINAS[pag][1].render(main, ctx); } catch (e) { error(e); }
+    try { await PAGINAS[pag][1].render(main, ctx); } catch (e) {
+      // En vez de quedar en "Cargando…": el motivo y un botón para reintentar (vuelve a consultar al banco)
+      poner(main, card('No se pudo cargar esta pantalla', null, h('p', { class: 'aviso rojo' }, e.message),
+        h('div', { class: 'fila' }, h('button', { class: 'btn primario', onclick: () => { actualizarDatos(); mostrar(); } }, 'Reintentar'))));
+    }
   };
   window.addEventListener('hashchange', mostrar);
   await mostrar();
