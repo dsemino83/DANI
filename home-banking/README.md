@@ -122,7 +122,7 @@ Ninguno se sube al repositorio (`.gitignore`). En producción conviene reemplaza
 | `POST /lotes/{id}/descartar` | quien lo subió | Descarta un lote en detalle previo |
 | `GET /admin/usuarios` | administrador | Usuarios con roles de Home Banking en Keycloak |
 | `GET /auditoria` · `GET /historico/auditoria` | auditor, administrador | Auditoría general, cada base por separado |
-| `/admin/empresas`, `/admin/permisos/{usuario}`, `/admin/usuarios/{usuario}/roles`, `/admin/credenciales/{amb}` | administrador | Empresas, cuentas, permisos, roles y credencial API |
+| `/admin/empresas`, `/admin/permisos/{usuario}`, `/admin/usuarios/{usuario}/roles`, `/admin/credenciales/{amb}?uso=principal\|envios` | administrador | Empresas, cuentas, permisos, roles y credenciales API (principal y exclusiva de envíos programados) |
 | `POST /admin/usuarios` · `PUT /admin/usuarios/{u}/perfil` · `PATCH /admin/usuarios/{u}` · `POST /admin/usuarios/{u}/clave` | administrador | Alta de usuario, perfil, habilitación y clave temporal en el SSO (nunca sobre sí mismo) |
 
 ## Frontend (`frontend/`)

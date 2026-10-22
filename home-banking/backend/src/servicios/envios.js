@@ -1,7 +1,7 @@
 // Ejecución de los envíos programados: arma por empresa un correo con saldos y/o movimientos del día
 // y lo manda a sus emails. Lo corre el servicio jobs cada minuto (y el administrador con "Ejecutar ahora").
 import { operativa } from '../db.js';
-import { cuentasPropias, movimientos } from '../bdv/cliente.js';
+import { bdvEnvios, cuentasPropias, movimientos } from '../bdv/cliente.js';
 import { enviarCorreo } from '../correo.js';
 import { feriadosCargados } from './feriados.js';
 import { enArgentina, turnoVencido } from './programacion.js';
@@ -80,7 +80,7 @@ const terminar = (t, estado, detalle, destinatarios = []) => operativa.query(
 
 let banco = { cuando: 0, cuentas: null };
 const cuentasDelBanco = async () => { // una consulta al banco por minuto como mucho, para toda la cola
-  if (!banco.cuentas || Date.now() - banco.cuando > 60_000) banco = { cuando: Date.now(), cuentas: await cuentasPropias() };
+  if (!banco.cuentas || Date.now() - banco.cuando > 60_000) banco = { cuando: Date.now(), cuentas: await cuentasPropias(bdvEnvios) };
   return banco.cuentas;
 };
 
@@ -96,7 +96,7 @@ export async function procesarTarea(t) {
     const cuentas = (await cuentasDelBanco()).filter((c) => nums.has(String(c.productNumber))).map((c) => ({ ...c }));
     if (t.contenido !== 'saldos') {
       for (const c of cuentas) {
-        try { c.movimientos = (await movimientos(c, fecha, fecha)).movimientos; } catch (x) { c.errorMovimientos = x.message; }
+        try { c.movimientos = (await movimientos(c, fecha, fecha, bdvEnvios)).movimientos; } catch (x) { c.errorMovimientos = x.message; }
       }
     }
     const correo = armarCorreo(e, cuentas, t.contenido, fecha);

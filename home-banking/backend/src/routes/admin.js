@@ -5,8 +5,8 @@ import { auditar } from '../auditoria.js';
 import { operativa, tx } from '../db.js';
 import { conflicto, ErrorHttp, invalido, noEncontrado } from '../errores.js';
 import { esAmbiente, urlBase } from '../bdv/ambientes.js';
-import { cifrar, estadoCredencial, leerCredencial } from '../secretos.js';
-import { bdv, consultarCbu, cuentasPropias, pemDesdeBase64 } from '../bdv/cliente.js';
+import { cifrar, esUso, estadoCredencial, leerCredencial, USOS } from '../secretos.js';
+import { bdv, bdvEnvios, consultarCbu, cuentasPropias, pemDesdeBase64 } from '../bdv/cliente.js';
 import { cambiarPerfil, cambiarRol, crearUsuario, desbloquearUsuario, editarDatosUsuario, eliminarUsuario, enviarCorreoClave, estadoUsuario, forzarCambioClave, habilitarUsuario, listarUsuarios, restablecerClave, rolesDeTransferencias } from '../keycloak-admin.js';
 import { cbuDeCuenta, filaCoelsa, normalizarEmails } from '../servicios/empresas.js';
 import { createPublicKey } from 'node:crypto';
@@ -319,15 +319,26 @@ export default async function rutasAdmin(app) {
     return { usuario, cambios };
   });
 
-  // ---------------- Credencial API Banking (clave de solo escritura) ----------------
+  // ---------------- Credenciales API Banking (clave de solo escritura) ----------------
+  // ?uso=principal (Home Banking, por defecto) | envios (exclusiva de los envíos programados de correo)
+  const usoDe = (req) => {
+    const uso = req.query.uso ?? 'principal';
+    if (!esUso(uso)) throw invalido('Uso de credencial inválido');
+    return uso;
+  };
   app.get('/credenciales/:ambiente', async (req) => {
     if (!esAmbiente(req.params.ambiente)) throw invalido('Ambiente inválido');
-    return estadoCredencial(req.params.ambiente);
+    const uso = usoDe(req);
+    const e = await estadoCredencial(req.params.ambiente, uso);
+    // La de envíos, mientras no esté cargada, toma la principal: la pantalla lo avisa
+    if (uso === 'envios' && !e.configurada) e.usaPrincipal = (await estadoCredencial(req.params.ambiente)).configurada;
+    return e;
   });
 
   app.put('/credenciales/:ambiente', async (req) => {
     const amb = req.params.ambiente;
     if (!esAmbiente(amb)) throw invalido('Ambiente inválido');
+    const uso = usoDe(req);
     const b = req.body ?? {};
     const url = urlBase(amb); // la URL la define el ambiente; si llega una en el pedido se ignora
     if (!b.usuario || !b.terminal) throw invalido('Faltan usuario o terminal');
@@ -336,7 +347,12 @@ export default async function rutasAdmin(app) {
     if (b.clave && yaCifrada && !/^[A-Za-z0-9+/]{100,}={0,2}$/.test(String(b.clave).replace(/\s+/g, ''))) throw invalido('La clave cifrada tiene que ser el texto base64 que entrega el banco');
     if (b.rsaPublicKey) { try { createPublicKey(pemDesdeBase64(b.rsaPublicKey)); } catch { throw invalido('La llave pública RSA no es válida'); } }
     await tx(operativa, async (c) => {
-      const prev = (await c.query('SELECT * FROM credencial_api WHERE ambiente = $1 FOR UPDATE', [amb])).rows[0];
+      const prev = (await c.query('SELECT * FROM credencial_api WHERE ambiente = $1 AND uso = $2 FOR UPDATE', [amb, uso])).rows[0];
+      // Exclusiva: la de envíos tiene que ser otro usuario del banco (si no, compartiría la sesión con el Home Banking)
+      const otra = (await c.query('SELECT usuario FROM credencial_api WHERE ambiente = $1 AND uso <> $2', [amb, uso])).rows[0];
+      if (otra && otra.usuario.toLowerCase() === String(b.usuario).trim().toLowerCase()) {
+        throw invalido(`El usuario ${b.usuario} ya es el de la credencial ${uso === 'envios' ? 'principal' : 'de envíos programados'}: la de envíos tiene que ser un usuario API distinto`);
+      }
       if (!prev && !b.clave) throw invalido('En la primera carga se requiere la clave');
       // Clave en texto plano: el backend la cifra con la llave RSA del banco en cada login, así que la llave es obligatoria.
       // Clave ya cifrada por el banco: se envía tal cual y la llave no hace falta.
@@ -347,33 +363,35 @@ export default async function rutasAdmin(app) {
       const clave = b.clave ? cifrar(yaCifrada ? String(b.clave).replace(/\s+/g, '') : String(b.clave)) : { cifrado: prev.clave_cifrada, iv: prev.clave_iv, tag: prev.clave_tag };
       await c.query(
         `INSERT INTO credencial_api (ambiente, url, usuario, identification, terminal, channel, rsa_public_key, clave_cifrada, clave_iv, clave_tag,
-                                     clave_cargada_por, clave_cargada_en, actualizado_por, actualizado_en, clave_ya_cifrada)
-         VALUES ($1, $2, $3, $4, $5, '3', $6, $7, $8, $9, $10, $11, $12, now(), $13)
-         ON CONFLICT (ambiente) DO UPDATE SET url = $2, usuario = $3, identification = $4, terminal = $5, rsa_public_key = $6,
+                                     clave_cargada_por, clave_cargada_en, actualizado_por, actualizado_en, clave_ya_cifrada, uso)
+         VALUES ($1, $2, $3, $4, $5, '3', $6, $7, $8, $9, $10, $11, $12, now(), $13, $14)
+         ON CONFLICT (ambiente, uso) DO UPDATE SET url = $2, usuario = $3, identification = $4, terminal = $5, rsa_public_key = $6,
            clave_cifrada = $7, clave_iv = $8, clave_tag = $9, clave_cargada_por = $10, clave_cargada_en = $11, actualizado_por = $12, actualizado_en = now(), clave_ya_cifrada = $13`,
         [amb, url, b.usuario, String(b.identification), b.terminal, b.rsaPublicKey || prev?.rsa_public_key || '', clave.cifrado, clave.iv, clave.tag,
-          b.clave ? req.user.usuario : prev.clave_cargada_por, b.clave ? new Date() : prev.clave_cargada_en, req.user.usuario, modo]);
+          b.clave ? req.user.usuario : prev.clave_cargada_por, b.clave ? new Date() : prev.clave_cargada_en, req.user.usuario, modo, uso]);
       const cambios = [
         prev && prev.url !== url && `URL: ${prev.url} → ${url}`, prev?.usuario !== b.usuario && `usuario: ${prev?.usuario ?? '—'} → ${b.usuario}`,
         prev?.identification !== String(b.identification) && 'identification', prev?.terminal !== b.terminal && `terminal: ${prev?.terminal ?? '—'} → ${b.terminal}`,
         b.clave && `${prev ? 'clave reemplazada' : 'clave cargada'} (${yaCifrada ? 'ya cifrada por el banco' : 'texto plano'})`, b.rsaPublicKey && (prev ? 'llave RSA reemplazada' : 'llave RSA cargada'),
       ].filter(Boolean);
-      await auditar(c, req, { tipo: 'Administración', accion: 'Actualizó credencial API Banking', api: 'Gestor de secretos', detalle: `${amb} · ${cambios.join(' · ') || 'sin cambios'}` }); // nunca el valor de la clave
+      await auditar(c, req, { tipo: 'Administración', accion: 'Actualizó credencial API Banking', api: 'Gestor de secretos', detalle: `${amb} · ${USOS[uso]} · ${cambios.join(' · ') || 'sin cambios'}` }); // nunca el valor de la clave
     });
-    bdv.invalidar(); // la próxima llamada al banco hace login con la credencial nueva
-    return estadoCredencial(amb);
+    (uso === 'envios' ? bdvEnvios : bdv).olvidar(); // la próxima llamada al banco hace login con la credencial nueva (el proceso jobs lo detecta solo)
+    if (uso === 'principal') bdvEnvios.olvidar(); // por si la de envíos todavía no está cargada y usa la principal
+    return estadoCredencial(amb, uso);
   });
 
   app.post('/credenciales/:ambiente/probar', async (req) => {
     if (!esAmbiente(req.params.ambiente)) throw invalido('Ambiente inválido');
-    const cred = await leerCredencial(req.params.ambiente);
-    if (!cred) throw invalido('No hay credencial cargada para ese ambiente');
+    const uso = usoDe(req);
+    const cred = await leerCredencial(req.params.ambiente, uso);
+    if (!cred) throw invalido(`No hay credencial ${uso === 'envios' ? 'de envíos programados ' : ''}cargada para ese ambiente`);
     try {
       const r = await bdv.login(cred); // no reemplaza la sesión vigente
-      await auditar(null, req, { tipo: 'Administración', accion: 'Probó conexión con API Banking', api: 'login · getUserEntityInformation', detalle: `${req.params.ambiente} · conexión OK` });
+      await auditar(null, req, { tipo: 'Administración', accion: 'Probó conexión con API Banking', api: 'login · getUserEntityInformation', detalle: `${req.params.ambiente} · ${USOS[uso]} · conexión OK` });
       return { ok: true, cliente: r.entidad?.completeName ?? null };
     } catch (e) {
-      await auditar(null, req, { tipo: 'Administración', accion: 'Probó conexión con API Banking', api: 'login · getUserEntityInformation', detalle: `${req.params.ambiente} · ${e.message}`, resultado: 'Error' });
+      await auditar(null, req, { tipo: 'Administración', accion: 'Probó conexión con API Banking', api: 'login · getUserEntityInformation', detalle: `${req.params.ambiente} · ${USOS[uso]} · ${e.message}`, resultado: 'Error' });
       return { ok: false, error: e.message };
     }
   });

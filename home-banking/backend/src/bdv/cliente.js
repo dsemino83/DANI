@@ -5,7 +5,7 @@
 import { constants, publicEncrypt } from 'node:crypto';
 import { config } from '../config.js';
 import { urlDelAmbiente } from './ambientes.js';
-import { leerCredencial } from '../secretos.js';
+import { leerCredencial, versionCredencial } from '../secretos.js';
 
 export class ErrorBanco extends Error {
   // sinRespuesta = el pedido salió y no hubo respuesta (timeout/corte): el resultado es incierto.
@@ -28,8 +28,13 @@ export function cifrarClave(clave, llavePublica) {
     .toString('base64');
 }
 
-class ClienteBdv {
-  constructor() {
+// Un cliente por credencial: 'principal' para el Home Banking y 'envios' para los envíos programados de
+// correo (cada uno con su propia sesión en el banco). Si la de envíos no está cargada, usa la principal.
+export class ClienteBdv {
+  constructor(uso = 'principal') {
+    this.uso = uso;
+    this.version = null;   // credencial con la que se abrió la sesión (uso@actualizado_en)
+    this.revisada = 0;
     this.cookie = null;
     this.vence = 0;
     this.renovando = null; // promesa compartida: una sola renovación a la vez
@@ -42,7 +47,22 @@ class ClienteBdv {
     this.vence = 0;
   }
 
+  // Cambió la credencial: no se reusa la sesión anterior (era de otro usuario o de la clave vieja)
+  olvidar() {
+    this.invalidar();
+    this.cookieAnterior = null;
+  }
+
+  // Otro proceso (backend o jobs) pudo cambiar la credencial: se revisa como mucho una vez por minuto
+  // y, si cambió (o se cargó la de envíos), la próxima llamada hace login con la nueva.
+  async revisarCredencial() {
+    if (!this.cookie || Date.now() - this.revisada < 60_000) return;
+    this.revisada = Date.now();
+    if ((await versionCredencial(config.ambiente, this.uso)) !== this.version) this.olvidar();
+  }
+
   async sesion() {
+    await this.revisarCredencial();
     if (this.cookie && Date.now() < this.vence) return;
     if (this.cookie) this.cookieAnterior = this.cookie; // renovación preventiva: se guarda por si el banco no da otra
     if (!this.renovando) this.renovando = this.login().finally(() => { this.renovando = null; });
@@ -50,7 +70,8 @@ class ClienteBdv {
   }
 
   async login(cred = null) {
-    const c = cred ?? (await leerCredencial());
+    const c = cred ?? (await leerCredencial(config.ambiente, this.uso))
+      ?? (this.uso !== 'principal' ? await leerCredencial(config.ambiente, 'principal') : null);
     if (!c) throw new ErrorBanco('No hay credencial API cargada para este ambiente');
     const amb = c.ambiente ?? config.ambiente;
     const base = c.url.replace(/\/+$/, '');
@@ -98,6 +119,8 @@ class ClienteBdv {
     if (!r2.ok || !j2?.success) throw new ErrorBanco('Falló getUserEntityInformation', { http: r2.status, respuesta: j2?.message });
     if (cred) return { entidad: j2, login: json }; // prueba de conexión: no reemplaza la sesión vigente
     this.base = base;
+    this.version = c.version;
+    this.revisada = Date.now();
     this.cookie = cookie;
     this.vence = Date.now() + config.bdv.sesionMinutos * 60_000;
     return { entidad: j2, login: json };
@@ -144,6 +167,7 @@ class ClienteBdv {
 }
 
 export const bdv = new ClienteBdv();
+export const bdvEnvios = new ClienteBdv('envios');
 
 // ---------------------------------------------------------------------------
 // Consultas
@@ -153,8 +177,8 @@ const exigirExito = (json, ruta) => {
   return json;
 };
 
-export async function cuentasPropias() {
-  return exigirExito(await bdv.llamar('accounts/getOwnAccounts', {}), 'getOwnAccounts').accountsArray ?? [];
+export async function cuentasPropias(cliente = bdv) {
+  return exigirExito(await cliente.llamar('accounts/getOwnAccounts', {}), 'getOwnAccounts').accountsArray ?? [];
 }
 
 export async function detalleSaldos(cuenta) {
@@ -173,12 +197,12 @@ export const fechaDMY = (iso) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.s
 
 // getMovementsDetail paginado de a 900: mode "0" la primera página, "1" con el
 // sequential/uniqueSequential del último registro; corta cuando llegan menos de 900.
-export async function movimientos(cuenta, desde, hasta) {
+export async function movimientos(cuenta, desde, hasta, cliente = bdv) {
   const N = config.bdv.paginaMovimientos;
   const todos = [];
   let seq = '0', useq = '0';
   for (let pagina = 0; pagina < config.bdv.maxPaginasMovimientos; pagina++) {
-    const json = exigirExito(await bdv.llamar('accounts/getMovementsDetail', {
+    const json = exigirExito(await cliente.llamar('accounts/getMovementsDetail', {
       productId: cuenta.productId, currencyId: cuenta.currencyId, productNumber: cuenta.productNumber,
       numberOfMovements: N, sequential: seq, uniqueSequential: useq,
       initialDate: fechaMDY(desde), finalDate: fechaMDY(hasta),

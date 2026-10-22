@@ -63,7 +63,7 @@ CREATE TABLE cartera_oficial (
 );
 
 -- ---------------------------------------------------------------------------
--- Credencial API Banking (única, de VALO). La clave va cifrada con AES-256-GCM
+-- Credencial API Banking de VALO (la migración 006 agrega una adicional, exclusiva de los envíos programados). La clave va cifrada con AES-256-GCM
 -- usando la llave maestra que el backend lee de un Docker secret.
 -- ---------------------------------------------------------------------------
 CREATE TABLE credencial_api (

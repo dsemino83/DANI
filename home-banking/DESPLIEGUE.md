@@ -167,6 +167,8 @@ Pestaña **Envíos programados**, solo del **aprobador** (perfil autorizante) y 
 
 **Feriados:** se traen solos todos los días de fuentes públicas (ArgentinaDatos y, si falla, Nolaborables) para el año en curso y el siguiente; también con **Actualizar desde fuentes públicas**. Los días no laborables bancarios que no son feriados nacionales (por ejemplo, el **Día del Bancario, 6 de noviembre**) se cargan a mano en la misma pantalla.
 
+**Credencial del banco para los envíos:** en **Credenciales API** (administrador de seguridad, p. ej. `admin.ti`) → **Envíos programados** se carga una credencial API adicional, **exclusiva** de los envíos programados: tiene su propia sesión en el banco, así los correos no cortan la sesión del Home Banking. Tiene que ser un **usuario API distinto** del principal (el banco tiene que darlo de alta). Mientras no se cargue, los envíos usan la principal. Al guardarla, el servicio `jobs` la toma solo en menos de un minuto. **Probar conexión** la verifica sin afectar a la principal.
+
 **Correo:** usa el mismo servidor que Keycloak (`HB_SMTP_*` en `.env`, clave en `secrets/smtp_password.txt`). Sin configurar, los correos van al buzón de prueba (Mailpit, puerto 8025). Los correos llevan saldos: con un servidor real, usar TLS (`HB_SMTP_STARTTLS=true`).
 
 ## Dirección propia (por ejemplo `ealyc.valo.ar`)
