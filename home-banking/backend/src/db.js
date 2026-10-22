@@ -4,6 +4,8 @@ import { config } from './config.js';
 
 // numeric -> number para importes (dos decimales; dentro del rango seguro de JS)
 pg.types.setTypeParser(1700, (v) => (v === null ? null : Number(v)));
+// date -> 'AAAA-MM-DD' tal cual (sin pasar por Date, que lo corre de zona horaria)
+pg.types.setTypeParser(1082, (v) => v);
 
 export const operativa = new pg.Pool(config.db.operativa);
 export const historica = new pg.Pool(config.db.historica);

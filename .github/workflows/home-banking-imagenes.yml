@@ -80,6 +80,13 @@ jobs:
           docker compose exec -T postgres psql -U postgres -d homebanking -Atc "SELECT count(*) FROM pg_tables WHERE tablename IN ('envio_banco','referencia_usada','credencial_api')" | grep -qx 3 && echo 'esquema OK'
           sh scripts/configurar-correo.sh
           sh scripts/migrar-bases.sh && sh scripts/migrar-bases.sh   # idempotente sobre una base nueva
+          docker compose exec -T postgres psql -U postgres -d homebanking -Atc "SELECT count(*) FROM pg_tables WHERE tablename IN ('programacion_envio','envio_mail_log','feriado')" | grep -qx 3 && echo 'tablas de envíos programados OK'
+          # Correo saliente del backend (envíos programados) por el buzón de prueba
+          docker compose exec -T backend node -e "import('./src/correo.js').then((m) => m.enviarCorreo({ para: ['ci@valo.test'], asunto: 'CI envio programado', html: '<b>ok</b>', texto: 'ok' })).then(() => console.log('correo enviado'))"
+          for i in $(seq 1 10); do curl -fs 'http://localhost:8025/api/v1/search?query=subject:%22CI%20envio%20programado%22' | grep -q '"total":1' && break; sleep 1; done
+          curl -fs 'http://localhost:8025/api/v1/search?query=subject:%22CI%20envio%20programado%22' | grep -q '"total":1' && echo 'correo del backend recibido en Mailpit'
+          # Feriados desde fuentes públicas (informativo: depende de servicios externos)
+          docker compose logs jobs | grep -m1 -E 'feriados' || true
           docker compose exec -T postgres psql -U postgres -d homebanking -Atc "SELECT count(*) FROM pg_constraint WHERE conname = 'empresa_emails_max'" | grep -qx 1 && echo 'migraciones OK'
           docker compose exec -T postgres psql -U postgres -d homebanking -Atc "SELECT to_regclass('empresa_cbu') IS NOT NULL AND to_regclass('cartera_oficial') IS NOT NULL AND to_regclass('cuenta_empresa') IS NULL AND has_table_privilege('hb_app', 'empresa_cbu', 'UPDATE') AND NOT has_table_privilege('hb_app', 'empresa_cbu', 'DELETE')" | grep -qx t && echo 'empresa_cbu OK (hb_app sin DELETE)'
           # Cambio de dirección pública (p. ej. ealyc.valo.ar) sobre un realm ya importado, y vuelta atrás

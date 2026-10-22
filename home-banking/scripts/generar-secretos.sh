@@ -14,6 +14,8 @@ gen credenciales_master_key 32
 # con el SSO de VALO, reemplazarlo por el que entregue Identidad) y clave inicial de la consola maestra.
 gen keycloak_admin_client_secret 32
 gen keycloak_bootstrap_password
+# Clave del servidor de correo (SMTP): se crea vacía; con un servidor real, escribirla acá (sin salto de línea)
+[ -f secrets/smtp_password.txt ] || : > secrets/smtp_password.txt
 # Permisos: la carpeta solo la abre el dueño (700). Los archivos quedan legibles (644) porque
 # docker compose los monta tal cual dentro de los contenedores, que corren con otros usuarios
 # (node, postgres); con 600 el backend y la inicialización de las bases no pueden leerlos.

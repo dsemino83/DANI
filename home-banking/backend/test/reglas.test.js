@@ -201,3 +201,40 @@ test('CBU de la cuenta y datos de COELSA', async () => {
   const real = { success: true, message: null, cbu: '', alias: 'TITULOS.VALO', headline: 'BANCO DE VALORES SA', cuit: '30576124275', currency: '80', activeAccount: 'T', holders: [] };
   assert.deepEqual(filaCoelsa({ accountCbu: cbu }, real), { cbu, alias: 'TITULOS.VALO', titular: 'BANCO DE VALORES SA', cuitTitular: '30576124275' });
 });
+
+test('envíos programados: turnos, días, feriados, inicio y fin', async () => {
+  const { turnosDelDia, diaHabilitado, turnoVencido, proximoTurno, enArgentina, validarProgramacion } = await import('../src/servicios/programacion.js');
+  const base = { activa: true, frecuencia: 'diaria', hora: '09:00', dias_semana: [1, 2, 3, 4, 5], saltar_feriados: true, fecha_inicio: '2026-10-01', fecha_fin: null, ultimo_turno: null };
+  assert.deepEqual(turnosDelDia(base), ['09:00']);
+  assert.deepEqual(turnosDelDia({ ...base, frecuencia: 'horaria', hora: '09:30', hora_hasta: '12:30' }), ['09:30', '10:30', '11:30', '12:30']);
+  assert.deepEqual(turnosDelDia({ ...base, frecuencia: 'horaria', hora: '09:00', hora_hasta: '11:59' }), ['09:00', '10:00', '11:00']);
+  // 2026-10-22 es jueves; 2026-10-24 sábado
+  assert.equal(enArgentina(new Date('2026-10-22T12:00:00Z')).hora, '09:00', 'UTC-3');
+  assert.ok(diaHabilitado(base, '2026-10-22'));
+  assert.ok(!diaHabilitado(base, '2026-10-24'), 'sábado no elegido');
+  assert.ok(!diaHabilitado(base, '2026-09-30'), 'antes del inicio');
+  assert.ok(!diaHabilitado({ ...base, fecha_fin: '2026-10-21' }, '2026-10-22'), 'después del fin');
+  const feriado = (f) => f === '2026-10-22';
+  assert.ok(!diaHabilitado(base, '2026-10-22', feriado), 'feriado salteado');
+  assert.ok(diaHabilitado({ ...base, saltar_feriados: false }, '2026-10-22', feriado), 'feriado no salteado si se pide');
+  // turno vencido: a las 09:05 sí; a las 08:59 no; si ya se ejecutó, no; a las 10:30 ya pasó más de una hora
+  assert.equal(turnoVencido(base, new Date('2026-10-22T12:05:00Z')), '2026-10-22T09:00');
+  assert.equal(turnoVencido(base, new Date('2026-10-22T11:59:00Z')), null);
+  assert.equal(turnoVencido({ ...base, ultimo_turno: '2026-10-22T09:00' }, new Date('2026-10-22T12:05:00Z')), null);
+  assert.equal(turnoVencido(base, new Date('2026-10-22T13:30:00Z')), null, 'atrasado más de una hora: no se manda');
+  assert.equal(turnoVencido(base, new Date('2026-10-22T12:05:00Z'), feriado), null);
+  const hor = { ...base, frecuencia: 'horaria', hora: '09:00', hora_hasta: '18:00', ultimo_turno: '2026-10-22T09:00' };
+  assert.equal(turnoVencido(hor, new Date('2026-10-22T13:10:00Z')), '2026-10-22T10:00');
+  // próximo: jueves 22 a las 10:00 → viernes 23 09:00; viernes 18:00 → lunes 26 09:00 (con feriado el lunes → martes)
+  assert.equal(proximoTurno(base, new Date('2026-10-22T13:00:00Z')).toISOString(), '2026-10-23T12:00:00.000Z');
+  assert.equal(proximoTurno(base, new Date('2026-10-23T21:00:00Z')).toISOString(), '2026-10-26T12:00:00.000Z');
+  assert.equal(proximoTurno(base, new Date('2026-10-23T21:00:00Z'), (f) => f === '2026-10-26').toISOString(), '2026-10-27T12:00:00.000Z');
+  assert.equal(proximoTurno({ ...base, fecha_fin: '2026-10-23' }, new Date('2026-10-23T21:00:00Z')), null, 'terminó');
+  // validación
+  const ok = { nombre: 'Resumen diario', contenido: 'saldos', frecuencia: 'horaria', hora: '09:00', horaHasta: '18:00', diasSemana: [5, 1, 1], fechaInicio: '2026-10-22' };
+  assert.deepEqual(validarProgramacion(ok).dias, [1, 5]);
+  assert.throws(() => validarProgramacion({ ...ok, horaHasta: '08:00' }));
+  assert.throws(() => validarProgramacion({ ...ok, diasSemana: [] }));
+  assert.throws(() => validarProgramacion({ ...ok, fechaFin: '2026-10-01' }));
+  assert.throws(() => validarProgramacion({ ...ok, todasEmpresas: false, empresas: [] }));
+});

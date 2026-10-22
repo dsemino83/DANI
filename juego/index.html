@@ -1269,7 +1269,6 @@
   }
 
   function irAPaso(i) {
-    clearTimeout(autoPaso);
     $('btn-siguiente').classList.remove('llamar');
     estado.paso = i; estado.tiempo = 0; estado.completado = false;
     var p = PASOS[i], svg = $('svg-paso');
@@ -1308,19 +1307,6 @@
     // Mientras se cepilla, se baja el próximo paso (video, primer cuadro y voz) para que el
     // cambio sea inmediato cuando dice «sí».
     setTimeout(function () { precargarPaso(i + 1); }, 1500);
-  }
-  var autoPaso = null;
-  function avanzarSiNoContesta(pasoTerminado) {
-    clearTimeout(autoPaso);
-    mic.oyendo = false;
-    var extra = false;
-    function seguirSolo() {
-      if (estado.pantalla !== 'paso' || estado.paso !== pasoTerminado || !estado.completado) return;
-      if (mic.oyendo && !extra) { extra = true; autoPaso = setTimeout(seguirSolo, 1000); return; }
-      escuchar(false);
-      siguiente();
-    }
-    autoPaso = setTimeout(seguirSolo, 2000);
   }
   var precargados = {};
   function precargar(url) {
@@ -1561,10 +1547,10 @@
           if (micUsable()) {
             mic.avisar = true;
             escuchar(true);
-          }
-          // Si en 2 s no se oye el «sí», pasa solo al paso siguiente. Si justo estaba
-          // entendiendo algo, le da 1 s más para terminar.
-          if (estado.auto) avanzarSiNoContesta(pasoTerminado);
+            recordarSi(function () { return estado.pantalla === 'paso' && estado.paso === pasoTerminado && estado.completado; }, 0);
+          } else if (estado.auto) setTimeout(function () {
+            if (estado.pantalla === 'paso' && estado.paso === pasoTerminado) siguiente();
+          }, 800);
         });
     }, 300);
   }
@@ -2242,7 +2228,7 @@
         // (hasta 3 palabras) que no sea un «no» también cuenta como «sí».
         var frase = ev.results[i][0] && ev.results[i][0].transcript;
         if (frase && ev.results[i].isFinal && !(reciente && esEco(frase)) && esRespuestaCorta(frase)) { aceptarSi(frase); return; }
-        if (frase) { mic.oyendo = true; cartelMic('oido', frase.trim()); }
+        if (frase) cartelMic('oido', frase.trim());
       }
     };
     r.onerror = function (ev) {
@@ -2509,7 +2495,7 @@
   /* ---------- Probar el micrófono (en la ruedita) ----------
      Arranca el reconocimiento de voz con el toque y muestra qué pasó: lo que escuchó o el error
      con cómo arreglarlo. Sirve para saber por qué no avanza con el «sí» en el celular o la app. */
-  var VERSION_JUEGO = '21/10/2026';
+  var VERSION_JUEGO = '17/10/2026';
   (function () {
     var enApp = window.matchMedia && (matchMedia('(display-mode: standalone)').matches || matchMedia('(display-mode: fullscreen)').matches);
     $('version-juego').textContent = 'Versión ' + VERSION_JUEGO + ' · ' + (enApp ? 'app instalada' : 'navegador') + ' · ' + location.protocol.replace(':', '');

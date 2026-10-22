@@ -26,6 +26,13 @@ x-backend-env: &backend-env
   DBH_PASSWORD_FILE: /run/secrets/db_hist_ro_password
   CREDENCIALES_MASTER_KEY_FILE: /run/secrets/credenciales_master_key
   BDV_SESION_MINUTOS: ${BDV_SESION_MINUTOS:-20}
+  # Correo saliente (envíos programados): vacío = buzón de prueba Mailpit; clave en secrets/smtp_password.txt
+  HB_SMTP_HOST: ${HB_SMTP_HOST:-mailpit}
+  HB_SMTP_PORT: ${HB_SMTP_PORT:-}
+  HB_SMTP_FROM: ${HB_SMTP_FROM:-homebanking@valo.test}
+  HB_SMTP_USUARIO: ${HB_SMTP_USUARIO:-}
+  HB_SMTP_STARTTLS: ${HB_SMTP_STARTTLS:-true}
+  HB_SMTP_PASSWORD_FILE: /run/secrets/smtp_password
   TZ: America/Argentina/Buenos_Aires
 
 services:
@@ -54,7 +61,7 @@ services:
     build: ./backend
     image: ${HB_IMAGEN:-home-banking-valo}:backend-${HB_VERSION:-local}
     environment: *backend-env
-    secrets: [db_app_password, db_hist_ro_password, credenciales_master_key, keycloak_admin_client_secret]
+    secrets: [db_app_password, db_hist_ro_password, credenciales_master_key, keycloak_admin_client_secret, smtp_password]
     depends_on:
       postgres:
         condition: service_healthy
@@ -73,7 +80,7 @@ services:
       DB_OWNER_PASSWORD_FILE: /run/secrets/db_owner_password
       DBH_OWNER_USER: postgres
       DBH_OWNER_PASSWORD_FILE: /run/secrets/dbh_owner_password
-    secrets: [db_app_password, db_hist_ro_password, credenciales_master_key, keycloak_admin_client_secret, db_owner_password, dbh_owner_password]
+    secrets: [db_app_password, db_hist_ro_password, credenciales_master_key, keycloak_admin_client_secret, db_owner_password, dbh_owner_password, smtp_password]
     healthcheck:   # el programador actualiza /tmp/latido cada minuto
       test: ["CMD-SHELL", "find /tmp/latido -mmin -3 | grep -q ."]
       interval: 60s
@@ -170,6 +177,8 @@ secrets:
     file: ./secrets/keycloak_admin_client_secret.txt
   keycloak_bootstrap_password:
     file: ./secrets/keycloak_bootstrap_password.txt
+  smtp_password:   # vacío si el servidor de correo no pide clave (o con el buzón de prueba)
+    file: ./secrets/smtp_password.txt
 
 volumes:
   pg_operativa:

@@ -153,6 +153,21 @@ Para probar sin instalar nada: una máquina virtual de GitHub con Docker que lev
 - La credencial del banco queda cifrada en la base de la máquina. Al terminar la prueba, **borrá el Codespace** (**Code** → **Codespaces** → **⋯** → **Delete**): se borra todo.
 - Si "Probar conexión" no llega al banco, el banco puede estar filtrando por IP: las máquinas de Codespaces no tienen una IP fija.
 
+## Envíos programados de correo a las empresas
+
+Pestaña **Envíos programados** del administrador. Cada programación define:
+
+- **Contenido:** saldos, movimientos del día, o ambos. Un correo por empresa, a todos sus emails, con solo sus cuentas.
+- **Destino:** todas las empresas activas, o las elegidas (con buscador).
+- **Repetición:** **1 vez al día** a una hora, o **1 vez cada hora** desde una hora hasta otra (inclusive).
+- **Días de la semana**, **inicio** y **fin** (opcional), y **No enviar en feriados**.
+
+Lo ejecuta el servicio `jobs` cada minuto, en hora de Argentina. Cada turno sale una sola vez, y si el sistema estuvo apagado no manda los atrasados de más de una hora. **Ejecutar ahora** manda una prueba sin tocar la programación. El **Historial** muestra, por empresa y turno, si se envió, falló (con el motivo) o se omitió (sin emails o sin cuentas). Todo queda en Auditoría.
+
+**Feriados:** se traen solos todos los días de fuentes públicas (ArgentinaDatos y, si falla, Nolaborables) para el año en curso y el siguiente; también con **Actualizar desde fuentes públicas**. Los días no laborables bancarios que no son feriados nacionales (por ejemplo, el **Día del Bancario, 6 de noviembre**) se cargan a mano en la misma pantalla.
+
+**Correo:** usa el mismo servidor que Keycloak (`HB_SMTP_*` en `.env`, clave en `secrets/smtp_password.txt`). Sin configurar, los correos van al buzón de prueba (Mailpit, puerto 8025). Los correos llevan saldos: con un servidor real, usar TLS (`HB_SMTP_STARTTLS=true`).
+
 ## Dirección propia (por ejemplo `ealyc.valo.ar`)
 
 La aplicación y el inicio de sesión usan la misma dirección: al entrar a `https://ealyc.valo.ar` se pasa directo a la pantalla de ingreso de Keycloak (`https://ealyc.valo.ar/auth/…`) y, después de ingresar, se vuelve a la aplicación. Hace falta un servidor con IP fija (en un Codespace la dirección la pone GitHub y no se puede cambiar).
