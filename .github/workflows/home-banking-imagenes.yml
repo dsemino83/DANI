@@ -38,6 +38,44 @@ jobs:
       - run: npm test
         working-directory: home-banking/backend
 
+  seguridad:
+    name: Seguridad (dependencias, secretos, IaC)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # gitleaks revisa todo el historial
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      # Dependencias con vulnerabilidad conocida en lo que va a producción. Bloquea en crítica.
+      - name: npm audit (producción)
+        run: npm audit --omit=dev --audit-level=critical
+        working-directory: home-banking/backend
+      # Secretos filtrados en el código o el historial (claves, tokens, credenciales). Bloquea si encuentra.
+      - name: gitleaks (secretos en el repo)
+        run: |
+          docker run --rm -v "$PWD:/repo" zricethezav/gitleaks:latest \
+            detect --source=/repo --config=/repo/.gitleaks.toml --redact --no-banner --exit-code 1
+        working-directory: .
+      # Imágenes y dependencias: vulnerabilidades. Informativo (no bloquea): se revisa, no frena el deploy.
+      - name: Trivy (vulnerabilidades del filesystem)
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: fs
+          scan-ref: home-banking
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: '0'
+      # Dockerfiles y docker-compose: malas configuraciones de contenedor (IaC). Informativo.
+      - name: Trivy (configuración de contenedores e IaC)
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: config
+          scan-ref: home-banking
+          severity: HIGH,CRITICAL
+          exit-code: '0'
+
   humo:
     name: Prueba de humo (stack completo en Docker)
     runs-on: ubuntu-latest
@@ -117,7 +155,7 @@ jobs:
 
   publicar:
     name: Publicar en Docker Hub
-    needs: [pruebas, humo]
+    needs: [pruebas, seguridad, humo]
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     env:
