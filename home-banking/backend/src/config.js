@@ -54,7 +54,7 @@ export const config = {
 
   bdv: {
     timeoutMs: Number(leer('BDV_TIMEOUT_MS', '30000')),
-    sesionMinutos: Number(leer('BDV_SESION_MINUTOS', '20')), // renovación preventiva de la cookie
+    sesionMinutos: Number(leer('BDV_SESION_MINUTOS', '20')), // minutos sin usar la sesión del banco antes de renovarla
     paginaMovimientos: 900, // getMovementsDetail: tamaño de página acordado
     maxPaginasMovimientos: Number(leer('BDV_MAX_PAGINAS', '200')),
   },

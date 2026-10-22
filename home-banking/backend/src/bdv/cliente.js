@@ -131,6 +131,9 @@ class ClienteBdv {
       return this.llamar(ruta, body, { reintentar: false });
     }
     if (res.status === 401 || res.status === 403) this.invalidar();
+    // Vencimiento por inactividad: cada llamada que el banco atiende extiende la sesión. Así no se vuelve a
+    // hacer login mientras la sesión sigue viva del lado del banco (en ese caso el banco no entrega cookie nueva).
+    else if (res.ok && this.cookie) this.vence = Date.now() + config.bdv.sesionMinutos * 60_000;
     const json = await res.json().catch(() => null);
     if (!res.ok || json === null) {
       const incierto = envio && (res.status >= 500 || res.ok); // 4xx = rechazado antes de procesar
