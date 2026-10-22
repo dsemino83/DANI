@@ -197,4 +197,7 @@ test('CBU de la cuenta y datos de COELSA', async () => {
   assert.throws(() => filaCoelsa({ cbu }, { cbu: '0650001000000000000999' }), /otro CBU/);
   assert.throws(() => filaCoelsa({}, { alias: 'x' }), /CBU válido/);
   assert.deepEqual(filaCoelsa({ accountCbu: cbu }, { aliasCbu: 'acme.pagos', headline: 'ACME SA' }), { cbu, alias: 'acme.pagos', titular: 'ACME SA', cuitTitular: null }, 'respuesta sin cbu: vale el de la cuenta');
+  // Respuesta real de producción: cbu vacío, alias y titular informados
+  const real = { success: true, message: null, cbu: '', alias: 'TITULOS.VALO', headline: 'BANCO DE VALORES SA', cuit: '30576124275', currency: '80', activeAccount: 'T', holders: [] };
+  assert.deepEqual(filaCoelsa({ accountCbu: cbu }, real), { cbu, alias: 'TITULOS.VALO', titular: 'BANCO DE VALORES SA', cuitTitular: '30576124275' });
 });

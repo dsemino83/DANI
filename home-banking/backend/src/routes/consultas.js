@@ -97,6 +97,6 @@ export default async function rutasConsultas(app) {
     const r = await consultarCbu({ cbu, alias }).catch((e) => ({ error: e.message }));
     await auditar(null, req, { tipo: 'Consultas', accion: 'Consultó CBU/alias', api: 'getCustomerInformationCbu', detalle: cbu || alias, resultado: r.error ? 'Sin resultado' : 'OK' });
     if (r.error) throw invalido(`No registrado en COELSA: ${r.error}`);
-    return { cbu: r.cbu, alias: r.alias, titular: r.headline, cuit: r.cuit, moneda: r.currency, activa: r.activeAccount === 'T', titulares: r.holders ?? [] };
+    return { cbu: r.cbu || cbu, alias: r.alias, titular: r.headline, cuit: r.cuit, moneda: r.currency, activa: r.activeAccount === 'T', titulares: r.holders ?? [] };
   });
 }
