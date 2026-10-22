@@ -86,7 +86,6 @@ Y en los comandos del paso 6 agregá `--profile sso-local` (`docker compose --pr
 
 ```sh
 docker login -u <usuario-docker-hub>     # repositorio privado: usar un token de solo lectura (Read-only)
-sh scripts/generar-secretos.sh             # solo crea los secretos nuevos que falten (p. ej. powerbi_secreto.txt)
 docker compose pull
 docker compose up -d --no-build           # --no-build: usa solo las imágenes descargadas
 docker compose ps                         # postgres, postgres-historico, backend, jobs y frontend en "healthy"
@@ -198,6 +197,7 @@ Cada push a `ALYC` que pasa las pruebas publica `backend-alyc`/`frontend-alyc` y
 
 ```sh
 # en .env: HB_VERSION=<commit nuevo>
+sh scripts/generar-secretos.sh             # solo crea los secretos nuevos que falten (p. ej. powerbi_secreto.txt)
 docker compose pull
 docker compose up -d                      # recrea solo lo que cambió; las bases y sus datos se mantienen
 sh scripts/migrar-bases.sh                # cambios de esquema de la versión nueva (si no hay, no hace nada)
