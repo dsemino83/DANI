@@ -47,7 +47,7 @@ export async function render(main) {
       h('button', { class: 'btn chico', onclick: (ev) => { ev.stopPropagation(); eliminar(e); } }, 'Eliminar')) },
   ], empresas, { alClic: (e) => { elegida = e; dibujarLista(); dibujarDetalle(); }, sel: (e) => e.id === elegida?.id, vacio: 'No hay empresas cargadas.' }));
 
-  // Emails de la empresa: se agregan de a uno o varios (separados por coma) y se quitan con ✕
+  // Emails de la empresa: se agregan de a uno o varios (separados por coma), se editan con ✎ y se quitan con ✕
   const cardEmails = (e) => {
     const nuevo = h('input', { type: 'email', placeholder: 'tesoreria@empresa.com.ar', multiple: true });
     const guardar = async (emails, msj) => {
@@ -64,8 +64,29 @@ export async function render(main) {
       if ((e.emails ?? []).length <= 1) return toast('La empresa tiene que tener al menos un email: agregá otro antes de quitar este.', true);
       guardar(e.emails.filter((x) => x !== mail), `${mail} quitado.`);
     };
-    return card(`Emails de ${e.razon_social}`, 'Contactos de la empresa. Puede tener más de uno.',
-      h('div', { class: 'fila' }, ...(e.emails ?? []).map((m) => h('span', { class: 'chip' }, m, h('button', { class: 'chip-x', title: `Quitar ${m}`, 'aria-label': `Quitar ${m}`, onclick: () => quitar(m) }, '✕')))),
+    // Editar: el chip pasa a un campo con el email; Enter o "Guardar" lo reemplaza en el mismo lugar, Escape cancela
+    const chips = h('div', { class: 'fila' });
+    const pintarChips = (editando = null) => poner(chips, ...(e.emails ?? []).map((m) => {
+      if (m !== editando) {
+        return h('span', { class: 'chip' }, m,
+          h('button', { class: 'chip-x', title: `Editar ${m}`, 'aria-label': `Editar ${m}`, onclick: () => pintarChips(m) }, '✎'),
+          h('button', { class: 'chip-x', title: `Quitar ${m}`, 'aria-label': `Quitar ${m}`, onclick: () => quitar(m) }, '✕'));
+      }
+      const campoMail = h('input', { type: 'email', value: m, 'aria-label': `Nuevo valor de ${m}` });
+      const aplicar = () => {
+        const v = campoMail.value.trim().toLowerCase();
+        if (!v) return toast('Escribí el email (para sacarlo usá ✕).', true);
+        if (v === m) return pintarChips();
+        if (e.emails.includes(v)) return toast(`${v} ya está cargado en esta empresa.`, true);
+        guardar(e.emails.map((x) => (x === m ? v : x)), `${m} cambiado por ${v}.`);
+      };
+      campoMail.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') aplicar(); if (ev.key === 'Escape') pintarChips(); });
+      setTimeout(() => campoMail.focus(), 0);
+      return h('span', { class: 'fila' }, campoMail, h('button', { class: 'btn primario', onclick: aplicar }, 'Guardar'), h('button', { class: 'btn', onclick: () => pintarChips() }, 'Cancelar'));
+    }));
+    pintarChips();
+    return card(`Emails de ${e.razon_social}`, 'Contactos de la empresa: reciben los envíos programados. Puede tener más de uno; ✎ edita y ✕ quita.',
+      chips,
       !(e.emails ?? []).length && h('p', { class: 'aviso' }, 'Esta empresa no tiene emails cargados.'),
       h('div', { class: 'fila' }, campo('Agregar email', nuevo), h('button', { class: 'btn', onclick: agregar }, 'Agregar')));
   };

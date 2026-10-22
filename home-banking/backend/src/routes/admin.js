@@ -84,7 +84,8 @@ export default async function rutasAdmin(app) {
       const { rows } = await c.query('UPDATE empresa SET emails = $2 WHERE id = $1 RETURNING *', [req.params.id, emails]);
       const altas = emails.filter((e) => !antes.emails.includes(e)), bajas = antes.emails.filter((e) => !emails.includes(e));
       await auditar(c, req, { tipo: 'Administración', accion: 'Modificó emails de empresa', ref: { tipo: 'empresa', id: req.params.id },
-        detalle: `${antes.razon_social} · agregados: ${altas.join(', ') || 'ninguno'} · quitados: ${bajas.join(', ') || 'ninguno'}` });
+        detalle: altas.length === 1 && bajas.length === 1 ? `${antes.razon_social} · cambió ${bajas[0]} por ${altas[0]}` // edición de un email
+          : `${antes.razon_social} · agregados: ${altas.join(', ') || 'ninguno'} · quitados: ${bajas.join(', ') || 'ninguno'}` });
       return rows[0];
     });
   });
