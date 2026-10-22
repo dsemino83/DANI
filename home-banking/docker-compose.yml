@@ -37,6 +37,13 @@ x-backend-env: &backend-env
   HB_SMTP_PASSWORD_FILE: /run/secrets/smtp_password
   TZ: America/Argentina/Buenos_Aires
 
+# Endurecimiento común: sin escalada de privilegios y logs rotados (no llenan el disco)
+x-endurecido: &endurecido
+  security_opt: ["no-new-privileges:true"]
+  logging:
+    driver: json-file
+    options: { max-size: "10m", max-file: "5" }
+
 services:
   frontend:
     build: ./frontend
@@ -54,7 +61,12 @@ services:
       backend:
         condition: service_healthy
     restart: unless-stopped
-    networks: [publica, interna]
+    <<: *endurecido
+    cap_drop: [ALL]
+    cap_add: [CHOWN, DAC_OVERRIDE, SETGID, SETUID, NET_BIND_SERVICE]   # Nginx: arranca como root, escucha 443 y baja a nginx
+    mem_limit: 256m
+    pids_limit: 256
+    networks: [publica, app]   # no ve las bases de datos
 
   backend:
     build: ./backend
@@ -67,7 +79,13 @@ services:
       postgres-historico:
         condition: service_healthy
     restart: unless-stopped
-    networks: [interna, salida]   # "salida": acceso a internet para el SSO y el Banco de Valores
+    <<: *endurecido
+    read_only: true            # sistema de archivos inmutable; solo /tmp en memoria
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    mem_limit: 1g
+    pids_limit: 512
+    networks: [app, datos, salida]   # "salida": acceso a internet para el SSO y el Banco de Valores
 
   jobs:
     build: ./backend
@@ -93,7 +111,13 @@ services:
       postgres-historico:
         condition: service_healthy
     restart: unless-stopped
-    networks: [interna, salida]
+    <<: *endurecido
+    read_only: true
+    tmpfs: [/tmp]              # latido del healthcheck
+    cap_drop: [ALL]
+    mem_limit: 1g
+    pids_limit: 512
+    networks: [app, datos, salida]   # app: correo (Mailpit) · datos: bases · salida: banco y SMTP real
 
   postgres:
     build: ./db/operativa          # postgres:16.4-alpine + esquema y roles
@@ -112,7 +136,12 @@ services:
       timeout: 5s
       retries: 10
     restart: unless-stopped
-    networks: [interna]
+    <<: *endurecido
+    cap_drop: [ALL]
+    cap_add: [CHOWN, DAC_OVERRIDE, FOWNER, SETGID, SETUID]   # el entrypoint ajusta permisos y baja al usuario postgres
+    mem_limit: 2g
+    pids_limit: 512
+    networks: [datos]   # solo la ven el backend y jobs
 
   postgres-historico:
     build: ./db/historica          # postgres:16.4-alpine + esquema y rol de solo lectura
@@ -131,7 +160,12 @@ services:
       timeout: 5s
       retries: 10
     restart: unless-stopped
-    networks: [interna]
+    <<: *endurecido
+    cap_drop: [ALL]
+    cap_add: [CHOWN, DAC_OVERRIDE, FOWNER, SETGID, SETUID]   # el entrypoint ajusta permisos y baja al usuario postgres
+    mem_limit: 2g
+    pids_limit: 512
+    networks: [datos]   # solo la ven el backend y jobs
 
   # Keycloak propio (perfil "sso-local"): usuarios, perfiles y roles manejados desde Docker, para pruebas o
   # mientras no esté el SSO de VALO. Se publica por el frontend en https://<servidor>/auth (sin puerto propio).
@@ -148,7 +182,10 @@ services:
     volumes:
       - keycloak_datos:/opt/keycloak/data                         # usuarios y cambios persisten
     restart: unless-stopped
-    networks: [interna, salida]   # "salida": correo saliente (SMTP) para los avisos de cambio de clave
+    <<: *endurecido
+    cap_drop: [ALL]
+    mem_limit: 1536m
+    networks: [app, salida]   # "salida": correo saliente (SMTP) para los avisos de cambio de clave
 
   # Buzón de correo de prueba (perfil "correo-prueba"): recibe los correos que manda Keycloak (cambio de clave)
   # y los muestra en http://localhost:8025. Solo para pruebas: escucha únicamente en la máquina local.
@@ -159,7 +196,10 @@ services:
     ports:
       - "127.0.0.1:${HB_CORREO_PRUEBA_PUERTO:-8025}:8025"
     restart: unless-stopped
-    networks: [interna, publica]
+    <<: *endurecido
+    cap_drop: [ALL]
+    mem_limit: 256m
+    networks: [app, publica]
 
 secrets:
   db_owner_password:
@@ -184,8 +224,11 @@ volumes:
   pg_historica:
   keycloak_datos:
 
+# Microsegmentación: cada servicio ve solo las redes que necesita
 networks:
-  publica:
-  interna:
-    internal: true   # las bases no tienen salida a internet
-  salida:
+  publica:           # frontend (443) y el buzón de prueba
+  app:
+    internal: true   # frontend ↔ backend/jobs ↔ Keycloak/Mailpit, sin salida a internet
+  datos:
+    internal: true   # backend/jobs ↔ bases; el frontend no llega a las bases
+  salida:            # backend, jobs y Keycloak hacia el SSO, el banco y el SMTP
