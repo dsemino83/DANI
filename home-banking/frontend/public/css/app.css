@@ -38,6 +38,7 @@ nav.tabs a[aria-current="page"] { color: var(--fg); border-bottom-color: var(--r
 .card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radio); padding: 18px; margin-bottom: 16px; min-width: 0; }
 .card h2 { margin: 0 0 4px; font-size: 16px; font-weight: 600; }
 .nota { color: var(--muted); font-size: 12.5px; margin: 4px 0 12px; }
+.nota.mal { color: var(--bad); font-weight: 600; }
 .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 22rem), 1fr)); gap: 16px; }
 .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 13rem), 1fr)); gap: 16px; margin-bottom: 16px; }
 .kpis .card { margin: 0; }

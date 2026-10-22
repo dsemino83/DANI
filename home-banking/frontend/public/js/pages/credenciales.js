@@ -19,6 +19,7 @@ export async function render(main) {
       terminal: h('input', { value: e.terminal ?? '', autocomplete: 'off' }),
       clave: h('input', { type: 'password', autocomplete: 'new-password', placeholder: e.configurada ? 'Vacío = se conserva la actual' : 'Clave del usuario API' }),
       yaCifrada: h('input', { type: 'checkbox', checked: !!e.claveYaCifrada }),
+      aviso: h('div', {}),
       rsa: h('textarea', { rows: 4, spellcheck: false, placeholder: e.rsaCargada ? 'Vacío = se conserva la llave actual' : 'Llave pública RSA del banco (base64 o PEM)' }),
     };
     const guardar = async () => {
@@ -27,8 +28,13 @@ export async function render(main) {
       if (f.clave.value) { body.clave = f.clave.value; body.claveYaCifrada = f.yaCifrada.checked; }
       if (f.rsa.value.trim()) body.rsaPublicKey = f.rsa.value.trim();
       if (!(await confirmar('Guardar credencial', `Ambiente ${amb === 'prod' ? 'Producción' : 'Homologación'}: la próxima llamada al banco usará estos datos. Queda registrado en auditoría (sin el valor de la clave).`, 'Guardar'))) return;
-      try { await api(`/admin/credenciales/${amb}`, { method: 'PUT', body }); toast('Credencial guardada.'); } catch (x) { error(x); }
-      f.clave.value = '';
+      // Si el backend rechaza, el formulario queda como estaba y el motivo queda a la vista (no solo en el aviso temporal)
+      try { await api(`/admin/credenciales/${amb}`, { method: 'PUT', body }); } catch (x) {
+        poner(f.aviso, h('p', { class: 'nota mal', role: 'alert' }, `No se guardó: ${x?.message ?? x}`));
+        error(x);
+        return;
+      }
+      toast('Credencial guardada. La clave no se vuelve a mostrar: queda indicada en Estado.');
       await dibujar();
     };
     const probar = async () => {
@@ -46,6 +52,7 @@ export async function render(main) {
             campo('Clave (solo escritura)', f.clave),
             campo('La clave ya viene cifrada por el banco (texto base64): se envía tal cual y no hace falta la llave RSA', f.yaCifrada, 'check'),
             campo('Llave pública RSA del banco (solo si la clave está en texto plano)', f.rsa)),
+          f.aviso,
           h('div', { class: 'fila' },
             h('button', { class: 'btn primario', onclick: guardar }, 'Guardar'),
             h('button', { class: 'btn', disabled: !e.configurada, onclick: probar }, 'Probar conexión'))),

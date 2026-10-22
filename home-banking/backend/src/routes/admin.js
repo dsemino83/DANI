@@ -206,7 +206,7 @@ export default async function rutasAdmin(app) {
       // Clave en texto plano: el backend la cifra con la llave RSA del banco en cada login, así que la llave es obligatoria.
       // Clave ya cifrada por el banco: se envía tal cual y la llave no hace falta.
       const modo = b.clave ? yaCifrada : prev.clave_ya_cifrada;
-      if (!modo && !b.rsaPublicKey && !prev?.rsa_public_key) throw invalido('Con la clave en texto plano se requiere la llave pública RSA del banco');
+      if (!modo && !b.rsaPublicKey && !prev?.rsa_public_key) throw invalido('Con la clave en texto plano se requiere la llave pública RSA del banco. Si la clave es el texto cifrado que entregó el banco, tildá "La clave ya viene cifrada por el banco"');
       if (!b.identification && !prev) throw invalido('identification debe tener entre 7 y 11 dígitos');
       b.identification = String(b.identification || prev.identification); // vacío = se conserva (la pantalla la muestra enmascarada)
       const clave = b.clave ? cifrar(yaCifrada ? String(b.clave).replace(/\s+/g, '') : String(b.clave)) : { cifrado: prev.clave_cifrada, iv: prev.clave_iv, tag: prev.clave_tag };
