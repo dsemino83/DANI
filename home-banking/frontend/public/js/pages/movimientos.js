@@ -3,39 +3,54 @@ import { api, descargar } from '../api.js';
 import { h, poner, card, kpi, tabla, campo, seg, dinero, iso, haceDias, fecha, cargando, error, toast, contiene, sinPerderFoco } from '../ui.js';
 
 const PAGINA = 900;
-const MAX_CAUSALES = 10;
 
-// Créditos del período agrupados por causal (la descripción del movimiento): ranking por importe con barra,
-// cantidad y porcentaje. Los que exceden MAX_CAUSALES se suman en "Otras causales". Clic = filtrar el detalle.
+// Créditos del período agrupados (por causal = descripción del movimiento, o por CUIT del ordenante): ranking por
+// importe con barra, cantidad y porcentaje. Los que exceden MAX_GRUPOS se suman en "Otros". Clic = filtrar el detalle.
 // El ancho va por CSSOM (la CSP no permite atributos style en línea)
 const barra = (porc) => { const b = h('div', { class: 'barra' }); b.style.width = `${porc}%`; return b; };
 
-function resumenCreditos(movimientos, moneda, filtrar) {
-  const grupos = new Map();
+const AGRUPAR = {
+  causal: {
+    titulo: 'Créditos por causal', columna: 'Causal', plural: 'causales', otros: 'Otras causales',
+    clave: (m) => String(m.description ?? '').trim().replace(/\s+/g, ' ') || null, sinClave: 'Sin descripción',
+  },
+  cuit: {
+    titulo: 'Créditos por CUIT', columna: 'CUIT · ordenante', plural: 'CUIT', otros: 'Otros CUIT',
+    clave: (m) => String(m.documentNumber ?? '').replace(/\D/g, '') || null, sinClave: 'Sin CUIT informado',
+    filtro: (m) => String(m.documentNumber).trim(), // el buscador del detalle compara contra el CUIT tal como lo informa el banco
+    // nombre: el ordenante que más se repite con ese CUIT
+    nombre: (movs) => { const n = new Map(); for (const m of movs) { const b = String(m.beneficiary ?? '').trim(); if (b) n.set(b, (n.get(b) ?? 0) + 1); } return [...n].sort((a, b) => b[1] - a[1])[0]?.[0] ?? ''; },
+  },
+};
+const MAX_GRUPOS = 10;
+
+function resumenCreditos(tipo, movimientos, moneda, filtrar) {
+  const cfg = AGRUPAR[tipo], grupos = new Map();
   for (const m of movimientos.filter((x) => x.signDC === 'C')) {
-    const causal = String(m.description ?? '').trim().replace(/\s+/g, ' ') || 'Sin descripción';
-    const g = grupos.get(causal) ?? { causal, n: 0, total: 0 };
-    g.n++; g.total += Number(m.amount);
-    grupos.set(causal, g);
+    const clave = cfg.clave(m);
+    const g = grupos.get(clave) ?? { clave, n: 0, total: 0, movs: [] };
+    g.n++; g.total += Number(m.amount); g.movs.push(m);
+    grupos.set(clave, g);
   }
   if (!grupos.size) return null;
-  let filas = [...grupos.values()].sort((a, b) => b.total - a.total);
-  if (filas.length > MAX_CAUSALES) {
-    const resto = filas.slice(MAX_CAUSALES - 1);
-    filas = [...filas.slice(0, MAX_CAUSALES - 1), { causal: `Otras causales (${resto.length})`, n: resto.reduce((s, g) => s + g.n, 0), total: resto.reduce((s, g) => s + g.total, 0), otras: true }];
+  let filas = [...grupos.values()].sort((a, b) => b.total - a.total)
+    .map((g) => ({ ...g, etiqueta: g.clave == null ? cfg.sinClave : cfg.nombre ? [g.clave, cfg.nombre(g.movs)].filter(Boolean).join(' · ') : g.clave, filtra: g.clave != null, filtro: cfg.filtro ? cfg.filtro(g.movs[0]) : g.clave }));
+  if (filas.length > MAX_GRUPOS) {
+    const resto = filas.slice(MAX_GRUPOS - 1);
+    filas = [...filas.slice(0, MAX_GRUPOS - 1), { etiqueta: `${cfg.otros} (${resto.length})`, n: resto.reduce((s, g) => s + g.n, 0), total: resto.reduce((s, g) => s + g.total, 0), filtra: false }];
   }
   const total = filas.reduce((s, g) => s + g.total, 0), max = Math.max(...filas.map((g) => g.total));
   const pct = (v) => (total ? `${(v / total * 100).toLocaleString('es-AR', { maximumFractionDigits: 1 })} %` : '—');
-  return card('Créditos por causal', `${grupos.size} causales · ${dinero(total, moneda)} en el período. Hacé clic en una causal para ver sus movimientos.`,
+  return card(cfg.titulo, `${grupos.size} ${cfg.plural} · ${dinero(total, moneda)} en el período. Hacé clic en una fila para ver sus movimientos.`,
     h('div', { class: 'tabla' }, h('table', {},
-      h('thead', {}, h('tr', {}, h('th', {}, 'Causal'), h('th', { class: 'num' }, 'Movimientos'), h('th', { class: 'num' }, 'Importe'), h('th', { class: 'num' }, '%'), h('th', {}, h('span', { class: 'vh' }, 'Proporción')))),
+      h('thead', {}, h('tr', {}, h('th', {}, cfg.columna), h('th', { class: 'num' }, 'Mov.'), h('th', { class: 'num' }, 'Importe'), h('th', { class: 'num' }, '%'), h('th', {}, h('span', { class: 'vh' }, 'Proporción')))),
       h('tbody', {}, filas.map((g) => {
-        const tr = h('tr', { class: g.otras ? '' : 'causal-fila', tabindex: g.otras ? null : 0, title: `${g.causal}: ${dinero(g.total, moneda)} (${pct(g.total)}) · ${g.n} movimiento(s)` },
-          h('td', {}, g.causal), h('td', { class: 'num' }, g.n), h('td', { class: 'num' }, dinero(g.total, moneda)), h('td', { class: 'num' }, pct(g.total)),
+        const tr = h('tr', { class: g.filtra ? 'causal-fila' : '', tabindex: g.filtra ? 0 : null, title: `${g.etiqueta}: ${dinero(g.total, moneda)} (${pct(g.total)}) · ${g.n} movimiento(s)` },
+          h('td', {}, g.etiqueta), h('td', { class: 'num' }, g.n), h('td', { class: 'num' }, dinero(g.total, moneda)), h('td', { class: 'num' }, pct(g.total)),
           h('td', {}, h('div', { class: 'barra-fondo' }, barra(max ? Math.max(1, g.total / max * 100) : 0))));
-        if (!g.otras) {
-          tr.addEventListener('click', () => filtrar(g.causal));
-          tr.addEventListener('keydown', (e) => { if (e.key === 'Enter') filtrar(g.causal); });
+        if (g.filtra) {
+          tr.addEventListener('click', () => filtrar(g.filtro));
+          tr.addEventListener('keydown', (e) => { if (e.key === 'Enter') filtrar(g.filtro); });
         }
         return tr;
       })))));
@@ -94,7 +109,8 @@ export async function render(main, ctx) {
         h('div', { class: 'fila' }, h('button', { class: 'btn primario', onclick: () => cargar() }, 'Reintentar')))
       : datos ? [
         h('div', { class: 'kpis' }, kpi('Créditos', dinero(cred, c?.moneda), 'pos'), kpi('Débitos', dinero(deb, c?.moneda), 'neg'), kpi('Cantidad de movimientos', movs.length)),
-        resumenCreditos(datos.movimientos, c?.moneda, (causal) => { q = causal.toLowerCase(); pagina = 0; redibujar(); }),
+        // Ingresos repartidos en dos columnas: por causal y por CUIT del ordenante (en pantallas angostas, uno debajo del otro)
+        h('div', { class: 'grid resumen-creditos' }, ['causal', 'cuit'].map((tipo) => resumenCreditos(tipo, datos.movimientos, c?.moneda, (clave) => { q = clave.toLowerCase(); pagina = 0; redibujar(); }))),
         card('Detalle de movimientos', 'getMovementsDetail: el backend pide de a 900 movimientos y pagina con sequential/uniqueSequential hasta recibir menos de 900. Orden descendente.',
           h('div', { class: 'fila' },
             h('button', { class: 'btn', disabled: !movs.length, onclick: () => descargar(`/cuentas/${st.cuenta}/movimientos?desde=${desde}&hasta=${hasta}&formato=xlsx`, `movimientos_${st.cuenta}_${desde}_${hasta}.xlsx`).catch(error) }, 'Exportar a Excel'),

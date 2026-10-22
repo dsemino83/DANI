@@ -165,3 +165,7 @@ pre { background: var(--bg); border: 1px solid var(--line); border-radius: var(-
 .kpi-btn { display: block; width: 100%; text-align: left; font: inherit; color: inherit; cursor: pointer; }
 .kpi-btn:hover, .kpi-btn:focus-visible { border-color: var(--rojo); }
 .kpi-btn[aria-pressed="true"] { border-color: var(--rojo); box-shadow: inset 0 0 0 1px var(--rojo); background: var(--rojo-suave); }
+
+/* Movimientos: créditos por causal y por CUIT, lado a lado */
+.resumen-creditos { margin-bottom: 16px; }
+.resumen-creditos .card { margin: 0; }
