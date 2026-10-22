@@ -4,7 +4,8 @@ import { parse as parseCsv } from 'csv-parse/sync';
 import ExcelJS from 'exceljs';
 import { operativa, tx } from '../db.js';
 import { auditar } from '../auditoria.js';
-import { conflicto, invalido, noEncontrado, prohibido } from '../errores.js';
+import { conflicto, invalido, noEncontrado, prohibido, riesgoAlto } from '../errores.js';
+import { evaluarRiesgo } from './riesgo.js';
 import { cuentasHabilitadas, exigirCuenta } from '../permisos.js';
 import { consultarCbu, cuentasPropias } from '../bdv/cliente.js';
 import { armarRequest } from '../bdv/transferencias.js';
@@ -158,6 +159,12 @@ export async function decidir(req, loteId, aprobarLote) {
     if (lote.creador === req.user.usuario) throw prohibido('No podés aprobar ni rechazar un lote que cargaste vos');
     const ts = (await c.query(`SELECT * FROM transferencia WHERE lote_id = $1 AND estado = 'PENDIENTE_APROBACION' FOR UPDATE`, [loteId])).rows;
     for (const t of ts) await exigirCuenta(req.user.usuario, t.cuenta_origen);
+    // Señales de fraude por transferencia del lote: con alguna de riesgo ALTO, aprobar exige confirmación explícita
+    const riesgos = await evaluarRiesgo(ts.map((t) => t.id), c);
+    const altos = ts.filter((t) => riesgos.get(Number(t.id))?.nivel === 'alto');
+    if (aprobarLote && altos.length && req.body?.confirmoRiesgo !== true) {
+      throw riesgoAlto(`Riesgo ALTO en ${altos.length} transferencia(s) del lote (${altos.map((t) => `OP-${t.id}`).join(', ')}). Revisá y confirmá para aprobar.`);
+    }
     const estado = aprobarLote ? 'ENVIANDO' : 'RECHAZADA';
     for (const t of ts) {
       const u = await c.query(`UPDATE transferencia SET estado = $2, aprobador = $3, aprobado_en = now(), actualizado_en = now()
@@ -170,7 +177,7 @@ export async function decidir(req, loteId, aprobarLote) {
       [loteId, aprobarLote ? 'PROCESADO' : 'RECHAZADO', req.user.usuario]);
     await auditar(c, req, {
       tipo: 'Transferencias', accion: aprobarLote ? 'Aprobó lote masivo' : 'Rechazó lote masivo', ref: { tipo: 'lote', id: loteId },
-      detalle: `Lote ${loteId} · ${ts.length} transferencias · ${lote.importe} · cargado por ${lote.creador}`,
+      detalle: `Lote ${loteId} · ${ts.length} transferencias · ${lote.importe} · cargado por ${lote.creador} · riesgo alto en ${altos.length}${altos.length && aprobarLote ? ' (confirmado por el aprobador)' : ''}`,
     });
     return ts;
   });

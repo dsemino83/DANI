@@ -5,6 +5,7 @@ import { fechaCorte, historica, operativa } from '../db.js';
 import { invalido } from '../errores.js';
 import { cuentasHabilitadas } from '../permisos.js';
 import * as transferencias from '../servicios/transferencias.js';
+import { evaluarRiesgo } from '../servicios/riesgo.js';
 import * as lotes from '../servicios/lotes.js';
 
 const fechaOk = (f) => /^\d{4}-\d{2}-\d{2}$/.test(f ?? '');
@@ -76,7 +77,19 @@ export default async function rutasTransferencias(app) {
     const lotesPend = (await operativa.query(
       `SELECT id, archivo, formato, validas, importe, creador, creado_en FROM lote WHERE estado = 'PENDIENTE_APROBACION' ORDER BY creado_en`)).rows;
     const marca = (x) => ({ ...x, propia: x.creador === req.user.usuario }); // la UI muestra "La cargaste vos"
-    return { transferencias: individuales.map(marca), lotes: lotesPend.map(marca) };
+    // Señales de fraude: por transferencia; el lote toma el peor riesgo de sus transferencias
+    const delLote = lotesPend.length ? (await operativa.query(`SELECT id, lote_id FROM transferencia WHERE estado = 'PENDIENTE_APROBACION' AND lote_id = ANY($1)`,
+      [lotesPend.map((l) => l.id)])).rows : [];
+    const riesgos = await evaluarRiesgo([...individuales.map((t) => t.id), ...delLote.map((t) => t.id)]);
+    const peor = (lista) => lista.reduce((a, r) => (!a || r.puntos > a.puntos ? r : a), null);
+    return {
+      transferencias: individuales.map((t) => ({ ...marca(t), riesgo: riesgos.get(Number(t.id)) ?? null })),
+      lotes: lotesPend.map((l) => {
+        const rs = delLote.filter((t) => String(t.lote_id) === String(l.id)).map((t) => ({ ...riesgos.get(Number(t.id)), op: Number(t.id) }));
+        const p = peor(rs);
+        return { ...marca(l), riesgo: p ? { ...p, altos: rs.filter((r) => r.nivel === 'alto').length } : null };
+      }),
+    };
   });
 
   app.post('/transferencias/:id/aprobar', { preHandler: exigirAprobar }, async (req) => transferencias.aprobar(req, Number(req.params.id)));

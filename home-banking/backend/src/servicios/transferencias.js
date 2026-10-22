@@ -1,7 +1,8 @@
 // Circuito de transferencias: CREAR (interno, sin banco) -> APROBAR (otro usuario) -> ENVIAR (API del banco).
 import { operativa, historica, tx } from '../db.js';
 import { auditar } from '../auditoria.js';
-import { conflicto, noEncontrado, prohibido, invalido } from '../errores.js';
+import { conflicto, noEncontrado, prohibido, invalido, riesgoAlto } from '../errores.js';
+import { evaluarRiesgo, resumenRiesgo } from './riesgo.js';
 import { config } from '../config.js';
 
 // Modo solo consultas: se rechaza la aprobación antes de tocar la transferencia (queda pendiente).
@@ -92,6 +93,11 @@ async function tomarParaDecision(req, id, aprobar) {
     if (t.estado !== 'PENDIENTE_APROBACION') throw conflicto(`La transferencia está en estado ${t.estado}`);
     if (t.creador === req.user.usuario) throw prohibido('No podés aprobar ni rechazar una transferencia que cargaste vos');
     await exigirCuenta(req.user.usuario, t.cuenta_origen); // el aprobador también debe ver la empresa
+    // Señales de fraude: con riesgo ALTO, aprobar exige que el aprobador confirme que las revisó
+    const riesgo = (await evaluarRiesgo([t.id], c)).get(Number(t.id));
+    if (aprobar && riesgo?.nivel === 'alto' && req.body?.confirmoRiesgo !== true) {
+      throw riesgoAlto(`Riesgo ALTO: ${riesgo.senales.map((x) => x.texto).join('; ')}. Revisá y confirmá para aprobar.`);
+    }
     const estado = aprobar ? 'ENVIANDO' : 'RECHAZADA';
     // Condicional sobre el estado: si otra aprobación ganó la carrera, no cambia nada y se aborta.
     const u = await c.query(`UPDATE transferencia SET estado = $2, aprobador = $3, aprobado_en = now(), actualizado_en = now()
@@ -101,7 +107,7 @@ async function tomarParaDecision(req, id, aprobar) {
       [id, estado, req.user.usuario, aprobar ? `Aprobada; se envía por ${t.api}` : 'Rechazada; no se envía al banco']);
     await auditar(c, req, {
       tipo: 'Transferencias', accion: aprobar ? 'Aprobó transferencia' : 'Rechazó transferencia', api: aprobar ? t.api : null,
-      detalle: `OP-${id} · ${t.titular ?? t.destino} · ${t.importe} ${t.moneda} · cargada por ${t.creador}`, ref: { tipo: 'transferencia', id },
+      detalle: `OP-${id} · ${t.titular ?? t.destino} · ${t.importe} ${t.moneda} · cargada por ${t.creador} · ${resumenRiesgo(riesgo)}${riesgo?.nivel === 'alto' && aprobar ? ' · confirmado por el aprobador' : ''}`, ref: { tipo: 'transferencia', id },
     });
     return t;
   });

@@ -326,3 +326,20 @@ test('movimientos: CBU origen solo en las causales 366 y 367 (campo reference)',
   assert.ok(col > 0 && cab.includes('Causal'));
   assert.equal(ws.getRow(6).getCell(col).value, cbu); assert.equal(ws.getRow(7).getCell(col).value, 'PROVEEDOR SA', 'causal 741: beneficiario');
 });
+
+test('riesgo de fraude: señales explicables y niveles', async () => {
+  const { senales, nivelDe } = await import('../src/servicios/riesgo.js');
+  const u = { montoAltoARS: 10_000_000, montoAltoUSD: 10_000, veces: 3, minimoHistoria: 3, rafaga: 3 };
+  const base = { previasDestino: 2, historia: 10, promedio: 100_000, maximo: 300_000, importe: 120_000, moneda: 'ARS', rafaga: 1, hora: 11, dow: 3 };
+  assert.deepEqual(senales(base, u), { puntos: 0, nivel: 'bajo', senales: [] }, 'operación habitual');
+  let r = senales({ ...base, previasDestino: 0 }, u); assert.equal(r.nivel, 'medio'); assert.equal(r.senales[0].codigo, 'destino_nuevo');
+  r = senales({ ...base, previasDestino: 0, importe: 500_000 }, u);
+  assert.equal(r.nivel, 'alto'); assert.deepEqual(r.senales.map((x) => x.codigo), ['destino_nuevo', 'monto_atipico']);
+  r = senales({ ...base, importe: 700_000, promedio: 300_000 }, u); assert.deepEqual(r.senales.map((x) => x.codigo), ['monto_maximo'], 'más del doble del máximo');
+  assert.ok(senales({ ...base, historia: 1, importe: 900_000 }, u).senales.every((x) => x.codigo !== 'monto_atipico'), 'sin historia no compara');
+  assert.equal(senales({ ...base, importe: 12_000, moneda: 'USD', promedio: 10_000, maximo: 12_000 }, u).senales[0].codigo, 'monto_alto');
+  assert.equal(senales({ ...base, rafaga: 4 }, u).senales[0].codigo, 'rafaga');
+  assert.equal(senales({ ...base, hora: 22 }, u).senales[0].codigo, 'fuera_de_horario');
+  assert.equal(senales({ ...base, dow: 7 }, u).senales[0].codigo, 'fuera_de_horario', 'domingo');
+  assert.equal(nivelDe(24), 'bajo'); assert.equal(nivelDe(25), 'medio'); assert.equal(nivelDe(50), 'alto');
+});
