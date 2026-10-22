@@ -31,7 +31,8 @@ export const TABLAS_FILAS = [
       responsable text NOT NULL, manual boolean NOT NULL, estado text NOT NULL, intentos smallint NOT NULL,
       max_intentos smallint NOT NULL, disponible_en timestamptz NOT NULL, encolada_en timestamptz NOT NULL,
       tomada_en timestamptz, terminada_en timestamptz, destinatarios text[] NOT NULL, detalle text);
-      CREATE INDEX IF NOT EXISTS h_cola_envio_prog_idx ON cola_envio (programacion_id, encolada_en)`,
+      CREATE INDEX IF NOT EXISTS h_cola_envio_prog_idx ON cola_envio (programacion_id, encolada_en);
+      ALTER TABLE cola_envio ADD COLUMN IF NOT EXISTS formato text NOT NULL DEFAULT 'cuerpo'`,  // migración 007
   },
   {
     tabla: 'envio_mail_log', columna: 'en', terminadas: 'true',

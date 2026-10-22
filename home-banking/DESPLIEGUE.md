@@ -159,6 +159,7 @@ Para probar sin instalar nada: una máquina virtual de GitHub con Docker que lev
 Pestaña **Envíos programados**, solo del **aprobador** (perfil autorizante) y solo sobre las empresas que él ve. Cada programación define:
 
 - **Contenido:** saldos, movimientos del día, o ambos. Un correo por empresa, a todos sus emails, con solo sus cuentas.
+- **Formato:** **solo en el cuerpo del correo** (alertas) o **cuerpo del correo + Excel adjunto**. Con Excel, el cuerpo se completa igual y el archivo (`VALO_<contenido>_<CUIT>_<fecha>.xlsx`) trae las hojas Saldos y/o Movimientos con todos los movimientos, importes como números (el cuerpo muestra hasta 100 movimientos por cuenta).
 - **Destino:** primero el **cliente** y después sus **cuentas** (todas o solo algunas), entre los clientes que ve el aprobador; o "Todos mis clientes". Al enviar se vuelve a verificar con los permisos del aprobador que la guardó.
 - **Repetición:** **1 vez al día** a una hora, o **1 vez cada hora** desde una hora hasta otra (inclusive).
 - **Días de la semana**, **inicio** y **fin** (opcional), y **No enviar en feriados**.

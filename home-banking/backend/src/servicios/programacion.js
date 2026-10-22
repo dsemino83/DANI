@@ -68,6 +68,8 @@ export function validarProgramacion(d) {
   const nombre = String(d.nombre ?? '').trim();
   if (!nombre) throw invalido('Falta el nombre');
   if (!['saldos', 'movimientos', 'saldos_movimientos'].includes(d.contenido)) throw invalido('Contenido inválido');
+  const formato = d.formato ?? 'cuerpo';
+  if (!['cuerpo', 'cuerpo_excel'].includes(formato)) throw invalido('Formato inválido: cuerpo del correo, o cuerpo + Excel adjunto');
   if (!['diaria', 'horaria'].includes(d.frecuencia)) throw invalido('Frecuencia inválida: diaria u horaria');
   const hora = hhmm(d.hora), horaHasta = d.frecuencia === 'horaria' ? hhmm(d.horaHasta) : null;
   const esHora = (x) => /^([01]\d|2[0-3]):[0-5]\d$/.test(x);
@@ -89,6 +91,6 @@ export function validarProgramacion(d) {
   }
   const destinos = [...porEmpresa].map(([empresaId, cuentas]) => ({ empresaId, cuentas }));
   if (!todas && !destinos.length) throw invalido('Elegí al menos un cliente o "todos"');
-  return { nombre, contenido: d.contenido, frecuencia: d.frecuencia, hora, horaHasta, dias, saltarFeriados: d.saltarFeriados !== false,
+  return { nombre, contenido: d.contenido, formato, frecuencia: d.frecuencia, hora, horaHasta, dias, saltarFeriados: d.saltarFeriados !== false,
     fechaInicio: d.fechaInicio, fechaFin: d.fechaFin || null, todas, destinos, activa: d.activa !== false };
 }

@@ -3,6 +3,7 @@
 import { api } from '../api.js';
 import { h, poner, card, campo, tabla, pill, toast, error, cargando, confirmar, fechaHora, contiene, sinPerderFoco } from '../ui.js';
 
+const FORMATO = [['cuerpo', 'Solo en el cuerpo del correo (alertas)'], ['cuerpo_excel', 'Cuerpo del correo + Excel adjunto']];
 const CONTENIDO = [['saldos', 'Saldos'], ['movimientos', 'Movimientos del día'], ['saldos_movimientos', 'Saldos y movimientos del día']];
 const DIAS = [[1, 'Lun'], [2, 'Mar'], [3, 'Mié'], [4, 'Jue'], [5, 'Vie'], [6, 'Sáb'], [7, 'Dom']];
 const hoy = () => new Date(Date.now() - 3 * 3600_000).toISOString().slice(0, 10);
@@ -31,6 +32,7 @@ export async function render(main) {
     const f = {
       nombre: h('input', { value: p?.nombre ?? '', placeholder: 'Resumen diario de saldos' }),
       contenido: h('select', {}, CONTENIDO.map(([v, t]) => h('option', { value: v, selected: (p?.contenido ?? 'saldos') === v }, t))),
+      formato: h('select', {}, FORMATO.map(([v, t]) => h('option', { value: v, selected: (p?.formato ?? 'cuerpo') === v }, t))),
       frecuencia: h('select', {}, h('option', { value: 'diaria', selected: (p?.frecuencia ?? 'diaria') === 'diaria' }, '1 vez al día'), h('option', { value: 'horaria', selected: p?.frecuencia === 'horaria' }, '1 vez cada hora')),
       hora: h('input', { type: 'time', value: String(p?.hora ?? '09:00').slice(0, 5) }),
       horaHasta: h('input', { type: 'time', value: String(p?.hora_hasta ?? '18:00').slice(0, 5) }),
@@ -73,7 +75,7 @@ export async function render(main) {
 
     const guardar = async () => {
       const body = {
-        nombre: f.nombre.value, contenido: f.contenido.value, frecuencia: f.frecuencia.value, hora: f.hora.value, horaHasta: f.horaHasta.value,
+        nombre: f.nombre.value, contenido: f.contenido.value, formato: f.formato.value, frecuencia: f.frecuencia.value, hora: f.hora.value, horaHasta: f.horaHasta.value,
         diasSemana: dias.filter(([, x]) => x.checked).map(([n]) => n), saltarFeriados: f.feriados.checked, fechaInicio: f.inicio.value, fechaFin: f.fin.value || null,
         todasEmpresas: f.todas.checked, destinos: [...elegidos].map(([empresaId, cs]) => ({ empresaId, cuentas: [...cs] })), activa: f.activa.checked,
       };
@@ -95,7 +97,8 @@ export async function render(main) {
     };
 
     poner(editor, card(p ? `Editar · ${p.nombre}` : 'Nuevo envío programado', 'Hora de Argentina. "1 vez cada hora" envía a la hora en punto de "Desde" y cada hora hasta "Hasta", inclusive.',
-      h('div', { class: 'fila' }, campo('Nombre', f.nombre), campo('Contenido', f.contenido), campo('Repetición', f.frecuencia)),
+      h('div', { class: 'fila' }, campo('Nombre', f.nombre), campo('Contenido', f.contenido), campo('Formato', f.formato), campo('Repetición', f.frecuencia)),
+      h('p', { class: 'nota' }, 'Con Excel adjunto el cuerpo del correo se completa igual; el Excel trae el detalle completo (hoja Saldos y/o Movimientos, con todos los movimientos).'),
       franja,
       h('div', { class: 'fila' }, h('span', { class: 'nota' }, 'Días:'), ...dias.map(([, x, t]) => h('label', { class: 'campo check' }, x, t))),
       h('div', { class: 'fila' }, campo('Inicio', f.inicio), campo('Fin (vacío = sin fin)', f.fin),

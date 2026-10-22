@@ -11,7 +11,7 @@ import { enArgentina, proximoTurno, validarProgramacion } from '../servicios/pro
 const CONTENIDO = { saldos: 'saldos', movimientos: 'movimientos del día', saldos_movimientos: 'saldos y movimientos del día' };
 const DIAS = ['', 'lun', 'mar', 'mié', 'jue', 'vie', 'sáb', 'dom'];
 const destinoTxt = (p) => (p.todas_empresas ? 'todos sus clientes' : `${(p.destinos ?? []).length} cliente(s)${(p.destinos ?? []).some((d) => d.cuentas?.length) ? ' (con cuentas elegidas)' : ''}`);
-export const describir = (p) => `${CONTENIDO[p.contenido]} · ${p.frecuencia === 'diaria' ? `diaria a las ${String(p.hora).slice(0, 5)}`
+export const describir = (p) => `${CONTENIDO[p.contenido]}${p.formato === 'cuerpo_excel' ? ' con Excel adjunto' : ' en el cuerpo del correo'} · ${p.frecuencia === 'diaria' ? `diaria a las ${String(p.hora).slice(0, 5)}`
   : `cada hora de ${String(p.hora).slice(0, 5)} a ${String(p.hora_hasta).slice(0, 5)}`} · ${(p.dias_semana ?? []).map((d) => DIAS[d]).join(', ')}`
   + `${p.saltar_feriados ? ' · sin feriados' : ''} · desde ${String(p.fecha_inicio).slice(0, 10)}${p.fecha_fin ? ` hasta ${String(p.fecha_fin).slice(0, 10)}` : ''}`;
 
@@ -50,12 +50,12 @@ export default async function rutasEnvios(app) {
         const ajenas = d.destinos.flatMap((x) => x.cuentas.filter((n) => !activas.some((a) => a.e === x.empresaId && a.product_number === n)));
         if (ajenas.length) throw invalido(`Cuentas que no son del cliente elegido: ${ajenas.join(', ')}`);
       }
-      const v = [d.nombre, d.contenido, d.todas, d.destinos.map((x) => x.empresaId), d.frecuencia, d.hora, d.horaHasta, d.dias, d.saltarFeriados, d.fechaInicio, d.fechaFin, d.activa, req.user.usuario, JSON.stringify(d.destinos)];
+      const v = [d.nombre, d.contenido, d.todas, d.destinos.map((x) => x.empresaId), d.frecuencia, d.hora, d.horaHasta, d.dias, d.saltarFeriados, d.fechaInicio, d.fechaFin, d.activa, req.user.usuario, JSON.stringify(d.destinos), d.formato];
       const { rows } = id == null
-        ? await c.query(`INSERT INTO programacion_envio (nombre, contenido, todas_empresas, empresas, frecuencia, hora, hora_hasta, dias_semana, saltar_feriados, fecha_inicio, fecha_fin, activa, creada_por, destinos)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14) RETURNING *`, v)
+        ? await c.query(`INSERT INTO programacion_envio (nombre, contenido, todas_empresas, empresas, frecuencia, hora, hora_hasta, dias_semana, saltar_feriados, fecha_inicio, fecha_fin, activa, creada_por, destinos, formato)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15) RETURNING *`, v)
         : await c.query(`UPDATE programacion_envio SET nombre = $1, contenido = $2, todas_empresas = $3, empresas = $4, frecuencia = $5, hora = $6, hora_hasta = $7,
-            dias_semana = $8, saltar_feriados = $9, fecha_inicio = $10, fecha_fin = $11, activa = $12, actualizada_por = $13, destinos = $14, actualizada_en = now() WHERE id = $15 RETURNING *`, [...v, id(req)]);
+            dias_semana = $8, saltar_feriados = $9, fecha_inicio = $10, fecha_fin = $11, activa = $12, actualizada_por = $13, destinos = $14, formato = $15, actualizada_en = now() WHERE id = $16 RETURNING *`, [...v, id(req)]);
       if (!rows[0]) throw noEncontrado('Programación inexistente');
       await auditar(c, req, { tipo: 'Administración', accion: id == null ? 'Creó envío programado' : 'Modificó envío programado', ref: { tipo: 'envio', id: rows[0].id },
         detalle: `${rows[0].nombre} · ${describir(rows[0])} · ${destinoTxt(rows[0])}${rows[0].activa ? '' : ' · pausada'}` });

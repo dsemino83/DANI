@@ -17,8 +17,8 @@ function crear() {
   });
 }
 
-export async function enviarCorreo({ para, asunto, html, texto }) {
+export async function enviarCorreo({ para, asunto, html, texto, adjuntos = [] }) {
   transporte ??= crear();
   const from = `Home Banking VALO <${env('HB_SMTP_FROM', 'alyc@valo.ar')}>`;
-  return transporte.sendMail({ from, to: para.join(', '), subject: asunto, html, text: texto });
+  return transporte.sendMail({ from, to: para.join(', '), subject: asunto, html, text: texto, attachments: adjuntos });
 }

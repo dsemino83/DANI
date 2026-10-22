@@ -86,7 +86,8 @@ CREATE TABLE cola_envio (
   empresa_id bigint NOT NULL, empresa text NOT NULL, cuentas text[] NOT NULL, contenido text NOT NULL,
   responsable text NOT NULL, manual boolean NOT NULL, estado text NOT NULL, intentos smallint NOT NULL,
   max_intentos smallint NOT NULL, disponible_en timestamptz NOT NULL, encolada_en timestamptz NOT NULL,
-  tomada_en timestamptz, terminada_en timestamptz, destinatarios text[] NOT NULL, detalle text);
+  tomada_en timestamptz, terminada_en timestamptz, destinatarios text[] NOT NULL, detalle text,
+  formato text NOT NULL DEFAULT 'cuerpo');
 CREATE INDEX h_cola_envio_prog_idx ON cola_envio (programacion_id, encolada_en);
 CREATE TABLE envio_mail_log (
   id bigint PRIMARY KEY, programacion_id bigint, turno text NOT NULL, empresa_id bigint, empresa text,

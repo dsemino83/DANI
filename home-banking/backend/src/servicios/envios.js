@@ -3,6 +3,7 @@
 import { operativa } from '../db.js';
 import { bdvEnvios, cuentasPropias, movimientos } from '../bdv/cliente.js';
 import { enviarCorreo } from '../correo.js';
+import { xlsxEnvio } from '../excel.js';
 import { feriadosCargados } from './feriados.js';
 import { enArgentina, turnoVencido } from './programacion.js';
 
@@ -11,7 +12,8 @@ const dinero = (v, mon) => `${mon === 'USD' ? 'US$' : '$'} ${Number(v ?? 0).toLo
 const monedaDe = (c) => (Number(c.currencyId) === 80 ? 'ARS' : 'USD');
 const MAX_MOVS = 100;
 
-export function armarCorreo(empresa, cuentas, contenido, fecha) {
+// formato 'cuerpo': todo en el cuerpo del correo; 'cuerpo_excel': el mismo cuerpo y además un Excel adjunto
+export function armarCorreo(empresa, cuentas, contenido, fecha, formato = 'cuerpo') {
   const conSaldos = contenido !== 'movimientos', conMovs = contenido !== 'saldos';
   const [a, m, d] = fecha.split('-'), dia = `${d}/${m}/${a}`;
   const tabla = (cab, filas) => `<table cellpadding="6" cellspacing="0" style="border-collapse:collapse;font-size:13px;width:100%">
@@ -31,13 +33,18 @@ export function armarCorreo(empresa, cuentas, contenido, fecha) {
       if (c.errorMovimientos) { html += `<p>No se pudieron consultar: ${esc(c.errorMovimientos)}</p>`; continue; }
       if (!movs.length) { html += '<p>Sin movimientos.</p>'; continue; }
       html += tabla(['Hora', 'Descripción', 'D/C', 'Importe'], movs.slice(0, MAX_MOVS).map((x) => `<tr>${td(esc(x.hour))}${td(esc(x.description))}${td(esc(x.signDC))}${td(dinero(x.amount, monedaDe(c)), 1)}</tr>`));
-      if (movs.length > MAX_MOVS) html += `<p>… y ${movs.length - MAX_MOVS} movimientos más (ver el Home Banking).</p>`;
+      if (movs.length > MAX_MOVS) html += `<p>… y ${movs.length - MAX_MOVS} movimientos más (${formato === 'cuerpo_excel' ? 'todos están en el Excel adjunto' : 'ver el Home Banking'}).</p>`;
       texto += `\nMOVIMIENTOS ${c.productNumber}: ${movs.length}\n`;
     }
   }
+  const archivo = `VALO_${contenido === 'movimientos' ? 'Movimientos' : contenido === 'saldos' ? 'Saldos' : 'Saldos_y_movimientos'}_${empresa.cuit}_${fecha}.xlsx`;
+  if (formato === 'cuerpo_excel') {
+    html += `<p style="margin-top:16px">Se adjunta el detalle en Excel: <b>${esc(archivo)}</b>.</p>`;
+    texto += `\nSe adjunta el detalle en Excel: ${archivo}\n`;
+  }
   html += '<p style="font-size:11px;color:#727274;margin-top:20px">Correo automático del Home Banking VALO. No responder.</p></div>';
   const asunto = `VALO · ${contenido === 'movimientos' ? 'Movimientos' : contenido === 'saldos' ? 'Saldos' : 'Saldos y movimientos'} · ${empresa.razon_social} · ${dia}`;
-  return { asunto, html, texto };
+  return { asunto, html, texto, archivo: formato === 'cuerpo_excel' ? archivo : null };
 }
 
 // ---------------- Cola de envíos ----------------
@@ -59,9 +66,9 @@ export async function encolarTurno(p, turno, { manual = false } = {}) {
   let encoladas = 0;
   for (const d of destinos) {
     const e = visibles.find((x) => Number(x.id) === Number(d.empresaId));
-    const r = await operativa.query(`INSERT INTO cola_envio (programacion_id, programacion, turno, empresa_id, empresa, cuentas, contenido, responsable, manual)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) ON CONFLICT (programacion_id, turno, empresa_id) DO NOTHING`,
-    [p.id, p.nombre, turno, d.empresaId, e?.razon_social ?? `Empresa ${d.empresaId}`, d.cuentas ?? [], p.contenido, responsable, manual]);
+    const r = await operativa.query(`INSERT INTO cola_envio (programacion_id, programacion, turno, empresa_id, empresa, cuentas, contenido, responsable, manual, formato)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) ON CONFLICT (programacion_id, turno, empresa_id) DO NOTHING`,
+    [p.id, p.nombre, turno, d.empresaId, e?.razon_social ?? `Empresa ${d.empresaId}`, d.cuentas ?? [], p.contenido, responsable, manual, p.formato ?? 'cuerpo']);
     encoladas += r.rowCount;
   }
   return encoladas;
@@ -99,9 +106,11 @@ export async function procesarTarea(t) {
         try { c.movimientos = (await movimientos(c, fecha, fecha, bdvEnvios)).movimientos; } catch (x) { c.errorMovimientos = x.message; }
       }
     }
-    const correo = armarCorreo(e, cuentas, t.contenido, fecha);
-    await enviarCorreo({ para: e.emails, asunto: correo.asunto, html: correo.html, texto: correo.texto });
-    return terminar(t, 'enviado', correo.asunto, e.emails);
+    const correo = armarCorreo(e, cuentas, t.contenido, fecha, t.formato);
+    const adjuntos = correo.archivo ? [{ filename: correo.archivo, content: await xlsxEnvio(e, cuentas, t.contenido),
+      contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }] : [];
+    await enviarCorreo({ para: e.emails, asunto: correo.asunto, html: correo.html, texto: correo.texto, adjuntos });
+    return terminar(t, 'enviado', `${correo.asunto}${correo.archivo ? ` · adjunto ${correo.archivo}` : ''}`, e.emails);
   } catch (x) {
     if (t.intentos < t.max_intentos) { // vuelve a la cola con espera creciente
       const espera = ESPERAS_MIN[Math.min(t.intentos - 1, ESPERAS_MIN.length - 1)];

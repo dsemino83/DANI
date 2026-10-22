@@ -250,4 +250,24 @@ test('envíos programados: turnos, días, feriados, inicio y fin', async () => {
   assert.throws(() => validarProgramacion({ ...ok, todasEmpresas: false, destinos: [] }));
   assert.deepEqual(validarProgramacion({ ...ok, todasEmpresas: false, destinos: [{ empresaId: '3', cuentas: ['200', '100', '100'] }, { empresaId: 4 }] }).destinos,
     [{ empresaId: 3, cuentas: ['100', '200'] }, { empresaId: 4, cuentas: [] }], 'cliente y luego sus cuentas (vacío = todas)');
+  assert.equal(validarProgramacion(ok).formato, 'cuerpo', 'por defecto, solo el cuerpo del correo');
+  assert.equal(validarProgramacion({ ...ok, formato: 'cuerpo_excel' }).formato, 'cuerpo_excel');
+  assert.throws(() => validarProgramacion({ ...ok, formato: 'pdf' }));
+});
+
+test('envíos programados: Excel adjunto con saldos y todos los movimientos', async () => {
+  const ExcelJS = (await import('exceljs')).default;
+  const { xlsxEnvio } = await import('../src/excel.js');
+  const movs = Array.from({ length: 150 }, (_, i) => ({ transactionId: i + 1, processDate: '22/10/2026', hour: '10:00', description: `MOV ${i}`, signDC: i % 2 ? 'D' : 'C', amount: 10, availableBalance: 5 }));
+  const cuentas = [{ productNumber: '100', productName: 'CC', currencyId: 80, availableBalance: 1234.5, accountingBalance: 1300, movimientos: movs },
+    { productNumber: '101', productName: 'CA', currencyId: 2, availableBalance: 7, accountingBalance: 7, movimientos: [] }];
+  const leer = async (buf) => { const wb = new ExcelJS.Workbook(); await wb.xlsx.load(buf); return wb; };
+  let wb = await leer(await xlsxEnvio({ razon_social: 'ALFA SA', cuit: '30712345671' }, cuentas, 'saldos_movimientos'));
+  assert.deepEqual(wb.worksheets.map((w) => w.name), ['Saldos', 'Movimientos']);
+  assert.equal(wb.getWorksheet('Saldos').getRow(2).getCell(6).value, 1234.5, 'importes como números');
+  assert.equal(wb.getWorksheet('Saldos').getRow(3).getCell(5).value, 'USD');
+  assert.equal(wb.getWorksheet('Movimientos').rowCount, 151, 'todos los movimientos, sin el tope del cuerpo');
+  assert.equal(wb.getWorksheet('Movimientos').getRow(3).getCell(12).value, -10, 'débito en negativo');
+  wb = await leer(await xlsxEnvio({ razon_social: 'ALFA SA', cuit: '30712345671' }, cuentas, 'saldos'));
+  assert.deepEqual(wb.worksheets.map((w) => w.name), ['Saldos']);
 });
