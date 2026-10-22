@@ -29,8 +29,8 @@ const PAGINAS = {
 
 // Pestañas por perfil; Transferir/Carga masiva requieren rol Crear y Aprobaciones rol Aprobar.
 function pestanas(me) {
-  if (me.rol === 'administrador') return ['empresas', 'permisos', 'envios', 'credenciales', 'auditoria', 'documentacion', 'ayuda'];
-  const base = { operador: ['saldos', 'movimientos', 'debitos', 'cbu', 'transferencias'], autorizante: ['saldos', 'movimientos', 'debitos', 'cbu', 'transferencias', 'cartera'], auditor: ['saldos', 'movimientos', 'debitos', 'transferencias', 'auditoria', 'documentacion'] }[me.rol] ?? [];
+  if (me.rol === 'administrador') return ['empresas', 'permisos', 'credenciales', 'auditoria', 'documentacion', 'ayuda'];
+  const base = { operador: ['saldos', 'movimientos', 'debitos', 'cbu', 'transferencias'], autorizante: ['saldos', 'movimientos', 'debitos', 'cbu', 'transferencias', 'cartera', 'envios'], auditor: ['saldos', 'movimientos', 'debitos', 'transferencias', 'auditoria', 'documentacion'] }[me.rol] ?? [];
   return Object.keys(PAGINAS).filter((p) => base.includes(p) || p === 'ayuda'
     || ((p === 'transferir' || p === 'masiva') && me.puedeCrear) || (p === 'aprobaciones' && me.puedeAprobar));
 }

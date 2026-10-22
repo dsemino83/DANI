@@ -49,7 +49,7 @@ await app.register(async (api) => {
   await api.register(rutasAuditoria);
   await api.register(rutasAdmin, { prefix: '/admin' });
   await api.register(rutasCartera, { prefix: '/cartera' });
-  await api.register(rutasEnvios, { prefix: '/admin' });
+  await api.register(rutasEnvios);
 }, { prefix: '/api' });
 
 const cerrar = async () => {

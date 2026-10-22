@@ -42,8 +42,11 @@ export function armarCorreo(empresa, cuentas, contenido, fecha) {
 
 // Ejecuta una programación para un turno: un correo por empresa (activa, con cuentas y emails)
 export async function ejecutarProgramacion(p, turno, { manual = false } = {}) {
+  // Solo empresas que ve el aprobador responsable (el último que la guardó): "todas" = todas las suyas
+  const responsable = p.actualizada_por ?? p.creada_por;
   const { rows: empresas } = await operativa.query(
-    `SELECT * FROM empresa WHERE activa AND ($1::boolean OR id = ANY($2::bigint[])) ORDER BY razon_social`, [p.todas_empresas, p.empresas ?? []]);
+    `SELECT e.* FROM empresa e JOIN permiso_empresa pe ON pe.empresa_id = e.id AND pe.usuario = $3 AND pe.ver
+      WHERE e.activa AND ($1::boolean OR e.id = ANY($2::bigint[])) ORDER BY e.razon_social`, [p.todas_empresas, p.empresas ?? [], responsable]);
   const vinculos = (await operativa.query(`SELECT empresa_id::text, product_number FROM empresa_cbu WHERE estado = 'activa'`)).rows;
   const fecha = enArgentina().fecha, resultado = { enviados: 0, errores: 0, omitidos: 0 };
   let banco = null;

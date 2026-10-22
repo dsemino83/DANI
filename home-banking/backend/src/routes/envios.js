@@ -1,4 +1,5 @@
-// Envíos programados de correo a las empresas y feriados (administrador). Todo auditado.
+// Envíos programados de correo a las empresas y feriados. Solo el aprobador (perfil autorizante), y solo
+// sobre las empresas que él ve (permiso Ver del administrador). Todo auditado.
 import { auditar } from '../auditoria.js';
 import { exigirRol } from '../auth.js';
 import { operativa, tx } from '../db.js';
@@ -14,11 +15,17 @@ export const describir = (p) => `${CONTENIDO[p.contenido]} · ${p.frecuencia ===
   + `${p.saltar_feriados ? ' · sin feriados' : ''} · desde ${String(p.fecha_inicio).slice(0, 10)}${p.fecha_fin ? ` hasta ${String(p.fecha_fin).slice(0, 10)}` : ''}`;
 
 export default async function rutasEnvios(app) {
-  app.addHook('preHandler', exigirRol('administrador'));
+  app.addHook('preHandler', exigirRol('autorizante'));
   app.addHook('onError', async (req, reply, error) => {
     if (req.method === 'GET') return;
     await auditar(null, req, { tipo: 'Administración', accion: `Acción rechazada: ${req.method} ${req.routeOptions?.url ?? req.url}`, detalle: error.message, resultado: 'Error' }).catch(() => {});
   });
+
+  // Empresas que el aprobador ve (las únicas que puede elegir como destino)
+  const visibles = async (usuario) => (await operativa.query(
+    `SELECT e.id, e.razon_social, e.cuit, e.emails FROM empresa e JOIN permiso_empresa p ON p.empresa_id = e.id AND p.usuario = $1 AND p.ver
+      WHERE e.activa ORDER BY e.razon_social`, [usuario])).rows;
+  app.get('/envios/empresas', async (req) => visibles(req.user.usuario));
 
   app.get('/envios', async () => {
     const esFeriado = await feriadosCargados();
@@ -30,8 +37,8 @@ export default async function rutasEnvios(app) {
     const d = validarProgramacion(req.body ?? {});
     return tx(operativa, async (c) => {
       if (!d.todas) {
-        const ok = (await c.query('SELECT count(*)::int AS n FROM empresa WHERE id = ANY($1)', [d.empresas])).rows[0].n;
-        if (ok !== d.empresas.length) throw invalido('Alguna de las empresas elegidas no existe');
+        const mias = new Set((await visibles(req.user.usuario)).map((e) => Number(e.id)));
+        if (d.empresas.some((id) => !mias.has(id))) throw invalido('Solo podés elegir empresas que ves');
       }
       const v = [d.nombre, d.contenido, d.todas, d.empresas, d.frecuencia, d.hora, d.horaHasta, d.dias, d.saltarFeriados, d.fechaInicio, d.fechaFin, d.activa, req.user.usuario];
       const { rows } = id == null

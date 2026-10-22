@@ -155,10 +155,10 @@ Para probar sin instalar nada: una máquina virtual de GitHub con Docker que lev
 
 ## Envíos programados de correo a las empresas
 
-Pestaña **Envíos programados** del administrador. Cada programación define:
+Pestaña **Envíos programados**, solo del **aprobador** (perfil autorizante) y solo sobre las empresas que él ve. Cada programación define:
 
 - **Contenido:** saldos, movimientos del día, o ambos. Un correo por empresa, a todos sus emails, con solo sus cuentas.
-- **Destino:** todas las empresas activas, o las elegidas (con buscador).
+- **Destino:** todas las empresas que ve el aprobador, o las elegidas (con buscador). Al enviar se vuelve a verificar con los permisos del aprobador que la guardó.
 - **Repetición:** **1 vez al día** a una hora, o **1 vez cada hora** desde una hora hasta otra (inclusive).
 - **Días de la semana**, **inicio** y **fin** (opcional), y **No enviar en feriados**.
 

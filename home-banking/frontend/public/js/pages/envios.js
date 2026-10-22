@@ -1,4 +1,4 @@
-// Envíos programados (administrador): correos automáticos a las empresas con saldos y/o movimientos del
+// Envíos programados (aprobador / perfil autorizante, sobre las empresas que ve): correos automáticos a las empresas con saldos y/o movimientos del
 // día, una vez al día o cada hora dentro de una franja, por días de la semana, con inicio, fin y feriados.
 import { api } from '../api.js';
 import { h, poner, card, campo, tabla, pill, toast, error, cargando, confirmar, fechaHora, contiene, sinPerderFoco } from '../ui.js';
@@ -12,7 +12,7 @@ export async function render(main) {
   const lista = h('div', {}, cargando()), editor = h('div', {}), historial = h('div', {}), feriados = h('div', {});
 
   const cargar = async () => {
-    [progs, empresas] = await Promise.all([api('/admin/envios'), api('/admin/empresas')]);
+    [progs, empresas] = await Promise.all([api('/envios'), api('/envios/empresas')]);
     if (elegida) elegida = progs.find((p) => p.id === elegida.id) ?? null;
     pintarLista();
     await pintarHistorial();
@@ -45,7 +45,7 @@ export async function render(main) {
     const buscar = h('input', { type: 'search', placeholder: 'Buscar empresa (contiene)' });
     const listaEmp = h('div', { class: 'lista-scroll' });
     // El buscador y la lista se redibujan solos al tildar/destildar "Todas" (sin rearmar el formulario)
-    const pintarEmpresas = () => poner(listaEmp, f.todas.checked ? h('p', { class: 'nota' }, 'Se envía a todas las empresas activas que tengan emails y cuentas.')
+    const pintarEmpresas = () => poner(listaEmp, f.todas.checked ? h('p', { class: 'nota' }, 'Se envía a todas las empresas que ves (activas, con emails y cuentas).')
       : [campo('Buscar', buscar), tabla([
         { t: '', cls: 'c', v: (e) => { const x = h('input', { type: 'checkbox', checked: elegidas.has(Number(e.id)), 'aria-label': e.razon_social }); x.addEventListener('change', () => (x.checked ? elegidas.add(Number(e.id)) : elegidas.delete(Number(e.id)))); return x; } },
         { t: 'Empresa', v: (e) => e.razon_social }, { t: 'CUIT', v: (e) => e.cuit, cls: 'mono' },
@@ -67,19 +67,19 @@ export async function render(main) {
         todasEmpresas: f.todas.checked, empresas: [...elegidas], activa: f.activa.checked,
       };
       try {
-        const r = await api(p ? `/admin/envios/${p.id}` : '/admin/envios', { method: p ? 'PUT' : 'POST', body });
+        const r = await api(p ? `/envios/${p.id}` : '/envios', { method: p ? 'PUT' : 'POST', body });
         toast(p ? 'Programación guardada.' : 'Programación creada.'); elegida = r;
       } catch (x) { return error(x); }
       await cargar(); pintarEditor(progs.find((x) => x.id === elegida?.id) ?? null);
     };
     const eliminar = async () => {
       if (!(await confirmar('Eliminar envío programado', `"${p.nombre}" deja de enviarse. Su historial de envíos se conserva.`, 'Eliminar'))) return;
-      try { await api(`/admin/envios/${p.id}`, { method: 'DELETE' }); toast('Programación eliminada.'); elegida = null; } catch (x) { return error(x); }
+      try { await api(`/envios/${p.id}`, { method: 'DELETE' }); toast('Programación eliminada.'); elegida = null; } catch (x) { return error(x); }
       poner(editor); await cargar();
     };
     const ejecutar = async () => {
       if (!(await confirmar('Ejecutar ahora', `Se envían ya los correos de "${p.nombre}" a las empresas de destino (no cambia la programación).`, 'Enviar ahora'))) return;
-      try { const r = await api(`/admin/envios/${p.id}/ejecutar`, { method: 'POST' }); toast(`Enviados ${r.enviados} · errores ${r.errores} · omitidos ${r.omitidos}.`, r.errores > 0); } catch (x) { error(x); }
+      try { const r = await api(`/envios/${p.id}/ejecutar`, { method: 'POST' }); toast(`Enviados ${r.enviados} · errores ${r.errores} · omitidos ${r.omitidos}.`, r.errores > 0); } catch (x) { error(x); }
       await cargar();
     };
 
@@ -100,7 +100,7 @@ export async function render(main) {
 
   const pintarHistorial = async () => {
     if (!elegida) return poner(historial);
-    const filas = await api(`/admin/envios/${elegida.id}/historial`).catch(() => []);
+    const filas = await api(`/envios/${elegida.id}/historial`).catch(() => []);
     poner(historial, card(`Historial · ${elegida.nombre}`, 'Últimos 200 envíos (uno por empresa y turno).', tabla([
       { t: 'Fecha', v: (x) => fechaHora(x.en) }, { t: 'Turno', v: (x) => x.turno.replace('T', ' '), cls: 'mono' }, { t: 'Empresa', v: (x) => x.empresa },
       { t: 'Destinatarios', v: (x) => x.destinatarios.join(', ') },
@@ -111,18 +111,18 @@ export async function render(main) {
 
   // Feriados: de fuentes públicas (ArgentinaDatos / Nolaborables) + los cargados a mano (p. ej. Día del Bancario)
   const pintarFeriados = async () => {
-    const lista = await api(`/admin/feriados?anio=${anio}`).catch((x) => { error(x); return []; });
+    const lista = await api(`/feriados?anio=${anio}`).catch((x) => { error(x); return []; });
     const fecha = h('input', { type: 'date' }), nombre = h('input', { placeholder: 'Día del Bancario' });
     const sincronizar = async () => {
-      try { const r = await api('/admin/feriados/sincronizar', { method: 'POST', body: { anio } }); toast(`${r.feriados} feriados de ${anio} (${r.fuente}).`); } catch (x) { error(x); }
+      try { const r = await api('/feriados/sincronizar', { method: 'POST', body: { anio } }); toast(`${r.feriados} feriados de ${anio} (${r.fuente}).`); } catch (x) { error(x); }
       pintarFeriados(); cargar();
     };
     const agregar = async () => {
-      try { await api('/admin/feriados', { method: 'POST', body: { fecha: fecha.value, nombre: nombre.value } }); toast('Feriado cargado.'); } catch (x) { return error(x); }
+      try { await api('/feriados', { method: 'POST', body: { fecha: fecha.value, nombre: nombre.value } }); toast('Feriado cargado.'); } catch (x) { return error(x); }
       pintarFeriados(); cargar();
     };
     const borrar = async (x) => {
-      try { await api(`/admin/feriados/${x.fecha}`, { method: 'DELETE' }); toast('Feriado borrado.'); } catch (e) { return error(e); }
+      try { await api(`/feriados/${x.fecha}`, { method: 'DELETE' }); toast('Feriado borrado.'); } catch (e) { return error(e); }
       pintarFeriados(); cargar();
     };
     const selAnio = h('select', { onchange: (e) => { anio = Number(e.target.value); pintarFeriados(); } },
