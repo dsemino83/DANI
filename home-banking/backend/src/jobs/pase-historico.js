@@ -86,6 +86,8 @@ export async function ejecutarPase(log = console) {
   try {
     // Desde el corte: los meses ya pasados no se vuelven a crear vacíos en la operativa
     await op.query('SELECT hb_asegurar_particiones($1::date)', [corte]);
+    // La histórica recibe la cadena de hashes de la auditoría (migración 013), en el mismo orden de columnas
+    await hi.query('ALTER TABLE auditoria ADD COLUMN IF NOT EXISTS orden bigint, ADD COLUMN IF NOT EXISTS hash_anterior text, ADD COLUMN IF NOT EXISTS hash text');
     for (const { tabla, columna } of TABLAS) {
       const { rows } = await op.query(
         `SELECT c.relname FROM pg_inherits i JOIN pg_class c ON c.oid = i.inhrelid JOIN pg_class p ON p.oid = i.inhparent WHERE p.relname = $1`, [tabla]);

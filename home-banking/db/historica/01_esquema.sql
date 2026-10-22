@@ -54,6 +54,9 @@ CREATE TABLE auditoria (
   ip         inet,
   ref_tipo   text,
   ref_id     text,
+  orden      bigint,      -- cadena de hashes de la auditoría (ver migración operativa 013)
+  hash_anterior text,
+  hash       text,
   PRIMARY KEY (id, en)
 ) PARTITION BY RANGE (en);
 CREATE INDEX h_auditoria_usuario_idx ON auditoria (usuario, en);

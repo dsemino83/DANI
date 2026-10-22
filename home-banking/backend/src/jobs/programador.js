@@ -5,6 +5,8 @@ import { conciliarDebitos, recuperarEnviando, sincronizarEstados } from './estad
 import { ejecutarPase } from './pase-historico.js';
 import { ejecutarEnviosPendientes, procesarCola } from '../servicios/envios.js';
 import { sincronizarFeriados } from '../servicios/feriados.js';
+import { verificarAuditoria } from '../servicios/integridad.js';
+import { auditarSistema } from '../auditoria.js';
 
 const log = (...a) => console.log(new Date().toISOString(), ...a);
 const seguro = (nombre, fn) => async () => {
@@ -40,6 +42,16 @@ const feriados = seguro('feriados', async () => {
 });
 cron.schedule('20 3 * * *', feriados, { timezone: 'America/Argentina/Buenos_Aires' });
 feriados();
+
+// Integridad de la auditoría: todos los días a las 03:40 se verifica la cadena de hashes; el resultado queda en la
+// auditoría y, si está rota, también en el log del contenedor (para el SIEM)
+cron.schedule('40 3 * * *', seguro('integridad-auditoria', async () => {
+  const r = await verificarAuditoria();
+  await auditarSistema(null, { tipo: 'Sistema', accion: 'Verificación diaria de integridad de la auditoría', resultado: r.ok ? 'OK' : 'Error',
+    detalle: `${r.filas} registros · ${r.ok ? `cadena íntegra · cabeza ${r.cabeza.slice(0, 16)}…` : r.problemas.map((p) => p.problema).slice(0, 5).join(' · ')}` });
+  if (!r.ok) console.error(new Date().toISOString(), 'ALERTA integridad-auditoria', JSON.stringify(r.problemas));
+  return { ok: r.ok, filas: r.filas, cabeza: r.cabeza };
+}), { timezone: 'America/Argentina/Buenos_Aires' });
 
 // Latido para el healthcheck del contenedor: si el proceso se cuelga, deja de actualizarse.
 const latir = () => { try { writeFileSync('/tmp/latido', new Date().toISOString()); } catch { /* sin disco: el healthcheck lo marca */ } };

@@ -1,9 +1,26 @@
 // Auditoría general (auditor y administrador de seguridad): solo lectura, base operativa e histórica por separado.
 import { api } from '../api.js';
-import { h, poner, card, tabla, campo, seg, iso, fecha, fechaHora, pill, toast, error, cargando } from '../ui.js';
+import { h, poner, card, tabla, campo, seg, iso, fecha, fechaHora, pill, toast, error, cargando, modal } from '../ui.js';
 
 const TIPOS = ['', 'Transferencias', 'Administración', 'Consultas'];
 const diaAntes = (d) => iso(new Date(new Date(`${d}T12:00:00`).getTime() - 864e5));
+
+// Verificación de la cadena de hashes: muestra si la auditoría está íntegra o qué registros fueron alterados
+async function verificarIntegridad(boton) {
+  boton.disabled = true; boton.textContent = 'Verificando…';
+  try {
+    const r = await api('/auditoria/integridad');
+    modal(r.ok ? '✔ Auditoría íntegra' : '✖ La auditoría fue alterada',
+      h('p', { class: r.ok ? 'aviso' : 'aviso rojo' }, r.ok
+        ? `Se verificaron ${r.filas} registros (orden ${r.desdeOrden ?? '—'} a ${r.hastaOrden ?? '—'}): ningún registro fue modificado, borrado ni intercalado.`
+        : `Se encontraron ${r.problemas.length} problema(s) en ${r.filas} registros. Avisar a Seguridad Informática.`),
+      !r.ok && h('ul', {}, r.problemas.map((p) => h('li', {}, `Orden ${p.orden}: ${p.problema}`))),
+      h('p', { class: 'nota' }, `Cabeza de la cadena (SHA-256): `, h('code', {}, r.cabeza)),
+      r.empalmeHistorica != null && h('p', { class: 'nota' }, r.empalmeHistorica ? 'Continúa correctamente la cadena de la base histórica.' : 'No continúa la cadena de la base histórica.'),
+      h('p', { class: 'nota' }, 'Cada registro guarda el hash de su contenido encadenado con el del anterior; la verificación también corre todos los días a las 03:40 y queda registrada.'));
+  } catch (x) { error(x); }
+  boton.disabled = false; boton.textContent = 'Verificar integridad';
+}
 
 export async function render(main, ctx) {
   const corte = ctx.me.corteAuditoria ?? ctx.me.corte;
@@ -36,11 +53,12 @@ export async function render(main, ctx) {
     };
     q.addEventListener('keydown', (e) => { if (e.key === 'Enter') consultar(); });
 
-    poner(main, card('Auditoría', 'Registro inalterable (solo inserción) de cada acción: quién, cuándo, con qué rol, qué API se invocó y con qué resultado. Esta pantalla es de solo lectura.',
+    poner(main, card('Auditoría', 'Registro inalterable (solo inserción, encadenado con hashes SHA-256) de cada acción: quién, cuándo, con qué rol, qué API se invocó y con qué resultado. Esta pantalla es de solo lectura.',
       h('div', { class: 'fila' },
         campo('Base', seg([['operativa', 'Base operativa'], ['historica', 'Base histórica']], f.base, (v) => { f.base = v; pagina = 0; cargar(); })),
         campo('Desde', d1), campo('Hasta', d2), campo('Usuario', usuario), campo('Tipo', tipo), campo('Buscar', q),
-        h('button', { class: 'btn primario', onclick: consultar }, 'Consultar')),
+        h('button', { class: 'btn primario', onclick: consultar }, 'Consultar'),
+        h('button', { class: 'btn', title: 'Recalcula la cadena de hashes de la auditoría operativa', onclick: (e) => verificarIntegridad(e.currentTarget) }, 'Verificar integridad')),
       h('p', { class: `aviso ${hist ? '' : 'rojo'}` }, h('b', {}, hist ? 'Base histórica · solo lectura. ' : 'Base operativa. '),
         hist ? `Registros anteriores al ${fecha(corte)}. La consulta también queda auditada.` : `Desde el ${fecha(corte)}.`),
       datos ? [

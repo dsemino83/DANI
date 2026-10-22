@@ -4,6 +4,7 @@ import { exigirRol } from '../auth.js';
 import { auditar } from '../auditoria.js';
 import { fechaCorte, historica, operativa } from '../db.js';
 import { invalido } from '../errores.js';
+import { verificarAuditoria } from '../servicios/integridad.js';
 
 const fechaOk = (f) => /^\d{4}-\d{2}-\d{2}$/.test(f ?? '');
 
@@ -29,6 +30,14 @@ export default async function rutasAuditoria(app) {
     if (!fechaOk(desde) || !fechaOk(hasta) || desde > hasta) throw invalido('Rango de fechas inválido');
     if (desde < corte) throw invalido(`La base operativa guarda desde el ${corte}. Para fechas anteriores usá /historico/auditoria`);
     return { base: 'operativa', desde, hasta, ...(await consultar(operativa, req, { desde, hasta })) };
+  });
+
+  // Integridad: verifica la cadena de hashes de la auditoría (registros modificados, borrados o intercalados)
+  app.get('/auditoria/integridad', async (req) => {
+    const r = await verificarAuditoria();
+    await auditar(null, req, { tipo: 'Consultas', accion: 'Verificó la integridad de la auditoría', resultado: r.ok ? 'OK' : 'Error',
+      detalle: `${r.filas} registros (orden ${r.desdeOrden ?? '—'} a ${r.hastaOrden ?? '—'}) · ${r.ok ? 'cadena íntegra' : `${r.problemas.length} problema(s)`}` });
+    return r;
   });
 
   app.get('/historico/auditoria', async (req) => {
