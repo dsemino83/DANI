@@ -9,13 +9,13 @@ export async function render(main, ctx) {
   const empresas = [...new Map(cuentas.map((c) => [c.empresa.id, c.empresa])).values()];
   const st = ctx.estado;
   st.debModo ??= 'hoy'; st.debDesde ??= haceDias(30); st.debHasta ??= iso();
-  let cli = st.cliDebitos ?? '', q = '', datos = null;
+  let cli = st.cliDebitos ?? '', cta = st.debCuenta ?? '', q = '', datos = null, fallo = null;
 
   const rango = () => (st.debModo === 'hoy' ? [iso(), iso()] : [st.debDesde, st.debHasta]);
   const dibujar = () => {
     const [desde, hasta] = rango();
     const d1 = h('input', { type: 'date', value: st.debDesde, max: iso() }), d2 = h('input', { type: 'date', value: st.debHasta, max: iso() });
-    const filas = (datos ?? []).filter((d) => !q || [d.beneficiario, d.cuit, d.descripcion, d.id].join(' ').toLowerCase().includes(q));
+    const filas = (datos ?? []).filter((d) => (!cta || d.cuenta === cta) && (!q || [d.beneficiario, d.cuit, d.descripcion, d.id].join(' ').toLowerCase().includes(q)));
     const tot = (m) => -filas.filter((d) => d.moneda === m).reduce((s, d) => s + d.importe, 0);
     poner(main, 
       h('div', { class: 'fila' },
@@ -24,11 +24,16 @@ export async function render(main, ctx) {
           if (!d1.value || !d2.value || d1.value > d2.value) return toast('Ingresá un rango de fechas válido.', true);
           st.debDesde = d1.value; st.debHasta = d2.value; cargar();
         } }, 'Consultar')],
-        campo('Cliente', h('select', { onchange: (e) => { cli = e.target.value; st.cliDebitos = cli; cargar(); } },
+        campo('Cliente', h('select', { onchange: (e) => { cli = e.target.value; st.cliDebitos = cli; cta = ''; st.debCuenta = ''; cargar(); } },
           h('option', { value: '' }, 'Todos los clientes'), empresas.map((e) => h('option', { value: e.id, selected: String(e.id) === String(cli) }, e.razonSocial)))),
         campo('Buscar', h('input', { type: 'search', value: q, placeholder: 'Beneficiario, CUIT, descripción…', oninput: (e) => { q = e.target.value.toLowerCase(); dibujar(); } }))),
       h('p', { class: 'nota' }, `Período: ${st.debModo === 'hoy' ? `hoy, ${fecha(desde)}` : `${fecha(desde)} al ${fecha(hasta)}`}.`),
-      datos ? [
+      cta && h('div', { class: 'fila' }, h('span', { class: 'chip' }, `Cuenta ${cta}`,
+        h('button', { class: 'chip-x', title: 'Ver todas las cuentas', 'aria-label': 'Quitar filtro de cuenta', onclick: () => { cta = ''; st.debCuenta = ''; dibujar(); } }, '✕'))),
+      fallo ? card('No se pudieron consultar los débitos', null,
+        h('p', { class: 'aviso rojo' }, `El banco no respondió: ${fallo}. No es que no haya débitos.`),
+        h('div', { class: 'fila' }, h('button', { class: 'btn primario', onclick: () => cargar() }, 'Reintentar')))
+      : datos ? [
         h('div', { class: 'kpis' }, kpi('Total debitado en pesos', dinero(tot('ARS')), 'neg'), kpi('Total debitado en dólares', dinero(tot('USD'), 'USD'), 'neg'), kpi('Cantidad de débitos', filas.length)),
         card('Débitos realizados', 'Débitos (signo D) de las cuentas de tus clientes habilitados. Hacé clic en una fila para ir a sus movimientos; la ruedita ⚙ muestra su auditoría.',
           h('div', { class: 'fila' }, h('button', { class: 'btn', disabled: !filas.length, onclick: () => descargar(`/debitos?desde=${desde}&hasta=${hasta}${cli ? `&empresa=${cli}` : ''}&formato=xlsx`, `debitos_realizados_${desde}_${hasta}.xlsx`).catch(error) }, 'Exportar a Excel')),
@@ -42,9 +47,9 @@ export async function render(main, ctx) {
     );
   };
   const cargar = async () => {
-    datos = null; dibujar();
+    datos = null; fallo = null; dibujar();
     const [desde, hasta] = rango();
-    try { datos = (await api(`/debitos?desde=${desde}&hasta=${hasta}${cli ? `&empresa=${cli}` : ''}`)).debitos; } catch (e) { error(e); datos = []; }
+    try { datos = (await api(`/debitos?desde=${desde}&hasta=${hasta}${cli ? `&empresa=${cli}` : ''}`)).debitos; } catch (e) { datos = null; fallo = e.message; }
     dibujar();
   };
   await cargar();

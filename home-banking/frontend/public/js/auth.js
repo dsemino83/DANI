@@ -1,7 +1,7 @@
 // Login OIDC con Authorization Code + PKCE contra el SSO de VALO (Keycloak, realm staff).
 // La SPA nunca ve la contraseña. Tokens en sessionStorage (se borran al cerrar la pestaña).
 let cfg = null;
-const K = 'hb.tokens', V = 'hb.pkce';
+const K = 'hb.tokens', V = 'hb.pkce', R = 'hb.reintento';
 const b64url = (buf) => btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 const azar = (n = 32) => b64url(crypto.getRandomValues(new Uint8Array(n)));
 const ep = (p) => `${cfg.oidcIssuer}/protocol/openid-connect/${p}`;
@@ -33,7 +33,14 @@ async function canjearCodigo(code, state) {
   const pkce = JSON.parse(sessionStorage.getItem(V) ?? 'null');
   sessionStorage.removeItem(V);
   history.replaceState(null, '', location.pathname + location.hash);
-  if (!pkce || pkce.state !== state) throw new Error('Respuesta de login inválida (state). Volvé a ingresar.');
+  if (!pkce || pkce.state !== state) {
+    // Volvió del login sin el dato de control de esta pestaña (otra pestaña, link del correo, página recargada):
+    // se descarta ese código y se reinicia el ingreso. Si vuelve a pasar enseguida, se muestra el error (evita un bucle).
+    const ultimo = Number(sessionStorage.getItem(R) ?? 0);
+    if (Date.now() - ultimo > 30000) { sessionStorage.setItem(R, String(Date.now())); const e = new Error('reintentar'); e.reintentar = true; throw e; }
+    throw new Error('No se pudo completar el ingreso. Cerrá esta pestaña y volvé a entrar.');
+  }
+  sessionStorage.removeItem(R);
   const res = await fetch(ep('token'), {
     method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({ grant_type: 'authorization_code', code, client_id: cfg.oidcClientId, redirect_uri: redirect(), code_verifier: pkce.verificador }),

@@ -53,19 +53,27 @@ class ClienteBdv {
     const amb = c.ambiente ?? config.ambiente;
     const base = c.url.replace(/\/+$/, '');
     if (!urlDelAmbiente(amb, base)) throw new ErrorBanco(`La URL ${base} no corresponde al ambiente ${amb}`);
-    const res = await this.fetch(`${base}/security/login`, {
-      login: c.usuario,
-      password: c.claveYaCifrada ? c.clave : cifrarClave(c.clave, c.rsaPublicKey), // el banco puede entregarla ya cifrada
-      terminal: c.terminal,
-      channel: c.channel,
-      identification: c.identification,
-    });
-    const json = await res.json().catch(() => null);
-    if (!res.ok || !json?.success) {
-      throw new ErrorBanco('El banco rechazó el login', { http: res.status, codigo: json?.message?.code, respuesta: json?.message });
+    // A veces el banco responde success sin Set-Cookie (p. ej. al renovar la sesión enseguida de otra):
+    // se reintenta el login hasta 3 veces con espera creciente antes de dar error.
+    let json, cookie = '';
+    for (let intento = 1; intento <= 3 && !cookie; intento++) {
+      if (intento > 1) await new Promise((ok) => setTimeout(ok, 1500 * (intento - 1)));
+      const res = await this.fetch(`${base}/security/login`, {
+        login: c.usuario,
+        password: c.claveYaCifrada ? c.clave : cifrarClave(c.clave, c.rsaPublicKey), // el banco puede entregarla ya cifrada
+        terminal: c.terminal,
+        channel: c.channel,
+        identification: c.identification,
+      });
+      json = await res.json().catch(() => null);
+      if (!res.ok || !json?.success) {
+        throw new ErrorBanco('El banco rechazó el login', { http: res.status, codigo: json?.message?.code, respuesta: json?.message });
+      }
+      cookie = (res.headers.getSetCookie?.() ?? []).map((v) => v.split(';')[0]).join('; ');
+      // Diagnóstico sin datos sensibles: solo nombres de encabezados y de campos de la respuesta
+      if (!cookie) console.warn(`[banco] login sin Set-Cookie (intento ${intento}/3) · encabezados: ${[...res.headers.keys()].join(', ')} · campos: ${Object.keys(json ?? {}).join(', ')}`);
     }
-    const cookie = (res.headers.getSetCookie?.() ?? []).map((v) => v.split(';')[0]).join('; ');
-    if (!cookie) throw new ErrorBanco('El login no devolvió cookie de sesión');
+    if (!cookie) throw new ErrorBanco('El login no devolvió cookie de sesión (3 intentos). Probá de nuevo en un minuto.');
     // getUserEntityInformation carga datos del lado servidor necesarios para las demás APIs
     const r2 = await this.fetch(`${base}/enrollment/getUserEntityInformation`, {}, cookie);
     const j2 = await r2.json().catch(() => null);
