@@ -14,6 +14,7 @@ export function actualizarDatos() { guardadas.clear(); datosDesde = null; avisos
 export async function api(ruta, opciones = {}) {
   const { method = 'GET', raw = false } = opciones;
   if (method !== 'GET' || raw || !AL_BANCO.some((r) => r.test(ruta))) return pedir(ruta, opciones);
+  if (opciones.fresco) guardadas.delete(ruta); // "consultar nuevamente": ignora lo guardado de esa consulta
   if (!guardadas.has(ruta)) {
     // se guarda la promesa: si dos pantallas piden lo mismo a la vez, va una sola consulta
     guardadas.set(ruta, pedir(ruta, opciones).then((r) => {

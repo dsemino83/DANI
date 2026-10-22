@@ -3,6 +3,43 @@ import { api, descargar } from '../api.js';
 import { h, poner, card, kpi, tabla, campo, seg, dinero, iso, haceDias, fecha, cargando, error, toast, contiene, sinPerderFoco } from '../ui.js';
 
 const PAGINA = 900;
+const MAX_CAUSALES = 10;
+
+// Créditos del período agrupados por causal (la descripción del movimiento): ranking por importe con barra,
+// cantidad y porcentaje. Los que exceden MAX_CAUSALES se suman en "Otras causales". Clic = filtrar el detalle.
+// El ancho va por CSSOM (la CSP no permite atributos style en línea)
+const barra = (porc) => { const b = h('div', { class: 'barra' }); b.style.width = `${porc}%`; return b; };
+
+function resumenCreditos(movimientos, moneda, filtrar) {
+  const grupos = new Map();
+  for (const m of movimientos.filter((x) => x.signDC === 'C')) {
+    const causal = String(m.description ?? '').trim().replace(/\s+/g, ' ') || 'Sin descripción';
+    const g = grupos.get(causal) ?? { causal, n: 0, total: 0 };
+    g.n++; g.total += Number(m.amount);
+    grupos.set(causal, g);
+  }
+  if (!grupos.size) return null;
+  let filas = [...grupos.values()].sort((a, b) => b.total - a.total);
+  if (filas.length > MAX_CAUSALES) {
+    const resto = filas.slice(MAX_CAUSALES - 1);
+    filas = [...filas.slice(0, MAX_CAUSALES - 1), { causal: `Otras causales (${resto.length})`, n: resto.reduce((s, g) => s + g.n, 0), total: resto.reduce((s, g) => s + g.total, 0), otras: true }];
+  }
+  const total = filas.reduce((s, g) => s + g.total, 0), max = Math.max(...filas.map((g) => g.total));
+  const pct = (v) => (total ? `${(v / total * 100).toLocaleString('es-AR', { maximumFractionDigits: 1 })} %` : '—');
+  return card('Créditos por causal', `${grupos.size} causales · ${dinero(total, moneda)} en el período. Hacé clic en una causal para ver sus movimientos.`,
+    h('div', { class: 'tabla' }, h('table', {},
+      h('thead', {}, h('tr', {}, h('th', {}, 'Causal'), h('th', { class: 'num' }, 'Movimientos'), h('th', { class: 'num' }, 'Importe'), h('th', { class: 'num' }, '%'), h('th', {}, h('span', { class: 'vh' }, 'Proporción')))),
+      h('tbody', {}, filas.map((g) => {
+        const tr = h('tr', { class: g.otras ? '' : 'causal-fila', tabindex: g.otras ? null : 0, title: `${g.causal}: ${dinero(g.total, moneda)} (${pct(g.total)}) · ${g.n} movimiento(s)` },
+          h('td', {}, g.causal), h('td', { class: 'num' }, g.n), h('td', { class: 'num' }, dinero(g.total, moneda)), h('td', { class: 'num' }, pct(g.total)),
+          h('td', {}, h('div', { class: 'barra-fondo' }, barra(max ? Math.max(1, g.total / max * 100) : 0))));
+        if (!g.otras) {
+          tr.addEventListener('click', () => filtrar(g.causal));
+          tr.addEventListener('keydown', (e) => { if (e.key === 'Enter') filtrar(g.causal); });
+        }
+        return tr;
+      })))));
+}
 
 export async function render(main, ctx) {
   poner(main, cargando());
@@ -45,6 +82,7 @@ export async function render(main, ctx) {
       h('div', { class: 'fila' },
         campo('Cliente', selCli), campo('Cuenta', selCta),
         campo('Período', seg([['hoy', 'Hoy'], ['hist', 'Histórico']], st.movModo, (v) => { st.movModo = v; cargar(); })),
+        h('button', { class: 'btn', title: 'Vuelve a pedir al banco los movimientos de esta cuenta y período', onclick: () => cargar(true) }, '↻ Consultar nuevamente'),
         st.movModo === 'hist' && [campo('Desde', d1), campo('Hasta', d2), h('button', { class: 'btn primario', onclick: () => {
           if (!d1.value || !d2.value || d1.value > d2.value) return toast('Ingresá un rango de fechas válido.', true);
           st.movDesde = d1.value; st.movHasta = d2.value; cargar();
@@ -56,6 +94,7 @@ export async function render(main, ctx) {
         h('div', { class: 'fila' }, h('button', { class: 'btn primario', onclick: () => cargar() }, 'Reintentar')))
       : datos ? [
         h('div', { class: 'kpis' }, kpi('Créditos', dinero(cred, c?.moneda), 'pos'), kpi('Débitos', dinero(deb, c?.moneda), 'neg'), kpi('Cantidad de movimientos', movs.length)),
+        resumenCreditos(datos.movimientos, c?.moneda, (causal) => { q = causal.toLowerCase(); pagina = 0; redibujar(); }),
         card('Detalle de movimientos', 'getMovementsDetail: el backend pide de a 900 movimientos y pagina con sequential/uniqueSequential hasta recibir menos de 900. Orden descendente.',
           h('div', { class: 'fila' },
             h('button', { class: 'btn', disabled: !movs.length, onclick: () => descargar(`/cuentas/${st.cuenta}/movimientos?desde=${desde}&hasta=${hasta}&formato=xlsx`, `movimientos_${st.cuenta}_${desde}_${hasta}.xlsx`).catch(error) }, 'Exportar a Excel'),
@@ -76,12 +115,12 @@ export async function render(main, ctx) {
     );
   };
 
-  const cargar = async () => {
+  const cargar = async (fresco = false) => {
     datos = null; pagina = 0;
     dibujar();
     if (!st.cuenta) return;
     const desde = st.movModo === 'hoy' ? iso() : st.movDesde, hasta = st.movModo === 'hoy' ? iso() : st.movHasta;
-    try { datos = await api(`/cuentas/${st.cuenta}/movimientos?desde=${desde}&hasta=${hasta}`); } catch (e) { datos = { error: e.message }; }
+    try { datos = await api(`/cuentas/${st.cuenta}/movimientos?desde=${desde}&hasta=${hasta}`, { fresco }); } catch (e) { datos = { error: e.message }; }
     dibujar();
   };
   if (!cuentas.length) return poner(main, h('p', { class: 'vacio' }, 'No tenés cuentas habilitadas.'));
