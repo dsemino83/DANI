@@ -96,6 +96,7 @@ Las imágenes no contienen secretos: claves, certificado y credencial del banco 
 | `db_hist_ro_password.txt` | Usuario `hb_hist_ro`: solo lectura de la histórica |
 | `credenciales_master_key.txt` | Llave AES-256 (32 bytes base64) que cifra la clave API en reposo |
 | `keycloak_admin_client_secret.txt` | Secret de la service account `home-banking-admin` |
+| `powerbi_secreto.txt` | Secreto de la aplicación de Entra (o clave del flujo) para leer el CBU desde Power BI; vacío = sin Power BI |
 
 Ninguno se sube al repositorio (`.gitignore`). En producción conviene reemplazarlos por el gestor de secretos de VALO (Vault u otro) manteniendo los mismos nombres `*_FILE`.
 
@@ -123,6 +124,7 @@ Ninguno se sube al repositorio (`.gitignore`). En producción conviene reemplaza
 | `GET /admin/usuarios` | administrador | Usuarios con roles de Home Banking en Keycloak |
 | `GET /auditoria` · `GET /historico/auditoria` | auditor, administrador | Auditoría general, cada base por separado |
 | `/admin/empresas`, `/admin/permisos/{usuario}`, `/admin/usuarios/{usuario}/roles`, `/admin/credenciales/{amb}` | administrador | Empresas, cuentas, permisos, roles y credencial API |
+| `GET /admin/powerbi` | administrador | Prueba la conexión con Power BI (modelo CUENTAS CBU): modo y cantidad de cuentas con CBU |
 | `POST /admin/usuarios` · `PUT /admin/usuarios/{u}/perfil` · `PATCH /admin/usuarios/{u}` · `POST /admin/usuarios/{u}/clave` | administrador | Alta de usuario, perfil, habilitación y clave temporal en el SSO (nunca sobre sí mismo) |
 
 ## Frontend (`frontend/`)

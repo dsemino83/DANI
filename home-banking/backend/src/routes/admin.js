@@ -9,6 +9,7 @@ import { cifrar, estadoCredencial, leerCredencial } from '../secretos.js';
 import { bdv, consultarCbu, cuentasPropias, pemDesdeBase64 } from '../bdv/cliente.js';
 import { cambiarPerfil, cambiarRol, crearUsuario, desbloquearUsuario, editarDatosUsuario, eliminarUsuario, enviarCorreoClave, estadoUsuario, forzarCambioClave, habilitarUsuario, listarUsuarios, restablecerClave, rolesDeTransferencias } from '../keycloak-admin.js';
 import { cbuDeCuenta, filaCoelsa, normalizarEmails } from '../servicios/empresas.js';
+import { cbusPowerBI, claveCuenta, modoPowerBI } from '../powerbi.js';
 import { createPublicKey } from 'node:crypto';
 
 const nivel = (p) => (!p ? 'sin acceso' : p.operar ? 'ver+operar' : p.ver ? 'ver' : 'sin acceso');
@@ -108,12 +109,30 @@ export default async function rutasAdmin(app) {
     }));
   });
 
-  // Consulta COELSA por el CBU de la cuenta (o por su alias si el banco no informa el CBU)
-  const consultarCoelsa = async (cuenta) => {
-    const cbu = cbuDeCuenta(cuenta), alias = cuenta.aliasName ?? cuenta.productAlias ?? '';
-    if (!cbu && !alias) throw new Error('el banco no informa CBU ni alias de la cuenta');
-    return filaCoelsa(cuenta, await consultarCbu(cbu ? { cbu } : { alias }));
+  // CBU del modelo de Power BI para las cuentas que el banco informa sin CBU. Si Power BI falla, el motivo
+  // acompaña al rechazo de esas cuentas (las que tienen CBU del banco no dependen de Power BI).
+  const cbusFaltantes = async (cuentas) => {
+    if (!cuentas.some((c) => !cbuDeCuenta(c))) return { mapa: null, error: null };
+    try { return { mapa: await cbusPowerBI(), error: null }; } catch (e) { return { mapa: null, error: e.message }; }
   };
+
+  // Consulta COELSA por el CBU de la cuenta: el del banco, si no el de Power BI, y si no por su alias
+  const consultarCoelsa = async (cuenta, pbi = { mapa: null, error: null }) => {
+    const cbuPbi = cbuDeCuenta(cuenta) ? null : pbi.mapa?.get(claveCuenta(cuenta.productNumber)) ?? null;
+    const cbu = cbuDeCuenta(cuenta) ?? cbuPbi, alias = cuenta.aliasName ?? cuenta.productAlias ?? '';
+    if (!cbu && !alias) {
+      throw new Error(`el banco no informa CBU ni alias de la cuenta y ${pbi.error ? `Power BI falló: ${pbi.error}`
+        : pbi.mapa ? 'no está en el modelo de Power BI' : 'Power BI no está configurado'}`);
+    }
+    return filaCoelsa(cuenta, await consultarCbu(cbu ? { cbu } : { alias }), cbuPbi);
+  };
+
+  // Prueba de la conexión con Power BI (no devuelve CBU, solo cuántas cuentas trae el modelo)
+  app.get('/powerbi', async () => {
+    const modo = modoPowerBI();
+    if (!modo) return { modo: null, mensaje: 'Power BI no está configurado' };
+    try { return { modo, cuentas: (await cbusPowerBI()).size }; } catch (e) { return { modo, error: e.message }; }
+  });
 
   // Agregar cuentas: por cada una consulta COELSA y guarda CBU, alias y titular. Las que COELSA no resuelve
   // no se agregan y vuelven con el motivo. La base rechaza un CBU o cuenta con otra relación activa.
@@ -126,8 +145,9 @@ export default async function rutasAdmin(app) {
     const ajenas = pedidas.filter((n) => !delBanco.has(n));
     if (ajenas.length) throw invalido(`Cuentas que el banco no informa para VALO: ${ajenas.join(', ')}`);
     const resueltas = [], rechazadas = [];
+    const pbi = await cbusFaltantes(pedidas.map((n) => delBanco.get(n)));
     for (const n of pedidas) {
-      try { resueltas.push({ n, moneda: vista(delBanco.get(n)).moneda, ...(await consultarCoelsa(delBanco.get(n))) }); }
+      try { resueltas.push({ n, moneda: vista(delBanco.get(n)).moneda, ...(await consultarCoelsa(delBanco.get(n), pbi)) }); }
       catch (e) { rechazadas.push({ cuenta: n, motivo: `COELSA: ${e.message}` }); }
     }
     if (!resueltas.length) {
@@ -158,7 +178,7 @@ export default async function rutasAdmin(app) {
     const cuenta = (await cuentasPropias()).find((c) => String(c.productNumber) === req.params.cuenta);
     if (!cuenta) throw invalido('El banco no informa esa cuenta para VALO');
     let d;
-    try { d = await consultarCoelsa(cuenta); } catch (e) { throw new ErrorHttp(502, 'coelsa', `COELSA: ${e.message}`); }
+    try { d = await consultarCoelsa(cuenta, await cbusFaltantes([cuenta])); } catch (e) { throw new ErrorHttp(502, 'coelsa', `COELSA: ${e.message}`); }
     return tx(operativa, async (c) => {
       const f = (await c.query(`SELECT * FROM empresa_cbu WHERE empresa_id = $1 AND product_number = $2 AND estado = 'activa' FOR UPDATE`, [req.params.id, req.params.cuenta])).rows[0];
       if (!f) throw noEncontrado('La cuenta no tiene una relación activa con esta empresa');

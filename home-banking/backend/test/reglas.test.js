@@ -194,3 +194,38 @@ test('CBU de la cuenta y datos de COELSA', async () => {
   assert.throws(() => filaCoelsa({ cbu }, { cbu: '0650001000000000000999' }), /otro CBU/);
   assert.throws(() => filaCoelsa({}, { alias: 'x' }), /CBU válido/);
 });
+
+test('Power BI: consulta DAX, filas y CBU por cuenta', async () => {
+  const { daxCbus, leerFilas, mapaCbus, claveCuenta, modoPowerBI } = await import('../src/powerbi.js');
+  const { filaCoelsa } = await import('../src/servicios/empresas.js');
+  assert.equal(daxCbus({ tabla: 'Cuenta', colCuenta: 'Cuenta Numero', colCbu: 'Cuenta CBU' }),
+    `EVALUATE SELECTCOLUMNS('Cuenta', "cuenta", 'Cuenta'[Cuenta Numero], "cbu", 'Cuenta'[Cuenta CBU])`);
+  // executeQueries (columnas "[cuenta]") y flujo de Power Automate (firstTableRows)
+  const api = { results: [{ tables: [{ rows: [{ '[cuenta]': '300100000057013', '[cbu]': '1980001730000000570133' }] }] }] };
+  assert.deepEqual(leerFilas(api), [{ cuenta: '300100000057013', cbu: '1980001730000000570133' }]);
+  assert.deepEqual(leerFilas([{ 'Cuenta[cuenta]': 1, '[cbu]': 'x' }]), [{ cuenta: 1, cbu: 'x' }]);
+  assert.throws(() => leerFilas({}), /no devolvió filas/);
+  const m = mapaCbus([
+    { cuenta: '300100000057013', cbu: '1980001730000000570133' },
+    { cuenta: 100100000095899, cbu: '1980001710000000958993' }, // cuenta numérica: sirve
+    { cuenta: '300100000057020', cbu: 1.980001730000000570201e21 }, // CBU numérico: perdió dígitos, se descarta
+    { cuenta: '300100000057044', cbu: '1980001730000000570447' },
+    { cuenta: '300100000057044', cbu: '1980001730000000570999' }, // dos CBU distintos: no se adivina
+    { cuenta: '', cbu: '1980001730000000570515' },
+  ]);
+  assert.deepEqual([...m.keys()], ['300100000057013', '100100000095899']);
+  assert.equal(m.get(claveCuenta('000300100000057013')), '1980001730000000570133');
+  // Flujo con la consulta propia: columnas con el nombre del modelo
+  const m2 = mapaCbus(leerFilas([{ 'Cuenta[Cuenta Numero]': '300100000057013', 'Cuenta[Cuenta CBU]': '1980001730000000570133' }]),
+    { colCuenta: 'Cuenta Numero', colCbu: 'Cuenta CBU' });
+  assert.equal(m2.get('300100000057013'), '1980001730000000570133');
+  // COELSA tiene que devolver el mismo CBU que Power BI (si el banco no informa uno)
+  const cbu = '1980001730000000570133';
+  assert.equal(filaCoelsa({}, { cbu, alias: 'valo.pagos' }, cbu).alias, 'valo.pagos');
+  assert.throws(() => filaCoelsa({}, { cbu: '1980001730000000570999' }, cbu), /Power BI/);
+  // Modo según lo configurado; sin secreto no hay conexión
+  assert.equal(modoPowerBI({ secreto: '', flujoUrl: 'https://x' }), null);
+  assert.equal(modoPowerBI({ secreto: 's', flujoUrl: 'https://x' }), 'flujo');
+  assert.equal(modoPowerBI({ secreto: 's', tenantId: 't', clientId: 'c', flujoUrl: '' }), 'api');
+  assert.equal(modoPowerBI({ secreto: 's', tenantId: 't', clientId: '', flujoUrl: '' }), null);
+});

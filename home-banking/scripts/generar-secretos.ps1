@@ -29,6 +29,8 @@ Generar 'credenciales_master_key' 32
 # con el SSO de VALO, reemplazarlo por el que entregue Identidad) y clave inicial de la consola maestra.
 Generar 'keycloak_admin_client_secret' 32
 Generar 'keycloak_bootstrap_password'
+# Power BI: client secret de la aplicación de Entra (o clave del flujo). Vacío = sin Power BI; se completa a mano.
+if (-not (Test-Path 'secrets\powerbi_secreto.txt')) { Guardar 'secrets\powerbi_secreto.txt' ''; Write-Host 'creado secrets\powerbi_secreto.txt (vacío)' }
 
 # Certificado autofirmado solo para desarrollo: se genera con openssl dentro de un contenedor
 if (-not (Test-Path 'frontend\certs\tls.crt')) {
