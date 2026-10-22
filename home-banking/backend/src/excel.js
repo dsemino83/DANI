@@ -46,7 +46,8 @@ export async function xlsxMovimientos(filas, { hoja: nombre = 'Movimientos', tit
 
 // Hoja de un extracto o alerta: logo del banco, título y cliente arriba; la tabla empieza en la fila 5
 function hojaConLogo(wb, nombre, columnas, filas, { titulo, empresa = null, subtitulo = null, logo }) {
-  const ws = wb.addWorksheet(nombre, { views: [{ state: 'frozen', ySplit: 5 }] });
+  const ws = wb.addWorksheet(nombre, { views: [{ state: 'frozen', ySplit: 5 }],
+    pageSetup: { orientation: 'landscape', fitToPage: true, fitToWidth: 1, fitToHeight: 0, paperSize: 9 } }); // impreso: A4 apaisado, una página de ancho
   ws.columns = columnas.map(({ key, width, style }) => ({ key, width, style }));
   if (logo) ws.addImage(wb.addImage({ buffer: logo, extension: 'png' }), { tl: { col: 0, row: 0 }, ext: { width: 145, height: 48 } });
   ws.getRow(1).height = 20; ws.getRow(2).height = 20; ws.getRow(3).height = 18;
