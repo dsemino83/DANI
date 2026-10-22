@@ -17,7 +17,11 @@ export async function render(main, ctx) {
     const set = new Set(cs.map((c) => c.cuenta)), d = deb.debitos.filter((x) => set.has(x.cuenta));
     return { ars: -d.filter((x) => x.moneda === 'ARS').reduce((s, x) => s + x.importe, 0), usd: -d.filter((x) => x.moneda === 'USD').reduce((s, x) => s + x.importe, 0), n: d.length };
   };
-  const etiquetaDeb = (d) => (d.n ? pill([d.ars && `−${dinero(d.ars)}`, d.usd && `−${dinero(d.usd, 'USD')}`].filter(Boolean).join(' · ') + ` · ${d.n} ${d.n === 1 ? 'débito' : 'débitos'}`, 'bad') : h('span', { class: 'nota' }, 'Sin débitos hoy'));
+  // La etiqueta de débitos lleva a "Débitos realizados" del día, filtrado por el cliente (y la cuenta) de la fila
+  const etiquetaDeb = (d, destino) => (d.n
+    ? h('button', { class: 'btn-pill', title: 'Ver estos débitos', onclick: (ev) => { ev.stopPropagation(); ctx.ir('debitos', { debModo: 'hoy', cliDebitos: '', debCuenta: '', ...destino }); } },
+      pill([d.ars && `−${dinero(d.ars)}`, d.usd && `−${dinero(d.usd, 'USD')}`].filter(Boolean).join(' · ') + ` · ${d.n} ${d.n === 1 ? 'débito' : 'débitos'} ›`, 'bad'))
+    : h('span', { class: 'nota' }, 'Sin débitos hoy'));
 
   let cli = ctx.estado.cliSaldos ?? null, sel = null;
   // Buscador de clientes y cuentas: "contiene" en razón social, CUIT, nombre (producto), alias o número de cuenta.
@@ -34,14 +38,14 @@ export async function render(main, ctx) {
       { t: 'Cuentas', v: (e) => cuentas.filter((c) => c.empresa.id === e.id).length, cls: 'num' },
       { t: 'Disponible $', v: (e) => dinero(sumar(cuentas.filter((c) => c.empresa.id === e.id), 'ARS')), cls: 'num' },
       { t: 'Disponible US$', v: (e) => dinero(sumar(cuentas.filter((c) => c.empresa.id === e.id), 'USD'), 'USD'), cls: 'num' },
-      { t: 'Débitos realizados', v: (e) => etiquetaDeb(debDe(cuentas.filter((c) => c.empresa.id === e.id))) },
+      { t: 'Débitos realizados', v: (e) => etiquetaDeb(debDe(cuentas.filter((c) => c.empresa.id === e.id)), { cliDebitos: e.id }) },
     ], empresas.filter((e) => cuentas.some((c) => c.empresa.id === e.id && cuentaCoincide(c))),
     { alClic: (e) => { cli = cli === e.id ? null : e.id; ctx.estado.cliSaldos = cli; dibujar(); }, sel: (e) => e.id === cli,
       vacio: empresas.length ? 'Ningún cliente ni cuenta coincide con la búsqueda.' : 'No tenés clientes habilitados. Pedile al administrador de seguridad permisos por empresa.' }));
     poner(listaCuentas, tabla([
       { t: 'Cuenta', v: (c) => c.cuenta, cls: 'mono' }, { t: 'Nombre', v: (c) => c.producto }, { t: 'Alias', v: (c) => c.alias }, { t: 'Moneda', v: (c) => c.moneda },
       { t: 'Disponible', v: (c) => dinero(c.disponible, c.moneda), cls: 'num' }, { t: 'Contable', v: (c) => dinero(c.contable, c.moneda), cls: 'num' },
-      { t: 'Débitos realizados', v: (c) => etiquetaDeb(debDe([c])) },
+      { t: 'Débitos realizados', v: (c) => etiquetaDeb(debDe([c]), { cliDebitos: c.empresa.id, debCuenta: c.cuenta }) },
       { t: 'Movimientos', v: (c) => h('button', { class: 'btn chico', onclick: (ev) => { ev.stopPropagation(); ctx.ir('movimientos', { cuenta: c.cuenta, movModo: 'hoy' }); } }, 'Ver del día') },
     ], alcance, { alClic: (c) => { sel = c.cuenta; dibujar(); }, sel: (c) => c.cuenta === sel, vacio: 'Ninguna cuenta coincide con la búsqueda.' }));
   };
@@ -61,7 +65,7 @@ export async function render(main, ctx) {
         ctx.me.puedeAprobar && kpi(`Pendiente de aprobar (pesos) · ${nombre}`, dinero(pendAlc.reduce((s, t) => s + Number(t.importe), 0))),
         h('div', { class: 'card' }, h('div', { class: 'kpi-label' }, `Débitos realizados hoy (pesos) · ${nombre} · ${dA.n} ${dA.n === 1 ? 'débito' : 'débitos'}`),
           h('div', { class: 'kpi-val neg' }, dinero(dA.ars)),
-          h('button', { class: 'btn chico', onclick: () => ctx.ir('debitos', { cliDebitos: cli ?? '' }) }, 'Ver débitos realizados'))),
+          h('button', { class: 'btn chico', onclick: () => ctx.ir('debitos', { cliDebitos: cli ?? '', debCuenta: '', debModo: 'hoy' }) }, 'Ver débitos realizados'))),
       card(null, null,
         h('div', { class: 'fila' }, h('h2', {}, 'Clientes'), emp && h('button', { class: 'btn chico', onclick: () => { cli = null; dibujar(); } }, 'Ver todas las empresas')),
         h('p', { class: 'nota' }, 'Empresas que tenés habilitadas. Al ingresar se muestra el total de todas; elegí un cliente para ver solo sus datos (tocalo de nuevo para volver al total).'),

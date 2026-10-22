@@ -121,3 +121,5 @@ pre { background: var(--bg); border: 1px solid var(--line); border-radius: var(-
 .chip-x:hover, .chip-x:focus-visible { color: var(--bad); }
 .lista-scroll { max-height: 50vh; overflow: auto; margin: 8px 0; }
 .btn.peligro { color: var(--bad); border-color: var(--bad); }
+.btn-pill { background: none; border: 0; padding: 0; cursor: pointer; font: inherit; }
+.btn-pill:hover .pill, .btn-pill:focus-visible .pill { text-decoration: underline; }
