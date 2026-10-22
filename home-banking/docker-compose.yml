@@ -31,7 +31,7 @@ x-backend-env: &backend-env
   HB_RETENCION_MESES: ${HB_RETENCION_MESES:-1}
   HB_SMTP_HOST: ${HB_SMTP_HOST:-mailpit}
   HB_SMTP_PORT: ${HB_SMTP_PORT:-}
-  HB_SMTP_FROM: ${HB_SMTP_FROM:-homebanking@valo.test}
+  HB_SMTP_FROM: ${HB_SMTP_FROM:-alyc@valo.ar}
   HB_SMTP_USUARIO: ${HB_SMTP_USUARIO:-}
   HB_SMTP_STARTTLS: ${HB_SMTP_STARTTLS:-true}
   HB_SMTP_PASSWORD_FILE: /run/secrets/smtp_password

@@ -4,7 +4,7 @@
 # Valores en .env:
 #   HB_SMTP_HOST      servidor de correo; vacío = buzón de prueba Mailpit (perfil correo-prueba)
 #   HB_SMTP_PORT      587 por defecto (1025 con Mailpit)
-#   HB_SMTP_FROM      remitente, p. ej. homebanking@valo.ar
+#   HB_SMTP_FROM      remitente (por defecto alyc@valo.ar)
 #   HB_SMTP_USUARIO   usuario del servidor de correo (vacío = sin autenticación)
 #   HB_SMTP_STARTTLS  true por defecto (false con Mailpit)
 # La clave del servidor de correo va en secrets/smtp_password.txt (nunca en .env).
@@ -17,7 +17,7 @@ if [ -z "$HOST" ]; then
 else
   PORT=$(val HB_SMTP_PORT); PORT=${PORT:-587}; STARTTLS=$(val HB_SMTP_STARTTLS); STARTTLS=${STARTTLS:-true}
 fi
-FROM=${FROM:-homebanking@valo.test}
+FROM=${FROM:-alyc@valo.ar}
 CLAVE=""; [ -f secrets/smtp_password.txt ] && CLAVE=$(cat secrets/smtp_password.txt)
 AUTH=false; [ -n "$USUARIO" ] && AUTH=true
 command -v jq >/dev/null || { sudo apt-get update -qq && sudo apt-get install -y -qq jq >/dev/null; }
