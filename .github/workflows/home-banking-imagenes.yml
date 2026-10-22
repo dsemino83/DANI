@@ -58,23 +58,14 @@ jobs:
           docker run --rm -v "$PWD:/repo" zricethezav/gitleaks:latest \
             detect --source=/repo --config=/repo/.gitleaks.toml --redact --no-banner --exit-code 1
         working-directory: .
-      # Imágenes y dependencias: vulnerabilidades. Informativo (no bloquea): se revisa, no frena el deploy.
-      - name: Trivy (vulnerabilidades del filesystem)
-        uses: aquasecurity/trivy-action@0.28.0
-        with:
-          scan-type: fs
-          scan-ref: home-banking
-          severity: HIGH,CRITICAL
-          ignore-unfixed: true
-          exit-code: '0'
-      # Dockerfiles y docker-compose: malas configuraciones de contenedor (IaC). Informativo.
-      - name: Trivy (configuración de contenedores e IaC)
-        uses: aquasecurity/trivy-action@0.28.0
-        with:
-          scan-type: config
-          scan-ref: home-banking
-          severity: HIGH,CRITICAL
-          exit-code: '0'
+      # Trivy con la imagen oficial: vulnerabilidades (fs) y malas configuraciones de contenedor/IaC
+      # (Dockerfiles, docker-compose). Informativo (no bloquea): se revisa, no frena el deploy; el
+      # "|| true" evita que un problema de descarga de la imagen tumbe el CI.
+      - name: Trivy (vulnerabilidades e IaC) — informativo
+        run: |
+          docker run --rm -v "$PWD:/scan" aquasec/trivy:0.58.1 fs --no-progress --severity HIGH,CRITICAL --ignore-unfixed --exit-code 0 /scan/home-banking || true
+          docker run --rm -v "$PWD:/scan" aquasec/trivy:0.58.1 config --no-progress --severity HIGH,CRITICAL --exit-code 0 /scan/home-banking || true
+        working-directory: .
 
   humo:
     name: Prueba de humo (stack completo en Docker)
