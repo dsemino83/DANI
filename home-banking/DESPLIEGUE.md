@@ -144,12 +144,12 @@ Para probar sin instalar nada: una máquina virtual de GitHub con Docker que lev
    También están en la pestaña **Ports**.
 3. Seguí con **Credenciales API**, Empresas y Usuarios y permisos como en `PRUEBA-INTEGRADA.md` (pasos 6 a 8). La máquina ya viene con banco **Producción** y **solo consultas**.
 
-**Manejo desde Portainer** (**Home** → **local** → **Containers**): estado de cada servicio, **Logs**, **Restart**, **Console**. Para actualizar un servicio a la última versión publicada: el contenedor → **Recreate** → activar **Re-pull image**. Para actualizar todo de una vez, en la terminal del Codespace: `bash home-banking/scripts/maquina-prueba.sh`.
+**Manejo desde Portainer** (**Home** → **local** → **Containers**): estado de cada servicio, **Logs**, **Restart**, **Console**. Para actualizar un servicio a la última versión publicada: el contenedor → **Recreate** → activar **Re-pull image**. Para actualizar todo de una vez, en la terminal del Codespace (desde cualquier carpeta): `hb-actualizar` (o `bash /workspaces/DANI/home-banking/scripts/maquina-prueba.sh`). El script se pone solo en la rama **ALYC**, trae el código nuevo, descarga las imágenes, aplica las migraciones y reconfigura Keycloak.
 
 **Cuidados:**
 
 - Los puertos quedan **privados**: solo entra tu usuario de GitHub. No los cambies a *Public*.
-- La máquina se apaga sola tras 30 minutos sin uso y se vuelve a levantar al abrirla (**Code** → **Codespaces**); usuarios y datos se conservan. Las horas de uso se descuentan del cupo gratuito de GitHub.
+- La máquina se apaga sola tras 30 minutos sin uso y se vuelve a levantar al abrirla (**Code** → **Codespaces**); usuarios y datos se conservan. Mientras los servicios arrancan, la app muestra "El sistema está iniciando, reintentando…" y entra sola cuando están listos. Las horas de uso se descuentan del cupo gratuito de GitHub.
 - La credencial del banco queda cifrada en la base de la máquina. Al terminar la prueba, **borrá el Codespace** (**Code** → **Codespaces** → **⋯** → **Delete**): se borra todo.
 - Si "Probar conexión" no llega al banco, el banco puede estar filtrando por IP: las máquinas de Codespaces no tienen una IP fija.
 

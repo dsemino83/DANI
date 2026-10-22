@@ -88,11 +88,23 @@ async function pantallaApp() {
   await mostrar();
 }
 
+// Mientras el servidor arranca (por ejemplo, al reactivar la máquina de prueba) nginx responde 502/503/504:
+// se avisa y se reintenta solo durante unos minutos en vez de mostrar el error.
+async function esperarBackend() {
+  for (let intento = 0; ; intento++) {
+    try { return await api('/me'); } catch (e) {
+      if (![502, 503, 504].includes(e.status) || intento >= 36) throw e;
+      pantallaLogin(`El sistema está iniciando, reintentando… (${intento + 1})`);
+      await new Promise((ok) => setTimeout(ok, 5000));
+    }
+  }
+}
+
 (async () => {
   try {
     ctx.cfg = await iniciar();
     if (!autenticado()) return login(); // directo al inicio de sesión (Keycloak); la pantalla propia queda para errores
-    ctx.me = await api('/me');
+    ctx.me = await esperarBackend();
     await pantallaApp();
   } catch (e) {
     pantallaLogin(e.message);
