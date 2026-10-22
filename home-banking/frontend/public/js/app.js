@@ -90,7 +90,7 @@ async function pantallaApp() {
 (async () => {
   try {
     ctx.cfg = await iniciar();
-    if (!autenticado()) return pantallaLogin();
+    if (!autenticado()) return login(); // directo al inicio de sesión (Keycloak); la pantalla propia queda para errores
     ctx.me = await api('/me');
     await pantallaApp();
   } catch (e) {

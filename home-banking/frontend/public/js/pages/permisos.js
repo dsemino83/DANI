@@ -1,4 +1,4 @@
-// Usuarios y permisos (administrador de seguridad): alta de usuarios, perfil, habilitación, desbloqueo y claves
+// Usuarios y permisos (administrador de seguridad): alta, edición y baja de usuarios, perfil, habilitación, desbloqueo y claves
 // en Keycloak; roles Crear/Aprobar; Ver/Operar por empresa. Todo queda en la auditoría.
 import { api } from '../api.js';
 import { h, poner, card, campo, tabla, pill, toast, error, cargando, confirmar } from '../ui.js';
@@ -62,8 +62,23 @@ export async function render(main, ctx) {
       est.bloqueado && pill(`Bloqueado por intentos fallidos (${est.intentosFallidos})`, 'bad'),
       est.debeCambiarClave && pill('Debe cambiar la clave', 'warn'),
     ].filter(Boolean) : [pill('Estado no disponible', 'warn')];
+    const datos = { nombre: h('input', { value: u.nombres ?? '' }), apellido: h('input', { value: u.apellido ?? '' }), email: h('input', { type: 'email', value: u.email ?? '' }) };
+    const guardarDatos = async () => {
+      try {
+        const r = await api(`/admin/usuarios/${encodeURIComponent(u.usuario)}/datos`, { method: 'PUT', body: { nombre: datos.nombre.value, apellido: datos.apellido.value, email: datos.email.value } });
+        toast(r.cambios.length ? `${u.usuario}: ${r.cambios.join(' · ')}.` : 'Sin cambios.');
+      } catch (x) { error(x); return; }
+      await cargar();
+    };
+    const eliminar = async () => {
+      if (!(await confirmar('Eliminar usuario', `${u.usuario} se borra del inicio de sesión y pierde todos sus permisos por empresa. No se puede deshacer: para que vuelva a ingresar hay que darlo de alta de nuevo. Su historial en la auditoría se conserva.`, 'Eliminar usuario'))) return;
+      try { await api(`/admin/usuarios/${encodeURIComponent(u.usuario)}`, { method: 'DELETE' }); toast(`${u.usuario} eliminado.`); elegido = null; } catch (x) { error(x); return; }
+      await cargar();
+    };
     return card(`Usuario · ${u.usuario}`, `${u.nombre || ''}${u.email ? ` · ${u.email}` : ''}`,
       h('div', { class: 'fila' }, ...estado),
+      h('div', { class: 'fila' }, campo('Nombre', datos.nombre), campo('Apellido', datos.apellido), campo('Email', datos.email),
+        h('button', { class: 'btn', onclick: guardarDatos }, 'Guardar datos')),
       h('div', { class: 'fila' }, campo('Perfil', perfil), h('button', { class: 'btn primario', onclick: guardarPerfil }, 'Guardar perfil'),
         h('button', { class: 'btn', onclick: cambiarEstado }, u.habilitado === false ? 'Habilitar' : 'Deshabilitar'),
         est?.bloqueado && h('button', { class: 'btn', onclick: desbloquear }, 'Desbloquear')),
@@ -71,7 +86,8 @@ export async function render(main, ctx) {
       h('div', { class: 'fila' },
         h('button', { class: 'btn', onclick: correo, disabled: !(est?.email || u.email) }, 'Enviar correo para cambiar la clave'),
         h('button', { class: 'btn', onclick: forzar }, 'Forzar cambio en el próximo ingreso')),
-      h('div', { class: 'fila' }, campo('Nueva clave temporal', clave), h('button', { class: 'btn', onclick: restablecer }, 'Restablecer clave')));
+      h('div', { class: 'fila' }, campo('Nueva clave temporal', clave), h('button', { class: 'btn', onclick: restablecer }, 'Restablecer clave')),
+      h('div', { class: 'fila' }, h('button', { class: 'btn peligro', onclick: eliminar }, 'Eliminar usuario')));
   };
 
   // Alta de usuario en el SSO

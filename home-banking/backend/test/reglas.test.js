@@ -159,3 +159,26 @@ test('alta de usuario: validaciones y clave temporal', async () => {
   assert.throws(() => validarAlta({ ...ok, perfil: 'superusuario' }));
   for (const mala of ['corta1', 'sinnumerosenlaclave', '123456789012', '']) assert.throws(() => validarClaveTemporal(mala), mala);
 });
+
+test('emails de empresa: separadores, minúsculas, repetidos y límite', async () => {
+  const { normalizarEmails, MAX_EMAILS } = await import('../src/servicios/empresas.js');
+  assert.deepEqual(normalizarEmails(' Tesoreria@Acme.com.ar; pagos@acme.com.ar,\ntesoreria@acme.com.ar '), ['tesoreria@acme.com.ar', 'pagos@acme.com.ar']);
+  assert.deepEqual(normalizarEmails(['a@b.co', 'A@B.CO']), ['a@b.co']);
+  assert.deepEqual(normalizarEmails(''), []);
+  assert.throws(() => normalizarEmails('bien@acme.com, mal-email'), /mal-email/);
+  assert.throws(() => normalizarEmails(Array.from({ length: MAX_EMAILS + 1 }, (_, i) => `u${i}@acme.com`)));
+});
+
+test('buscador de cuentas: contiene, sin mayúsculas ni acentos', async () => {
+  const { coincide } = await import('../src/servicios/empresas.js');
+  const c = { cuenta: '000123456', nombre: 'FIDEICOMISO ÁGUILA CC $', alias: 'aguila.pagos' };
+  for (const t of ['', 'aguila', 'ÁGUI', 'comiso', '23456', 'PAGOS']) assert.ok(coincide(c, t), t);
+  for (const t of ['condor', '999']) assert.ok(!coincide(c, t), t);
+});
+
+test('edición de datos de usuario', async () => {
+  const { validarDatos } = await import('../src/keycloak-admin.js');
+  assert.deepEqual(validarDatos({ nombre: ' Ana ', apellido: 'Gómez', email: 'ana@valo.ar' }), { nombre: 'Ana', apellido: 'Gómez', email: 'ana@valo.ar' });
+  assert.throws(() => validarDatos({ nombre: 'Ana', apellido: '', email: 'ana@valo.ar' }));
+  assert.throws(() => validarDatos({ nombre: 'Ana', apellido: 'Gómez', email: 'ana' }));
+});

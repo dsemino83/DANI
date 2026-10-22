@@ -78,6 +78,14 @@ jobs:
           curl -fsk https://localhost/auth/realms/staff/protocol/openid-connect/token -d grant_type=client_credentials -d client_id=home-banking-admin --data-urlencode "client_secret=$(cat secrets/keycloak_admin_client_secret.txt)" | grep -q access_token && echo 'service account OK'
           docker compose exec -T postgres psql -U postgres -d homebanking -Atc "SELECT count(*) FROM pg_tables WHERE tablename IN ('envio_banco','referencia_usada','credencial_api')" | grep -qx 3 && echo 'esquema OK'
           sh scripts/configurar-correo.sh
+          sh scripts/migrar-bases.sh && sh scripts/migrar-bases.sh   # idempotente sobre una base nueva
+          docker compose exec -T postgres psql -U postgres -d homebanking -Atc "SELECT count(*) FROM pg_constraint WHERE conname = 'empresa_emails_max'" | grep -qx 1 && echo 'migraciones OK'
+          # Cambio de dirección pública (p. ej. ealyc.valo.ar) sobre un realm ya importado, y vuelta atrás
+          HB_URL_PUBLICA=https://ealyc.valo.ar sh scripts/configurar-dominio.sh
+          test "$(curl -sk -o /dev/null -w '%{http_code}' "$AUTH&redirect_uri=https%3A%2F%2Fealyc.valo.ar%2F")" = 200 && echo 'dominio nuevo aceptado'
+          test "$(curl -sk -o /dev/null -w '%{http_code}' "$AUTH&redirect_uri=https%3A%2F%2Flocalhost%2F")" = 400 && echo 'dominio anterior rechazado'
+          sh scripts/configurar-dominio.sh
+          test "$(curl -sk -o /dev/null -w '%{http_code}' "$AUTH&redirect_uri=https%3A%2F%2Flocalhost%2F")" = 200 && echo 'dominio restaurado'
           docker compose ps
       - uses: actions/setup-node@v4
         with:

@@ -100,6 +100,8 @@ Todo se hace desde la aplicación con `admin.ti` (administrador de seguridad), e
 | Qué | Cómo |
 |---|---|
 | **Alta de usuario** | **Nuevo usuario**: usuario, nombre, apellido, email, perfil y clave temporal (mínimo 12 caracteres con letras y números; se cambia en el primer ingreso) |
+| **Editar datos** | Nombre, apellido y email → **Guardar datos** (el nombre de usuario no cambia) |
+| **Eliminar** | **Eliminar usuario**: se borra del inicio de sesión y pierde sus permisos por empresa; su historial de auditoría se conserva |
 | **Perfil** (operador, autorizante, auditor, administrador) | Elegir el usuario → **Perfil** → **Guardar perfil**. Pasar a administrador quita Crear/Aprobar y los permisos por empresa |
 | **Deshabilitar / habilitar** | Botón en el usuario. Deshabilitar cierra sus sesiones abiertas y conserva sus permisos; habilitar también quita un bloqueo por intentos fallidos |
 | **Desbloquear** | Aparece cuando el usuario quedó **Bloqueado por intentos fallidos** (5 claves erróneas seguidas) |
@@ -108,6 +110,8 @@ Todo se hace desde la aplicación con `admin.ti` (administrador de seguridad), e
 | **Forzar cambio en el próximo ingreso** | Entra con su clave actual y en ese momento tiene que elegir una nueva; se cierran sus sesiones abiertas |
 | Roles **Crear** / **Aprobar** transferencias | **Roles de transferencias** del usuario |
 | Permisos **Ver** / **Operar** por empresa | **Empresas** del usuario (y el maestro de empresas en **Empresas**) |
+
+**Empresas** (también del administrador): cada empresa tiene uno o más **emails** (se cargan al darla de alta, separados por coma, y después se agregan o quitan con ✕). Sus cuentas se asignan con **Agregar cuentas**: lista solo las cuentas sin empresa, con buscador por nombre, alias o número (contiene) y selección múltiple. Cada cuenta se quita de a una con **Quitar** y vuelve a quedar disponible.
 
 La ficha de cada usuario muestra su estado: **Habilitado / Deshabilitado**, **Bloqueado por intentos fallidos** y **Debe cambiar la clave**.
 
@@ -143,6 +147,15 @@ Para probar sin instalar nada: una máquina virtual de GitHub con Docker que lev
 - La credencial del banco queda cifrada en la base de la máquina. Al terminar la prueba, **borrá el Codespace** (**Code** → **Codespaces** → **⋯** → **Delete**): se borra todo.
 - Si "Probar conexión" no llega al banco, el banco puede estar filtrando por IP: las máquinas de Codespaces no tienen una IP fija.
 
+## Dirección propia (por ejemplo `ealyc.valo.ar`)
+
+La aplicación y el inicio de sesión usan la misma dirección: al entrar a `https://ealyc.valo.ar` se pasa directo a la pantalla de ingreso de Keycloak (`https://ealyc.valo.ar/auth/…`) y, después de ingresar, se vuelve a la aplicación. Hace falta un servidor con IP fija (en un Codespace la dirección la pone GitHub y no se puede cambiar).
+
+1. **DNS** (lo hace el equipo de redes de VALO): registro `A` de `ealyc.valo.ar` apuntando a la IP pública del servidor.
+2. **Certificado** de `ealyc.valo.ar` en `frontend/certs/tls.crt` y `tls.key`.
+3. En `.env`: `HB_URL_PUBLICA=https://ealyc.valo.ar`, `OIDC_ISSUER=https://ealyc.valo.ar/auth/realms/staff` y `OIDC_ORIGIN=https://ealyc.valo.ar`.
+4. `docker compose --profile sso-local up -d` y `sh scripts/configurar-dominio.sh` (habilita la dirección nueva en el cliente `home-banking-web` de Keycloak; la anterior deja de funcionar).
+
 ## 7. Actualizar a una versión nueva
 
 Cada push a `ALYC` que pasa las pruebas publica `backend-alyc`/`frontend-alyc` y la versión fija `backend-<commit>`/`frontend-<commit>`.
@@ -151,6 +164,7 @@ Cada push a `ALYC` que pasa las pruebas publica `backend-alyc`/`frontend-alyc` y
 # en .env: HB_VERSION=<commit nuevo>
 docker compose pull
 docker compose up -d                      # recrea solo lo que cambió; las bases y sus datos se mantienen
+sh scripts/migrar-bases.sh                # cambios de esquema de la versión nueva (si no hay, no hace nada)
 ```
 
 **Volver atrás:** poner el `HB_VERSION` anterior y repetir los dos comandos. Si una versión nueva cambió el esquema de la base, consultar antes de volver atrás.

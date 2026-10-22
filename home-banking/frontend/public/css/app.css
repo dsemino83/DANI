@@ -116,3 +116,8 @@ pre { background: var(--bg); border: 1px solid var(--line); border-radius: var(-
 .docs { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr)); gap: 16px; }
 .docs .card { border-top: 3px solid var(--rojo); display: flex; flex-direction: column; gap: 8px; }
 .docs a.btn { align-self: flex-start; }
+.chip { display: inline-flex; align-items: center; gap: 6px; padding: 3px 4px 3px 10px; border: 1px solid var(--line); border-radius: 999px; font-size: 13px; }
+.chip-x { border: 0; background: transparent; color: var(--muted); cursor: pointer; padding: 0 6px; font-size: 12px; line-height: 1.6; border-radius: 999px; }
+.chip-x:hover, .chip-x:focus-visible { color: var(--bad); }
+.lista-scroll { max-height: 50vh; overflow: auto; margin: 8px 0; }
+.btn.peligro { color: var(--bad); border-color: var(--bad); }

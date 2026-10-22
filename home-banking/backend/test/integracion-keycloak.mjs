@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 
 const { crearUsuario, cambiarPerfil, cambiarRol, habilitarUsuario, restablecerClave, listarUsuarios, rolesDeTransferencias,
-  estadoUsuario, forzarCambioClave, desbloquearUsuario, enviarCorreoClave } = await import('../src/keycloak-admin.js');
+  estadoUsuario, forzarCambioClave, desbloquearUsuario, enviarCorreoClave, editarDatosUsuario, eliminarUsuario } = await import('../src/keycloak-admin.js');
 const { ROL_CREAR } = await import('../src/auth.js');
 
 const nombre = `ci.prueba${Date.now() % 100000}`;
@@ -68,4 +68,14 @@ if (process.env.MAILPIT_URL) {
   assert.match(cuerpo.Text, /https:\/\/localhost\/auth\/realms\/staff\/login-actions\/action-token/);
   paso(`correo para cambiar la clave recibido (${msj.Subject})`);
 }
+const ed = await editarDatosUsuario(nombre, { nombre: 'Cambiado', apellido: 'Prueba', email: `nuevo.${nombre}@valo.test` });
+assert.equal(ed.cambios.length, 2);
+u = await buscar();
+assert.equal(u.nombres, 'Cambiado'); assert.equal(u.email, `nuevo.${nombre}@valo.test`);
+paso('editar nombre y email');
+
+await eliminarUsuario(nombre);
+assert.equal(await buscar(), undefined);
+await assert.rejects(estadoUsuario(nombre), (e) => e.status === 400);
+paso('eliminar usuario');
 console.log('TODO OK');

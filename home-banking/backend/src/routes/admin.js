@@ -7,7 +7,8 @@ import { conflicto, invalido, noEncontrado } from '../errores.js';
 import { esAmbiente, urlBase } from '../bdv/ambientes.js';
 import { cifrar, estadoCredencial, leerCredencial } from '../secretos.js';
 import { bdv, cuentasPropias, pemDesdeBase64 } from '../bdv/cliente.js';
-import { cambiarPerfil, cambiarRol, crearUsuario, desbloquearUsuario, enviarCorreoClave, estadoUsuario, forzarCambioClave, habilitarUsuario, listarUsuarios, restablecerClave, rolesDeTransferencias } from '../keycloak-admin.js';
+import { cambiarPerfil, cambiarRol, crearUsuario, desbloquearUsuario, editarDatosUsuario, eliminarUsuario, enviarCorreoClave, estadoUsuario, forzarCambioClave, habilitarUsuario, listarUsuarios, restablecerClave, rolesDeTransferencias } from '../keycloak-admin.js';
+import { normalizarEmails } from '../servicios/empresas.js';
 import { createPublicKey } from 'node:crypto';
 
 const nivel = (p) => (!p ? 'sin acceso' : p.operar ? 'ver+operar' : p.ver ? 'ver' : 'sin acceso');
@@ -26,12 +27,14 @@ export default async function rutasAdmin(app) {
     const cuit = String(req.body?.cuit ?? '').replace(/\D/g, '');
     if (!razon) throw invalido('Falta la razón social');
     if (cuit.length !== 11) throw invalido('El CUIT debe tener 11 dígitos');
+    const emails = normalizarEmails(req.body?.emails);
+    if (!emails.length) throw invalido('Cargá al menos un email de la empresa');
     reply.code(201);
     return tx(operativa, async (c) => {
       const dup = await c.query('SELECT 1 FROM empresa WHERE cuit = $1', [cuit]);
       if (dup.rowCount) throw conflicto('Ya existe una empresa con ese CUIT');
-      const { rows } = await c.query('INSERT INTO empresa (razon_social, cuit, creada_por) VALUES ($1, $2, $3) RETURNING *', [razon, cuit, req.user.usuario]);
-      await auditar(c, req, { tipo: 'Administración', accion: 'Alta de empresa', detalle: `${razon} · CUIT ${cuit}`, ref: { tipo: 'empresa', id: rows[0].id } });
+      const { rows } = await c.query('INSERT INTO empresa (razon_social, cuit, creada_por, emails) VALUES ($1, $2, $3, $4) RETURNING *', [razon, cuit, req.user.usuario, emails]);
+      await auditar(c, req, { tipo: 'Administración', accion: 'Alta de empresa', detalle: `${razon} · CUIT ${cuit} · emails: ${emails.join(', ')}`, ref: { tipo: 'empresa', id: rows[0].id } });
       return rows[0];
     });
   });
@@ -63,33 +66,68 @@ export default async function rutasAdmin(app) {
     return { eliminada: true, cuentasLiberadas: cuentas, permisosQuitados: us };
   }));
 
-  // Cuentas para asignar: las sin empresa + las de la empresa elegida (solo número, alias y moneda; sin saldos)
-  app.get('/empresas/:id/cuentas', async (req) => {
-    const asignadas = new Map((await operativa.query('SELECT product_number, empresa_id FROM cuenta_empresa')).rows.map((r) => [r.product_number, r.empresa_id]));
-    return (await cuentasPropias())
-      .filter((c) => { const e = asignadas.get(String(c.productNumber)); return e == null || String(e) === String(req.params.id); })
-      .map((c) => ({ cuenta: c.productNumber, alias: c.aliasName ?? c.productAlias, moneda: Number(c.currencyId) === 80 ? 'ARS' : 'USD', asignada: asignadas.get(String(c.productNumber)) != null }));
+  // Emails de la empresa (uno o más): reemplaza la lista completa.
+  app.put('/empresas/:id/emails', async (req) => {
+    const emails = normalizarEmails(req.body?.emails);
+    if (!emails.length) throw invalido('La empresa tiene que tener al menos un email');
+    return tx(operativa, async (c) => {
+      const antes = (await c.query('SELECT * FROM empresa WHERE id = $1 FOR UPDATE', [req.params.id])).rows[0];
+      if (!antes) throw noEncontrado('Empresa inexistente');
+      const { rows } = await c.query('UPDATE empresa SET emails = $2 WHERE id = $1 RETURNING *', [req.params.id, emails]);
+      const altas = emails.filter((e) => !antes.emails.includes(e)), bajas = antes.emails.filter((e) => !emails.includes(e));
+      await auditar(c, req, { tipo: 'Administración', accion: 'Modificó emails de empresa', ref: { tipo: 'empresa', id: req.params.id },
+        detalle: `${antes.razon_social} · agregados: ${altas.join(', ') || 'ninguno'} · quitados: ${bajas.join(', ') || 'ninguno'}` });
+      return rows[0];
+    });
   });
 
-  app.put('/empresas/:id/cuentas', async (req) => {
-    const nuevas = new Set((req.body?.cuentas ?? []).map(String));
+  // Cuentas del banco con su asignación (solo número, nombre, alias y moneda; sin saldos)
+  const cuentasConAsignacion = async () => {
+    const asignadas = new Map((await operativa.query('SELECT product_number, empresa_id FROM cuenta_empresa WHERE empresa_id IS NOT NULL')).rows.map((r) => [r.product_number, String(r.empresa_id)]));
+    return (await cuentasPropias()).map((c) => ({
+      cuenta: String(c.productNumber), nombre: c.productName ?? '', alias: c.aliasName ?? c.productAlias ?? '',
+      moneda: Number(c.currencyId) === 80 ? 'ARS' : 'USD', empresaId: asignadas.get(String(c.productNumber)) ?? null,
+    }));
+  };
+
+  // Cuentas de la empresa
+  app.get('/empresas/:id/cuentas', async (req) => (await cuentasConAsignacion()).filter((c) => c.empresaId === String(req.params.id)));
+
+  // Cuentas sin asignar a ninguna empresa (para "Agregar cuentas"; el buscador filtra en la pantalla)
+  app.get('/cuentas-disponibles', async () => (await cuentasConAsignacion()).filter((c) => c.empresaId == null));
+
+  // Agregar una o más cuentas sin asignar a la empresa
+  app.post('/empresas/:id/cuentas', async (req) => {
+    const pedidas = [...new Set((req.body?.cuentas ?? []).map(String))];
+    if (!pedidas.length) throw invalido('Elegí al menos una cuenta');
+    const delBanco = new Set((await cuentasPropias()).map((c) => String(c.productNumber)));
+    const ajenas = pedidas.filter((n) => !delBanco.has(n));
+    if (ajenas.length) throw invalido(`Cuentas que el banco no informa para VALO: ${ajenas.join(', ')}`);
     return tx(operativa, async (c) => {
-      const emp = (await c.query('SELECT * FROM empresa WHERE id = $1', [req.params.id])).rows[0];
+      const emp = (await c.query('SELECT * FROM empresa WHERE id = $1 FOR UPDATE', [req.params.id])).rows[0];
       if (!emp) throw noEncontrado('Empresa inexistente');
-      const actuales = (await c.query('SELECT product_number FROM cuenta_empresa WHERE empresa_id = $1', [req.params.id])).rows.map((r) => r.product_number);
-      const ocupadas = (await c.query('SELECT product_number FROM cuenta_empresa WHERE empresa_id IS NOT NULL AND empresa_id <> $1 AND product_number = ANY($2)', [req.params.id, [...nuevas]])).rows;
-      if (ocupadas.length) throw conflicto(`Cuentas asignadas a otra empresa: ${ocupadas.map((r) => r.product_number).join(', ')} (liberalas primero)`);
-      const altas = [...nuevas].filter((n) => !actuales.includes(n)), bajas = actuales.filter((n) => !nuevas.has(n));
-      for (const n of altas) {
+      const ocupadas = (await c.query('SELECT product_number FROM cuenta_empresa WHERE empresa_id IS NOT NULL AND product_number = ANY($1) FOR UPDATE', [pedidas])).rows.map((r) => r.product_number);
+      if (ocupadas.length) throw conflicto(`Cuentas ya asignadas a una empresa: ${ocupadas.join(', ')}`);
+      for (const n of pedidas) {
         await c.query(`INSERT INTO cuenta_empresa (product_number, empresa_id, asignada_por, asignada_en) VALUES ($1, $2, $3, now())
                        ON CONFLICT (product_number) DO UPDATE SET empresa_id = $2, asignada_por = $3, asignada_en = now()`, [n, req.params.id, req.user.usuario]);
       }
-      for (const n of bajas) await c.query('UPDATE cuenta_empresa SET empresa_id = NULL, asignada_por = $2, asignada_en = now() WHERE product_number = $1', [n, req.user.usuario]);
-      await auditar(c, req, { tipo: 'Administración', accion: 'Modificó cuentas de empresa', ref: { tipo: 'empresa', id: req.params.id },
-        detalle: `${emp.razon_social} · asignadas: ${altas.join(', ') || 'ninguna'} · liberadas: ${bajas.join(', ') || 'ninguna'}` });
-      return { altas, bajas };
+      await auditar(c, req, { tipo: 'Administración', accion: 'Agregó cuentas a empresa', ref: { tipo: 'empresa', id: req.params.id },
+        detalle: `${emp.razon_social} · ${pedidas.length} cuenta(s): ${pedidas.join(', ')}` });
+      return { agregadas: pedidas };
     });
   });
+
+  // Quitar una cuenta de la empresa (queda sin asignar)
+  app.delete('/empresas/:id/cuentas/:cuenta', async (req) => tx(operativa, async (c) => {
+    const emp = (await c.query('SELECT * FROM empresa WHERE id = $1', [req.params.id])).rows[0];
+    if (!emp) throw noEncontrado('Empresa inexistente');
+    const r = await c.query('UPDATE cuenta_empresa SET empresa_id = NULL, asignada_por = $3, asignada_en = now() WHERE product_number = $1 AND empresa_id = $2', [req.params.cuenta, req.params.id, req.user.usuario]);
+    if (!r.rowCount) throw noEncontrado('La cuenta no está asignada a esta empresa');
+    await auditar(c, req, { tipo: 'Administración', accion: 'Quitó cuenta de empresa', ref: { tipo: 'empresa', id: req.params.id },
+      detalle: `${emp.razon_social} · cuenta ${req.params.cuenta} liberada` });
+    return { quitada: req.params.cuenta };
+  }));
 
   // ---------------- Permisos por empresa ----------------
   app.get('/permisos/:usuario', async (req) => (await operativa.query(
@@ -168,6 +206,24 @@ export default async function rutasAdmin(app) {
     await auditar(null, req, { tipo: 'Administración', accion: 'Restableció clave de usuario', api: 'Keycloak Admin',
       detalle: `${usuario} · clave temporal (se cambia en el primer ingreso)` }); // nunca el valor
     return r;
+  });
+
+  app.put('/usuarios/:usuario/datos', async (req) => {
+    const usuario = req.params.usuario;
+    noASiMismo(req, usuario);
+    const r = await editarDatosUsuario(usuario, req.body ?? {});
+    await auditar(null, req, { tipo: 'Administración', accion: 'Modificó datos de usuario', api: 'Keycloak Admin', detalle: `${usuario} · ${r.cambios.join(' · ') || 'sin cambios'}` });
+    return r;
+  });
+
+  // Eliminar: borra el usuario del SSO y sus permisos por empresa. Su historial de auditoría se conserva.
+  app.delete('/usuarios/:usuario', async (req) => {
+    const usuario = req.params.usuario;
+    noASiMismo(req, usuario);
+    await eliminarUsuario(usuario);
+    const permisos = (await operativa.query('DELETE FROM permiso_empresa WHERE usuario = $1', [usuario])).rowCount;
+    await auditar(null, req, { tipo: 'Administración', accion: 'Eliminó usuario', api: 'Keycloak Admin', detalle: `${usuario} · ${permisos} permisos por empresa quitados · la auditoría de sus acciones se conserva` });
+    return { usuario, eliminado: true, permisosQuitados: permisos };
   });
 
   app.get('/usuarios/:usuario/estado', async (req) => estadoUsuario(req.params.usuario));

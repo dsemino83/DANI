@@ -12,7 +12,8 @@ CREATE TABLE empresa (
   cuit          char(11)    NOT NULL UNIQUE CHECK (cuit ~ '^[0-9]{11}$'),
   activa        boolean     NOT NULL DEFAULT true,
   creada_por    text        NOT NULL,
-  creada_en     timestamptz NOT NULL DEFAULT now()
+  creada_en     timestamptz NOT NULL DEFAULT now(),
+  emails        text[]      NOT NULL DEFAULT '{}' CONSTRAINT empresa_emails_max CHECK (cardinality(emails) <= 20)  -- contactos de la empresa
 );
 
 -- Una cuenta pertenece a una sola empresa; empresa_id NULL = sin asignar.

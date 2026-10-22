@@ -57,8 +57,14 @@ else
   docker compose $PERFILES up -d --build --wait --wait-timeout 600
 fi
 
+# Cambios de esquema de la versión nueva (idempotentes)
+sh scripts/migrar-bases.sh
+
 # Correo saliente de Keycloak (Mailpit, o el servidor real si HB_SMTP_HOST está en .env)
 for i in $(seq 1 30); do sh scripts/configurar-correo.sh && break; [ "$i" = 30 ] && exit 1; sleep 5; done
+
+# URLs permitidas del login (por si cambió la dirección pública)
+sh scripts/configurar-dominio.sh
 
 # Portainer: panel web para ver, reiniciar, actualizar y leer los logs de los contenedores.
 if ! docker container inspect portainer >/dev/null 2>&1; then

@@ -60,7 +60,7 @@ export async function listarUsuarios() {
   for (const rol of ROLES_APP) {
     const lista = await api(t, `/clients/${cli.id}/roles/${encodeURIComponent(rol)}/users?max=1000`);
     for (const u of lista) {
-      const x = usuarios.get(u.username) ?? { usuario: u.username, nombre: [u.firstName, u.lastName].filter(Boolean).join(' '), email: u.email ?? '', habilitado: u.enabled !== false, roles: [] };
+      const x = usuarios.get(u.username) ?? { usuario: u.username, nombre: [u.firstName, u.lastName].filter(Boolean).join(' '), nombres: u.firstName ?? '', apellido: u.lastName ?? '', email: u.email ?? '', habilitado: u.enabled !== false, roles: [] };
       x.roles.push(rol);
       usuarios.set(u.username, x);
     }
@@ -190,5 +190,34 @@ export async function desbloquearUsuario(usuario) {
   const t = await token();
   const { id } = await idDeUsuario(t, usuario);
   await api(t, `/attack-detection/brute-force/users/${id}`, { method: 'DELETE' });
+  return { usuario };
+}
+
+// Nombre, apellido y email (el nombre de usuario no cambia: lo usan la auditoría y los permisos).
+export function validarDatos(d) {
+  const nombre = String(d.nombre ?? '').trim(), apellido = String(d.apellido ?? '').trim(), email = String(d.email ?? '').trim();
+  if (!nombre || !apellido) throw invalido('Faltan nombre y apellido');
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw invalido('Email inválido');
+  return { nombre, apellido, email };
+}
+
+export async function editarDatosUsuario(usuario, datos) {
+  const d = validarDatos(datos);
+  const t = await token();
+  const { id } = await idDeUsuario(t, usuario);
+  const u = await api(t, `/users/${id}`);
+  const cambios = [
+    u.firstName !== d.nombre && `nombre: ${u.firstName ?? '—'} → ${d.nombre}`,
+    u.lastName !== d.apellido && `apellido: ${u.lastName ?? '—'} → ${d.apellido}`,
+    (u.email ?? '') !== d.email && `email: ${u.email ?? '—'} → ${d.email}`,
+  ].filter(Boolean);
+  if (cambios.length) await api(t, `/users/${id}`, { method: 'PUT', body: JSON.stringify({ firstName: d.nombre, lastName: d.apellido, email: d.email, emailVerified: true }) });
+  return { usuario, cambios };
+}
+
+export async function eliminarUsuario(usuario) {
+  const t = await token();
+  const { id } = await idDeUsuario(t, usuario);
+  await api(t, `/users/${id}`, { method: 'DELETE' });
   return { usuario };
 }
