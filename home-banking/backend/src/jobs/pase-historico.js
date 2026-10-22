@@ -40,7 +40,8 @@ export const TABLAS_FILAS = [
     ddl: `CREATE TABLE IF NOT EXISTS mensaje (
       id bigint PRIMARY KEY, usuario text NOT NULL, tipo text NOT NULL, titulo text NOT NULL, texto text NOT NULL,
       empresas text[] NOT NULL, ref_tipo text, ref_id bigint, creado_por text NOT NULL, creado_en timestamptz NOT NULL, visto_en timestamptz);
-      CREATE INDEX IF NOT EXISTS h_mensaje_usuario_idx ON mensaje (usuario, creado_en)`,
+      CREATE INDEX IF NOT EXISTS h_mensaje_usuario_idx ON mensaje (usuario, creado_en);
+      ALTER TABLE mensaje ADD COLUMN IF NOT EXISTS visto_motivo text`,  // migración 011
   },
   {
     tabla: 'envio_mail_log', columna: 'en', terminadas: 'true',

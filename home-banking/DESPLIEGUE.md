@@ -156,7 +156,7 @@ Para probar sin instalar nada: una máquina virtual de GitHub con Docker que lev
 
 ## Buzón de mensajes
 
-En el encabezado, **✉ Mensajes** (con la cantidad sin leer). Cuando alguien carga una transferencia o confirma un lote que necesita autorización, les llega un mensaje a **todas las personas asociadas a esos clientes** (permiso Ver sobre la empresa en *Usuarios y permisos*), salvo a quien la cargó. El mensaje aparece solo en pantalla (se revisa cada 30 segundos) y queda **visto** cuando el destinatario lo abre; **Aceptar** lleva a **Aprobaciones** (a quien no tiene el rol de aprobar, al registro de Transferencias). En la lista se ve el estado actual de cada operación. Los mensajes ya leídos pasan a la base histórica con el pase mensual.
+En el encabezado, **✉ Mensajes** (con la cantidad sin leer). Cuando alguien carga una transferencia o confirma un lote que necesita autorización, les llega un mensaje a **todas las personas asociadas a esos clientes** (permiso Ver sobre la empresa en *Usuarios y permisos*), salvo a quien la cargó. Se revisa cada 30 segundos: mientras haya mensajes sin leer el botón queda **rojo y latiendo**, y cuando llega uno nuevo se sacude y se abre solo con una **franja roja parpadeante**. Un mensaje queda **leído** cuando el destinatario lo abre (solo ese: si había varios, los demás siguen sin leer); **Aceptar** lleva a **Aprobaciones** (a quien no tiene el rol de aprobar, al registro de Transferencias). Si la operación de un mensaje sin leer ya fue autorizada o resuelta por otro, al actualizar pasa sola a leído. El buzón muestra **solo los últimos 7 días**. Los mensajes ya leídos pasan a la base histórica con el pase mensual.
 
 ## Envíos programados de correo a las empresas
 

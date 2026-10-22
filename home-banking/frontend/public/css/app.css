@@ -169,3 +169,16 @@ pre { background: var(--bg); border: 1px solid var(--line); border-radius: var(-
 /* Movimientos: créditos por causal y por CUIT, lado a lado */
 .resumen-creditos { margin-bottom: 16px; }
 .resumen-creditos .card { margin: 0; }
+
+/* Buzón: alerta roja y en movimiento cuando hay mensajes sin leer / llega uno nuevo */
+.buzon.con-nuevos { background: var(--rojo); color: var(--rojo-txt); border-color: var(--rojo); animation: buzon-latido 1.2s ease-in-out infinite; }
+.buzon.con-nuevos .buzon-n { background: var(--rojo-txt); color: var(--rojo); }
+.buzon.llego { animation: buzon-sacudida .6s ease-in-out 3, buzon-latido 1.2s ease-in-out 1.8s infinite; }
+@keyframes buzon-latido { 0%, 100% { box-shadow: 0 0 0 0 rgba(206, 22, 46, .55); transform: scale(1); } 50% { box-shadow: 0 0 0 8px rgba(206, 22, 46, 0); transform: scale(1.06); } }
+@keyframes buzon-sacudida { 0%, 100% { transform: rotate(0); } 20% { transform: rotate(-8deg) scale(1.1); } 40% { transform: rotate(8deg) scale(1.1); } 60% { transform: rotate(-5deg); } 80% { transform: rotate(5deg); } }
+.modal.modal-alerta { border: 2px solid var(--rojo); border-top-width: 6px; animation: buzon-entrada .45s ease-out, buzon-borde 1s ease-in-out .45s 4; }
+.alerta-nueva { margin: -18px -18px 14px; padding: 10px 18px; background: var(--rojo); color: var(--rojo-txt); font-weight: 700; letter-spacing: .02em; animation: buzon-parpadeo 1s ease-in-out infinite; }
+@keyframes buzon-entrada { from { transform: translateY(-30px) scale(.96); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes buzon-borde { 50% { box-shadow: 0 0 0 6px rgba(206, 22, 46, .35); } }
+@keyframes buzon-parpadeo { 50% { background: #9b1022; } }
+@media (prefers-reduced-motion: reduce) { .buzon.con-nuevos, .buzon.llego, .modal.modal-alerta, .alerta-nueva { animation: none; } }
