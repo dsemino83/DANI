@@ -59,6 +59,20 @@ export const config = {
     maxPaginasMovimientos: Number(leer('BDV_MAX_PAGINAS', '200')),
   },
 
+  // Modelo "CUENTAS CBU" de Power BI (área Patrimonios): CBU de las cuentas que el banco no informa.
+  // Conexión por API (service principal de Entra) o por un flujo de Power Automate; ver DESPLIEGUE.md.
+  powerbi: {
+    grupo: leer('PBI_GRUPO', '8c5ea95d-aeac-47b6-980a-f7ca7156555e'),
+    modelo: leer('PBI_MODELO', 'b8de93a5-eaf3-4226-a841-c924284cf7b1'),
+    tabla: leer('PBI_TABLA', 'Cuenta'),
+    colCuenta: leer('PBI_COLUMNA_CUENTA', 'Cuenta Numero'),
+    colCbu: leer('PBI_COLUMNA_CBU', 'Cuenta CBU'),
+    tenantId: leer('PBI_TENANT_ID', ''),
+    clientId: leer('PBI_CLIENT_ID', ''),
+    flujoUrl: leer('PBI_FLUJO_URL', ''),
+    secreto: leer('PBI_SECRETO', ''), // client secret de la aplicación o clave del flujo
+  },
+
   // Monto (ARS) que el banco deja operar sin su propia autorización. Solo informativo:
   // el estado real lo devuelve el banco (nroControl / getTransfersStatus).
   limiteSinAutorizacion: Number(leer('BDV_LIMITE_SIN_AUTORIZACION', '0')),

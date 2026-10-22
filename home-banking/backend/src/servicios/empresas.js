@@ -23,11 +23,13 @@ export const coincide = (cuenta, texto) => !texto || [cuenta.nombre, cuenta.alia
 export const cbuDeCuenta = (c) => [c?.cbu, c?.cbuNumber, c?.productCbu, c?.cbuCvu]
   .map((v) => String(v ?? '').replace(/\D/g, '')).find((v) => v.length === 22) ?? null;
 
-// Arma la fila de empresa_cbu con la respuesta de COELSA; valida que el CBU sea el de la cuenta.
-export function filaCoelsa(cuenta, r) {
+// Arma la fila de empresa_cbu con la respuesta de COELSA; valida que el CBU sea el de la cuenta
+// (el que informa el banco o, si no lo informa, el del modelo de Power BI).
+export function filaCoelsa(cuenta, r, cbuPowerBI = null) {
   const cbu = String(r?.cbu ?? '').replace(/\D/g, '');
   if (cbu.length !== 22) throw new Error('COELSA no devolvió un CBU válido');
   const propio = cbuDeCuenta(cuenta);
   if (propio && propio !== cbu) throw new Error(`COELSA devolvió otro CBU (${cbu}) que el informado por el banco (${propio})`);
+  if (!propio && cbuPowerBI && cbuPowerBI !== cbu) throw new Error(`COELSA devolvió otro CBU (${cbu}) que el de Power BI (${cbuPowerBI})`);
   return { cbu, alias: r.alias || null, titular: r.headline || null, cuitTitular: r.cuit ? String(r.cuit) : null };
 }

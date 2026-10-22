@@ -86,6 +86,7 @@ Y en los comandos del paso 6 agregá `--profile sso-local` (`docker compose --pr
 
 ```sh
 docker login -u <usuario-docker-hub>     # repositorio privado: usar un token de solo lectura (Read-only)
+sh scripts/generar-secretos.sh             # solo crea los secretos nuevos que falten (p. ej. powerbi_secreto.txt)
 docker compose pull
 docker compose up -d --no-build           # --no-build: usa solo las imágenes descargadas
 docker compose ps                         # postgres, postgres-historico, backend, jobs y frontend en "healthy"
@@ -111,7 +112,7 @@ Todo se hace desde la aplicación con `admin.ti` (administrador de seguridad), e
 | Roles **Crear** / **Aprobar** transferencias | **Roles de transferencias** del usuario |
 | Permisos **Ver** / **Operar** por empresa | **Empresas** del usuario (y el maestro de empresas en **Empresas**) |
 
-**Empresas** (también del administrador): el CUIT es único (la pantalla y la base rechazan una segunda empresa con el mismo CUIT). Cada empresa tiene uno o más **emails** (se cargan al darla de alta, separados por coma, y después se agregan o quitan con ✕). Sus cuentas se asignan con **Agregar cuentas**: lista solo las cuentas sin empresa, con buscador por nombre, alias o número (contiene) y selección múltiple. Al agregarlas, cada cuenta se consulta en **COELSA** y se guardan su CBU, alias y titular en la tabla `empresa_cbu`; las que COELSA no resuelve no se agregan y se muestran con el motivo. **Dar de baja** una cuenta no la borra: la relación pasa a estado `baja` (queda en el historial de la empresa) y la cuenta vuelve a estar disponible. La base garantiza que cada CBU y cada cuenta tenga **una sola relación activa** con una empresa.
+**Empresas** (también del administrador): el CUIT es único (la pantalla y la base rechazan una segunda empresa con el mismo CUIT). Cada empresa tiene uno o más **emails** (se cargan al darla de alta, separados por coma, y después se agregan o quitan con ✕). Sus cuentas se asignan con **Agregar cuentas**: lista solo las cuentas sin empresa, con buscador por nombre, alias o número (contiene) y selección múltiple. Al agregarlas, cada cuenta se consulta en **COELSA** y se guardan su CBU, alias y titular en la tabla `empresa_cbu`; las que COELSA no resuelve no se agregan y se muestran con el motivo. Si el banco no informa el CBU de una cuenta, se toma del modelo **CUENTAS CBU** de Power BI (ver *CBU desde Power BI*) y COELSA tiene que devolver ese mismo CBU. **Dar de baja** una cuenta no la borra: la relación pasa a estado `baja` (queda en el historial de la empresa) y la cuenta vuelve a estar disponible. La base garantiza que cada CBU y cada cuenta tenga **una sola relación activa** con una empresa.
 
 **Qué cuentas ve cada usuario:** solo las cuentas activas de empresas activas sobre las que el administrador le dio **Ver** (u **Operar**). Mientras el administrador no cargue empresas, cuentas y permisos, los cargadores no ven ninguna cuenta.
 
@@ -162,6 +163,35 @@ La aplicación y el inicio de sesión usan la misma dirección: al entrar a `htt
 3. En `.env`: `HB_URL_PUBLICA=https://ealyc.valo.ar`, `OIDC_ISSUER=https://ealyc.valo.ar/auth/realms/staff` y `OIDC_ORIGIN=https://ealyc.valo.ar`.
 4. `docker compose --profile sso-local up -d` y `sh scripts/configurar-dominio.sh` (habilita la dirección nueva en el cliente `home-banking-web` de Keycloak; la anterior deja de funcionar).
 
+## CBU desde Power BI
+
+Cuando el banco no informa el CBU de una cuenta, el backend lo busca en el modelo semántico **CUENTAS CBU** (área de trabajo **Patrimonios**, tabla `Cuenta`, columnas `Cuenta Numero` y `Cuenta CBU`) y con ese CBU consulta el alias y el titular en COELSA. Es la misma conexión que usa la rama VALO. La consulta se repite como mucho cada 10 minutos.
+
+```
+EVALUATE SELECTCOLUMNS('Cuenta', "cuenta", 'Cuenta'[Cuenta Numero], "cbu", 'Cuenta'[Cuenta CBU])
+```
+
+El área y el modelo ya vienen cargados (`PBI_GRUPO`, `PBI_MODELO`; también `PBI_TABLA`, `PBI_COLUMNA_CUENTA` y `PBI_COLUMNA_CBU` si cambian los nombres). La columna `Cuenta CBU` tiene que ser **texto**: un número de 22 dígitos pierde precisión y se descarta. Hay dos formas de conectarse; el secreto de cualquiera de las dos va en `secrets/powerbi_secreto.txt`, sin salto de línea (vacío = sin Power BI).
+
+**A) API con service principal (recomendada).** Una sola vez:
+1. Portal de Azure → Microsoft Entra ID → *Registros de aplicaciones* → *Nuevo registro* (por ejemplo `home-banking-powerbi`) y crearle un *secreto de cliente*. No hace falta darle permisos de API. Si ya existe la aplicación que usa la rama VALO, sirve la misma.
+2. Portal de administración de Fabric → *Configuración del inquilino*: habilitar que **las entidades de servicio puedan usar las API de Fabric/Power BI** y la **API REST de ejecución de consultas del modelo semántico** (*Dataset Execute Queries REST API*).
+3. Área **Patrimonios** → *Administrar acceso* → agregar la aplicación como **Miembro** o **Colaborador** (con *Visor* no alcanza).
+4. En `.env`: `PBI_TENANT_ID` y `PBI_CLIENT_ID`; el secreto de cliente en `secrets/powerbi_secreto.txt`.
+
+**B) Flujo de Power Automate.** Igual que el flujo de la rama VALO (`valo/powerautomate/POWERBI.md`): disparador HTTP (*Cualquiera*), valida la clave y ejecuta *Ejecutar una consulta en un conjunto de datos* sobre **Patrimonios / CUENTAS CBU** con el texto `outputs('Pedido')?['consulta']`, y responde 200 con *First table rows*. En `.env`: `PBI_FLUJO_URL` (la HTTP URL del disparador); la clave del flujo en `secrets/powerbi_secreto.txt`. Si están las dos configuradas, se usa el flujo.
+
+Si el modelo tiene seguridad por filas (RLS), la API no deja consultarlo con service principal.
+
+**Probar:** `GET /api/admin/powerbi` (con un usuario administrador) responde el modo y cuántas cuentas con CBU trae el modelo, o el error. Los motivos de rechazo en **Agregar cuentas** también dicen si falló Power BI.
+
+| Error | Causa |
+|---|---|
+| *el login de Microsoft respondió HTTP 400/401* | tenant, client id o secreto mal copiados, o el secreto venció |
+| *Power BI respondió HTTP 401/403* | la aplicación no está en el área Patrimonios o faltan los permisos del inquilino |
+| *no está en el modelo de Power BI* | la cuenta no figura en la tabla `Cuenta`, su CBU no tiene 22 dígitos o tiene dos CBU distintos |
+| *COELSA devolvió otro CBU … que el de Power BI* | el CBU del modelo no corresponde a la cuenta: revisar el dato en Power BI |
+
 ## 7. Actualizar a una versión nueva
 
 Cada push a `ALYC` que pasa las pruebas publica `backend-alyc`/`frontend-alyc` y la versión fija `backend-<commit>`/`frontend-<commit>`.
@@ -173,7 +203,7 @@ docker compose up -d                      # recrea solo lo que cambió; las base
 sh scripts/migrar-bases.sh                # cambios de esquema de la versión nueva (si no hay, no hace nada)
 ```
 
-**Volver atrás:** poner el `HB_VERSION` anterior y repetir los dos comandos. Si una versión nueva cambió el esquema de la base, consultar antes de volver atrás.
+**Volver atrás:** poner el `HB_VERSION` anterior y repetir los comandos. Si una versión nueva cambió el esquema de la base, consultar antes de volver atrás.
 
 ## 8. Resguardo de las bases
 
