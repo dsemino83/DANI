@@ -1,0 +1,43 @@
+{
+  "name": "Home Banking VALO · máquina de prueba",
+  "image": "mcr.microsoft.com/devcontainers/base:ubuntu-24.04",
+  "features": {
+    "ghcr.io/devcontainers/features/docker-in-docker:2": {}
+  },
+  "hostRequirements": {
+    "cpus": 4,
+    "memory": "8gb",
+    "storage": "32gb"
+  },
+  "secrets": {
+    "DOCKERHUB_USERNAME": {
+      "description": "Usuario de Docker Hub: si está, la máquina descarga las imágenes publicadas en vez de compilarlas"
+    },
+    "DOCKERHUB_TOKEN": {
+      "description": "Token de Docker Hub de solo lectura (Read-only)"
+    }
+  },
+  "forwardPorts": [
+    443,
+    9443,
+    8025
+  ],
+  "portsAttributes": {
+    "443": {
+      "label": "Home Banking",
+      "protocol": "https",
+      "onAutoForward": "notify"
+    },
+    "9443": {
+      "label": "Portainer (panel de Docker)",
+      "protocol": "https",
+      "onAutoForward": "notify"
+    },
+    "8025": {
+      "label": "Correo de prueba (Mailpit)",
+      "protocol": "http",
+      "onAutoForward": "silent"
+    }
+  },
+  "postStartCommand": "bash home-banking/scripts/maquina-prueba.sh"
+}

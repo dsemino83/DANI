@@ -1,0 +1,303 @@
+# Home Banking VALO: pruebas, prueba de humo del stack completo en Docker y publicación de imágenes en Docker Hub.
+# Secretos del repositorio (Settings → Secrets and variables → Actions):
+#   DOCKERHUB_USERNAME  usuario u organización de Docker Hub
+#   DOCKERHUB_TOKEN     access token de Docker Hub con permiso Read & Write
+# Las imágenes no llevan secretos: claves, certificados y credenciales se montan al desplegar.
+name: Home Banking · imágenes Docker
+
+on:
+  push:
+    branches: [ALYC]
+    paths: ['home-banking/**', '.devcontainer/**', '.github/workflows/home-banking-imagenes.yml']
+  pull_request:
+    paths: ['home-banking/**', '.devcontainer/**', '.github/workflows/home-banking-imagenes.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: home-banking-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    working-directory: home-banking
+
+jobs:
+  pruebas:
+    name: Pruebas del backend
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm ci
+        working-directory: home-banking/backend
+      - run: npm test
+        working-directory: home-banking/backend
+
+  humo:
+    name: Prueba de humo (stack completo en Docker)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Secretos y certificado de prueba
+        run: sh scripts/generar-secretos.sh
+      - name: Configuración de prueba (Keycloak local, banco en homologación, solo consultas)
+        run: |
+          cat > .env <<'EOF'
+          BDV_AMBIENTE=homo
+          BDV_SOLO_CONSULTAS=true
+          HB_URL_PUBLICA=https://localhost
+          OIDC_ISSUER=https://localhost/auth/realms/staff
+          OIDC_INTERNAL_URL=http://keycloak:8080/auth/realms/staff
+          OIDC_ORIGIN=https://localhost
+          OIDC_CLIENT_ID=home-banking-web
+          OIDC_AUDIENCE=home-banking-api
+          OIDC_ROLES_CLIENT=home-banking-api
+          KEYCLOAK_ADMIN_CLIENT_ID=home-banking-admin
+          HTTPS_PORT=443
+          EOF
+      - name: Levantar
+        run: docker compose --profile sso-local --profile correo-prueba up -d --build --wait --wait-timeout 300
+      - name: Verificar
+        run: |
+          set -e
+          curl -fsSk https://localhost/ | grep -q 'js/app.js'                       && echo 'frontend OK'
+          curl -fsSk https://localhost/config.json | grep -q '"oidcIssuer"'        && echo 'config.json OK'
+          curl -fsSk https://localhost/api/health                                    && echo ' health OK'
+          test "$(curl -sk -o /dev/null -w '%{http_code}' https://localhost/api/me)" = 401 && echo '/api/me sin token → 401 OK'
+          curl -fsSk -I https://localhost/ | grep -qi 'content-security-policy'      && echo 'CSP OK'
+          curl -fsSk -I https://localhost/js/app.js | grep -qi 'cache-control: no-cache' && curl -fsSk -I https://localhost/js/app.js | grep -qi 'content-security-policy' && echo 'JS sin caché vieja y con CSP OK'
+          for i in $(seq 1 40); do curl -fsk https://localhost/auth/realms/staff/.well-known/openid-configuration >/dev/null && break; sleep 5; done
+          curl -fsk https://localhost/auth/realms/staff/.well-known/openid-configuration | grep -q '"issuer":"https://localhost/auth/realms/staff"' && echo 'Keycloak en /auth OK'
+          AUTH='https://localhost/auth/realms/staff/protocol/openid-connect/auth?client_id=home-banking-web&response_type=code&scope=openid'
+          test "$(curl -sk -o /dev/null -w '%{http_code}' "$AUTH&redirect_uri=https%3A%2F%2Flocalhost%2F")" = 200 && echo 'redirect URI de la app aceptada'
+          test "$(curl -sk -o /dev/null -w '%{http_code}' "$AUTH&redirect_uri=https%3A%2F%2Fotro.example%2F")" = 400 && echo 'redirect URI ajena rechazada'
+          curl -fsk https://localhost/auth/realms/staff/protocol/openid-connect/token -d grant_type=client_credentials -d client_id=home-banking-admin --data-urlencode "client_secret=$(cat secrets/keycloak_admin_client_secret.txt)" | grep -q access_token && echo 'service account OK'
+          docker compose exec -T postgres psql -U postgres -d homebanking -Atc "SELECT count(*) FROM pg_tables WHERE tablename IN ('envio_banco','referencia_usada','credencial_api')" | grep -qx 3 && echo 'esquema OK'
+          sh scripts/configurar-correo.sh
+          sh scripts/migrar-bases.sh && sh scripts/migrar-bases.sh   # idempotente sobre una base nueva
+          docker compose exec -T postgres psql -U postgres -d homebanking -Atc "SELECT count(*) FROM pg_constraint WHERE conname = 'empresa_emails_max'" | grep -qx 1 && echo 'migraciones OK'
+          docker compose exec -T postgres psql -U postgres -d homebanking -Atc "SELECT to_regclass('empresa_cbu') IS NOT NULL AND to_regclass('cartera_oficial') IS NOT NULL AND to_regclass('cuenta_empresa') IS NULL AND has_table_privilege('hb_app', 'empresa_cbu', 'UPDATE') AND NOT has_table_privilege('hb_app', 'empresa_cbu', 'DELETE')" | grep -qx t && echo 'empresa_cbu OK (hb_app sin DELETE)'
+          # Cambio de dirección pública (p. ej. ealyc.valo.ar) sobre un realm ya importado, y vuelta atrás
+          HB_URL_PUBLICA=https://ealyc.valo.ar sh scripts/configurar-dominio.sh
+          test "$(curl -sk -o /dev/null -w '%{http_code}' "$AUTH&redirect_uri=https%3A%2F%2Fealyc.valo.ar%2F")" = 200 && echo 'dominio nuevo aceptado'
+          test "$(curl -sk -o /dev/null -w '%{http_code}' "$AUTH&redirect_uri=https%3A%2F%2Flocalhost%2F")" = 400 && echo 'dominio anterior rechazado'
+          sh scripts/configurar-dominio.sh
+          test "$(curl -sk -o /dev/null -w '%{http_code}' "$AUTH&redirect_uri=https%3A%2F%2Flocalhost%2F")" = 200 && echo 'dominio restaurado'
+          docker compose ps
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Gestión de usuarios contra Keycloak real
+        run: |
+          cd backend && npm ci --omit=dev
+          NODE_TLS_REJECT_UNAUTHORIZED=0 \
+          OIDC_ISSUER=https://localhost/auth/realms/staff OIDC_INTERNAL_URL=https://localhost/auth/realms/staff \
+          OIDC_ROLES_CLIENT=home-banking-api KEYCLOAK_ADMIN_CLIENT_ID=home-banking-admin \
+          KEYCLOAK_ADMIN_CLIENT_SECRET_FILE=../secrets/keycloak_admin_client_secret.txt \
+          DB_PASSWORD=x DBH_PASSWORD=x CREDENCIALES_MASTER_KEY=$(openssl rand -base64 32) MAILPIT_URL=http://localhost:8025 \
+          node test/integracion-keycloak.mjs
+      - name: Logs si falla
+        if: failure()
+        run: docker compose --profile sso-local --profile correo-prueba logs --no-color --tail 200
+      - name: Bajar
+        if: always()
+        run: docker compose --profile sso-local --profile correo-prueba down -v
+
+  publicar:
+    name: Publicar en Docker Hub
+    needs: [pruebas, humo]
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    env:
+      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+    steps:
+      - name: Verificar secretos
+        run: |
+          if [ -z "$DOCKERHUB_USERNAME" ] || [ -z "$DOCKERHUB_TOKEN" ]; then
+            echo "::error::Faltan los secretos DOCKERHUB_USERNAME y DOCKERHUB_TOKEN en el repositorio"; exit 1
+          fi
+        working-directory: .
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Nombre de la imagen
+        id: img
+        run: |
+          echo "nombre=docker.io/${DOCKERHUB_USERNAME}/home-banking-valo" >> "$GITHUB_OUTPUT"
+          echo "corto=$(echo "$GITHUB_SHA" | cut -c1-7)" >> "$GITHUB_OUTPUT"
+          echo "rama=$(echo "$GITHUB_REF_NAME" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9.\n-' '-')" >> "$GITHUB_OUTPUT"
+        working-directory: .
+      - name: Backend
+        uses: docker/build-push-action@v6
+        with:
+          context: home-banking/backend
+          push: true
+          tags: |
+            ${{ steps.img.outputs.nombre }}:backend-${{ steps.img.outputs.rama }}
+            ${{ steps.img.outputs.nombre }}:backend-${{ steps.img.outputs.corto }}
+      - name: Frontend
+        uses: docker/build-push-action@v6
+        with:
+          context: home-banking/frontend
+          push: true
+          tags: |
+            ${{ steps.img.outputs.nombre }}:frontend-${{ steps.img.outputs.rama }}
+            ${{ steps.img.outputs.nombre }}:frontend-${{ steps.img.outputs.corto }}
+      - name: Base operativa
+        uses: docker/build-push-action@v6
+        with:
+          context: home-banking/db/operativa
+          push: true
+          tags: |
+            ${{ steps.img.outputs.nombre }}:db-operativa-${{ steps.img.outputs.rama }}
+            ${{ steps.img.outputs.nombre }}:db-operativa-${{ steps.img.outputs.corto }}
+      - name: Base histórica
+        uses: docker/build-push-action@v6
+        with:
+          context: home-banking/db/historica
+          push: true
+          tags: |
+            ${{ steps.img.outputs.nombre }}:db-historica-${{ steps.img.outputs.rama }}
+            ${{ steps.img.outputs.nombre }}:db-historica-${{ steps.img.outputs.corto }}
+      - name: Keycloak de prueba
+        uses: docker/build-push-action@v6
+        with:
+          context: home-banking/keycloak
+          push: true
+          tags: |
+            ${{ steps.img.outputs.nombre }}:keycloak-dev-${{ steps.img.outputs.rama }}
+            ${{ steps.img.outputs.nombre }}:keycloak-dev-${{ steps.img.outputs.corto }}
+      - name: Resumen
+        run: |
+          {
+            echo "### Imágenes publicadas"
+            echo "- \`${{ steps.img.outputs.nombre }}:backend-${{ steps.img.outputs.rama }}\` y \`backend-${{ steps.img.outputs.corto }}\`"
+            echo "- \`${{ steps.img.outputs.nombre }}:frontend-${{ steps.img.outputs.rama }}\` y \`frontend-${{ steps.img.outputs.corto }}\`"
+            echo "- \`db-operativa\`, \`db-historica\` y \`keycloak-dev\` con los mismos tags"
+            echo ""
+            echo "En el servidor: \`HB_IMAGEN=${{ steps.img.outputs.nombre }}\` y \`HB_VERSION=${{ steps.img.outputs.rama }}\` en .env, después \`docker compose pull && docker compose up -d\`."
+          } >> "$GITHUB_STEP_SUMMARY"
+        working-directory: .
+
+  desde-docker-hub:
+    name: Despliegue desde Docker Hub (kit sin código)
+    needs: [publicar]
+    runs-on: ubuntu-latest
+    env:
+      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Armar el kit (solo configuración, sin código)
+        working-directory: .
+        run: |
+          mkdir -p kit/home-banking-valo/frontend/certs
+          cp home-banking/docker-compose.yml home-banking/.env.example home-banking/DESPLIEGUE.md home-banking/PRUEBA-INTEGRADA.md kit/home-banking-valo/
+          cp -r home-banking/scripts kit/home-banking-valo/
+          touch kit/home-banking-valo/frontend/certs/.gitkeep
+          ls -R kit
+      - name: Secretos y configuración de prueba
+        working-directory: kit/home-banking-valo
+        run: |
+          sh scripts/generar-secretos.sh
+          corto=$(echo "$GITHUB_SHA" | cut -c1-7)
+          cat > .env <<EOT
+          HB_IMAGEN=docker.io/${DOCKERHUB_USERNAME}/home-banking-valo
+          HB_VERSION=${corto}
+          BDV_AMBIENTE=homo
+          BDV_SOLO_CONSULTAS=true
+          HB_URL_PUBLICA=https://localhost
+          OIDC_ISSUER=https://localhost/auth/realms/staff
+          OIDC_INTERNAL_URL=http://keycloak:8080/auth/realms/staff
+          OIDC_ORIGIN=https://localhost
+          OIDC_CLIENT_ID=home-banking-web
+          OIDC_AUDIENCE=home-banking-api
+          OIDC_ROLES_CLIENT=home-banking-api
+          KEYCLOAK_ADMIN_CLIENT_ID=home-banking-admin
+          HTTPS_PORT=443
+          EOT
+      - uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Descargar imágenes y levantar (sin compilar)
+        working-directory: kit/home-banking-valo
+        run: |
+          docker compose --profile sso-local pull
+          docker compose --profile sso-local up -d --no-build --wait --wait-timeout 300
+      - name: Verificar
+        working-directory: kit/home-banking-valo
+        run: |
+          set -e
+          curl -fsSk https://localhost/ | grep -q 'js/app.js'                      && echo 'frontend OK'
+          curl -fsSk https://localhost/api/health                                   && echo ' backend OK'
+          test "$(curl -sk -o /dev/null -w '%{http_code}' https://localhost/api/me)" = 401 && echo 'autenticación OK'
+          for i in $(seq 1 40); do curl -fsk https://localhost/auth/realms/staff/.well-known/openid-configuration >/dev/null && break; sleep 5; done
+          curl -fsk https://localhost/auth/realms/staff/.well-known/openid-configuration | grep -q '"issuer":"https://localhost/auth/realms/staff"' && echo 'Keycloak en /auth OK'
+          AUTH='https://localhost/auth/realms/staff/protocol/openid-connect/auth?client_id=home-banking-web&response_type=code&scope=openid'
+          test "$(curl -sk -o /dev/null -w '%{http_code}' "$AUTH&redirect_uri=https%3A%2F%2Flocalhost%2F")" = 200 && echo 'redirect URI de la app aceptada'
+          test "$(curl -sk -o /dev/null -w '%{http_code}' "$AUTH&redirect_uri=https%3A%2F%2Fotro.example%2F")" = 400 && echo 'redirect URI ajena rechazada'
+          curl -fsk https://localhost/auth/realms/staff/protocol/openid-connect/token -d grant_type=client_credentials -d client_id=home-banking-admin --data-urlencode "client_secret=$(cat secrets/keycloak_admin_client_secret.txt)" | grep -q access_token && echo 'service account OK'
+          docker compose exec -T postgres psql -U postgres -d homebanking -Atc "SELECT count(*) FROM pg_tables WHERE tablename IN ('envio_banco','referencia_usada','credencial_api')" | grep -qx 3 && echo 'base operativa OK'
+          docker compose exec -T postgres psql -U postgres -d homebanking -Atc "SELECT count(*) FROM pg_roles WHERE rolname = 'hb_app'" | grep -qx 1 && echo 'usuario hb_app OK'
+          docker compose exec -T postgres-historico psql -U postgres -d homebanking_hist -Atc "SELECT count(*) FROM pg_roles WHERE rolname = 'hb_hist_ro'" | grep -qx 1 && echo 'base histórica OK'
+          docker compose ps
+      - name: Logs si falla
+        if: failure()
+        working-directory: kit/home-banking-valo
+        run: docker compose --profile sso-local logs --no-color --tail 200
+      - name: Bajar
+        if: always()
+        working-directory: kit/home-banking-valo
+        run: docker compose --profile sso-local down -v
+      - name: Publicar el kit (sin secretos)
+        if: success()
+        working-directory: .
+        run: rm -rf kit/home-banking-valo/secrets kit/home-banking-valo/.env kit/home-banking-valo/frontend/certs/tls.*
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: kit-despliegue-home-banking
+          path: kit/
+          retention-days: 90
+
+  maquina-prueba:
+    name: Máquina de prueba (script del Codespace + Portainer)
+    needs: [publicar]
+    runs-on: ubuntu-latest
+    env:
+      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Levantar con el mismo script que usa el Codespace
+        working-directory: .
+        run: |
+          jq . .devcontainer/devcontainer.json >/dev/null
+          HB_VERSION=$(echo "$GITHUB_SHA" | cut -c1-7) bash home-banking/scripts/maquina-prueba.sh
+      - name: Verificar
+        run: |
+          set -e
+          curl -fsSk https://localhost/ | grep -q 'js/app.js'      && echo 'Home Banking OK'
+          curl -fsSk https://localhost/api/health                   && echo ' backend OK'
+          for i in $(seq 1 40); do curl -fsk https://localhost/auth/realms/staff/.well-known/openid-configuration >/dev/null && break; sleep 5; done
+          curl -fsk https://localhost/auth/realms/staff/.well-known/openid-configuration | grep -q '"issuer":"https://localhost/auth/realms/staff"' && echo 'Keycloak OK'
+          for i in $(seq 1 30); do curl -fsk https://localhost:9443/api/system/status >/dev/null && break; sleep 2; done
+          jq -n --rawfile p secrets/portainer_admin_password.txt '{username:"admin",password:$p}' \
+            | curl -fsk https://localhost:9443/api/auth -H 'Content-Type: application/json' -d @- | grep -q '"jwt"' && echo 'Portainer: ingreso de admin OK'
+          # Segunda corrida (actualizar): tiene que ser idempotente
+          cd .. && HB_VERSION=$(echo "$GITHUB_SHA" | cut -c1-7) bash home-banking/scripts/maquina-prueba.sh
+      - name: Logs si falla
+        if: failure()
+        run: docker compose --profile sso-local --profile correo-prueba logs --no-color --tail 200; docker logs portainer || true
+      - name: Bajar
+        if: always()
+        run: docker compose --profile sso-local --profile correo-prueba down -v; docker rm -f portainer || true

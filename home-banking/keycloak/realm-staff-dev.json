@@ -1,0 +1,189 @@
+{
+  "realm": "staff",
+  "enabled": true,
+  "displayName": "VALO staff (Home Banking en Docker)",
+  "bruteForceProtected": true,
+  "failureFactor": 5,
+  "clients": [
+    {
+      "clientId": "home-banking-web",
+      "name": "Home Banking VALO (SPA)",
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "redirectUris": [
+        "${HB_URL_PUBLICA:https://localhost}/*"
+      ],
+      "webOrigins": [
+        "${HB_URL_PUBLICA:https://localhost}"
+      ],
+      "attributes": {
+        "pkce.code.challenge.method": "S256",
+        "post.logout.redirect.uris": "${HB_URL_PUBLICA:https://localhost}/*"
+      },
+      "protocolMappers": [
+        {
+          "name": "audience-home-banking-api",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "config": {
+            "included.client.audience": "home-banking-api",
+            "access.token.claim": "true",
+            "id.token.claim": "false"
+          }
+        }
+      ],
+      "rootUrl": "${HB_URL_PUBLICA:https://localhost}"
+    },
+    {
+      "clientId": "home-banking-api",
+      "name": "Home Banking VALO (API)",
+      "bearerOnly": true,
+      "publicClient": false
+    },
+    {
+      "clientId": "home-banking-admin",
+      "name": "Home Banking VALO (asignación de roles)",
+      "publicClient": false,
+      "secret": "${HB_ADMIN_CLIENT_SECRET}",
+      "serviceAccountsEnabled": true,
+      "standardFlowEnabled": false
+    }
+  ],
+  "roles": {
+    "client": {
+      "home-banking-api": [
+        {
+          "name": "operador"
+        },
+        {
+          "name": "autorizante"
+        },
+        {
+          "name": "auditor"
+        },
+        {
+          "name": "administrador"
+        },
+        {
+          "name": "transferencias:crear"
+        },
+        {
+          "name": "transferencias:aprobar"
+        }
+      ]
+    }
+  },
+  "users": [
+    {
+      "username": "mgomez",
+      "enabled": true,
+      "firstName": "M.",
+      "lastName": "Gómez",
+      "email": "mgomez@valo.test",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "Dev-mgomez-1",
+          "temporary": true
+        }
+      ],
+      "clientRoles": {
+        "home-banking-api": [
+          "operador",
+          "transferencias:crear"
+        ]
+      }
+    },
+    {
+      "username": "lrodriguez",
+      "enabled": true,
+      "firstName": "L.",
+      "lastName": "Rodríguez",
+      "email": "lrodriguez@valo.test",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "Dev-lrodriguez-1",
+          "temporary": true
+        }
+      ],
+      "clientRoles": {
+        "home-banking-api": [
+          "autorizante",
+          "transferencias:aprobar"
+        ]
+      }
+    },
+    {
+      "username": "svillalba",
+      "enabled": true,
+      "firstName": "S.",
+      "lastName": "Villalba",
+      "email": "svillalba@valo.test",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "Dev-svillalba-1",
+          "temporary": true
+        }
+      ],
+      "clientRoles": {
+        "home-banking-api": [
+          "auditor"
+        ]
+      }
+    },
+    {
+      "username": "admin.ti",
+      "enabled": true,
+      "firstName": "Admin",
+      "lastName": "Seguridad",
+      "email": "admin.ti@valo.test",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "Dev-admin-1",
+          "temporary": true
+        }
+      ],
+      "clientRoles": {
+        "home-banking-api": [
+          "administrador"
+        ],
+        "realm-management": [
+          "manage-users",
+          "view-users",
+          "query-users",
+          "view-clients",
+          "query-clients",
+          "query-groups"
+        ]
+      }
+    },
+    {
+      "username": "service-account-home-banking-admin",
+      "enabled": true,
+      "serviceAccountClientId": "home-banking-admin",
+      "clientRoles": {
+        "realm-management": [
+          "view-users",
+          "manage-users",
+          "view-clients"
+        ]
+      }
+    }
+  ],
+  "eventsEnabled": true,
+  "eventsExpiration": 7776000,
+  "enabledEventTypes": [
+    "LOGIN",
+    "LOGIN_ERROR",
+    "LOGOUT",
+    "UPDATE_PASSWORD",
+    "CODE_TO_TOKEN",
+    "CODE_TO_TOKEN_ERROR"
+  ],
+  "adminEventsEnabled": true,
+  "adminEventsDetailsEnabled": true
+}

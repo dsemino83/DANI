@@ -1,0 +1,60 @@
+# Nginx: sirve la SPA y hace de proxy a /api. El navegador nunca habla con el banco.
+# Plantilla procesada por envsubst al arrancar (imagen oficial de nginx): ${OIDC_ORIGIN}.
+server {
+  listen 443 ssl;
+  http2 on;
+  server_name _;
+
+  ssl_certificate     /etc/nginx/certs/tls.crt;
+  ssl_certificate_key /etc/nginx/certs/tls.key;
+  ssl_protocols TLSv1.2 TLSv1.3;
+
+  add_header Strict-Transport-Security "max-age=31536000" always;
+  add_header X-Content-Type-Options nosniff always;
+  add_header X-Frame-Options DENY always;
+  add_header Referrer-Policy no-referrer always;
+  # Solo scripts propios; el navegador solo puede hablar con la app y con el SSO de VALO
+  add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self' ${OIDC_ORIGIN}; frame-ancestors 'none'; base-uri 'none'; form-action 'self' ${OIDC_ORIGIN}" always;
+
+  client_max_body_size 10m;   # carga masiva
+
+  location /api/ {
+    proxy_pass http://backend:8080;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto https;
+    proxy_read_timeout 300s;  # aprobación de lotes y exportaciones largas
+  }
+
+  # Keycloak propio (perfil sso-local): mismo origen que la app. Se resuelve en cada pedido, así Nginx
+  # arranca aunque Keycloak no esté (cuando se usa el SSO de VALO). Sin la CSP de la app: Keycloak trae la suya.
+  location /auth/ {
+    resolver 127.0.0.11 valid=10s ipv6=off;
+    set $hb_keycloak http://keycloak:8080;
+    proxy_pass $hb_keycloak;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto https;
+    proxy_set_header X-Forwarded-Host $host;
+    proxy_set_header X-Forwarded-Port 443;
+    proxy_buffer_size 128k;     # cabeceras grandes de Keycloak (cookies y tokens)
+    proxy_buffers 4 256k;
+    add_header Strict-Transport-Security "max-age=31536000" always;
+    add_header X-Content-Type-Options nosniff always;
+    add_header Referrer-Policy no-referrer always;
+  }
+
+  location = /config.json {
+    root /usr/share/nginx/html;
+    add_header Cache-Control "no-store" always;
+  }
+
+  location / {
+    root /usr/share/nginx/html;
+    try_files $uri /index.html;
+    # El navegador revalida cada archivo (ETag → 304 si no cambió): después de actualizar se ve la versión
+    # nueva sin borrar la caché. "expires" (no add_header) para no perder los encabezados de seguridad.
+    expires epoch;
+    etag on;
+  }
+}
