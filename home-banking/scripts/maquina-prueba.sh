@@ -9,10 +9,14 @@ cd "$(dirname "$0")/.."
 if [ -n "${CODESPACE_NAME:-}" ]; then
   URL="https://${CODESPACE_NAME}-443.${GITHUB_CODESPACES_PORT_FORWARDING_DOMAIN:-app.github.dev}"
   PANEL="https://${CODESPACE_NAME}-9443.${GITHUB_CODESPACES_PORT_FORWARDING_DOMAIN:-app.github.dev}"
+  CORREO="https://${CODESPACE_NAME}-8025.${GITHUB_CODESPACES_PORT_FORWARDING_DOMAIN:-app.github.dev}"
 else
   URL="${HB_URL_PUBLICA:-https://localhost}"
   PANEL="https://localhost:9443"
+  CORREO="http://localhost:8025"
 fi
+# Keycloak propio + buzón de correo de prueba (Mailpit) para los avisos de cambio de clave
+PERFILES="--profile sso-local --profile correo-prueba"
 
 echo "Esperando a Docker..."
 for _ in $(seq 1 60); do docker info >/dev/null 2>&1 && break; sleep 2; done
@@ -46,12 +50,15 @@ if [ -n "${DOCKERHUB_USERNAME:-}" ] && [ -n "${DOCKERHUB_TOKEN:-}" ]; then
   echo "$DOCKERHUB_TOKEN" | docker login -u "$DOCKERHUB_USERNAME" --password-stdin >/dev/null
   export HB_IMAGEN="docker.io/${DOCKERHUB_USERNAME}/home-banking-valo" HB_VERSION="${HB_VERSION:-alyc}"
   echo "Descargando ${HB_IMAGEN} (${HB_VERSION})..."
-  docker compose --profile sso-local pull
-  docker compose --profile sso-local up -d --no-build --wait --wait-timeout 300
+  docker compose $PERFILES pull
+  docker compose $PERFILES up -d --no-build --wait --wait-timeout 300
 else
   echo "Sin DOCKERHUB_USERNAME/DOCKERHUB_TOKEN: se compilan las imágenes desde el código."
-  docker compose --profile sso-local up -d --build --wait --wait-timeout 600
+  docker compose $PERFILES up -d --build --wait --wait-timeout 600
 fi
+
+# Correo saliente de Keycloak (Mailpit, o el servidor real si HB_SMTP_HOST está en .env)
+for i in $(seq 1 30); do sh scripts/configurar-correo.sh && break; [ "$i" = 30 ] && exit 1; sleep 5; done
 
 # Portainer: panel web para ver, reiniciar, actualizar y leer los logs de los contenedores.
 if ! docker container inspect portainer >/dev/null 2>&1; then
@@ -69,5 +76,6 @@ cat <<EOT
 Listo.
   Home Banking: ${URL_APP}   (usuario admin.ti, clave Dev-admin-1; pide cambiarla)
   Portainer:    ${PANEL}   (usuario admin, clave en home-banking/secrets/portainer_admin_password.txt)
+  Correo de prueba: ${CORREO}   (los correos de cambio de clave que manda el Home Banking)
 Para actualizar a la última versión: bash home-banking/scripts/maquina-prueba.sh
 EOT

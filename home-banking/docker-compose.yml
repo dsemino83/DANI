@@ -142,7 +142,18 @@ services:
     volumes:
       - keycloak_datos:/opt/keycloak/data                         # usuarios y cambios persisten
     restart: unless-stopped
-    networks: [interna]
+    networks: [interna, salida]   # "salida": correo saliente (SMTP) para los avisos de cambio de clave
+
+  # Buzón de correo de prueba (perfil "correo-prueba"): recibe los correos que manda Keycloak (cambio de clave)
+  # y los muestra en http://localhost:8025. Solo para pruebas: escucha únicamente en la máquina local.
+  # Con un servidor de correo real, configurarlo con scripts/configurar-correo.sh (ver DESPLIEGUE.md).
+  mailpit:
+    image: axllent/mailpit:v1.20.5
+    profiles: [correo-prueba]
+    ports:
+      - "127.0.0.1:${HB_CORREO_PRUEBA_PUERTO:-8025}:8025"
+    restart: unless-stopped
+    networks: [interna, publica]
 
 secrets:
   db_owner_password:

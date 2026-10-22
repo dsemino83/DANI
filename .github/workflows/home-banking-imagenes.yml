@@ -61,7 +61,7 @@ jobs:
           HTTPS_PORT=443
           EOF
       - name: Levantar
-        run: docker compose --profile sso-local up -d --build --wait --wait-timeout 300
+        run: docker compose --profile sso-local --profile correo-prueba up -d --build --wait --wait-timeout 300
       - name: Verificar
         run: |
           set -e
@@ -77,6 +77,7 @@ jobs:
           test "$(curl -sk -o /dev/null -w '%{http_code}' "$AUTH&redirect_uri=https%3A%2F%2Fotro.example%2F")" = 400 && echo 'redirect URI ajena rechazada'
           curl -fsk https://localhost/auth/realms/staff/protocol/openid-connect/token -d grant_type=client_credentials -d client_id=home-banking-admin --data-urlencode "client_secret=$(cat secrets/keycloak_admin_client_secret.txt)" | grep -q access_token && echo 'service account OK'
           docker compose exec -T postgres psql -U postgres -d homebanking -Atc "SELECT count(*) FROM pg_tables WHERE tablename IN ('envio_banco','referencia_usada','credencial_api')" | grep -qx 3 && echo 'esquema OK'
+          sh scripts/configurar-correo.sh
           docker compose ps
       - uses: actions/setup-node@v4
         with:
@@ -88,14 +89,14 @@ jobs:
           OIDC_ISSUER=https://localhost/auth/realms/staff OIDC_INTERNAL_URL=https://localhost/auth/realms/staff \
           OIDC_ROLES_CLIENT=home-banking-api KEYCLOAK_ADMIN_CLIENT_ID=home-banking-admin \
           KEYCLOAK_ADMIN_CLIENT_SECRET_FILE=../secrets/keycloak_admin_client_secret.txt \
-          DB_PASSWORD=x DBH_PASSWORD=x CREDENCIALES_MASTER_KEY=$(openssl rand -base64 32) \
+          DB_PASSWORD=x DBH_PASSWORD=x CREDENCIALES_MASTER_KEY=$(openssl rand -base64 32) MAILPIT_URL=http://localhost:8025 \
           node test/integracion-keycloak.mjs
       - name: Logs si falla
         if: failure()
-        run: docker compose --profile sso-local logs --no-color --tail 200
+        run: docker compose --profile sso-local --profile correo-prueba logs --no-color --tail 200
       - name: Bajar
         if: always()
-        run: docker compose --profile sso-local down -v
+        run: docker compose --profile sso-local --profile correo-prueba down -v
 
   publicar:
     name: Publicar en Docker Hub
@@ -286,7 +287,7 @@ jobs:
           cd .. && HB_VERSION=$(echo "$GITHUB_SHA" | cut -c1-7) bash home-banking/scripts/maquina-prueba.sh
       - name: Logs si falla
         if: failure()
-        run: docker compose --profile sso-local logs --no-color --tail 200; docker logs portainer || true
+        run: docker compose --profile sso-local --profile correo-prueba logs --no-color --tail 200; docker logs portainer || true
       - name: Bajar
         if: always()
-        run: docker compose --profile sso-local down -v; docker rm -f portainer || true
+        run: docker compose --profile sso-local --profile correo-prueba down -v; docker rm -f portainer || true

@@ -2,7 +2,8 @@
 // Uso: OIDC_INTERNAL_URL=https://localhost/auth/realms/staff KEYCLOAK_ADMIN_CLIENT_SECRET_FILE=../secrets/... node test/integracion-keycloak.mjs
 import assert from 'node:assert/strict';
 
-const { crearUsuario, cambiarPerfil, cambiarRol, habilitarUsuario, restablecerClave, listarUsuarios, rolesDeTransferencias } = await import('../src/keycloak-admin.js');
+const { crearUsuario, cambiarPerfil, cambiarRol, habilitarUsuario, restablecerClave, listarUsuarios, rolesDeTransferencias,
+  estadoUsuario, forzarCambioClave, desbloquearUsuario, enviarCorreoClave } = await import('../src/keycloak-admin.js');
 const { ROL_CREAR } = await import('../src/auth.js');
 
 const nombre = `ci.prueba${Date.now() % 100000}`;
@@ -39,4 +40,32 @@ paso('deshabilitar y volver a habilitar');
 
 await restablecerClave(nombre, 'OtraTemporal-2026');
 paso('clave temporal restablecida');
+
+let e = await estadoUsuario(nombre);
+assert.equal(e.habilitado, true); assert.equal(e.bloqueado, false); assert.equal(e.email, `${nombre}@valo.test`);
+paso('estado de la cuenta');
+
+await desbloquearUsuario(nombre);
+assert.equal((await estadoUsuario(nombre)).bloqueado, false);
+paso('desbloquear');
+
+await forzarCambioClave(nombre);
+assert.equal((await estadoUsuario(nombre)).debeCambiarClave, true);
+paso('forzar cambio de clave en el próximo ingreso');
+
+// Correo: con MAILPIT_URL (buzón de prueba) se verifica que el correo llegó con el link de Keycloak
+if (process.env.MAILPIT_URL) {
+  const r = await enviarCorreoClave(nombre);
+  assert.equal(r.email, `${nombre}@valo.test`);
+  let msj;
+  for (let i = 0; i < 20 && !msj; i++) {
+    const res = await (await fetch(`${process.env.MAILPIT_URL}/api/v1/search?query=${encodeURIComponent(`to:${r.email}`)}`)).json();
+    msj = res.messages?.[0];
+    if (!msj) await new Promise((ok) => setTimeout(ok, 500));
+  }
+  assert.ok(msj, 'el correo no llegó al buzón de prueba');
+  const cuerpo = await (await fetch(`${process.env.MAILPIT_URL}/api/v1/message/${msj.ID}`)).json();
+  assert.match(cuerpo.Text, /https:\/\/localhost\/auth\/realms\/staff\/login-actions\/action-token/);
+  paso(`correo para cambiar la clave recibido (${msj.Subject})`);
+}
 console.log('TODO OK');

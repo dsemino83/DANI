@@ -1,4 +1,4 @@
-// Usuarios y permisos (administrador de seguridad): alta de usuarios, perfil, habilitación y clave temporal
+// Usuarios y permisos (administrador de seguridad): alta de usuarios, perfil, habilitación, desbloqueo y claves
 // en Keycloak; roles Crear/Aprobar; Ver/Operar por empresa. Todo queda en la auditoría.
 import { api } from '../api.js';
 import { h, poner, card, campo, tabla, pill, toast, error, cargando, confirmar } from '../ui.js';
@@ -24,8 +24,8 @@ export async function render(main, ctx) {
     { t: 'Estado', v: (u) => pill(u.habilitado === false ? 'Deshabilitado' : 'Habilitado', u.habilitado === false ? 'bad' : 'ok') },
   ], usuarios, { alClic: (u) => { elegido = u; dibujarLista(); dibujarDetalle(); }, sel: (u) => u.usuario === elegido?.usuario, vacio: 'No hay usuarios con roles de Home Banking en Keycloak.' }));
 
-  // Datos de la cuenta en el SSO: perfil, habilitación y clave temporal
-  const cardCuenta = (u) => {
+  // Datos de la cuenta en el SSO: perfil, habilitación, bloqueo y clave
+  const cardCuenta = (u, est) => {
     const perfil = selPerfil(u.rol);
     const clave = h('input', { type: 'password', autocomplete: 'new-password', placeholder: 'Mínimo 12, con letras y números' });
     const guardarPerfil = async () => {
@@ -49,9 +49,28 @@ export async function render(main, ctx) {
       } catch (x) { error(x); }
       clave.value = '';
     };
+    const accion = async (ruta, titulo, texto, boton, ok) => {
+      if (!(await confirmar(titulo, texto, boton))) return;
+      try { const r = await api(`/admin/usuarios/${encodeURIComponent(u.usuario)}/${ruta}`, { method: 'POST' }); toast(ok(r)); } catch (x) { error(x); }
+      await cargar();
+    };
+    const desbloquear = () => accion('desbloquear', 'Desbloquear usuario', `${u.usuario} quedó bloqueado por intentos fallidos de ingreso. Se quita el bloqueo y puede volver a intentar.`, 'Desbloquear', () => `${u.usuario} desbloqueado.`);
+    const forzar = () => accion('forzar-cambio-clave', 'Forzar cambio de clave', `${u.usuario} entra con su clave actual y en ese momento tiene que elegir una nueva. Se cierran sus sesiones abiertas.`, 'Forzar cambio', () => `${u.usuario} elige una clave nueva en su próximo ingreso.`);
+    const correo = () => accion('correo-clave', 'Enviar correo para cambiar la clave', `Se envía a ${est?.email || u.email} un link, válido 24 horas, para que ${u.usuario} elija una clave nueva.`, 'Enviar correo', (r) => `Correo enviado a ${r.email}.`);
+    const estado = est ? [
+      pill(est.habilitado ? 'Habilitado' : 'Deshabilitado', est.habilitado ? 'ok' : 'bad'),
+      est.bloqueado && pill(`Bloqueado por intentos fallidos (${est.intentosFallidos})`, 'bad'),
+      est.debeCambiarClave && pill('Debe cambiar la clave', 'warn'),
+    ].filter(Boolean) : [pill('Estado no disponible', 'warn')];
     return card(`Usuario · ${u.usuario}`, `${u.nombre || ''}${u.email ? ` · ${u.email}` : ''}`,
+      h('div', { class: 'fila' }, ...estado),
       h('div', { class: 'fila' }, campo('Perfil', perfil), h('button', { class: 'btn primario', onclick: guardarPerfil }, 'Guardar perfil'),
-        h('button', { class: 'btn', onclick: cambiarEstado }, u.habilitado === false ? 'Habilitar' : 'Deshabilitar')),
+        h('button', { class: 'btn', onclick: cambiarEstado }, u.habilitado === false ? 'Habilitar' : 'Deshabilitar'),
+        est?.bloqueado && h('button', { class: 'btn', onclick: desbloquear }, 'Desbloquear')),
+      h('p', { class: 'nota' }, 'Clave: enviale un correo para que la cambie él mismo, obligalo a cambiarla en su próximo ingreso, o cargale una clave temporal.'),
+      h('div', { class: 'fila' },
+        h('button', { class: 'btn', onclick: correo, disabled: !(est?.email || u.email) }, 'Enviar correo para cambiar la clave'),
+        h('button', { class: 'btn', onclick: forzar }, 'Forzar cambio en el próximo ingreso')),
       h('div', { class: 'fila' }, campo('Nueva clave temporal', clave), h('button', { class: 'btn', onclick: restablecer }, 'Restablecer clave')));
   };
 
@@ -83,7 +102,9 @@ export async function render(main, ctx) {
     if (!elegido) return poner(detalle, card('Permisos del usuario', 'Elegí un usuario de la lista.'));
     const u = elegido;
     if (u.usuario === ctx.me.usuario) return poner(detalle, card('Tu usuario', null, h('p', { class: 'aviso' }, 'No podés modificar tu propio usuario ni tus permisos.')));
-    const cuenta = cardCuenta(u);
+    const est = await api(`/admin/usuarios/${encodeURIComponent(u.usuario)}/estado`).catch(() => null);
+    if (elegido?.usuario !== u.usuario) return; // se eligió otro mientras cargaba
+    const cuenta = cardCuenta(u, est);
     if (u.rol === 'administrador') return poner(detalle, cuenta, card(`Permisos de ${u.usuario}`, null, h('p', { class: 'aviso' }, 'El administrador de seguridad no puede recibir roles de operación ni permisos sobre empresas.')));
     poner(detalle, cargando());
     const permisos = await api(`/admin/permisos/${encodeURIComponent(u.usuario)}`);
@@ -129,7 +150,7 @@ export async function render(main, ctx) {
   poner(main,
     alta,
     h('div', { class: 'grid' },
-      card('Usuarios', 'Usuarios con algún perfil de Home Banking en el SSO. Elegí uno para cambiar su perfil, habilitarlo o restablecer su clave, y para asignarle roles y empresas.',
+      card('Usuarios', 'Usuarios con algún perfil de Home Banking en el SSO. Elegí uno para cambiar su perfil, habilitarlo, desbloquearlo o gestionar su clave, y para asignarle roles y empresas.',
         h('div', { class: 'fila' }, h('button', { class: 'btn primario', onclick: () => { altaAbierta = true; dibujarAlta(); } }, 'Nuevo usuario')),
         lista),
       detalle));

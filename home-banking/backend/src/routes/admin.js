@@ -7,7 +7,7 @@ import { conflicto, invalido, noEncontrado } from '../errores.js';
 import { esAmbiente, urlBase } from '../bdv/ambientes.js';
 import { cifrar, estadoCredencial, leerCredencial } from '../secretos.js';
 import { bdv, cuentasPropias, pemDesdeBase64 } from '../bdv/cliente.js';
-import { cambiarPerfil, cambiarRol, crearUsuario, habilitarUsuario, listarUsuarios, restablecerClave, rolesDeTransferencias } from '../keycloak-admin.js';
+import { cambiarPerfil, cambiarRol, crearUsuario, desbloquearUsuario, enviarCorreoClave, estadoUsuario, forzarCambioClave, habilitarUsuario, listarUsuarios, restablecerClave, rolesDeTransferencias } from '../keycloak-admin.js';
 import { createPublicKey } from 'node:crypto';
 
 const nivel = (p) => (!p ? 'sin acceso' : p.operar ? 'ver+operar' : p.ver ? 'ver' : 'sin acceso');
@@ -157,7 +157,7 @@ export default async function rutasAdmin(app) {
     if (typeof req.body?.habilitado !== 'boolean') throw invalido('Indicá habilitado: true o false');
     const r = await habilitarUsuario(usuario, req.body.habilitado);
     await auditar(null, req, { tipo: 'Administración', accion: r.habilitado ? 'Habilitó usuario' : 'Deshabilitó usuario', api: 'Keycloak Admin',
-      detalle: `${usuario}${r.habilitado ? '' : ' · sesiones abiertas cerradas'}` });
+      detalle: `${usuario}${r.habilitado ? ' · sin bloqueo por intentos fallidos' : ' · sesiones abiertas cerradas'}` });
     return r;
   });
 
@@ -167,6 +167,32 @@ export default async function rutasAdmin(app) {
     const r = await restablecerClave(usuario, req.body?.claveTemporal);
     await auditar(null, req, { tipo: 'Administración', accion: 'Restableció clave de usuario', api: 'Keycloak Admin',
       detalle: `${usuario} · clave temporal (se cambia en el primer ingreso)` }); // nunca el valor
+    return r;
+  });
+
+  app.get('/usuarios/:usuario/estado', async (req) => estadoUsuario(req.params.usuario));
+
+  app.post('/usuarios/:usuario/desbloquear', async (req) => {
+    const usuario = req.params.usuario;
+    noASiMismo(req, usuario);
+    const r = await desbloquearUsuario(usuario);
+    await auditar(null, req, { tipo: 'Administración', accion: 'Desbloqueó usuario', api: 'Keycloak Admin', detalle: `${usuario} · bloqueo por intentos fallidos quitado` });
+    return r;
+  });
+
+  app.post('/usuarios/:usuario/forzar-cambio-clave', async (req) => {
+    const usuario = req.params.usuario;
+    noASiMismo(req, usuario);
+    const r = await forzarCambioClave(usuario);
+    await auditar(null, req, { tipo: 'Administración', accion: 'Forzó cambio de clave', api: 'Keycloak Admin', detalle: `${usuario} · elige clave nueva en el próximo ingreso · sesiones abiertas cerradas` });
+    return r;
+  });
+
+  app.post('/usuarios/:usuario/correo-clave', async (req) => {
+    const usuario = req.params.usuario;
+    noASiMismo(req, usuario);
+    const r = await enviarCorreoClave(usuario);
+    await auditar(null, req, { tipo: 'Administración', accion: 'Envió correo para cambiar la clave', api: 'Keycloak Admin', detalle: `${usuario} · ${r.email} · link válido 24 h` });
     return r;
   });
 

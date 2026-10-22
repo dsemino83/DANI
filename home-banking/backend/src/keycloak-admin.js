@@ -1,5 +1,6 @@
 // Asignación de los roles transferencias:crear / transferencias:aprobar en el SSO (Keycloak Admin REST API)
-// con una service account (client credentials) que solo tiene manage-users sobre el realm.
+// con una service account (client credentials) que solo tiene view-users/manage-users sobre el realm.
+// También alta, perfil, habilitación, bloqueo y claves de los usuarios.
 import { config } from './config.js';
 import { ErrorHttp, invalido } from './errores.js';
 import { ROL_APROBAR, ROL_CREAR } from './auth.js';
@@ -134,6 +135,7 @@ export async function habilitarUsuario(usuario, habilitado) {
   const t = await token();
   const u = await idDeUsuario(t, usuario);
   await api(t, `/users/${u.id}`, { method: 'PUT', body: JSON.stringify({ enabled: !!habilitado }) });
+  if (habilitado) await api(t, `/attack-detection/brute-force/users/${u.id}`, { method: 'DELETE' }); // y sin bloqueo por intentos
   if (!habilitado) await api(t, `/users/${u.id}/logout`, { method: 'POST' }); // corta las sesiones abiertas
   return { usuario, habilitado: !!habilitado };
 }
@@ -143,5 +145,50 @@ export async function restablecerClave(usuario, claveTemporal) {
   const t = await token();
   const u = await idDeUsuario(t, usuario);
   await api(t, `/users/${u.id}/reset-password`, { method: 'PUT', body: JSON.stringify({ type: 'password', value: clave, temporary: true }) });
+  return { usuario };
+}
+
+// Estado de la cuenta para la ficha del usuario: habilitación, bloqueo por intentos fallidos y cambio de clave pendiente
+export async function estadoUsuario(usuario) {
+  const t = await token();
+  const { id } = await idDeUsuario(t, usuario);
+  const [u, bf] = await Promise.all([api(t, `/users/${id}`), api(t, `/attack-detection/brute-force/users/${id}`)]);
+  return {
+    usuario, email: u.email ?? '', habilitado: u.enabled !== false,
+    bloqueado: !!bf?.disabled, intentosFallidos: bf?.numFailures ?? 0,
+    debeCambiarClave: (u.requiredActions ?? []).includes('UPDATE_PASSWORD'),
+  };
+}
+
+// Obliga a elegir una clave nueva en el próximo ingreso (sin cambiar la actual) y cierra las sesiones abiertas.
+export async function forzarCambioClave(usuario) {
+  const t = await token();
+  const { id } = await idDeUsuario(t, usuario);
+  const u = await api(t, `/users/${id}`);
+  const acciones = [...new Set([...(u.requiredActions ?? []), 'UPDATE_PASSWORD'])];
+  await api(t, `/users/${id}`, { method: 'PUT', body: JSON.stringify({ requiredActions: acciones }) });
+  await api(t, `/users/${id}/logout`, { method: 'POST' });
+  return { usuario };
+}
+
+// Envía al email del usuario un link (válido 24 h) para elegir una clave nueva. Requiere el correo saliente del SSO.
+export async function enviarCorreoClave(usuario) {
+  const t = await token();
+  const { id, email } = await idDeUsuario(t, usuario);
+  if (!email) throw invalido(`${usuario} no tiene email cargado en el SSO`);
+  try {
+    await api(t, `/users/${id}/execute-actions-email?lifespan=86400`, { method: 'PUT', body: JSON.stringify(['UPDATE_PASSWORD']) });
+  } catch (e) {
+    if (e.status === 409) throw e;
+    throw new ErrorHttp(502, 'correo', 'El SSO no pudo enviar el correo: revisar el correo saliente (SMTP) de Keycloak');
+  }
+  return { usuario, email };
+}
+
+// Quita el bloqueo temporal por intentos fallidos de ingreso.
+export async function desbloquearUsuario(usuario) {
+  const t = await token();
+  const { id } = await idDeUsuario(t, usuario);
+  await api(t, `/attack-detection/brute-force/users/${id}`, { method: 'DELETE' });
   return { usuario };
 }

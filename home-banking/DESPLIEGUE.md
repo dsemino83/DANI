@@ -101,10 +101,17 @@ Todo se hace desde la aplicación con `admin.ti` (administrador de seguridad), e
 |---|---|
 | **Alta de usuario** | **Nuevo usuario**: usuario, nombre, apellido, email, perfil y clave temporal (mínimo 12 caracteres con letras y números; se cambia en el primer ingreso) |
 | **Perfil** (operador, autorizante, auditor, administrador) | Elegir el usuario → **Perfil** → **Guardar perfil**. Pasar a administrador quita Crear/Aprobar y los permisos por empresa |
-| **Deshabilitar / habilitar** | Botón en el usuario. Deshabilitar cierra sus sesiones abiertas y conserva sus permisos |
+| **Deshabilitar / habilitar** | Botón en el usuario. Deshabilitar cierra sus sesiones abiertas y conserva sus permisos; habilitar también quita un bloqueo por intentos fallidos |
+| **Desbloquear** | Aparece cuando el usuario quedó **Bloqueado por intentos fallidos** (5 claves erróneas seguidas) |
 | **Restablecer clave** | **Nueva clave temporal** → **Restablecer clave** |
+| **Enviar correo para cambiar la clave** | Le llega al email del usuario un link (válido 24 h) para elegir una clave nueva él mismo. Requiere el correo saliente (ver abajo) |
+| **Forzar cambio en el próximo ingreso** | Entra con su clave actual y en ese momento tiene que elegir una nueva; se cierran sus sesiones abiertas |
 | Roles **Crear** / **Aprobar** transferencias | **Roles de transferencias** del usuario |
 | Permisos **Ver** / **Operar** por empresa | **Empresas** del usuario (y el maestro de empresas en **Empresas**) |
+
+La ficha de cada usuario muestra su estado: **Habilitado / Deshabilitado**, **Bloqueado por intentos fallidos** y **Debe cambiar la clave**.
+
+**Correo saliente.** Con el perfil `correo-prueba` (lo usa la máquina de prueba), los correos no salen a internet: llegan a un buzón de prueba en `http://localhost:8025` (en el Codespace, el puerto **8025** de la pestaña **Ports**). Para usar un servidor de correo real, en `.env` completá `HB_SMTP_HOST`, `HB_SMTP_PORT`, `HB_SMTP_FROM` y `HB_SMTP_USUARIO`, guardá la clave en `secrets/smtp_password.txt` y corré `sh scripts/configurar-correo.sh`.
 
 Nadie puede modificar su propio usuario. Para lo que no está en la app (por ejemplo, borrar un usuario o ver los eventos de ingreso), `admin.ti` tiene la consola del realm en `https://<servidor>/auth/admin/staff/console/`.
 
