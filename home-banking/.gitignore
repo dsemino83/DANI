@@ -1,0 +1,6 @@
+.env
+secrets/*.txt
+frontend/certs/*
+!frontend/certs/.gitkeep
+backend/node_modules/
+!.gitkeep
