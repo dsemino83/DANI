@@ -300,7 +300,7 @@ test('alerta de movimientos: franja de 29:59 antes de la ejecución', async () =
 
 test('movimientos: CBU origen solo en las causales 366 y 367 (campo reference)', async () => {
   const ExcelJS = (await import('exceljs')).default;
-  const { causalDe, cbuOrigen, filaMovimiento, xlsxMovimientos } = await import('../src/excel.js');
+  const { causalDe, cbuOrigen, cbuOBeneficiario, filaMovimiento, xlsxMovimientos } = await import('../src/excel.js');
   const cbu = '0720000720000001234567';
   assert.equal(causalDe({ reference: '741' }), '741');
   assert.equal(causalDe({ reference: '0366' }), '366');
@@ -310,11 +310,13 @@ test('movimientos: CBU origen solo en las causales 366 y 367 (campo reference)',
   assert.equal(cbuOrigen({ reference: '367', cbuOri: ` ${cbu} ` }), cbu);
   assert.equal(cbuOrigen({ reference: '741', cbuOri: cbu }), '', 'otras causales en blanco');
   assert.equal(cbuOrigen({ reference: '366', cbuOri: null }), '');
-  const filas = [{ reference: '366', cbuOri: cbu }, { reference: '741', cbuOri: cbu }].map((m) => filaMovimiento({ ...m, signDC: 'D', amount: 1, availableBalance: 1, transactionId: 1 }, { cuenta: '100', cliente: 'ALFA', moneda: 'ARS' }));
+  assert.equal(cbuOBeneficiario({ reference: '366', cbuOri: cbu, beneficiary: 'X SA' }), cbu);
+  assert.equal(cbuOBeneficiario({ reference: '741', cbuOri: cbu, beneficiary: ' PROVEEDOR SA ' }), 'PROVEEDOR SA', 'otras causales: beneficiario');
+  const filas = [{ reference: '366', cbuOri: cbu }, { reference: '741', cbuOri: cbu, beneficiary: 'PROVEEDOR SA' }].map((m) => filaMovimiento({ ...m, signDC: 'D', amount: 1, availableBalance: 1, transactionId: 1 }, { cuenta: '100', cliente: 'ALFA', moneda: 'ARS' }));
   const wb = new ExcelJS.Workbook(); await wb.xlsx.load(await xlsxMovimientos(filas, { hoja: 'Débitos', titulo: 'Débitos realizados · 22/10/2026', subtitulo: 'ALFA' }));
   const ws = wb.getWorksheet('Débitos');
   assert.equal(ws.getImages().length, 1, 'logo del banco'); assert.equal(ws.getCell('C1').value, 'Débitos realizados · 22/10/2026'); assert.equal(ws.getCell('C2').value, 'ALFA');
-  const cab = ws.getRow(5).values; const col = cab.indexOf('CBU origen (causal 366/367)');
+  const cab = ws.getRow(5).values; const col = cab.indexOf('CBU origen (366/367) / Beneficiario');
   assert.ok(col > 0 && cab.includes('Causal'));
-  assert.equal(ws.getRow(6).getCell(col).value, cbu); assert.ok(!ws.getRow(7).getCell(col).value, 'causal 741 en blanco');
+  assert.equal(ws.getRow(6).getCell(col).value, cbu); assert.equal(ws.getRow(7).getCell(col).value, 'PROVEEDOR SA', 'causal 741: beneficiario');
 });

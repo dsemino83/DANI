@@ -10,12 +10,14 @@ export const causalDe = (m) => { for (const v of [m.reference, m.causeId, m.caus
 // El CBU originante solo se informa en las causales 366 y 367; en las demás va en blanco
 export const CAUSALES_CBU_ORIGEN = ['366', '367'];
 export const cbuOrigen = (m) => (CAUSALES_CBU_ORIGEN.includes(causalDe(m)) ? String(m.cbuOri ?? '').trim() : '');
+// Columna de la consulta y del Excel: causales 366/367 → CBU originante; las demás → beneficiario
+export const cbuOBeneficiario = (m) => (CAUSALES_CBU_ORIGEN.includes(causalDe(m)) ? cbuOrigen(m) : String(m.beneficiary ?? '').trim());
 
 const COLUMNAS_MOVIMIENTOS = [
     { header: 'ID', key: 'id', width: 12 }, { header: 'Fecha', key: 'fecha', width: 12 }, { header: 'Hora', key: 'hora', width: 10 },
     { header: 'Cliente', key: 'cliente', width: 30 }, { header: 'Cuenta', key: 'cuenta', width: 18 },
     { header: 'Descripción', key: 'descripcion', width: 45 }, { header: 'Beneficiario', key: 'beneficiario', width: 30 },
-    { header: 'CUIT', key: 'cuit', width: 14 }, { header: 'Causal', key: 'causal', width: 8 }, { header: 'CBU origen (causal 366/367)', key: 'cbuOri', width: 26 }, { header: 'D/C', key: 'dc', width: 6 },
+    { header: 'CUIT', key: 'cuit', width: 14 }, { header: 'Causal', key: 'causal', width: 8 }, { header: 'CBU origen (366/367) / Beneficiario', key: 'cbuOri', width: 32 }, { header: 'D/C', key: 'dc', width: 6 },
     { header: 'Moneda', key: 'moneda', width: 8 },
     { header: 'Importe', key: 'importe', width: 16, style: { numFmt: '#,##0.00' } },
     { header: 'Saldo', key: 'saldo', width: 16, style: { numFmt: '#,##0.00' } },
@@ -84,6 +86,6 @@ export async function xlsxEnvio(empresa, cuentas, contenido, { titulo = 'Extract
 // Normaliza un movimiento de getMovementsDetail a una fila de exportación
 export const filaMovimiento = (m, { cuenta, cliente, moneda }) => ({
   id: String(m.transactionId ?? m.sequential), fecha: m.processDate, hora: m.hour, cliente, cuenta,
-  descripcion: m.description, beneficiario: m.beneficiary ?? '', cuit: m.documentNumber ?? '', cbuOri: cbuOrigen(m),
+  descripcion: m.description, beneficiario: m.beneficiary ?? '', cuit: m.documentNumber ?? '', cbuOri: cbuOBeneficiario(m),
   causal: causalDe(m) ?? '', dc: m.signDC, moneda, importe: (m.signDC === 'D' ? -1 : 1) * Number(m.amount), saldo: Number(m.availableBalance),
 });

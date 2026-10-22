@@ -10,9 +10,10 @@ const PAGINA = 900;
 const barra = (porc) => { const b = h('div', { class: 'barra' }); b.style.width = `${porc}%`; return b; };
 
 // Causal del movimiento: el banco la informa en "reference" (Referencia "causa"); cause / causeId de respaldo.
-// El CBU originante (cbuOri) se muestra solo en las causales 366 y 367; en las demás, en blanco. Igual que el Excel.
+// El CBU originante (cbuOri) se muestra solo en las causales 366 y 367; en las demás va el beneficiario.
 const causalDe = (m) => { for (const v of [m.reference, m.causeId, m.cause]) { const d = String(v ?? '').match(/\d+/); if (d) return String(Number(d[0])); } return null; };
-const cbuOrigen = (m) => (['366', '367'].includes(causalDe(m)) ? String(m.cbuOri ?? '').trim() : '');
+// Causales 366/367 → CBU originante; las demás → beneficiario (igual que el Excel)
+const cbuOBeneficiario = (m) => (['366', '367'].includes(causalDe(m)) ? String(m.cbuOri ?? '').trim() : String(m.beneficiary ?? '').trim());
 
 const AGRUPAR = {
   causal: {
@@ -128,7 +129,7 @@ export async function render(main, ctx) {
           tabla([
             { t: 'ID', v: (m) => m.transactionId, cls: 'mono' }, { t: 'Fecha', v: (m) => m.processDate, cls: 'mono' }, { t: 'Hora', v: (m) => m.hour, cls: 'mono' },
             { t: 'Descripción', v: (m) => m.description }, { t: 'Beneficiario', v: (m) => m.beneficiary }, { t: 'CUIT', v: (m) => m.documentNumber, cls: 'mono' },
-            { t: 'Causal', v: (m) => causalDe(m) ?? '', cls: 'mono' }, { t: 'CBU origen', v: cbuOrigen, cls: 'mono' },
+            { t: 'Causal', v: (m) => causalDe(m) ?? '', cls: 'mono' }, { t: 'CBU origen / Beneficiario', v: cbuOBeneficiario },
             { t: 'D/C', v: (m) => m.signDC },
             { t: 'Importe', v: (m) => `${m.signDC === 'D' ? '−' : '+'}${dinero(m.amount, c?.moneda)}`, cls: 'num' },
             { t: 'Saldo', v: (m) => dinero(m.availableBalance, c?.moneda), cls: 'num' },
