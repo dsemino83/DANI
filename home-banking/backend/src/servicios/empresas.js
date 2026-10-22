@@ -19,12 +19,14 @@ export function normalizarEmails(entrada) {
 const plano = (s) => String(s ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
 export const coincide = (cuenta, texto) => !texto || [cuenta.nombre, cuenta.alias, cuenta.cuenta].some((v) => plano(v).includes(plano(texto).trim()));
 
-// CBU de una cuenta propia según getOwnAccounts. El nombre del campo no está documentado: se toma el
-// primer campo cuyo nombre contenga "cbu" con 22 dígitos y, si no hay, cualquier valor de 22 dígitos.
+// CBU de una cuenta propia según getOwnAccounts: el banco lo informa en accountCbu. Por si cambia el
+// nombre, si no está se toma otro campo cuyo nombre contenga "cbu" o cualquier valor de 22 dígitos.
 export function cbuDeCuenta(c) {
   if (!c || typeof c !== 'object') return null;
-  const valores = Object.entries(c).map(([k, v]) => [k.toLowerCase(), String(v ?? '').replace(/[\s-]/g, '')]);
+  const limpio = (v) => String(v ?? '').replace(/[\s-]/g, '');
   const ok = (v) => /^\d{22}$/.test(v);
+  if (ok(limpio(c.accountCbu))) return limpio(c.accountCbu);
+  const valores = Object.entries(c).map(([k, v]) => [k.toLowerCase(), limpio(v)]);
   return valores.find(([k, v]) => k.includes('cbu') && ok(v))?.[1] ?? valores.find(([, v]) => ok(v))?.[1] ?? null;
 }
 
