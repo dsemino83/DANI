@@ -1,6 +1,6 @@
 // Shell de la SPA: login con el SSO, encabezado, pestañas según rol y ruteo por hash.
 import { autenticado, iniciar, login, logout } from './auth.js';
-import { api } from './api.js';
+import { api, actualizarDatos, alCambiarDatos, horaDatos } from './api.js';
 import { $, h, error } from './ui.js';
 import * as saldos from './pages/saldos.js';
 import * as movimientos from './pages/movimientos.js';
@@ -64,6 +64,10 @@ function pantallaLogin(mensaje) {
 
 async function pantallaApp() {
   const me = ctx.me;
+  // Hora de los datos del banco que se están mostrando (se consultan una vez y se reusan hasta "Actualizar datos")
+  const marcaDatos = h('span', { class: 'nota' });
+  const pintarHora = (d) => { marcaDatos.textContent = d ? `Datos del banco: ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}` : ''; };
+  alCambiarDatos(pintarHora); pintarHora(horaDatos());
   const tabs = pestanas(me);
   const nav = h('nav', { class: 'tabs', 'aria-label': 'Secciones' });
   const main = h('main', { id: 'contenido' });
@@ -71,6 +75,8 @@ async function pantallaApp() {
     h('header', { class: 'top' },
       h('div', { class: 'marca' }, ...logos(), h('h1', {}, 'Home Banking')),
       h('div', { class: 'sesion' }, h('span', {}, 'Sesión: ', h('b', {}, `${me.usuario} · ${me.rol}`), ` · Banco: ${me.ambiente === 'prod' ? 'Producción' : 'Homologación'}`),
+        me.rol !== 'administrador' && marcaDatos,
+        me.rol !== 'administrador' && h('button', { class: 'btn chico', title: 'Volver a consultar saldos, movimientos y débitos al banco', onclick: () => { actualizarDatos(); mostrar(); } }, '↻ Actualizar datos'),
         h('a', { class: 'btn chico', href: '#ayuda' }, 'Ayuda'),
         h('button', { class: 'btn chico btn-tema', onclick: alternarTema }),
         h('button', { class: 'btn chico', onclick: logout }, 'Cerrar sesión'))),
