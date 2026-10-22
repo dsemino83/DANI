@@ -343,3 +343,20 @@ test('riesgo de fraude: señales explicables y niveles', async () => {
   assert.equal(senales({ ...base, dow: 7 }, u).senales[0].codigo, 'fuera_de_horario', 'domingo');
   assert.equal(nivelDe(24), 'bajo'); assert.equal(nivelDe(25), 'medio'); assert.equal(nivelDe(50), 'alto');
 });
+
+test('límites de pedidos y enmascarado de logs', async () => {
+  const { consumir, mascarar, REGLAS } = await import('../src/limites.js');
+  const t0 = 1_000_000;
+  for (let i = 0; i < 3; i++) assert.equal(consumir('x|u', 3, t0 + i).ok, true);
+  const c = consumir('x|u', 3, t0 + 10_000); assert.equal(c.ok, false); assert.equal(c.reintentarEnSeg, 50);
+  assert.equal(consumir('x|u', 3, t0 + 60_000).ok, true, 'ventana nueva');
+  assert.equal(consumir('x|otro', 3, t0 + 10_000).ok, true, 'por usuario');
+  const regla = (m, u) => REGLAS.find((r) => r.nombre !== 'general' && r.coincide(m, u))?.nombre;
+  assert.equal(regla('POST', '/api/transferencias/5/aprobar'), 'operaciones');
+  assert.equal(regla('GET', '/api/transferencias?desde=2026-10-01'), undefined, 'consultar el registro no es operar');
+  assert.equal(regla('GET', '/api/cbu?cbu=0720000720000001234567'), 'consultas-sensibles');
+  assert.equal(regla('POST', '/api/admin/credenciales/prod/probar?uso=envios'), 'credenciales');
+  assert.equal(mascarar('/api/cbu?cbu=0720000720000001234567'), '/api/cbu?cbu=0720…67');
+  assert.equal(mascarar('/api/cbu?alias=mi.alias.secreto&x=1'), '/api/cbu?alias=***&x=1');
+  assert.equal(mascarar('/api/cuentas/300100000143178/movimientos?desde=2026-10-01'), '/api/cuentas/3001…78/movimientos?desde=2026-10-01', 'fechas intactas');
+});

@@ -1,5 +1,6 @@
 // Backend (BFF) del Home Banking VALO.
 import Fastify from 'fastify';
+import { randomUUID } from 'node:crypto';
 import multipart from '@fastify/multipart';
 import { config } from './config.js';
 import { autenticar } from './auth.js';
@@ -14,15 +15,25 @@ import rutasEnvios from './routes/envios.js';
 import rutasMensajes from './routes/mensajes.js';
 import rutasDocs from './routes/docs.js';
 import rutasAuditoria from './routes/auditoria.js';
+import { limitarPedidos, mascarar } from './limites.js';
+
+// Id de cada pedido para seguirlo de punta a punta: el que pone Nginx ($request_id) o uno nuevo
+const idValido = (v) => (typeof v === 'string' && /^[A-Za-z0-9-]{8,64}$/.test(v) ? v : null);
 
 const app = Fastify({
   trustProxy: true, // detrás de Nginx: req.ip = IP real del usuario
+  requestIdHeader: false,
+  genReqId: (req) => idValido(req.headers['x-request-id']) ?? randomUUID(),
   logger: {
     level: process.env.LOG_LEVEL ?? 'info',
-    // Nunca loguear tokens, cookies ni el cuerpo con claves
+    // Nunca loguear tokens, cookies ni el cuerpo con claves; CBU, CUIT y cuentas enmascarados en las URLs
     redact: ['req.headers.authorization', 'req.headers.cookie', 'res.headers["set-cookie"]'],
+    serializers: {
+      req: (req) => ({ id: req.id, method: req.method, url: mascarar(req.url), ip: req.ip }),
+    },
   },
 });
+app.addHook('onSend', async (req, reply) => { reply.header('x-request-id', req.id); });
 
 await app.register(multipart, { limits: { fileSize: 10 * 1024 * 1024, files: 1 } });
 
@@ -46,6 +57,7 @@ app.get('/api/health', async () => {
 
 await app.register(async (api) => {
   api.addHook('onRequest', autenticar);
+  api.addHook('onRequest', limitarPedidos); // después de autenticar: límite por usuario
   await api.register(rutasConsultas);
   await api.register(rutasTransferencias);
   await api.register(rutasAuditoria);
