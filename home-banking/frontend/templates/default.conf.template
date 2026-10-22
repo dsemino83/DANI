@@ -52,5 +52,9 @@ server {
   location / {
     root /usr/share/nginx/html;
     try_files $uri /index.html;
+    # El navegador revalida cada archivo (ETag → 304 si no cambió): después de actualizar se ve la versión
+    # nueva sin borrar la caché. "expires" (no add_header) para no perder los encabezados de seguridad.
+    expires epoch;
+    etag on;
   }
 }
