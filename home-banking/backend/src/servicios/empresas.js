@@ -30,11 +30,15 @@ export function cbuDeCuenta(c) {
   return valores.find(([k, v]) => k.includes('cbu') && ok(v))?.[1] ?? valores.find(([, v]) => ok(v))?.[1] ?? null;
 }
 
-// Arma la fila de empresa_cbu con la respuesta de COELSA; valida que el CBU sea el de la cuenta.
+// Arma la fila de empresa_cbu con la respuesta de COELSA. Si la consulta fue por el CBU de la cuenta y la
+// respuesta no lo repite, vale ese CBU; si lo repite, tiene que ser el mismo.
 export function filaCoelsa(cuenta, r) {
-  const cbu = String(r?.cbu ?? '').replace(/\D/g, '');
-  if (cbu.length !== 22) throw new Error('COELSA no devolvió un CBU válido');
   const propio = cbuDeCuenta(cuenta);
-  if (propio && propio !== cbu) throw new Error(`COELSA devolvió otro CBU (${cbu}) que el informado por el banco (${propio})`);
-  return { cbu, alias: r.alias || null, titular: r.headline || null, cuitTitular: r.cuit ? String(r.cuit) : null };
+  const devuelto = String(r?.cbu ?? '').replace(/\D/g, '');
+  if (devuelto && devuelto.length === 22 && propio && devuelto !== propio) throw new Error(`COELSA devolvió otro CBU (${devuelto}) que el informado por el banco (${propio})`);
+  const cbu = devuelto.length === 22 ? devuelto : propio;
+  if (!cbu) throw new Error('COELSA no devolvió un CBU válido');
+  const campo = (patron) => Object.entries(r ?? {}).find(([k, v]) => patron.test(k) && typeof v !== 'object' && v !== '')?.[1];
+  const alias = r?.alias || campo(/alias/i) || null;
+  return { cbu, alias: alias ? String(alias) : null, titular: r?.headline || null, cuitTitular: r?.cuit ? String(r.cuit) : null };
 }

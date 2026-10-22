@@ -196,4 +196,5 @@ test('CBU de la cuenta y datos de COELSA', async () => {
   assert.deepEqual(filaCoelsa({ cbu }, { cbu, alias: 'acme.pagos', headline: 'ACME SA', cuit: 30712345678 }), { cbu, alias: 'acme.pagos', titular: 'ACME SA', cuitTitular: '30712345678' });
   assert.throws(() => filaCoelsa({ cbu }, { cbu: '0650001000000000000999' }), /otro CBU/);
   assert.throws(() => filaCoelsa({}, { alias: 'x' }), /CBU válido/);
+  assert.deepEqual(filaCoelsa({ accountCbu: cbu }, { aliasCbu: 'acme.pagos', headline: 'ACME SA' }), { cbu, alias: 'acme.pagos', titular: 'ACME SA', cuitTitular: null }, 'respuesta sin cbu: vale el de la cuenta');
 });
