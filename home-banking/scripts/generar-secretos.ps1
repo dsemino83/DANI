@@ -25,6 +25,7 @@ Generar 'dbh_owner_password'
 Generar 'db_app_password'
 Generar 'db_hist_ro_password'
 Generar 'credenciales_master_key' 32
+Generar 'resguardo_clave' 32   # cifrado de los resguardos (no se monta en contenedores)
 # Keycloak: secret de la service account home-banking-admin (el Keycloak propio lo toma de acá;
 # con el SSO de VALO, reemplazarlo por el que entregue Identidad) y clave inicial de la consola maestra.
 Generar 'keycloak_admin_client_secret' 32

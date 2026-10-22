@@ -61,7 +61,8 @@ Toda acción queda registrada en el momento, en un registro **de solo inserción
 | Consultas | Saldos, movimientos, CBU, constancias de CBU, exportaciones a Excel, consultas a la base histórica |
 | Sistema | Pase mensual a la base histórica (por tabla y mes, con filas y hash) |
 
-- **Integridad:** la auditoría se escribe en la misma transacción que la acción.
+- **Integridad:** la auditoría se escribe en la misma transacción que la acción y cada registro lleva el **hash SHA-256 encadenado** con el anterior: modificar, borrar o intercalar un registro rompe la cadena. **Verificar integridad** (pantalla Auditoría) y la verificación diaria lo detectan y lo registran.
+- **Id de pedido:** cada pedido lleva un id (`x-request-id`) que aparece en los logs de Nginx y del backend, para seguirlo de punta a punta.
 - **Nunca se registra:** el valor de la clave API, la cookie de sesión del banco ni tokens.
 - **Auditoría por operación (⚙):** historial completo de cada transferencia o débito.
 
@@ -108,6 +109,11 @@ Toda acción queda registrada en el momento, en un registro **de solo inserción
 | C16 | ID de operación único | Carga duplicada | `referencia_usada` |
 | C17 | Envíos programados: solo clientes visibles, uno por tipo, cola sin superposición | Envío de datos a destinatarios no autorizados o duplicados | Programaciones auditadas; cola e historial por tarea |
 | C18 | Buzón de avisos a los asociados del cliente, con lectura registrada | Operaciones pendientes sin atender | Tabla `mensaje` (destinatario, leído, motivo) |
+| C19 | Cadena de hashes SHA-256 en la auditoría, verificada a diario | Alteración o borrado de registros por un usuario privilegiado | Verificación de integridad (pantalla y diaria) |
+| C20 | Señales de riesgo de fraude; riesgo ALTO exige confirmación explícita | Aprobación de operaciones fraudulentas | Auditoría de la aprobación con el riesgo y la confirmación |
+| C21 | Límites de pedidos por IP (Nginx) y por usuario (backend) | Abuso, fuerza bruta, scraping | Respuestas 429 y logs |
+| C22 | Contenedores endurecidos y redes segmentadas (las bases solo en una red interna) | Movimiento lateral, escalada de privilegios | `docker-compose.yml` |
+| C23 | Resguardos cifrados con HMAC y prueba de restauración | Pérdida de datos, resguardo alterado | `scripts/resguardo.sh` y `restaurar-resguardo.sh --probar` |
 
 ## Pendientes
 

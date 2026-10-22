@@ -68,7 +68,7 @@ Lo que cargues queda **Pendiente de aprobación**; no se envía al banco hasta q
 
 ## Aprobaciones y transferencias
 
-1. **Aprobaciones** (rol Aprobar) muestra lo pendiente. **Aprobar** envía al banco; **Rechazar** lo descarta sin enviarlo. No podés aprobar lo que cargaste vos.
+1. **Aprobaciones** (rol Aprobar) muestra lo pendiente con su **Riesgo** (bajo, medio o ALTO; tocalo para ver las señales). **Aprobar** envía al banco; **Rechazar** lo descarta sin enviarlo. No podés aprobar lo que cargaste vos. Con riesgo ALTO tenés que confirmar que revisaste las señales.
 2. **Estado de las transferencias aprobadas**: Debitada, Pendiente de autorización (en el banco) o Error API.
 3. **Transferencias** es el registro completo: **Hoy**, **Base operativa** (mes en curso y el anterior) o **Base histórica** (lo anterior, solo lectura). La ruedita **⚙** abre el historial completo de la operación.
 
@@ -105,7 +105,7 @@ Los correos salen de **alyc@valo.ar**, con el logo de VALO.
 
 **Credenciales API:** por ambiente, la **principal** (Home Banking) y la de **Envíos programados** (exclusiva de los correos, usuario API distinto, channel editable). La clave es de solo escritura; **Probar conexión** la verifica.
 
-**Auditoría** (también el auditor): registro de solo lectura de cada acción, filtrable; **Base operativa** o **Base histórica**.
+**Auditoría** (también el auditor): registro de solo lectura de cada acción, filtrable; **Base operativa** o **Base histórica**. **Verificar integridad** comprueba que ningún registro haya sido modificado o borrado.
 
 ## Preguntas frecuentes
 

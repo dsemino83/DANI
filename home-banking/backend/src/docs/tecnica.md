@@ -57,7 +57,7 @@ Roles: `operador`, `autorizante`, `auditor`, `administrador`, `transferencias:cr
 | `mensaje` | Buzón: destinatario, operación, leído (`visto_en`, `visto_motivo`) |
 | `pase_historico` | Registro de cada pase a la histórica |
 
-Migraciones idempotentes en `db/operativa/migraciones` (001 a 012): una base nueva las aplica al crearse; `scripts/migrar-bases.sh` (y `hb-actualizar`) en una existente.
+Migraciones idempotentes en `db/operativa/migraciones` (001 a 013): una base nueva las aplica al crearse; `scripts/migrar-bases.sh` (y `hb-actualizar`) en una existente.
 
 ## Envíos programados de correo
 
@@ -97,6 +97,18 @@ Secretos en `secrets/*.txt` (fuera del repositorio): claves de las bases, `crede
 - **Resguardo:** `pg_dump` diario de ambas bases; nunca `docker compose down -v` en el servidor.
 - **CI:** GitHub Actions construye las imágenes, levanta el stack completo y prueba esquema, migraciones, correo (Mailpit), Keycloak y la CSP antes de publicar.
 
+## Seguridad aplicada y hoja de ruta
+
+| Pilar | Aplicado en el sistema | Pendiente (requiere infraestructura o a otras áreas) |
+| --- | --- | --- |
+| Cifrado | TLS 1.3/1.2 sin tickets, HSTS; credenciales API con AES-256-GCM (llave maestra en secreto de Docker); resguardos cifrados AES-256 con HMAC | Llaves en **HSM / Vault** con rotación automática; mTLS entre servicios (service mesh) |
+| Zero Trust y red | Redes separadas `app` y `datos` sin salida a internet (el frontend no llega a las bases); contenedores sin capacidades, sin escalada de privilegios, backend y jobs de solo lectura; límites de memoria y procesos | Kubernetes con Cilium/OPA; ZTNA para el acceso del personal; acceso privilegiado just-in-time |
+| Identidad | SSO OIDC + PKCE, roles y permisos por empresa validados en cada pedido, doble control, límites de pedidos por usuario e IP | MFA / **passkeys (FIDO2)** y step-up para aprobar: se configuran en el SSO de VALO (Identidad) |
+| Fraude | Señales de riesgo por transferencia (destino nuevo, monto atípico o alto, ráfagas, fuera de horario); riesgo ALTO exige confirmación explícita y queda auditado | Motor de fraude en tiempo real con modelos; biometría comportamental |
+| Privacidad | Datos del banco no se almacenan (solo lo propio de la app); CBU/CUIT/cuentas enmascarados en los logs; datos de prueba sintéticos | Tokenización de CBU/CUIT en una bóveda; base analítica separada con datos seudonimizados |
+| Auditoría | Solo inserción, **cadena de hashes SHA-256** verificable (pantalla y diaria), id de pedido de punta a punta, base histórica de solo lectura | Envío al **SIEM** (Sentinel / Splunk / Wazuh) y almacenamiento WORM de logs |
+| Resiliencia | Healthchecks, reinicio automático, cola con reintentos, una sola consulta al banco por clave; resguardo cifrado con prueba de restauración | Alta disponibilidad (Postgres con réplica, 2+ nodos), segunda región, RPO/RTO cercanos a cero |
+
 ## API del backend (principales rutas)
 
 | Ruta | Perfil | Uso |
@@ -111,3 +123,4 @@ Secretos en `secrets/*.txt` (fuera del repositorio): claves de las bases, `crede
 | `GET /mensajes`, `/mensajes/no-vistos`, `POST /mensajes/:id/visto` | todos | Buzón |
 | `/admin/...` | administrador | Empresas, usuarios, permisos, credenciales (`?uso=principal\|envios`) |
 | `GET /docs/:nombre` | manual: todos; auditoría y técnica: auditor y administrador | Esta documentación |
+| `GET /auditoria/integridad` | auditor y administrador | Verifica la cadena de hashes de la auditoría |

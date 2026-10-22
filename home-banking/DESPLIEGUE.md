@@ -231,12 +231,16 @@ La configuración (empresas, permisos, credenciales, programaciones, feriados) n
 
 ### Copias
 
-Los datos viven en los volúmenes `pg_operativa` y `pg_historica`. Copia diaria, por ejemplo con cron a las 03:00:
+Los datos viven en los volúmenes `pg_operativa` y `pg_historica`. Resguardo **cifrado** diario (cron a las 03:00):
 
 ```sh
-docker compose exec -T postgres           pg_dump -U postgres -Fc homebanking      > /resguardo/operativa-$(date +%F).dump
-docker compose exec -T postgres-historico pg_dump -U postgres -Fc homebanking_hist > /resguardo/historica-$(date +%F).dump
+0 3 * * * cd /opt/home-banking && HB_RESGUARDO_COPIAR='rclone copy {dir} remoto:hb-resguardos' sh scripts/resguardo.sh >> /var/log/hb-resguardo.log 2>&1
 ```
+
+- Cada copia: `pg_dump` de las dos bases → AES-256 con la clave `secrets/resguardo_clave.txt` (la crea `generar-secretos.sh`; no se monta en ningún contenedor) → HMAC-SHA256 y manifiesto SHA-256. Se guardan en `/var/backups/home-banking` (`HB_RESGUARDO_DIR`) y se borran a los 30 días (`HB_RESGUARDO_DIAS`).
+- **Fuera del servidor:** `HB_RESGUARDO_COPIAR` copia cada resguardo a otro lugar (idealmente almacenamiento inmutable / WORM, en otra cuenta o sitio): replicar no protege de un borrado o un ransomware, una copia inmutable sí.
+- **Probar la restauración** (mensual): `sh scripts/restaurar-resguardo.sh /var/backups/home-banking/<carpeta> --probar` verifica la integridad, restaura en bases temporales y cuenta las tablas, sin tocar los datos. Para restaurar de verdad: `--restaurar` (pide confirmación).
+- **La clave del resguardo se guarda también fuera del servidor** (en el resguardo de secretos de VALO): sin ella los resguardos no se pueden descifrar.
 
 Guardar también `secrets/` y `.env`. **`docker compose down -v` borra los volúmenes con todos los datos: no usarlo en el servidor.**
 
