@@ -9,7 +9,7 @@ const hoy = () => new Date(Date.now() - 3 * 3600_000).toISOString().slice(0, 10)
 
 export async function render(main) {
   let progs = [], empresas = [], elegida = null, anio = new Date().getFullYear();
-  const lista = h('div', {}, cargando()), editor = h('div', {}), historial = h('div', {}), feriados = h('div', {});
+  const lista = h('div', {}, cargando()), editor = h('div', {}), historial = h('div', {}), cola = h('div', {}), feriados = h('div', {});
 
   const cargar = async () => {
     [progs, empresas] = await Promise.all([api('/envios'), api('/envios/empresas')]);
@@ -20,7 +20,7 @@ export async function render(main) {
 
   const pintarLista = () => poner(lista, tabla([
     { t: 'Nombre', v: (p) => p.nombre }, { t: 'Programación', v: (p) => p.descripcion },
-    { t: 'Destino', v: (p) => (p.todas_empresas ? 'Todas las empresas' : `${p.empresas.length} empresa(s)`) },
+    { t: 'Destino', v: (p) => (p.todas_empresas ? 'Todos mis clientes' : `${(p.destinos ?? []).length} cliente(s)${(p.destinos ?? []).some((d) => d.cuentas?.length) ? ' · cuentas elegidas' : ''}`) },
     { t: 'Estado', v: (p) => pill(p.activa ? 'Activa' : 'Pausada', p.activa ? 'ok' : 'warn') },
     { t: 'Próximo envío', v: (p) => (p.proximo ? fechaHora(p.proximo) : '—') },
     { t: 'Último', v: (p) => (p.ultimo_envio ? fechaHora(p.ultimo_envio) : '—') },
@@ -41,16 +41,27 @@ export async function render(main) {
       todas: h('input', { type: 'checkbox', checked: p ? p.todas_empresas : true }),
     };
     const dias = DIAS.map(([n, t]) => [n, h('input', { type: 'checkbox', checked: (p?.dias_semana ?? [1, 2, 3, 4, 5]).map(Number).includes(n), 'aria-label': t }), t]);
-    const elegidas = new Set((p?.empresas ?? []).map(Number));
+    // Destino: primero el cliente y después sus cuentas. elegidos: empresaId -> Set de cuentas (vacío = todas)
+    const elegidos = new Map((p?.destinos ?? []).map((d) => [Number(d.empresaId), new Set(d.cuentas ?? [])]));
     const buscar = h('input', { type: 'search', placeholder: 'Buscar empresa (contiene)' });
     const listaEmp = h('div', { class: 'lista-scroll' });
     // El buscador y la lista se redibujan solos al tildar/destildar "Todas" (sin rearmar el formulario)
-    const pintarEmpresas = () => poner(listaEmp, f.todas.checked ? h('p', { class: 'nota' }, 'Se envía a todas las empresas que ves (activas, con emails y cuentas).')
-      : [campo('Buscar', buscar), tabla([
-        { t: '', cls: 'c', v: (e) => { const x = h('input', { type: 'checkbox', checked: elegidas.has(Number(e.id)), 'aria-label': e.razon_social }); x.addEventListener('change', () => (x.checked ? elegidas.add(Number(e.id)) : elegidas.delete(Number(e.id)))); return x; } },
-        { t: 'Empresa', v: (e) => e.razon_social }, { t: 'CUIT', v: (e) => e.cuit, cls: 'mono' },
-        { t: 'Emails', v: (e) => (e.emails?.length ? e.emails.join(', ') : pill('Sin email', 'warn')) },
-      ], empresas.filter((e) => contiene(buscar.value, e.razon_social, e.cuit)), { vacio: 'Ninguna empresa coincide.' })]);
+    const pintarEmpresas = () => poner(listaEmp, f.todas.checked ? h('p', { class: 'nota' }, 'Se envía a todos los clientes que ves, con todas sus cuentas (activos, con emails y cuentas).')
+      : [campo('Buscar cliente', buscar), ...empresas.filter((e) => contiene(buscar.value, e.razon_social, e.cuit)).map((e) => {
+        const id = Number(e.id), sel = elegidos.get(id);
+        const chkCli = h('input', { type: 'checkbox', checked: !!sel, 'aria-label': e.razon_social });
+        chkCli.addEventListener('change', () => { chkCli.checked ? elegidos.set(id, new Set()) : elegidos.delete(id); sinPerderFoco(pintarEmpresas); });
+        const cuentas = sel && h('div', { class: 'dest-cuentas' },
+          h('label', { class: 'campo check' }, (() => { const x = h('input', { type: 'checkbox', checked: sel.size === 0 }); x.addEventListener('change', () => { if (x.checked) sel.clear(); else e.cuentas.forEach((c) => sel.add(c.cuenta)); pintarEmpresas(); }); return x; })(), 'Todas las cuentas'),
+          ...e.cuentas.map((c) => {
+            const x = h('input', { type: 'checkbox', checked: sel.size === 0 || sel.has(c.cuenta), disabled: sel.size === 0 });
+            x.addEventListener('change', () => { x.checked ? sel.add(c.cuenta) : sel.delete(c.cuenta); if (!sel.size) elegidos.set(id, new Set()); pintarEmpresas(); });
+            return h('label', { class: 'campo check' }, x, `${c.cuenta}${c.alias ? ` · ${c.alias}` : ''}${c.moneda ? ` (${c.moneda})` : ''}`);
+          }),
+          !e.cuentas.length && h('p', { class: 'aviso' }, 'Este cliente no tiene cuentas activas.'));
+        return h('div', { class: 'dest-cliente' },
+          h('label', { class: 'campo check' }, chkCli, h('b', {}, e.razon_social), ` · CUIT ${e.cuit} · `, e.emails?.length ? e.emails.join(', ') : pill('Sin email', 'warn')), cuentas);
+      })]);
     buscar.addEventListener('input', () => sinPerderFoco(pintarEmpresas));
     buscar.dataset.foco = 'envios-empresa';
     f.todas.addEventListener('change', pintarEmpresas);
@@ -64,7 +75,7 @@ export async function render(main) {
       const body = {
         nombre: f.nombre.value, contenido: f.contenido.value, frecuencia: f.frecuencia.value, hora: f.hora.value, horaHasta: f.horaHasta.value,
         diasSemana: dias.filter(([, x]) => x.checked).map(([n]) => n), saltarFeriados: f.feriados.checked, fechaInicio: f.inicio.value, fechaFin: f.fin.value || null,
-        todasEmpresas: f.todas.checked, empresas: [...elegidas], activa: f.activa.checked,
+        todasEmpresas: f.todas.checked, destinos: [...elegidos].map(([empresaId, cs]) => ({ empresaId, cuentas: [...cs] })), activa: f.activa.checked,
       };
       try {
         const r = await api(p ? `/envios/${p.id}` : '/envios', { method: p ? 'PUT' : 'POST', body });
@@ -78,9 +89,9 @@ export async function render(main) {
       poner(editor); await cargar();
     };
     const ejecutar = async () => {
-      if (!(await confirmar('Ejecutar ahora', `Se envían ya los correos de "${p.nombre}" a las empresas de destino (no cambia la programación).`, 'Enviar ahora'))) return;
-      try { const r = await api(`/envios/${p.id}/ejecutar`, { method: 'POST' }); toast(`Enviados ${r.enviados} · errores ${r.errores} · omitidos ${r.omitidos}.`, r.errores > 0); } catch (x) { error(x); }
-      await cargar();
+      if (!(await confirmar('Ejecutar ahora', `Se encola ya un envío por cliente de "${p.nombre}". La cola los procesa de a uno en los próximos segundos (no cambia la programación).`, 'Encolar ahora'))) return;
+      try { const r = await api(`/envios/${p.id}/ejecutar`, { method: 'POST' }); toast(`${r.encoladas} envío(s) encolado(s). Seguilos en "Cola de envíos".`); } catch (x) { error(x); }
+      await cargar(); pintarCola();
     };
 
     poner(editor, card(p ? `Editar · ${p.nombre}` : 'Nuevo envío programado', 'Hora de Argentina. "1 vez cada hora" envía a la hora en punto de "Desde" y cada hora hasta "Hasta", inclusive.',
@@ -89,7 +100,7 @@ export async function render(main) {
       h('div', { class: 'fila' }, h('span', { class: 'nota' }, 'Días:'), ...dias.map(([, x, t]) => h('label', { class: 'campo check' }, x, t))),
       h('div', { class: 'fila' }, campo('Inicio', f.inicio), campo('Fin (vacío = sin fin)', f.fin),
         h('label', { class: 'campo check' }, f.feriados, 'No enviar en feriados'), h('label', { class: 'campo check' }, f.activa, 'Activa')),
-      h('label', { class: 'campo check' }, f.todas, 'Todas las empresas'),
+      h('label', { class: 'campo check' }, f.todas, 'Todos mis clientes'),
       listaEmp,
       h('div', { class: 'fila' },
         h('button', { class: 'btn primario', onclick: guardar }, p ? 'Guardar cambios' : 'Crear'),
@@ -101,12 +112,34 @@ export async function render(main) {
   const pintarHistorial = async () => {
     if (!elegida) return poner(historial);
     const filas = await api(`/envios/${elegida.id}/historial`).catch(() => []);
-    poner(historial, card(`Historial · ${elegida.nombre}`, 'Últimos 200 envíos (uno por empresa y turno).', tabla([
-      { t: 'Fecha', v: (x) => fechaHora(x.en) }, { t: 'Turno', v: (x) => x.turno.replace('T', ' '), cls: 'mono' }, { t: 'Empresa', v: (x) => x.empresa },
-      { t: 'Destinatarios', v: (x) => x.destinatarios.join(', ') },
-      { t: 'Resultado', v: (x) => pill({ enviado: 'Enviado', error: 'Error', omitido: 'Omitido' }[x.estado], { enviado: 'ok', error: 'bad', omitido: 'warn' }[x.estado]) },
-      { t: 'Detalle', v: (x) => `${x.manual ? '(manual) ' : ''}${x.detalle ?? ''}` },
-    ], filas, { vacio: 'Todavía no hubo envíos.' })));
+    poner(historial, card(`Historial · ${elegida.nombre}`, 'Últimas 200 tareas (una por cliente y turno).', tablaTareas(filas, false)));
+  };
+
+  // Tareas de la cola (también se usa para el historial de una programación)
+  const ESTADO = { pendiente: ['En cola', 'warn'], procesando: ['Procesando', 'warn'], enviado: ['Enviado', 'ok'], error: ['Error', 'bad'], omitido: ['Omitido', 'warn'] };
+  const reintentar = async (t) => {
+    try { await api(`/envios/cola/${t.id}/reintentar`, { method: 'POST' }); toast('Vuelve a la cola.'); } catch (x) { error(x); }
+    pintarCola(); pintarHistorial();
+  };
+  const tablaTareas = (filas, conProgramacion) => tabla([
+    { t: 'Encolada', v: (x) => fechaHora(x.encolada_en) }, conProgramacion && { t: 'Programación', v: (x) => x.programacion },
+    { t: 'Turno', v: (x) => (x.manual ? 'manual' : x.turno.replace('T', ' ')), cls: 'mono' }, { t: 'Cliente', v: (x) => x.empresa },
+    { t: 'Cuentas', v: (x) => (x.cuentas?.length ? x.cuentas.join(', ') : 'todas') },
+    { t: 'Estado', v: (x) => pill(...ESTADO[x.estado]) }, { t: 'Intentos', v: (x) => `${x.intentos}/${x.max_intentos}`, cls: 'num' },
+    { t: 'Detalle', v: (x) => [x.detalle ?? '', x.destinatarios?.length ? ` → ${x.destinatarios.join(', ')}` : ''].join('') },
+    { t: '', cls: 'acc', v: (x) => x.estado === 'error' && h('button', { class: 'btn chico', onclick: () => reintentar(x) }, 'Reintentar') },
+  ].filter(Boolean), filas, { vacio: 'No hay tareas.' });
+
+  const pintarCola = async () => {
+    const r = await api('/envios/cola').catch(() => null);
+    if (!r) return;
+    const n = (k) => r.ultimas24h[k] ?? 0;
+    poner(cola, card('Cola de envíos', 'Cada turno genera una tarea por cliente. Un único proceso las toma de a una, en orden, así no se superponen; cada tarea termina en un correo. Si falla, se reintenta a los 1, 5 y 15 minutos.',
+      h('div', { class: 'fila' },
+        pill(`En cola ${r.tareas.filter((t) => t.estado === 'pendiente').length}`, 'warn'), pill(`Procesando ${r.tareas.filter((t) => t.estado === 'procesando').length}`, 'warn'),
+        h('span', { class: 'nota' }, `Últimas 24 h: ${n('enviado')} enviados · ${n('error')} con error · ${n('omitido')} omitidos`),
+        h('button', { class: 'btn chico', onclick: pintarCola }, '↻ Actualizar')),
+      h('div', { class: 'lista-scroll' }, tablaTareas(r.tareas, true))));
   };
 
   // Feriados: de fuentes públicas (ArgentinaDatos / Nolaborables) + los cargados a mano (p. ej. Día del Bancario)
@@ -139,7 +172,8 @@ export async function render(main) {
   poner(main,
     card('Envíos programados', 'Correos automáticos a los emails de cada empresa. Elegí uno para editarlo, ejecutarlo o ver su historial.',
       h('div', { class: 'fila' }, h('button', { class: 'btn primario', onclick: () => { elegida = null; pintarLista(); pintarEditor(); pintarHistorial(); } }, 'Nuevo envío programado')), lista),
-    editor, historial, feriados);
+    editor, cola, historial, feriados);
   await cargar().catch(error);
+  pintarCola();
   pintarFeriados();
 }

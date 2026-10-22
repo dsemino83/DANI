@@ -3,7 +3,7 @@ import cron from 'node-cron';
 import { writeFileSync } from 'node:fs';
 import { conciliarDebitos, recuperarEnviando, sincronizarEstados } from './estado-banco.js';
 import { ejecutarPase } from './pase-historico.js';
-import { ejecutarEnviosPendientes } from '../servicios/envios.js';
+import { ejecutarEnviosPendientes, procesarCola } from '../servicios/envios.js';
 import { sincronizarFeriados } from '../servicios/feriados.js';
 
 const log = (...a) => console.log(new Date().toISOString(), ...a);
@@ -20,11 +20,16 @@ cron.schedule('*/5 * * * *', seguro('recuperar-enviando', async () => ({ recuper
 // Pase a la base histórica: día 1 de cada mes a las 02:10
 cron.schedule('10 2 1 * *', seguro('pase-historico', ejecutarPase), { timezone: 'America/Argentina/Buenos_Aires' });
 
-// Envíos programados de correo a las empresas: revisa cada minuto si hay turnos vencidos
+// Envíos programados: cada minuto se ENCOLAN los turnos vencidos (una tarea por cliente)…
 cron.schedule('* * * * *', async () => {
-  try { const r = await ejecutarEnviosPendientes(); if (r.length) log('envios-programados', JSON.stringify(r)); } // sin ruido cuando no hay turnos
-  catch (e) { console.error(new Date().toISOString(), 'envios-programados', 'ERROR', e.message); }
+  try { const r = await ejecutarEnviosPendientes(); if (r.length) log('envios-encolados', JSON.stringify(r)); } // sin ruido si no hay turnos
+  catch (e) { console.error(new Date().toISOString(), 'envios-encolados', 'ERROR', e.message); }
 }, { timezone: 'America/Argentina/Buenos_Aires' });
+// …y un único trabajador procesa la cola de a una tarea cada 15 segundos (si sigue ocupado, no arranca otro)
+cron.schedule('*/15 * * * * *', async () => {
+  try { const r = await procesarCola(); if (r.procesadas) log('cola-envios', JSON.stringify(r)); }
+  catch (e) { console.error(new Date().toISOString(), 'cola-envios', 'ERROR', e.message); }
+});
 
 // Feriados de fuentes públicas: todos los días a las 03:20 (año en curso y el siguiente) y al arrancar
 const feriados = seguro('feriados', async () => {

@@ -147,3 +147,5 @@ pre { background: var(--bg); border: 1px solid var(--line); border-radius: var(-
   body.imprimiendo-constancia .constancia, body.imprimiendo-constancia .constancia * { visibility: visible; }
   body.imprimiendo-constancia .constancia { position: absolute; left: 0; right: 0; top: 0; border: 0; }
 }
+.dest-cliente { border-bottom: 1px solid var(--line); padding: 6px 0; }
+.dest-cuentas { display: flex; flex-wrap: wrap; gap: 4px 16px; padding: 4px 0 4px 28px; }

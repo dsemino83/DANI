@@ -236,5 +236,7 @@ test('envíos programados: turnos, días, feriados, inicio y fin', async () => {
   assert.throws(() => validarProgramacion({ ...ok, horaHasta: '08:00' }));
   assert.throws(() => validarProgramacion({ ...ok, diasSemana: [] }));
   assert.throws(() => validarProgramacion({ ...ok, fechaFin: '2026-10-01' }));
-  assert.throws(() => validarProgramacion({ ...ok, todasEmpresas: false, empresas: [] }));
+  assert.throws(() => validarProgramacion({ ...ok, todasEmpresas: false, destinos: [] }));
+  assert.deepEqual(validarProgramacion({ ...ok, todasEmpresas: false, destinos: [{ empresaId: '3', cuentas: ['200', '100', '100'] }, { empresaId: 4 }] }).destinos,
+    [{ empresaId: 3, cuentas: ['100', '200'] }, { empresaId: 4, cuentas: [] }], 'cliente y luego sus cuentas (vacío = todas)');
 });

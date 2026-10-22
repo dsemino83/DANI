@@ -158,11 +158,11 @@ Para probar sin instalar nada: una máquina virtual de GitHub con Docker que lev
 Pestaña **Envíos programados**, solo del **aprobador** (perfil autorizante) y solo sobre las empresas que él ve. Cada programación define:
 
 - **Contenido:** saldos, movimientos del día, o ambos. Un correo por empresa, a todos sus emails, con solo sus cuentas.
-- **Destino:** todas las empresas que ve el aprobador, o las elegidas (con buscador). Al enviar se vuelve a verificar con los permisos del aprobador que la guardó.
+- **Destino:** primero el **cliente** y después sus **cuentas** (todas o solo algunas), entre los clientes que ve el aprobador; o "Todos mis clientes". Al enviar se vuelve a verificar con los permisos del aprobador que la guardó.
 - **Repetición:** **1 vez al día** a una hora, o **1 vez cada hora** desde una hora hasta otra (inclusive).
 - **Días de la semana**, **inicio** y **fin** (opcional), y **No enviar en feriados**.
 
-Lo ejecuta el servicio `jobs` cada minuto, en hora de Argentina. Cada turno sale una sola vez, y si el sistema estuvo apagado no manda los atrasados de más de una hora. **Ejecutar ahora** manda una prueba sin tocar la programación. El **Historial** muestra, por empresa y turno, si se envió, falló (con el motivo) o se omitió (sin emails o sin cuentas). Todo queda en Auditoría.
+**Cola de envíos (sin superposición).** Cada minuto, el servicio `jobs` revisa los turnos vencidos (hora de Argentina) y **encola** una tarea por cliente; un turno se encola una sola vez y, si el sistema estuvo apagado, no se encolan los atrasados de más de una hora. Un **único trabajador** toma las tareas de a una, en orden (`FOR UPDATE SKIP LOCKED`), así los procesos nunca se superponen; cada tarea termina en el envío de un correo. Si el envío falla se reintenta a los 1, 5 y 15 minutos; después queda en **Error** y se puede **Reintentar** a mano. Una tarea que quedó "procesando" por un corte se retoma sola a los 10 minutos. La pantalla muestra la **Cola de envíos** (en cola, procesando, últimas terminadas y el resumen de 24 h) y el **Historial** de cada programación. **Ejecutar ahora** encola un envío de prueba. Todo queda en Auditoría.
 
 **Feriados:** se traen solos todos los días de fuentes públicas (ArgentinaDatos y, si falla, Nolaborables) para el año en curso y el siguiente; también con **Actualizar desde fuentes públicas**. Los días no laborables bancarios que no son feriados nacionales (por ejemplo, el **Día del Bancario, 6 de noviembre**) se cargan a mano en la misma pantalla.
 

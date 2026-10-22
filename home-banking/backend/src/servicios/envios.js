@@ -40,43 +40,94 @@ export function armarCorreo(empresa, cuentas, contenido, fecha) {
   return { asunto, html, texto };
 }
 
-// Ejecuta una programación para un turno: un correo por empresa (activa, con cuentas y emails)
-export async function ejecutarProgramacion(p, turno, { manual = false } = {}) {
-  // Solo empresas que ve el aprobador responsable (el último que la guardó): "todas" = todas las suyas
-  const responsable = p.actualizada_por ?? p.creada_por;
-  const { rows: empresas } = await operativa.query(
-    `SELECT e.* FROM empresa e JOIN permiso_empresa pe ON pe.empresa_id = e.id AND pe.usuario = $3 AND pe.ver
-      WHERE e.activa AND ($1::boolean OR e.id = ANY($2::bigint[])) ORDER BY e.razon_social`, [p.todas_empresas, p.empresas ?? [], responsable]);
-  const vinculos = (await operativa.query(`SELECT empresa_id::text, product_number FROM empresa_cbu WHERE estado = 'activa'`)).rows;
-  const fecha = enArgentina().fecha, resultado = { enviados: 0, errores: 0, omitidos: 0 };
-  let banco = null;
-  const registrar = (e, estado, detalle, para = []) => {
-    resultado[{ enviado: 'enviados', error: 'errores', omitido: 'omitidos' }[estado]]++;
-    return operativa.query(`INSERT INTO envio_mail_log (programacion_id, turno, empresa_id, empresa, destinatarios, estado, detalle, manual) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-      [p.id, turno, e.id, e.razon_social, para, estado, String(detalle ?? '').slice(0, 1000), manual]);
-  };
-  for (const e of empresas) {
-    if (!e.emails?.length) { await registrar(e, 'omitido', 'La empresa no tiene emails'); continue; }
-    const nums = new Set(vinculos.filter((v) => v.empresa_id === String(e.id)).map((v) => v.product_number));
-    if (!nums.size) { await registrar(e, 'omitido', 'La empresa no tiene cuentas activas'); continue; }
-    try {
-      banco ??= await cuentasPropias(); // una sola consulta al banco por ejecución
-      const cuentas = banco.filter((c) => nums.has(String(c.productNumber))).map((c) => ({ ...c }));
-      if (p.contenido !== 'saldos') {
-        for (const c of cuentas) {
-          try { c.movimientos = (await movimientos(c, fecha, fecha)).movimientos; } catch (x) { c.errorMovimientos = x.message; }
-        }
-      }
-      const correo = armarCorreo(e, cuentas, p.contenido, fecha);
-      await enviarCorreo({ para: e.emails, asunto: correo.asunto, html: correo.html, texto: correo.texto });
-      await registrar(e, 'enviado', correo.asunto, e.emails);
-    } catch (x) { await registrar(e, 'error', x.message, e.emails); }
-  }
-  return resultado;
+// ---------------- Cola de envíos ----------------
+// El programador ENCOLA una tarea por cliente y turno; un único trabajador las PROCESA de a una, así los
+// procesos no se superponen (ni dentro de una ejecución ni entre ejecuciones). Cada tarea termina en un correo.
+const ESPERAS_MIN = [1, 5, 15]; // reintentos: 1, 5 y 15 minutos después de cada falla
+const COLGADA_MIN = 10;         // una tarea "procesando" hace más de esto (proceso caído) vuelve a la cola
+
+// Clientes que el aprobador responsable ve hoy (permiso Ver del administrador, empresa activa)
+async function clientesVisibles(usuario) {
+  return (await operativa.query(`SELECT e.* FROM empresa e JOIN permiso_empresa pe ON pe.empresa_id = e.id AND pe.usuario = $1 AND pe.ver
+    WHERE e.activa ORDER BY e.razon_social`, [usuario])).rows;
 }
 
-// Lo llama el servicio jobs cada minuto: ejecuta los turnos vencidos. El UPDATE condicional "reserva" el
-// turno antes de enviar, así un turno nunca sale dos veces aunque haya dos procesos.
+export async function encolarTurno(p, turno, { manual = false } = {}) {
+  const responsable = p.actualizada_por ?? p.creada_por;
+  const visibles = await clientesVisibles(responsable);
+  const destinos = p.todas_empresas ? visibles.map((e) => ({ empresaId: Number(e.id), cuentas: [] })) : (p.destinos ?? []);
+  let encoladas = 0;
+  for (const d of destinos) {
+    const e = visibles.find((x) => Number(x.id) === Number(d.empresaId));
+    const r = await operativa.query(`INSERT INTO cola_envio (programacion_id, programacion, turno, empresa_id, empresa, cuentas, contenido, responsable, manual)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) ON CONFLICT (programacion_id, turno, empresa_id) DO NOTHING`,
+    [p.id, p.nombre, turno, d.empresaId, e?.razon_social ?? `Empresa ${d.empresaId}`, d.cuentas ?? [], p.contenido, responsable, manual]);
+    encoladas += r.rowCount;
+  }
+  return encoladas;
+}
+
+// Toma la próxima tarea disponible (SKIP LOCKED: si hubiera otro proceso, nunca toman la misma)
+async function tomarTarea() {
+  const { rows } = await operativa.query(`UPDATE cola_envio SET estado = 'procesando', tomada_en = now(), intentos = intentos + 1
+    WHERE id = (SELECT id FROM cola_envio WHERE estado = 'pendiente' AND disponible_en <= now() ORDER BY disponible_en, id FOR UPDATE SKIP LOCKED LIMIT 1)
+    RETURNING *`);
+  return rows[0] ?? null;
+}
+
+const terminar = (t, estado, detalle, destinatarios = []) => operativa.query(
+  `UPDATE cola_envio SET estado = $2, detalle = $3, destinatarios = $4, terminada_en = now() WHERE id = $1`, [t.id, estado, String(detalle ?? '').slice(0, 1000), destinatarios]);
+
+let banco = { cuando: 0, cuentas: null };
+const cuentasDelBanco = async () => { // una consulta al banco por minuto como mucho, para toda la cola
+  if (!banco.cuentas || Date.now() - banco.cuando > 60_000) banco = { cuando: Date.now(), cuentas: await cuentasPropias() };
+  return banco.cuentas;
+};
+
+export async function procesarTarea(t) {
+  const e = (await clientesVisibles(t.responsable)).find((x) => Number(x.id) === Number(t.empresa_id));
+  if (!e) return terminar(t, 'omitido', `El aprobador ${t.responsable} ya no ve este cliente (o está inactivo)`);
+  if (!e.emails?.length) return terminar(t, 'omitido', 'El cliente no tiene emails');
+  const activas = (await operativa.query(`SELECT product_number FROM empresa_cbu WHERE empresa_id = $1 AND estado = 'activa'`, [e.id])).rows.map((r) => r.product_number);
+  const nums = new Set(t.cuentas?.length ? t.cuentas.filter((c) => activas.includes(c)) : activas);
+  if (!nums.size) return terminar(t, 'omitido', 'El cliente no tiene (o ya no tiene) las cuentas elegidas');
+  try {
+    const fecha = enArgentina().fecha;
+    const cuentas = (await cuentasDelBanco()).filter((c) => nums.has(String(c.productNumber))).map((c) => ({ ...c }));
+    if (t.contenido !== 'saldos') {
+      for (const c of cuentas) {
+        try { c.movimientos = (await movimientos(c, fecha, fecha)).movimientos; } catch (x) { c.errorMovimientos = x.message; }
+      }
+    }
+    const correo = armarCorreo(e, cuentas, t.contenido, fecha);
+    await enviarCorreo({ para: e.emails, asunto: correo.asunto, html: correo.html, texto: correo.texto });
+    return terminar(t, 'enviado', correo.asunto, e.emails);
+  } catch (x) {
+    if (t.intentos < t.max_intentos) { // vuelve a la cola con espera creciente
+      const espera = ESPERAS_MIN[Math.min(t.intentos - 1, ESPERAS_MIN.length - 1)];
+      return operativa.query(`UPDATE cola_envio SET estado = 'pendiente', detalle = $2, disponible_en = now() + make_interval(mins => $3) WHERE id = $1`,
+        [t.id, `Intento ${t.intentos} falló: ${x.message}. Se reintenta en ${espera} min`, espera]);
+    }
+    return terminar(t, 'error', `Falló ${t.intentos} veces: ${x.message}`, e.emails);
+  }
+}
+
+// Trabajador: procesa la cola de a una tarea hasta vaciarla. Si ya está corriendo, no arranca otro.
+let trabajando = false;
+export async function procesarCola({ maximo = 200 } = {}) {
+  if (trabajando) return { enCurso: true };
+  trabajando = true;
+  try {
+    await operativa.query(`UPDATE cola_envio SET estado = 'pendiente', detalle = 'Retomada: el proceso anterior se interrumpió'
+      WHERE estado = 'procesando' AND tomada_en < now() - make_interval(mins => $1)`, [COLGADA_MIN]);
+    let hechas = 0;
+    for (let t = await tomarTarea(); t && hechas < maximo; t = await tomarTarea()) { await procesarTarea(t); hechas++; }
+    return { procesadas: hechas };
+  } finally { trabajando = false; }
+}
+
+// Lo llama el servicio jobs cada minuto: encola los turnos vencidos. El UPDATE condicional "reserva" el turno
+// antes de encolar, así un turno nunca se encola dos veces aunque haya dos procesos.
 export async function ejecutarEnviosPendientes(ahora = new Date()) {
   const esFeriado = await feriadosCargados();
   const { rows } = await operativa.query('SELECT * FROM programacion_envio WHERE activa');
@@ -86,7 +137,7 @@ export async function ejecutarEnviosPendientes(ahora = new Date()) {
     if (!turno) continue;
     const r = await operativa.query('UPDATE programacion_envio SET ultimo_turno = $2 WHERE id = $1 AND (ultimo_turno IS NULL OR ultimo_turno < $2) RETURNING id', [p.id, turno]);
     if (!r.rowCount) continue;
-    hechos.push({ programacion: p.nombre, turno, ...(await ejecutarProgramacion(p, turno)) });
+    hechos.push({ programacion: p.nombre, turno, encoladas: await encolarTurno(p, turno) });
   }
   return hechos;
 }

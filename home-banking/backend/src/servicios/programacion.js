@@ -78,9 +78,17 @@ export function validarProgramacion(d) {
   const esFecha = (x) => /^\d{4}-\d{2}-\d{2}$/.test(String(x ?? ''));
   if (!esFecha(d.fechaInicio)) throw invalido('Fecha de inicio inválida');
   if (d.fechaFin && (!esFecha(d.fechaFin) || d.fechaFin < d.fechaInicio)) throw invalido('La fecha de fin tiene que ser igual o posterior al inicio');
+  // Destinos: primero el cliente y después sus cuentas (cuentas vacío = todas las del cliente)
   const todas = d.todasEmpresas !== false;
-  const empresas = todas ? [] : [...new Set((d.empresas ?? []).map(Number).filter(Boolean))];
-  if (!todas && !empresas.length) throw invalido('Elegí al menos una empresa o "todas"');
+  const porEmpresa = new Map();
+  for (const x of todas ? [] : d.destinos ?? []) {
+    const id = Number(x?.empresaId);
+    if (!id) continue;
+    const cuentas = [...new Set((x.cuentas ?? []).map(String).filter(Boolean))].sort();
+    porEmpresa.set(id, cuentas);
+  }
+  const destinos = [...porEmpresa].map(([empresaId, cuentas]) => ({ empresaId, cuentas }));
+  if (!todas && !destinos.length) throw invalido('Elegí al menos un cliente o "todos"');
   return { nombre, contenido: d.contenido, frecuencia: d.frecuencia, hora, horaHasta, dias, saltarFeriados: d.saltarFeriados !== false,
-    fechaInicio: d.fechaInicio, fechaFin: d.fechaFin || null, todas, empresas, activa: d.activa !== false };
+    fechaInicio: d.fechaInicio, fechaFin: d.fechaFin || null, todas, destinos, activa: d.activa !== false };
 }

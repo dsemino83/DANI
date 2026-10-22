@@ -4,12 +4,13 @@ import { auditar } from '../auditoria.js';
 import { exigirRol } from '../auth.js';
 import { operativa, tx } from '../db.js';
 import { invalido, noEncontrado } from '../errores.js';
-import { ejecutarProgramacion } from '../servicios/envios.js';
+import { encolarTurno } from '../servicios/envios.js';
 import { feriadosCargados, sincronizarFeriados } from '../servicios/feriados.js';
 import { enArgentina, proximoTurno, validarProgramacion } from '../servicios/programacion.js';
 
 const CONTENIDO = { saldos: 'saldos', movimientos: 'movimientos del día', saldos_movimientos: 'saldos y movimientos del día' };
 const DIAS = ['', 'lun', 'mar', 'mié', 'jue', 'vie', 'sáb', 'dom'];
+const destinoTxt = (p) => (p.todas_empresas ? 'todos sus clientes' : `${(p.destinos ?? []).length} cliente(s)${(p.destinos ?? []).some((d) => d.cuentas?.length) ? ' (con cuentas elegidas)' : ''}`);
 export const describir = (p) => `${CONTENIDO[p.contenido]} · ${p.frecuencia === 'diaria' ? `diaria a las ${String(p.hora).slice(0, 5)}`
   : `cada hora de ${String(p.hora).slice(0, 5)} a ${String(p.hora_hasta).slice(0, 5)}`} · ${(p.dias_semana ?? []).map((d) => DIAS[d]).join(', ')}`
   + `${p.saltar_feriados ? ' · sin feriados' : ''} · desde ${String(p.fecha_inicio).slice(0, 10)}${p.fecha_fin ? ` hasta ${String(p.fecha_fin).slice(0, 10)}` : ''}`;
@@ -25,30 +26,39 @@ export default async function rutasEnvios(app) {
   const visibles = async (usuario) => (await operativa.query(
     `SELECT e.id, e.razon_social, e.cuit, e.emails FROM empresa e JOIN permiso_empresa p ON p.empresa_id = e.id AND p.usuario = $1 AND p.ver
       WHERE e.activa ORDER BY e.razon_social`, [usuario])).rows;
-  app.get('/envios/empresas', async (req) => visibles(req.user.usuario));
+  // Para elegir destino: cliente y después sus cuentas (las vinculadas activas; sin consultar al banco)
+  app.get('/envios/empresas', async (req) => {
+    const emp = await visibles(req.user.usuario);
+    const ctas = (await operativa.query(`SELECT empresa_id::text, product_number, alias, moneda FROM empresa_cbu WHERE estado = 'activa' AND empresa_id = ANY($1) ORDER BY product_number`,
+      [emp.map((e) => e.id)])).rows;
+    return emp.map((e) => ({ ...e, cuentas: ctas.filter((c) => c.empresa_id === String(e.id)).map((c) => ({ cuenta: c.product_number, alias: c.alias, moneda: c.moneda })) }));
+  });
 
   app.get('/envios', async () => {
     const esFeriado = await feriadosCargados();
-    const { rows } = await operativa.query(`SELECT p.*, (SELECT max(en) FROM envio_mail_log l WHERE l.programacion_id = p.id) AS ultimo_envio FROM programacion_envio p ORDER BY p.nombre`);
+    const { rows } = await operativa.query(`SELECT p.*, (SELECT max(terminada_en) FROM cola_envio c WHERE c.programacion_id = p.id AND c.estado = 'enviado') AS ultimo_envio FROM programacion_envio p ORDER BY p.nombre`);
     return rows.map((p) => ({ ...p, descripcion: describir(p), proximo: proximoTurno(p, new Date(), esFeriado) }));
   });
 
   const guardar = (id) => async (req, reply) => {
     const d = validarProgramacion(req.body ?? {});
     return tx(operativa, async (c) => {
-      if (!d.todas) {
+      if (!d.todas) { // cada cliente tiene que verlo el aprobador y cada cuenta tiene que ser de ese cliente
         const mias = new Set((await visibles(req.user.usuario)).map((e) => Number(e.id)));
-        if (d.empresas.some((id) => !mias.has(id))) throw invalido('Solo podés elegir empresas que ves');
+        if (d.destinos.some((x) => !mias.has(x.empresaId))) throw invalido('Solo podés elegir clientes que ves');
+        const activas = (await c.query(`SELECT empresa_id::int AS e, product_number FROM empresa_cbu WHERE estado = 'activa' AND empresa_id = ANY($1)`, [d.destinos.map((x) => x.empresaId)])).rows;
+        const ajenas = d.destinos.flatMap((x) => x.cuentas.filter((n) => !activas.some((a) => a.e === x.empresaId && a.product_number === n)));
+        if (ajenas.length) throw invalido(`Cuentas que no son del cliente elegido: ${ajenas.join(', ')}`);
       }
-      const v = [d.nombre, d.contenido, d.todas, d.empresas, d.frecuencia, d.hora, d.horaHasta, d.dias, d.saltarFeriados, d.fechaInicio, d.fechaFin, d.activa, req.user.usuario];
+      const v = [d.nombre, d.contenido, d.todas, d.destinos.map((x) => x.empresaId), d.frecuencia, d.hora, d.horaHasta, d.dias, d.saltarFeriados, d.fechaInicio, d.fechaFin, d.activa, req.user.usuario, JSON.stringify(d.destinos)];
       const { rows } = id == null
-        ? await c.query(`INSERT INTO programacion_envio (nombre, contenido, todas_empresas, empresas, frecuencia, hora, hora_hasta, dias_semana, saltar_feriados, fecha_inicio, fecha_fin, activa, creada_por)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) RETURNING *`, v)
+        ? await c.query(`INSERT INTO programacion_envio (nombre, contenido, todas_empresas, empresas, frecuencia, hora, hora_hasta, dias_semana, saltar_feriados, fecha_inicio, fecha_fin, activa, creada_por, destinos)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14) RETURNING *`, v)
         : await c.query(`UPDATE programacion_envio SET nombre = $1, contenido = $2, todas_empresas = $3, empresas = $4, frecuencia = $5, hora = $6, hora_hasta = $7,
-            dias_semana = $8, saltar_feriados = $9, fecha_inicio = $10, fecha_fin = $11, activa = $12, actualizada_por = $13, actualizada_en = now() WHERE id = $14 RETURNING *`, [...v, id(req)]);
+            dias_semana = $8, saltar_feriados = $9, fecha_inicio = $10, fecha_fin = $11, activa = $12, actualizada_por = $13, destinos = $14, actualizada_en = now() WHERE id = $15 RETURNING *`, [...v, id(req)]);
       if (!rows[0]) throw noEncontrado('Programación inexistente');
       await auditar(c, req, { tipo: 'Administración', accion: id == null ? 'Creó envío programado' : 'Modificó envío programado', ref: { tipo: 'envio', id: rows[0].id },
-        detalle: `${rows[0].nombre} · ${describir(rows[0])} · ${rows[0].todas_empresas ? 'todas las empresas' : `${rows[0].empresas.length} empresa(s)`}${rows[0].activa ? '' : ' · pausada'}` });
+        detalle: `${rows[0].nombre} · ${describir(rows[0])} · ${destinoTxt(rows[0])}${rows[0].activa ? '' : ' · pausada'}` });
       if (id == null) reply.code(201);
       return rows[0];
     });
@@ -63,19 +73,36 @@ export default async function rutasEnvios(app) {
     return { eliminada: true };
   }));
 
-  // Ejecutar ahora (prueba): manda los correos ya, sin esperar el horario ni tocar los turnos programados
+  // Ejecutar ahora (prueba): encola una tarea por cliente ya; el trabajador la procesa en segundos, en orden,
+  // sin superponerse con los envíos programados. No toca los turnos programados.
   app.post('/envios/:id/ejecutar', async (req) => {
     const p = (await operativa.query('SELECT * FROM programacion_envio WHERE id = $1', [req.params.id])).rows[0];
     if (!p) throw noEncontrado('Programación inexistente');
-    const { fecha, hora } = enArgentina();
-    const r = await ejecutarProgramacion(p, `${fecha}T${hora}`, { manual: true });
-    await auditar(null, req, { tipo: 'Administración', accion: 'Ejecutó envío programado a mano', ref: { tipo: 'envio', id: p.id },
-      detalle: `${p.nombre} · enviados ${r.enviados} · errores ${r.errores} · omitidos ${r.omitidos}` });
-    return r;
+    const encoladas = await encolarTurno(p, `manual ${new Date().toISOString()}`, { manual: true });
+    await auditar(null, req, { tipo: 'Administración', accion: 'Encoló envío programado a mano', ref: { tipo: 'envio', id: p.id }, detalle: `${p.nombre} · ${encoladas} tarea(s)` });
+    return { encoladas };
   });
 
+  // Historial de una programación (las tareas de la cola)
   app.get('/envios/:id/historial', async (req) => (await operativa.query(
-    'SELECT * FROM envio_mail_log WHERE programacion_id = $1 ORDER BY en DESC LIMIT 200', [req.params.id])).rows);
+    'SELECT * FROM cola_envio WHERE programacion_id = $1 ORDER BY encolada_en DESC, id DESC LIMIT 200', [req.params.id])).rows);
+
+  // Cola: lo pendiente y en proceso, más lo último terminado
+  app.get('/envios/cola', async () => {
+    const { rows } = await operativa.query(`(SELECT * FROM cola_envio WHERE estado IN ('pendiente', 'procesando') ORDER BY disponible_en, id LIMIT 500)
+      UNION ALL (SELECT * FROM cola_envio WHERE estado NOT IN ('pendiente', 'procesando') ORDER BY terminada_en DESC NULLS LAST LIMIT 50)`);
+    const resumen = (await operativa.query(`SELECT estado, count(*)::int AS n FROM cola_envio WHERE encolada_en > now() - interval '24 hours' GROUP BY estado`)).rows;
+    return { tareas: rows, ultimas24h: Object.fromEntries(resumen.map((r) => [r.estado, r.n])) };
+  });
+
+  // Reintentar una tarea que terminó con error (vuelve al final de la cola)
+  app.post('/envios/cola/:id/reintentar', async (req) => {
+    const r = await operativa.query(`UPDATE cola_envio SET estado = 'pendiente', intentos = 0, disponible_en = now(), detalle = 'Reintento manual', terminada_en = NULL
+      WHERE id = $1 AND estado = 'error' RETURNING programacion, empresa, turno`, [req.params.id]);
+    if (!r.rowCount) throw invalido('Solo se reintentan tareas con error');
+    await auditar(null, req, { tipo: 'Administración', accion: 'Reintentó envío de la cola', detalle: `${r.rows[0].programacion} · ${r.rows[0].empresa} · ${r.rows[0].turno}` });
+    return { reintentada: Number(req.params.id) };
+  });
 
   // ---------------- Feriados ----------------
   app.get('/feriados', async (req) => {
