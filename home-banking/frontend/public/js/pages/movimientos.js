@@ -4,7 +4,7 @@ import { h, poner, card, kpi, tabla, campo, seg, dinero, iso, haceDias, fecha, c
 
 const PAGINA = 900;
 
-// Créditos del período agrupados (por causal = descripción del movimiento, o por CUIT del ordenante): ranking por
+// Créditos del período agrupados (por causal = descripción del movimiento, o por beneficiario): ranking por
 // importe con barra, cantidad y porcentaje. Los que exceden MAX_GRUPOS se suman en "Otros". Clic = filtrar el detalle.
 // El ancho va por CSSOM (la CSP no permite atributos style en línea)
 const barra = (porc) => { const b = h('div', { class: 'barra' }); b.style.width = `${porc}%`; return b; };
@@ -14,12 +14,11 @@ const AGRUPAR = {
     titulo: 'Créditos por causal', columna: 'Causal', plural: 'causales', otros: 'Otras causales',
     clave: (m) => String(m.description ?? '').trim().replace(/\s+/g, ' ') || null, sinClave: 'Sin descripción',
   },
-  cuit: {
-    titulo: 'Créditos por CUIT', columna: 'CUIT · ordenante', plural: 'CUIT', otros: 'Otros CUIT',
-    clave: (m) => String(m.documentNumber ?? '').replace(/\D/g, '') || null, sinClave: 'Sin CUIT informado',
-    filtro: (m) => String(m.documentNumber).trim(), // el buscador del detalle compara contra el CUIT tal como lo informa el banco
-    // nombre: el ordenante que más se repite con ese CUIT
-    nombre: (movs) => { const n = new Map(); for (const m of movs) { const b = String(m.beneficiary ?? '').trim(); if (b) n.set(b, (n.get(b) ?? 0) + 1); } return [...n].sort((a, b) => b[1] - a[1])[0]?.[0] ?? ''; },
+  beneficiario: {
+    titulo: 'Créditos por beneficiario', columna: 'Beneficiario', plural: 'beneficiarios', otros: 'Otros beneficiarios',
+    // campo beneficiary del banco; se agrupa sin distinguir mayúsculas ni espacios de más
+    clave: (m) => String(m.beneficiary ?? '').trim().replace(/\s+/g, ' ').toUpperCase() || null, sinClave: 'Sin beneficiario informado',
+    filtro: (m) => String(m.beneficiary).trim().replace(/\s+/g, ' '), // el buscador del detalle compara contra el texto del banco
   },
 };
 const MAX_GRUPOS = 10;
@@ -34,7 +33,10 @@ function resumenCreditos(tipo, movimientos, moneda, filtrar) {
   }
   if (!grupos.size) return null;
   let filas = [...grupos.values()].sort((a, b) => b.total - a.total)
-    .map((g) => ({ ...g, etiqueta: g.clave == null ? cfg.sinClave : cfg.nombre ? [g.clave, cfg.nombre(g.movs)].filter(Boolean).join(' · ') : g.clave, filtra: g.clave != null, filtro: cfg.filtro ? cfg.filtro(g.movs[0]) : g.clave }));
+    .map((g) => {
+      const filtro = g.clave != null && cfg.filtro ? cfg.filtro(g.movs[0]) : g.clave; // texto tal como lo informa el banco
+      return { ...g, etiqueta: g.clave == null ? cfg.sinClave : filtro, filtra: g.clave != null, filtro };
+    });
   if (filas.length > MAX_GRUPOS) {
     const resto = filas.slice(MAX_GRUPOS - 1);
     filas = [...filas.slice(0, MAX_GRUPOS - 1), { etiqueta: `${cfg.otros} (${resto.length})`, n: resto.reduce((s, g) => s + g.n, 0), total: resto.reduce((s, g) => s + g.total, 0), filtra: false }];
@@ -81,7 +83,9 @@ export async function render(main, ctx) {
       cuentas.filter((x) => x.empresa.id === c?.empresa.id && (x.cuenta === st.cuenta || coincide(x)))
         .map((x) => h('option', { value: x.cuenta, selected: x.cuenta === st.cuenta }, `${x.producto ? `${x.producto} · ` : ''}${x.alias} · ${x.cuenta} (${x.moneda})`)));
     const d1 = h('input', { type: 'date', value: st.movDesde, max: iso() }), d2 = h('input', { type: 'date', value: st.movHasta, max: iso() });
-    const movs = (datos?.movimientos ?? []).filter((m) => !q || [m.description, m.beneficiary, m.documentNumber, m.transactionId].join(' ').toLowerCase().includes(q));
+    // Sin distinguir mayúsculas ni espacios de más (así el filtro por beneficiario toma todas sus variantes)
+    const plano = (t) => t.toLowerCase().replace(/\s+/g, ' ').trim(), qp = plano(q);
+    const movs = (datos?.movimientos ?? []).filter((m) => !qp || plano([m.description, m.beneficiary, m.documentNumber, m.transactionId].join(' ')).includes(qp));
     const cred = movs.filter((m) => m.signDC === 'C').reduce((s, m) => s + Number(m.amount), 0), deb = movs.filter((m) => m.signDC === 'D').reduce((s, m) => s + Number(m.amount), 0);
     const paginas = Math.max(1, Math.ceil(movs.length / PAGINA));
     pagina = Math.min(pagina, paginas - 1);
@@ -109,8 +113,8 @@ export async function render(main, ctx) {
         h('div', { class: 'fila' }, h('button', { class: 'btn primario', onclick: () => cargar() }, 'Reintentar')))
       : datos ? [
         h('div', { class: 'kpis' }, kpi('Créditos', dinero(cred, c?.moneda), 'pos'), kpi('Débitos', dinero(deb, c?.moneda), 'neg'), kpi('Cantidad de movimientos', movs.length)),
-        // Ingresos repartidos en dos columnas: por causal y por CUIT del ordenante (en pantallas angostas, uno debajo del otro)
-        h('div', { class: 'grid resumen-creditos' }, ['causal', 'cuit'].map((tipo) => resumenCreditos(tipo, datos.movimientos, c?.moneda, (clave) => { q = clave.toLowerCase(); pagina = 0; redibujar(); }))),
+        // Ingresos repartidos en dos columnas: por causal y por beneficiario (en pantallas angostas, uno debajo del otro)
+        h('div', { class: 'grid resumen-creditos' }, ['causal', 'beneficiario'].map((tipo) => resumenCreditos(tipo, datos.movimientos, c?.moneda, (clave) => { q = clave.toLowerCase(); pagina = 0; redibujar(); }))),
         card('Detalle de movimientos', 'getMovementsDetail: el backend pide de a 900 movimientos y pagina con sequential/uniqueSequential hasta recibir menos de 900. Orden descendente.',
           h('div', { class: 'fila' },
             h('button', { class: 'btn', disabled: !movs.length, onclick: () => descargar(`/cuentas/${st.cuenta}/movimientos?desde=${desde}&hasta=${hasta}&formato=xlsx`, `movimientos_${st.cuenta}_${desde}_${hasta}.xlsx`).catch(error) }, 'Exportar a Excel'),
