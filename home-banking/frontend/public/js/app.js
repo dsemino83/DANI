@@ -16,19 +16,20 @@ import * as permisos from './pages/permisos.js';
 import * as credenciales from './pages/credenciales.js';
 import * as ayuda from './pages/ayuda.js';
 import * as documentacion from './pages/documentacion.js';
+import * as cartera from './pages/cartera.js';
 
 const PAGINAS = {
   saldos: ['Saldos', saldos], movimientos: ['Movimientos', movimientos], debitos: ['Débitos realizados', debitos],
   transferir: ['Transferir', transferir], cbu: ['Consulta CBU', cbu], masiva: ['Carga masiva', masiva],
   transferencias: ['Transferencias', transferencias], aprobaciones: ['Aprobaciones', aprobaciones], auditoria: ['Auditoría', auditoria],
   empresas: ['Empresas', empresas], permisos: ['Usuarios y permisos', permisos], credenciales: ['Credenciales API', credenciales],
-  documentacion: ['Documentación', documentacion], ayuda: ['Ayuda', ayuda],
+  cartera: ['Cartera de oficiales', cartera], documentacion: ['Documentación', documentacion], ayuda: ['Ayuda', ayuda],
 };
 
 // Pestañas por perfil; Transferir/Carga masiva requieren rol Crear y Aprobaciones rol Aprobar.
 function pestanas(me) {
   if (me.rol === 'administrador') return ['empresas', 'permisos', 'credenciales', 'auditoria', 'documentacion', 'ayuda'];
-  const base = { operador: ['saldos', 'movimientos', 'debitos', 'cbu', 'transferencias'], autorizante: ['saldos', 'movimientos', 'debitos', 'cbu', 'transferencias'], auditor: ['saldos', 'movimientos', 'debitos', 'transferencias', 'auditoria', 'documentacion'] }[me.rol] ?? [];
+  const base = { operador: ['saldos', 'movimientos', 'debitos', 'cbu', 'transferencias'], autorizante: ['saldos', 'movimientos', 'debitos', 'cbu', 'transferencias', 'cartera'], auditor: ['saldos', 'movimientos', 'debitos', 'transferencias', 'auditoria', 'documentacion'] }[me.rol] ?? [];
   return Object.keys(PAGINAS).filter((p) => base.includes(p) || p === 'ayuda'
     || ((p === 'transferir' || p === 'masiva') && me.puedeCrear) || (p === 'aprobaciones' && me.puedeAprobar));
 }

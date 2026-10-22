@@ -52,6 +52,16 @@ CREATE TABLE permiso_empresa (
   PRIMARY KEY (usuario, empresa_id)
 );
 
+-- Cartera de cada oficial (cargador), definida por un aprobador: si un oficial tiene clientes asignados,
+-- solo ve las cuentas de esos clientes (dentro de sus permisos por empresa). Sin filas = ve todas.
+CREATE TABLE cartera_oficial (
+  oficial      text   NOT NULL,
+  empresa_id   bigint NOT NULL REFERENCES empresa(id) ON DELETE CASCADE,
+  asignado_por text   NOT NULL,
+  asignado_en  timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (oficial, empresa_id)
+);
+
 -- ---------------------------------------------------------------------------
 -- Credencial API Banking (única, de VALO). La clave va cifrada con AES-256-GCM
 -- usando la llave maestra que el backend lee de un Docker secret.

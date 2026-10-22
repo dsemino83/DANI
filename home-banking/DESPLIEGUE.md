@@ -113,6 +113,10 @@ Todo se hace desde la aplicación con `admin.ti` (administrador de seguridad), e
 
 **Empresas** (también del administrador): el CUIT es único (la pantalla y la base rechazan una segunda empresa con el mismo CUIT). Cada empresa tiene uno o más **emails** (se cargan al darla de alta, separados por coma, y después se agregan o quitan con ✕). Sus cuentas se asignan con **Agregar cuentas**: lista solo las cuentas sin empresa, con buscador por nombre, alias o número (contiene) y selección múltiple. Al agregarlas, cada cuenta se consulta en **COELSA** y se guardan su CBU, alias y titular en la tabla `empresa_cbu`; las que COELSA no resuelve no se agregan y se muestran con el motivo. **Dar de baja** una cuenta no la borra: la relación pasa a estado `baja` (queda en el historial de la empresa) y la cuenta vuelve a estar disponible. La base garantiza que cada CBU y cada cuenta tenga **una sola relación activa** con una empresa.
 
+**Qué cuentas ve cada usuario:** solo las cuentas activas de empresas activas sobre las que el administrador le dio **Ver** (u **Operar**). Mientras el administrador no cargue empresas, cuentas y permisos, los cargadores no ven ninguna cuenta.
+
+**Cartera de oficiales (aprobador):** el perfil **autorizante** tiene la pestaña **Cartera de oficiales**, donde asigna a cada oficial (perfil operador) los clientes que atiende. Por defecto un oficial ve todos los clientes que le habilitó el administrador; con cartera, solo las cuentas de esos clientes. El aprobador solo puede asignar clientes que él mismo ve, la cartera nunca amplía los permisos del administrador, y cada cambio queda en Auditoría.
+
 **Log del administrador:** cada acción queda en **Auditoría** (tipo *Administración*) con usuario, fecha, IP y detalle; también los intentos rechazados (CUIT repetido, cuenta ya asignada, error de COELSA o del SSO), con el motivo.
 
 La ficha de cada usuario muestra su estado: **Habilitado / Deshabilitado**, **Bloqueado por intentos fallidos** y **Debe cambiar la clave**.
