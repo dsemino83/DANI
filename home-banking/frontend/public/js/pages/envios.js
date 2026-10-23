@@ -139,8 +139,15 @@ export async function render(main) {
 
   // Tareas de la cola (también se usa para el historial de una programación)
   const ESTADO = { pendiente: ['En cola', 'warn'], procesando: ['Procesando', 'warn'], enviado: ['Enviado', 'ok'], error: ['Error', 'bad'], omitido: ['Omitido', 'warn'] };
+  const REINTENTABLES = ['error', 'enviado', 'omitido'];
   const reintentar = async (t) => {
-    try { await api(`/envios/cola/${t.id}/reintentar`, { method: 'POST' }); toast('Vuelve a la cola.'); } catch (x) { error(x); }
+    // Reenviar algo que ya salió hace que el cliente reciba el correo otra vez: se confirma.
+    if (t.estado === 'enviado' && !(await confirmar('Reenviar al cliente',
+      `La tarea de "${t.empresa}" (turno ${t.turno.replace('T', ' ')}) ya se envió. Si la reintentás, el cliente vuelve a recibir el correo.`, 'Reenviar'))) return;
+    try {
+      const r = await api(`/envios/cola/${t.id}/reintentar`, { method: 'POST' });
+      toast(r.reenvio ? 'Vuelve a la cola: se reenvía al cliente.' : 'Vuelve a la cola.');
+    } catch (x) { error(x); }
     pintarCola(); pintarHistorial();
   };
   const tablaTareas = (filas, conProgramacion) => tabla([
@@ -151,7 +158,9 @@ export async function render(main) {
     { t: 'Estado', v: (x) => pill(...ESTADO[x.estado]) }, { t: 'Intentos', v: (x) => `${x.intentos}/${x.max_intentos}`, cls: 'num' },
     { t: 'Consultas al banco', v: (x) => x.consultas_banco ?? 0, cls: 'num' },
     { t: 'Detalle', v: (x) => [x.detalle ?? '', x.destinatarios?.length ? ` → ${x.destinatarios.join(', ')}` : ''].join('') },
-    { t: '', cls: 'acc', v: (x) => x.estado === 'error' && h('button', { class: 'btn chico', onclick: () => reintentar(x) }, 'Reintentar') },
+    { t: '', cls: 'acc', v: (x) => REINTENTABLES.includes(x.estado)
+      && h('button', { class: 'btn chico', title: x.estado === 'enviado' ? 'Volver a enviar: el cliente recibe el correo otra vez' : 'Volver a encolar esta tarea', onclick: () => reintentar(x) },
+        x.estado === 'enviado' ? 'Reenviar' : 'Reintentar') },
   ].filter(Boolean), filas, { vacio: 'No hay tareas.' });
 
   const pintarCola = async () => {

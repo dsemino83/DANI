@@ -118,16 +118,22 @@ export default async function rutasEnvios(app) {
     return { tareas: rows, ultimas24h: { ...Object.fromEntries(resumen.map((r) => [r.estado, r.n])), consultasBanco: banco } };
   });
 
-  // Reintentar una tarea que terminó con error (vuelve al final de la cola)
-  app.post('/envios/cola/:id/reintentar', async (req) => {
-    const r = await operativa.query(`UPDATE cola_envio SET estado = 'pendiente', intentos = 0, disponible_en = now(), detalle = 'Reintento manual', terminada_en = NULL
-      WHERE id = $1 AND estado = 'error' RETURNING programacion, empresa, turno, ejecucion_id`, [req.params.id]);
-    if (!r.rowCount) throw invalido('Solo se reintentan tareas con error');
+  // Reintentar una tarea ya terminada (vuelve al final de la cola). Si estaba 'enviado' es un REENVÍO:
+  // el cliente vuelve a recibir el correo (y, si es alerta, se vuelve a notificar por chat).
+  const REINTENTABLES = ['error', 'enviado', 'omitido'];
+  app.post('/envios/cola/:id/reintentar', async (req) => tx(operativa, async (c) => {
+    const t = (await c.query('SELECT id, estado, programacion, empresa, turno, ejecucion_id FROM cola_envio WHERE id = $1 FOR UPDATE', [req.params.id])).rows[0];
+    if (!t) throw noEncontrado('Tarea inexistente');
+    if (!REINTENTABLES.includes(t.estado)) throw invalido('La tarea todavía está en la cola: esperá a que termine');
+    const reenvio = t.estado === 'enviado';
+    await c.query(`UPDATE cola_envio SET estado = 'pendiente', intentos = 0, disponible_en = now(), detalle = $2, terminada_en = NULL WHERE id = $1`,
+      [t.id, reenvio ? 'Reenvío manual' : 'Reintento manual']);
     // La ejecución vuelve a quedar en curso hasta que la tarea termine
-    await operativa.query(`UPDATE ejecucion_envio SET estado = 'en_curso', terminada_en = NULL WHERE id = $1`, [r.rows[0].ejecucion_id]);
-    await auditar(null, req, { tipo: 'Administración', accion: 'Reintentó envío de la cola', detalle: `${r.rows[0].programacion} · ${r.rows[0].empresa} · ${r.rows[0].turno}` });
-    return { reintentada: Number(req.params.id) };
-  });
+    if (t.ejecucion_id != null) await c.query(`UPDATE ejecucion_envio SET estado = 'en_curso', terminada_en = NULL WHERE id = $1`, [t.ejecucion_id]);
+    await auditar(c, req, { tipo: 'Administración', accion: reenvio ? 'Reenvió una tarea ya enviada' : 'Reintentó envío de la cola',
+      detalle: `${t.programacion} · ${t.empresa} · ${t.turno}${reenvio ? ' · el cliente vuelve a recibir el correo' : ''}` });
+    return { reintentada: Number(t.id), reenvio };
+  }));
 
   // ---------------- Feriados ----------------
   app.get('/feriados', async (req) => {
