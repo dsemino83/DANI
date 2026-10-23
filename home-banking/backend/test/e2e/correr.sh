@@ -36,7 +36,7 @@ node "$AQUI/mock.mjs" "$TOKENS" & MOCK_PID=$!
 for i in $(seq 1 30); do curl -fs "http://127.0.0.1:$MOCK_PORT/realms/staff/protocol/openid-connect/certs" >/dev/null 2>&1 && break; sleep 0.5; done
 
 # Cada suite: bases limpias + servidor nuevo (así una no contamina a la otra). El mock queda igual.
-for suite in autorizacion envio-unico; do
+for suite in autorizacion envio-unico limites; do
   echo "== $suite: preparar bases"
   bases
   OIDC_ISSUER="http://127.0.0.1:$MOCK_PORT/realms/staff" \
