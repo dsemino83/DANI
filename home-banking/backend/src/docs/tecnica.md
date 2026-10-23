@@ -16,6 +16,8 @@ Contenedores Docker Compose (imágenes publicadas por GitHub Actions en Docker H
 
 Las bases están en una red interna sin salida a internet. El navegador nunca habla con el banco.
 
+El **panel de estado del sistema** (pestaña del administrador) reinicia subsistemas lógicos dentro del backend —sesión con el banco, cola de envíos, feriados, verificación de integridad— pero **no** reinicia contenedores: eso se deja en la herramienta de operaciones (Portainer / `docker compose`), para no montar el socket de Docker en el backend y conservar el endurecimiento de los contenedores.
+
 ## Frontend
 
 - SPA sin paso de build en `home-banking/frontend/public`. Nginx sirve los estáticos con `expires epoch` + ETag (siempre la última versión).
@@ -127,5 +129,7 @@ Secretos en `secrets/*.txt` (fuera del repositorio): claves de las bases, `crede
 | `/envios`, `/envios/cola`, `/feriados` | autorizante | Envíos programados |
 | `GET /mensajes`, `/mensajes/no-vistos`, `POST /mensajes/:id/visto` | todos | Buzón |
 | `/admin/...` | administrador | Empresas, usuarios, permisos, credenciales (`?uso=principal\|envios`) |
+| `GET /sistema/estado` | administrador | Estado de cada subsistema (backend, bases, banco, cola, feriados, auditoría, pase) |
+| `POST /sistema/{reconectar-banco,reprocesar-cola,refrescar-feriados,verificar-integridad}` | administrador | Reinicios seguros por subsistema, sin tocar contenedores; auditados |
 | `GET /docs/:nombre` | manual: todos; auditoría y técnica: auditor y administrador | Esta documentación |
 | `GET /auditoria/integridad` | auditor y administrador | Verifica la cadena de hashes de la auditoría |

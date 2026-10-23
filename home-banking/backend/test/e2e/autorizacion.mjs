@@ -31,6 +31,10 @@ r = await j('mgomez', 'PUT', '/admin/permisos/mgomez', { permisos: [{ empresaId:
 ok(r.s === 403, 'operador: 403 al cambiar permisos (no puede auto-habilitarse sobre la ajena)', r);
 r = await j('mgomez', 'GET', '/envios');
 ok(r.s === 403, 'operador: 403 en envíos programados (función del autorizante)', r);
+r = await j('mgomez', 'GET', '/sistema/estado');
+ok(r.s === 403, 'operador: 403 en el panel de estado del sistema (solo administrador)', r);
+r = await j('admin', 'GET', '/sistema/estado');
+ok(r.s === 200 && r.b?.backend?.ok === true, 'administrador: ve el panel de estado del sistema', r.b);
 r = await j('auditor', 'POST', '/transferencias', { referencia: 'AUD-1', tipo: 'INMEDIATA', cuentaOrigen: PROPIA, destino: 'A.B', importe: 1, concepto: 'VARIOS' });
 ok(r.s === 403, 'auditor: 403 al cargar transferencia (es de solo lectura)', r);
 

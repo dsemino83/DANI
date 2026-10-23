@@ -53,6 +53,16 @@ export class ClienteBdv {
     this.cookieAnterior = null;
   }
 
+  // Estado de la sesión, sin forzar un login (para el panel de estado del sistema).
+  estado() {
+    return {
+      uso: this.uso,
+      ambiente: config.ambiente,
+      conectado: Boolean(this.cookie && Date.now() < this.vence),
+      venceEn: this.vence ? new Date(this.vence).toISOString() : null,
+    };
+  }
+
   // Otro proceso (backend o jobs) pudo cambiar la credencial: se revisa como mucho una vez por minuto
   // y, si cambió (o se cargó la de envíos), la próxima llamada hace login con la nueva.
   async revisarCredencial() {

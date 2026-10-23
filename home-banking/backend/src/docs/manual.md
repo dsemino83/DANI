@@ -9,7 +9,7 @@ El Home Banking VALO permite consultar saldos y movimientos de las empresas clie
 | Operador | Consulta y carga transferencias (individuales o por lote) | Saldos, Movimientos, Débitos realizados, Consulta CBU, Transferir, Carga masiva, Transferencias, Ayuda |
 | Autorizante | Consulta, aprueba o rechaza transferencias, arma la cartera de oficiales y programa envíos de correo a los clientes | Saldos, Movimientos, Débitos realizados, Consulta CBU, Transferencias, Aprobaciones, Cartera de oficiales, Envíos programados, Ayuda |
 | Auditor | Consulta y revisa la auditoría | Saldos, Movimientos, Débitos realizados, Transferencias, Auditoría, Documentación, Ayuda |
-| Administrador de seguridad | Gestiona empresas, usuarios, permisos y credenciales; no ve saldos ni opera | Empresas, Usuarios y permisos, Credenciales API, Auditoría, Documentación, Ayuda |
+| Administrador de seguridad | Gestiona empresas, usuarios, permisos y credenciales; ve el estado del sistema; no ve saldos ni opera | Empresas, Usuarios y permisos, Credenciales API, Estado del sistema, Auditoría, Documentación, Ayuda |
 
 Transferir y Carga masiva aparecen solo con el rol **Crear transferencias**; Aprobaciones, solo con **Aprobar transferencias**.
 
@@ -104,6 +104,13 @@ Los correos salen de **alyc@valo.ar**, con el logo de VALO.
 **Usuarios y permisos:** alta y edición de usuarios, perfil, roles **Crear / Aprobar** y permisos **Ver / Operar** por empresa.
 
 **Credenciales API:** por ambiente, la **principal** (Home Banking) y la de **Envíos programados** (exclusiva de los correos, usuario API distinto, channel editable). La clave es de solo escritura; **Probar conexión** la verifica.
+
+**Estado del sistema:** tablero del estado de cada parte del sistema —backend, base operativa e histórica, sesión con el banco (principal y de envíos), cola de envíos, feriados, cadena de auditoría y último pase histórico— con **↻ Actualizar estado**. Incluye reinicios seguros de cada subsistema, que **no** reinician los contenedores (eso se hace en la herramienta de operaciones) y quedan auditados:
+
+- **Reconectar con el banco:** descarta la sesión actual; la próxima consulta vuelve a autenticarse.
+- **Reprocesar la cola de envíos:** destraba tareas colgadas y procesa las pendientes.
+- **Refrescar feriados:** vuelve a traerlos del año en curso desde las fuentes públicas.
+- **Verificar integridad de la auditoría:** recalcula toda la cadena de hashes y avisa si algún registro fue alterado o borrado.
 
 **Auditoría** (también el auditor): registro de solo lectura de cada acción, filtrable; **Base operativa** o **Base histórica**. **Verificar integridad** comprueba que ningún registro haya sido modificado o borrado.
 

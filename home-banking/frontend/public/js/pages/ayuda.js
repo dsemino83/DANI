@@ -56,6 +56,7 @@ const SECCIONES = [
     'Empresas: alta con emails (✎ edita, ✕ quita), cuentas validadas en COELSA, desactivar o eliminar.',
     'Usuarios y permisos: perfiles, roles Crear / Aprobar y permisos Ver / Operar por empresa.',
     'Credenciales API: la principal y la de Envíos programados (usuario API distinto, channel editable). La clave es de solo escritura y nunca se vuelve a mostrar.',
+    'Estado del sistema: ves el estado de cada parte (bases, banco, cola, feriados, auditoría) y podés reiniciar subsistemas de forma segura (reconectar banco, reprocesar cola, refrescar feriados, verificar integridad). No reinicia contenedores: eso se hace en la herramienta de operaciones.',
     'Documentación: auditoría, técnica y manual de usuario, incluidas en la aplicación.'] },
 ];
 

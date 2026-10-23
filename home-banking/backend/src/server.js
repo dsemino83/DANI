@@ -10,6 +10,7 @@ import { operativa, historica } from './db.js';
 import rutasConsultas from './routes/consultas.js';
 import rutasTransferencias from './routes/transferencias.js';
 import rutasAdmin from './routes/admin.js';
+import rutasSistema from './routes/sistema.js';
 import rutasCartera from './routes/cartera.js';
 import rutasEnvios from './routes/envios.js';
 import rutasMensajes from './routes/mensajes.js';
@@ -62,6 +63,7 @@ await app.register(async (api) => {
   await api.register(rutasTransferencias);
   await api.register(rutasAuditoria);
   await api.register(rutasAdmin, { prefix: '/admin' });
+  await api.register(rutasSistema);
   await api.register(rutasCartera, { prefix: '/cartera' });
   await api.register(rutasEnvios);
   await api.register(rutasMensajes);

@@ -26,6 +26,7 @@ Ninguna transferencia llega al banco sin dos personas distintas: una la carga (r
 | Envíos programados de correo | No | Sí | No | No |
 | Auditoría general (solo lectura) | No | No | Sí | Sí |
 | Empresas, usuarios, permisos, credenciales | No | No | No | Sí |
+| Estado del sistema y mantenimiento (reinicios seguros) | No | No | No | Sí |
 | Documentación de auditoría y técnica | No | No | Sí | Sí |
 
 - Los roles y permisos los asigna el administrador; no puede asignárselos a sí mismo.
@@ -57,7 +58,7 @@ Toda acción queda registrada en el momento, en un registro **de solo inserción
 | --- | --- |
 | Accesos | Inicio y cierre de sesión, intentos rechazados |
 | Transferencias | Carga individual y de lote, aprobación, rechazo, envío y cambios de estado |
-| Administración | Empresas, emails (incluye "cambió X por Y"), cuentas, permisos, roles, usuarios, credenciales API (sin el valor de la clave), programaciones de envíos, feriados; acciones rechazadas |
+| Administración | Empresas, emails (incluye "cambió X por Y"), cuentas, permisos, roles, usuarios, credenciales API (sin el valor de la clave), programaciones de envíos, feriados; mantenimiento del sistema (reconectar banco, reprocesar cola, refrescar feriados, verificar integridad); acciones rechazadas |
 | Consultas | Saldos, movimientos, CBU, constancias de CBU, exportaciones a Excel, consultas a la base histórica |
 | Sistema | Pase mensual a la base histórica (por tabla y mes, con filas y hash) |
 

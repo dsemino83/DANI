@@ -199,3 +199,12 @@ pre { background: var(--bg); border: 1px solid var(--line); border-radius: var(-
   body.imprimiendo-doc .doc-md { position: absolute; inset: 0 auto auto 0; width: 100%; border: 0; box-shadow: none; }
   body.imprimiendo-doc .doc-md .no-imprimir { display: none; }
 }
+
+/* Panel de estado y mantenimiento del sistema */
+.estado-fila { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+.estado-fila:last-of-type { border-bottom: 0; }
+.estado-nombre { font-weight: 600; min-width: 190px; }
+.estado-detalle { color: var(--muted); font-size: 13px; }
+.estado-accion { display: flex; align-items: center; gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+.estado-accion:last-of-type { border-bottom: 0; }
+.estado-accion .btn { min-width: 230px; }
