@@ -44,7 +44,7 @@ export async function render(main) {
           chk.disabled = false; sinPerderFoco(pintarAlertasCli);
         });
         return h('label', { class: 'campo check' }, chk, h('b', {}, e.razon_social), ` · CUIT ${e.cuit}`, e.alertas_horarias === false ? [' · ', pill('Sin alertas por hora', 'warn')] : '');
-      }) : h('p', { class: 'nota' }, 'No hay clientes que coincidan.')));
+      }) : h('p', { class: 'nota' }, 'No hay clientes que coincidan.'))));
   };
   buscarAlerta.addEventListener('input', () => sinPerderFoco(pintarAlertasCli));
 
