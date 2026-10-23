@@ -30,7 +30,11 @@ server {
 
   location /api/ {
     limit_req zone=hb_api burst=60 nodelay;
-    proxy_pass http://backend:8080;
+    # Se resuelve en cada pedido (como /auth/): si se recrea el backend cambia su IP, y con un
+    # proxy_pass estatico Nginx la cachearia y responderia 502 hasta reiniciar el frontend.
+    resolver 127.0.0.11 valid=10s ipv6=off;
+    set $hb_backend http://backend:8080;
+    proxy_pass $hb_backend;
     proxy_set_header X-Request-Id $request_id;   # el mismo id en los logs de Nginx y del backend
     proxy_set_header Host $host;
     proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
