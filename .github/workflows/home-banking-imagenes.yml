@@ -67,6 +67,35 @@ jobs:
           docker run --rm -v "$PWD:/scan" aquasec/trivy:0.58.1 config --no-progress --severity HIGH,CRITICAL --exit-code 0 /scan/home-banking || true
         working-directory: .
 
+  autorizacion:
+    name: Autorización de punta a punta (BOLA y roles)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm ci
+        working-directory: home-banking/backend
+      # Prepara las bases, levanta el mock (SSO + banco) y el servidor real, y corre las pruebas de
+      # BOLA (acceso a cuentas de otra empresa) y de separación de funciones por rol. Bloquea si fallan.
+      - name: Prueba de autorización
+        run: sh test/e2e/correr.sh
+        working-directory: home-banking/backend
+        env:
+          PGHOST: localhost
+          PGPORT: '5432'
+          PGUSER: postgres
+          PGPASSWORD: postgres
+
   humo:
     name: Prueba de humo (stack completo en Docker)
     runs-on: ubuntu-latest
@@ -146,7 +175,7 @@ jobs:
 
   publicar:
     name: Publicar en Docker Hub
-    needs: [pruebas, seguridad, humo]
+    needs: [pruebas, seguridad, autorizacion, humo]
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     env:
