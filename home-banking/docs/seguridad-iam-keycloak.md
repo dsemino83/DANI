@@ -337,7 +337,9 @@ backend + mock + tests, por eso no se hace a ciegas):
   acciones del administrador). Implica: flujo de autenticación con segundo factor
   condicionado, mapa `acr.loa.map`, y que el backend exija `acr=2` + `auth_time`
   reciente en esos endpoints. Decisiones del negocio: **umbral de monto**, **qué
-  operaciones**, **qué factor** (TOTP vs Passkey) y **ventana de frescura**.
+  operaciones** y **ventana de frescura**.
+  Factor elegido para el primer incremento: **TOTP** (más simple de enrolar; Passkey
+  queda como paso 2). Falta definir el umbral de monto y la ventana de frescura.
 - Forzar enrolamiento de TOTP/Passkey a todo el personal (puede dejar fuera a usuarios
   en sesión; se coordina).
 - Event Listener SPI propio hacia el SIEM / cadena de auditoría.
