@@ -2274,7 +2274,14 @@
   });
   zonaArchivo('zonaBastXls', 'archivoBastXls', async f => {
     try {
-      bast.cliente = M.leerClienteBastanteo(await leerHojas(f));
+      const hojasCli = await leerHojas(f);
+      bast.cliente = M.leerClienteBastanteo(hojasCli);
+      // Tipo de cambio de la planilla (si lo trae): se usa para los topes en dólares y pesos.
+      bast.cliente.tc = M.tcDePlanilla(hojasCli);
+      if (bast.cliente.tc) {
+        $('bastTc').value = String(bast.cliente.tc.tc).replace('.', ','); $('bastTcFecha').value = bast.cliente.tc.fecha || '';
+        $('bastTcEstado').innerHTML = aviso('ok', `TC de la planilla del cliente: <b>${esc(String(bast.cliente.tc.tc).replace('.', ','))}</b>${bast.cliente.tc.fecha ? ' del ' + esc(fechaAr(bast.cliente.tc.fecha)) : ''} <span class="sub">(“${esc(bast.cliente.tc.texto)}”)</span>.`);
+      } else { $('bastTc').value = ''; $('bastTcFecha').value = ''; $('bastTcEstado').innerHTML = ''; bastTcAuto = false; }
       bast.xls = f.name;
       await completarCuitFirmantes(bast.cliente.firmantes);
       // Los firmantes que traen CUIT y número de ente alimentan la base de entes (para planillas que traen solo el DNI).
@@ -2450,7 +2457,7 @@
       if (pres && M.firmanteDe(pres.presidente, cliente.firmantes)) poderes = [pres];
     }
     fila.poderes = rv.vigentes.length;
-    const motivoSin = rv.anulados.length ? `Los ${rv.anulados.length} poderes de Complif quedaron anulados por revocatorias` : r.actas.length ? 'Solo hay actas de designación en Complif' : 'Sin poderes en Complif';
+    const motivoSin = rv.anulados.length ? `Los ${rv.anulados.length} poderes de Complif quedaron anulados (${rv.anulados.every(a => a.vencido) ? 'vencidos' : rv.anulados.some(a => a.vencido) ? 'revocatorias o vencidos' : 'revocatorias'})` : r.actas.length ? 'Solo hay actas de designación en Complif' : 'Sin poderes en Complif';
     if (!poderes.length) { fila.estado = 'sinpod'; fila.error = motivoSin; return fila; }
     const jsons = poderes.map(p => M.jsonPoder(p, cliente, { deed_number: p.deed_number || '', board_resolution_power_attorney: p.board_resolution_power_attorney || '',
       power_attorney_type: p.power_attorney_type || 'Poder Especial para Operaciones Bancarias' }));
@@ -2756,7 +2763,7 @@
     let estado = '';
     estado += bast.avisoPresidente || '';
     if ((bast.firmantesD || []).length) estado += aviso('warn', `<b>Presidente:</b> ${bast.firmantesD.map(p => esc(p.presidente.nombre_completo) + ' (grupo ' + esc(p.presidente.grupo) + ')').join(', ')} no está en los poderes; por el acta de directorio o el resumen ("D" / "Presidente") se lo toma como presidente con <b>todas las facultades</b> y firma individual.`);
-    if ((bast.anulados || []).length) estado += aviso('warn', `<b>${bast.anulados.length} poder${bast.anulados.length > 1 ? 'es anulados' : ' anulado'} por revocatoria:</b> ` +
+    if ((bast.anulados || []).length) estado += aviso('warn', `<b>${bast.anulados.length} poder${bast.anulados.length > 1 ? 'es anulados' : ' anulado'} por ${bast.anulados.every(a => a.vencido) ? 'vencimiento' : bast.anulados.some(a => a.vencido) ? 'revocatoria o vencimiento' : 'revocatoria'}:</b> ` +
       bast.anulados.map(a => `${esc(a.poder.fecha_emision || 's/f')}${a.poder.deed_number ? ' (esc. ' + esc(a.poder.deed_number) + ')' : ''} — ${esc(a.motivo)}`).join(' · ') + '. No se usan en el bastanteo.');
     // Revocatorias que se pueden ignorar a mano (excepción: Complif marcó como revocatorio un poder que no lo es).
     const descPoder = p => `${esc(p.fecha_emision || 's/f')}${p.deed_number ? ' (esc. ' + esc(p.deed_number) + ')' : ''}`;
@@ -2897,19 +2904,77 @@
   function jsonV1() {
     const conLetras = bast.cliente && bast.cliente.firmantes.some(f => f.uso && f.uso.grupo);
     const todos = $('bastTodosApod').checked;
-    return M.jsonBastanteoV1(jsonUnico(todos), bast.cliente, { jsons: bast.poderes.map((p, i) => jsonDe(i, todos)), fuente: conLetras ? $('bastFuenteGrupos').value : 'complif' });
+    return M.jsonBastanteoV1(jsonUnico(todos), bast.cliente, { jsons: bast.poderes.map((p, i) => jsonDe(i, todos)), tc: bastTcActual(), fuente: conLetras ? $('bastFuenteGrupos').value : 'complif' });
   }
+  let bastTcAuto = false;
   function renderV1Avisos() {
     if (!bast.poderes.length) { $('bastV1Avisos').innerHTML = ''; return; }
-    const j = jsonV1(), conLetras = bast.cliente && bast.cliente.firmantes.some(f => f.uso && f.uso.grupo);
+    const j = jsonV1();
+    if (!bastTcAuto && !bastTcActual() && !(bast.cliente && bast.cliente.tc) && j.reglasFirma.some(r => r.monto)) { bastTcAuto = true; setTimeout(() => traerTcBast(false), 0); }
+    const conLetras = bast.cliente && bast.cliente.firmantes.some(f => f.uso && f.uso.grupo);
     const ren = Object.entries(j.renombre).filter(([a, b]) => a !== b);
     $('bastV1Avisos').innerHTML = (!conLetras && $('bastFuenteGrupos').value === 'planilla' ? aviso('warn', 'La planilla no designa grupos con letra: se usan los grupos de los poderes (o los armados por agrupamiento).') : '') +
       (ren.length ? aviso('ok', 'Grupos de la planilla: ' + ren.map(([a, b]) => `${esc(a)} del poder → ${esc(b)}`).join(' · ')) : '') +
       (j.avisos.length ? aviso('warn', j.avisos.map(esc).join('<br>')) : '') +
+      (j.unificaciones.length ? aviso('ok', '<b>Reglas unificadas:</b><br>' + j.unificaciones.map(esc).join('<br>')) : '') +
       (M.validarJsonBastanteo(j).length ? aviso('bad', '<b>No cumple las reglas del sistema:</b><br>' + M.validarJsonBastanteo(j).map(esc).join('<br>')) : aviso('ok', 'Cumple las reglas del sistema (quorum, grupos y firmantes).')) +
       `<p class="sub">${j.apoderados.length} apoderados · ${j.reglasFirma.length} reglas de firma</p>`;
     mostrarCorrecciones();
   }
+  // Tipo de cambio Com. A 3500 para los topes en dólares y en pesos: el último publicado hasta hoy (API del BCRA, la base
+  // o el com3500.xls).
+  const bastTcActual = () => { const v = String($('bastTc').value).trim(); const tc = Number(/,/.test(v) ? v.replace(/\./g, '').replace(',', '.') : v);
+    return tc > 0 ? { tc, fecha: $('bastTcFecha').value } : null; };
+  const refrescarV1 = () => { renderV1Avisos(); if (!$('bastUnicoJson').classList.contains('oculto')) $('bastUnicoJson').textContent = JSON.stringify(jsonV1(), null, 2); };
+  function usarTcBast(lista, fuente) {
+    const hoy = new Date().toISOString().slice(0, 10);
+    const r = lista.filter(x => x.fecha <= hoy).pop() || lista[lista.length - 1];
+    if (!r) throw new Error('No hay cotizaciones.');
+    $('bastTc').value = String(r.tc).replace('.', ','); $('bastTcFecha').value = r.fecha;
+    $('bastTcEstado').innerHTML = aviso('ok', `TC Com. A 3500 del ${esc(fechaAr(r.fecha))}: ${esc(String(r.tc).replace('.', ','))} (${esc(fuente)}).`);
+    refrescarV1();
+  }
+  let bastTcBuscando = false;
+  async function traerTcBast(manual) {
+    if (bastTcBuscando) return;
+    bastTcBuscando = true; $('btnBastTcBcra').disabled = true;
+    $('bastTcEstado').innerHTML = '<p class="sub">Buscando el tipo de cambio Com. A 3500…</p>';
+    const h = new Date(), desde = new Date(h.getFullYear(), h.getMonth(), h.getDate() - 15).toISOString().slice(0, 10), hasta = h.toISOString().slice(0, 10);
+    const errores = [];
+    let lista = [], fuente = '';
+    for (const v of ['v4.0', 'v3.0']) {
+      if (lista.length) break;
+      try {
+        const r = await fetch(`https://api.bcra.gob.ar/estadisticas/${v}/monetarias/5?desde=${desde}&hasta=${hasta}`, { cache: 'no-store' });
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        lista = M.leerTcApiBcra(await r.json()); fuente = 'API del BCRA';
+      } catch (e) { errores.push(`API ${v}: ${e.message || e}`); }
+    }
+    if (!lista.length && almacen && typeof almacen.rpc === 'function') {
+      try { const j = await almacen.rpc('tc_bcra', { p_desde: desde, p_hasta: hasta }); if (j && j.status === 200) { lista = M.leerTcApiBcra(j); fuente = 'API del BCRA (por la base)'; } else errores.push('base: ' + ((j && j.error) || 'sin respuesta')); }
+      catch (e) { errores.push('base: ' + (e.message || e)); }
+    }
+    if (!lista.length) {
+      try { const r = await fetch(URL_COM3500, { cache: 'no-store' }); if (!r.ok) throw new Error('HTTP ' + r.status);
+        const wb = XLSX.read(await r.arrayBuffer(), { type: 'array' }); lista = M.leerCom3500(wb.SheetNames.flatMap(n => filasHoja(wb.Sheets[n]))); fuente = 'BCRA com3500.xls'; }
+      catch (e) { errores.push('com3500.xls: ' + (e.message || e)); }
+    }
+    bastTcBuscando = false; $('btnBastTcBcra').disabled = false;
+    if (lista.length) { usarTcBast(lista, fuente); return; }
+    $('bastTcEstado').innerHTML = aviso('warn', `No se pudo traer el tipo de cambio automáticamente. Bajá <a href="${URL_COM3500}" target="_blank" rel="noopener">com3500.xls</a> y subilo con <b>Subir com3500.xls</b>, o escribilo.` +
+      (manual ? `<br><span class="sub">${esc(errores.join(' · '))}</span>` : ''));
+  }
+  $('btnBastTcBcra').addEventListener('click', () => traerTcBast(true));
+  // (El TC de la planilla del cliente tiene prioridad: el del BCRA se busca solo si la planilla no lo trae.)
+  $('btnBastTcArchivo').addEventListener('click', () => $('archivoBastCom3500').click());
+  $('archivoBastCom3500').addEventListener('change', async e => {
+    const f = e.target.files[0]; e.target.value = '';
+    if (!f) return;
+    try { const wb = XLSX.read(await f.arrayBuffer(), { type: 'array' }); const l = M.leerCom3500(wb.SheetNames.flatMap(n => filasHoja(wb.Sheets[n])));
+      if (!l.length) throw new Error('El archivo no tiene fechas con tipo de cambio (¿es el com3500.xls del BCRA?).'); usarTcBast(l, f.name); }
+    catch (err) { $('bastTcEstado').innerHTML = aviso('bad', esc(err.message || err)); }
+  });
+  ['bastTc', 'bastTcFecha'].forEach(id => $(id).addEventListener('change', refrescarV1));
   $('bastTodosApod').addEventListener('change', () => { renderV1Avisos(); if (!$('bastUnicoJson').classList.contains('oculto')) $('bastUnicoJson').textContent = JSON.stringify(jsonV1(), null, 2); });
   $('bastFuenteGrupos').addEventListener('change', () => { renderV1Avisos(); if (!$('bastUnicoJson').classList.contains('oculto')) $('bastUnicoJson').textContent = JSON.stringify(jsonV1(), null, 2); });
   $('btnBastUnico').addEventListener('click', () => {

@@ -1668,6 +1668,11 @@
   const complifValor = (o, re) => { const k = Object.keys(o || {}).find(c => re.test(c) && o[c] != null && typeof o[c] !== 'object'); return k ? String(o[k]).trim() : ''; };
   const RE_NOMBRE = /^(nombre_completo|full_name|name|nombre)$/i, RE_ID = /identificaci|dni|document|id_number|cuit|cuil|tax/i;
   // Plantilla "Poder" (simple): principal (otorgante), authorized_agents (apoderados), company_name, issue_date.
+  // Vencimiento del poder en Complif (expiration_date del documento o fecha_vencimiento del OCR). 2199-12-31 = sin vencimiento.
+  function vencimientoComplif(doc) {
+    const v = String((doc && doc.expiration_date) || (doc && doc.ocr_data_responses && doc.ocr_data_responses.fecha_vencimiento) || '').slice(0, 10);
+    return /^\d{4}-\d{2}-\d{2}$/.test(v) && v < '2199-01-01' ? v : null;
+  }
   function poderSimpleComplif(doc) {
     const ocr = complifBuscar(doc.ocr_data_responses != null ? doc.ocr_data_responses : doc, x => !Array.isArray(x) && Array.isArray(complifJson(x.authorized_agents)));
     if (!ocr) return null;
@@ -1683,6 +1688,7 @@
       apoderados: complifJson(ocr.authorized_agents).map(persona).filter(a => a.nombre_completo),
       usos: usoCompleto(u),
       simple: true,
+      vencimiento: vencimientoComplif(doc),
       complif: { id: doc.id_document || doc.id || doc.uuid || null, type: doc.type || '', document_type: doc.document_type || '' },
     };
   }
@@ -1712,6 +1718,7 @@
       otorgante: { nombre_completo: otorg.nombre_completo || '', dni: complifDni(otorg.numero_de_identificacion), fecha_nacimiento: otorg.fecha_nacimiento || null },
       apoderados: (complifJson(ocr.apoderados) || []).map(a => ({ nombre_completo: a.nombre_completo || a.nombre || '', dni: complifDni(a.numero_de_identificacion || a.dni), cuit: complifNumero(a.numero_de_identificacion).length === 11 ? complifNumero(a.numero_de_identificacion) : '', grupo: a.grupo ? String(a.grupo).trim().toUpperCase() : null })),
       usos,
+      vencimiento: vencimientoComplif(doc),
       complif: { id: doc.id_document || doc.id || doc.uuid || null, type: doc.type || '', document_type: doc.document_type || '' },
     };
   }
@@ -2388,7 +2395,14 @@
     });
     const ignorados = poderes.filter(p => revocaPoder(p) && ignorar.has(claveRevocatoria(p)));
     const revocan = poderes.filter(p => revocaPoder(p) && !ignorar.has(claveRevocatoria(p)));
-    if (!revocan.length) { const vigentes = poderes.slice(); heredarComplementarios(vigentes); return { vigentes, anulados: [], quitados: [], avisos: [], revocan, ignorados }; }
+    // Poderes vencidos (vencimiento de Complif anterior a hoy): no se usan. Igual revocan a los anteriores.
+    const hoy = claveDia(opciones.hoy || new Date());
+    const vencido = p => !!(p.vencimiento && p.vencimiento < hoy);
+    const sacarVencidos = (vigentes, anulados) => {
+      vigentes.filter(vencido).forEach(p => anulados.push({ poder: p, vencido: true, motivo: `vencido el ${p.vencimiento.split('-').reverse().join('/')}` }));
+      return vigentes.filter(p => !vencido(p));
+    };
+    if (!revocan.length) { const anulados = []; const vigentes = sacarVencidos(poderes.slice(), anulados); heredarComplementarios(vigentes); return { vigentes, anulados, quitados: [], avisos: [], revocan, ignorados }; }
     const anulados = [], quitados = [], avisos = [];
     const vigentes = poderes.filter(p => {
       for (const r of revocan) {
@@ -2422,8 +2436,9 @@
       if (revocaPoder(p) && !ignorar.has(claveRevocatoria(p)) && !otorga(p)) { anulados.push({ poder: p, motivo: 'revocatoria: no otorga facultades' }); return false; }
       return true;
     });
-    heredarComplementarios(vigentes);
-    return { vigentes, anulados, quitados, avisos, revocan, ignorados };
+    const sinVencidos = sacarVencidos(vigentes, anulados);
+    heredarComplementarios(sinVencidos);
+    return { vigentes: sinVencidos, anulados, quitados, avisos, revocan, ignorados };
   }
 
   // Un firmante sin poder vigente que figuraba en un poder revocado (anulado entero o revocación parcial que lo quitó):
@@ -2487,7 +2502,7 @@
       cuit_empresa: formatoCuit(poder.cuit_empresa),
       otorgante: { numero_de_identificacion: ident(poder.otorgante.dni), nombre_completo: poder.otorgante.nombre_completo || null, fecha_nacimiento: poder.otorgante.fecha_nacimiento || null },
       apoderados: apoderados.map(a => ({ numero_de_identificacion: ident(a.dni, a), nombre_completo: a.nombre_completo, grupo: a.grupo || null })),
-      estructuras_de_firma: alinearGruposNumerados(poder).map((u, n) => {
+      estructuras_de_firma: alinearGruposNumerados(poder).map((u, n) => Object.defineProperty((() => {
         const ed = (edicion.facultades || [])[n] || {};
         // Si el uso es de un grupo y el poder asigna grupos, el uso vale solo para los apoderados de ese grupo.
         const comb = expandirComodines(u.combinaciones && u.combinaciones.length ? u.combinaciones : combinacionesPorGrupos(u, poder.apoderados), poder.apoderados);
@@ -2509,7 +2524,7 @@
           limitaciones: u.limitaciones || null,
           limite_de_operacion: null,
         };
-      }),
+      })(), 'vencimiento', { value: poder.vencimiento || null, enumerable: false })),
     };
   }
 
@@ -2791,6 +2806,155 @@
     (j.apoderados || []).filter(a => !a.cuitCuil).forEach(a => errores.push(`${a.apellido}, ${a.nombre}: sin CUIT/CUIL.`));
     return errores;
   }
+  // Monto de una estructura de firma, leído del texto del poder ("en operaciones que no excedan la suma de U$S 500.000",
+  // "hasta $ 10.000.000", "≤U$S500.000"): { monto, moneda }. "que excedan U$S 500.000" / "más de" es la regla para montos
+  // mayores: no tiene tope (null). Sin monto en el texto: null.
+  function montoDeTexto(texto) {
+    const t = String(texto || '').replace(/\s+/g, ' ');
+    const re = /(U\$S|U\$D|USD|US\$|D[OÓ]LARES|\$|ARS|PESOS)\s*([\d][\d.]*(?:,\d{1,2})?)(\s*(?:MILLONES|MILL\.?))?/gi;
+    let m;
+    while ((m = re.exec(t))) {
+      const antes = t.slice(Math.max(0, m.index - 70), m.index).toLowerCase();
+      let valor = Number(m[2].replace(/\./g, '').replace(',', '.'));
+      if (m[3]) valor *= 1e6;
+      if (!(valor > 0)) continue;
+      const moneda = /\$/.test(m[1]) && !/U\$|US\$/i.test(m[1]) || /ARS|PESOS/i.test(m[1]) ? 'ARS' : 'USD';
+      // Lo último que se dice antes del importe decide: "no excedan", "hasta", "≤" (tope) o "excedan", "más de", ">" (sin tope).
+      const ultimo = (re2 => { let x, u = null; while ((x = re2.exec(antes))) u = x[0]; return u; })(/no\s+(?:exced|super|sobrepas)\w*|hasta|≤|<=|menor\w*|inferior\w*|no\s+mayor\w*|exced\w*|super\w*|mayor\w*|m[aá]s\s+de|>/g);
+      if (!ultimo) continue;
+      if (/^no\s|hasta|≤|<=|menor|inferior/.test(ultimo)) return { monto: valor, moneda };
+      return { monto: null, moneda: null, desde: valor };
+    }
+    return { monto: null, moneda: null };
+  }
+
+  // Tipo de cambio escrito en la planilla del cliente: "TIPO DE CAMBIO AL 11/01/2024: 834.5000", "TC: 9/11/2022 $166,50",
+  // "(según fecha 2/9/2026 - cotización $1511 - …)". Devuelve { tc, fecha (aaaa-mm-dd o ''), texto } o null.
+  function tcDePlanilla(hojas) {
+    const num = v => {
+      let t = String(v).trim();
+      if (/,/.test(t) && /\./.test(t)) t = t.replace(/\./g, '').replace(',', '.');
+      else if (/,/.test(t)) t = t.replace(',', '.');
+      else if (/^\d{1,3}(\.\d{3})+$/.test(t)) t = t.replace(/\./g, '');
+      return Number(t);
+    };
+    const iso = f => { const m = String(f || '').match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/); return m ? `${m[3]}-${ceros(m[2], 2)}-${ceros(m[1], 2)}` : ''; };
+    const pats = [
+      /TIPO\s+DE\s+CAMBIO(?:\s+(?:AL|DEL)?\s*(\d{1,2}\/\d{1,2}\/\d{4}))?\s*[:=]?\s*\$?\s*(\d[\d.,]*)/i,
+      /\bT\.?\s?C\.?\s*[:=]?\s*(\d{1,2}\/\d{1,2}\/\d{4})?\s*\$?\s*(\d[\d.,]*)/i,
+      /cotizaci[oó]n\s*(?:de\s*)?\$?\s*(\d[\d.,]*)/i,
+    ];
+    for (const h of hojas || []) for (const fila of h.filas || []) for (const c of fila || []) {
+      const t = String(c == null ? '' : c);
+      if (t.length < 4 || t.length > 2000) continue;
+      for (let k = 0; k < pats.length; k++) {
+        const m = t.match(pats[k]);
+        if (!m) continue;
+        const valor = num(k === 2 ? m[1] : m[2]);
+        if (!(valor > 1 && valor < 100000)) continue;
+        const fecha = k === 2 ? iso((t.match(/fecha\s*(\d{1,2}\/\d{1,2}\/\d{4})/i) || [])[1]) : iso(m[1]);
+        return { tc: valor, fecha, texto: t.trim().slice(0, 160) };
+      }
+    }
+    return null;
+  }
+
+  // Optimización de reglas: se juntan las que, con los mismos circuitos, el mismo vencimiento y el mismo monto, dicen lo
+  // mismo con otra forma:
+  //  1. grupos con exactamente los mismos integrantes → un solo grupo (la primera letra);
+  //  2. misma regla (tipo, quorum, grupos, firmante) repetida → una, con los circuitos de todas;
+  //  3. una firma de A y una firma de B (ConjuntaIndistinta [A] q1 + [B] q1) → ConjuntaIndistinta [A, B] q1;
+  //  4. A+A, B+B y A+B (ConjuntaIndistinta [A] q2 + [B] q2 + Conjunta [A, B] q1) con el mismo monto y vencimiento →
+  //     ConjuntaIndistinta [A, B] q2 con los circuitos de las tres (aunque cada una tenga otros circuitos);
+  //  5. una regla cuyas firmas ya alcanzan para otra menos exigente que tiene todos sus circuitos (A+A cuando existe
+  //     "dos cualesquiera de A y/o B" con esos circuitos) sobra: se saca. Mismo vencimiento y mismo monto (la regla con
+  //     tope y la sin tope quedan las dos).
+  // Devuelve { lista, notas } (notas: qué se unificó, para la pantalla).
+  function optimizarReglas(lista, apoderados) {
+    const notas = [];
+    // 1. Grupos con los mismos integrantes.
+    const miembros = {};
+    (apoderados || []).forEach(a => (a.grupos || []).forEach(g => (miembros[g] = miembros[g] || new Set()).add(a.cuitCuil)));
+    const firma = g => [...(miembros[g] || [])].sort().join(',');
+    const alias = {};
+    Object.keys(miembros).sort().forEach(g => {
+      const igual = Object.keys(miembros).sort().find(h => h < g && !alias[h] && firma(h) && firma(h) === firma(g));
+      if (igual) { alias[g] = igual; notas.push(`Los grupos ${igual} y ${g} tienen los mismos integrantes: quedan como ${igual}.`); }
+    });
+    if (Object.keys(alias).length) {
+      (apoderados || []).forEach(a => { a.grupos = [...new Set(a.grupos.map(g => alias[g] || g))].sort(); });
+      lista.forEach(r => { r.grupos = [...new Set(r.grupos.map(g => alias[g] || g))].sort(); });
+    }
+    // 2. Reglas idénticas (también las que quedaron iguales por el paso 1).
+    const clave = r => [r.tipo, r.quorum, r.grupos.join(','), (r.firmantes || []).join(','), r.monto || '', r.moneda || '', r._vto || ''].join('|');
+    const juntar = l => {
+      const m = new Map();
+      l.forEach(r => {
+        const k = clave(r);
+        if (!m.has(k)) { m.set(k, r); return; }
+        const x = m.get(k);
+        x.circuitos = [...new Set(x.circuitos.concat(r.circuitos))].sort();
+        notas.push(`Se juntaron dos reglas ${r.tipo} [${r.grupos.join(', ')}] quorum ${r.quorum} iguales.`);
+      });
+      return [...m.values()];
+    };
+    lista = juntar(lista);
+    // 3 y 4. Mismos circuitos, vencimiento y monto.
+    const base = r => [r.circuitos.join(','), r._vto || '', r.monto || '', r.moneda || ''].join('|');
+    const porBase = new Map();
+    lista.forEach(r => { const k = base(r); (porBase.get(k) || porBase.set(k, []).get(k)).push(r); });
+    const quitar = new Set(), nuevas = [];
+    porBase.forEach(rs => {
+      // 3. Firma individual de varios grupos.
+      const ind = rs.filter(r => r.tipo === 'ConjuntaIndistinta' && r.quorum === 1 && !quitar.has(r));
+      if (ind.length > 1) {
+        const gs = [...new Set(ind.flatMap(r => r.grupos))].sort();
+        ind.forEach(r => quitar.add(r));
+        nuevas.push(Object.defineProperty(Object.assign({}, ind[0], { grupos: gs, descripcion: `Grupo ${gs.join(' y/o ')} - firma individual` }), '_vto', { value: ind[0]._vto, writable: true, enumerable: false }));
+        notas.push(`Firma individual de ${ind.map(r => r.grupos.join('/')).join(', ')} con los mismos circuitos: una sola regla ConjuntaIndistinta [${gs.join(', ')}] quorum 1.`);
+      }
+    });
+    // 4. Dos cualesquiera de varios grupos: todas las parejas presentes con el mismo monto y vencimiento.
+    const porMonto = new Map();
+    lista.filter(r => !quitar.has(r)).forEach(r => { const k = [r._vto || '', r.monto || '', r.moneda || ''].join('|'); (porMonto.get(k) || porMonto.set(k, []).get(k)).push(r); });
+    porMonto.forEach(rs => {
+      const dobles = rs.filter(r => r.tipo === 'ConjuntaIndistinta' && r.quorum === 2 && r.grupos.length === 1 && !quitar.has(r));
+      const gs = dobles.map(r => r.grupos[0]).sort();
+      if (gs.length > 1) {
+        const cruces = gs.flatMap((a, i) => gs.slice(i + 1).map(b => rs.find(r => r.tipo === 'Conjunta' && r.quorum === 1 && r.grupos.join(',') === [a, b].join(',') && !quitar.has(r))));
+        if (cruces.every(Boolean)) {
+          const todas = dobles.concat(cruces);
+          todas.forEach(r => quitar.add(r));
+          const circuitos = [...new Set(todas.flatMap(r => r.circuitos))].sort();
+          const distintos = todas.some(r => r.circuitos.join() !== circuitos.join());
+          nuevas.push(Object.defineProperty(Object.assign({}, dobles[0], { grupos: gs, quorum: 2, circuitos, descripcion: `Firma conjunta: dos cualesquiera de ${gs.join(' y/o ')}` }), '_vto', { value: dobles[0]._vto, writable: true, enumerable: false }));
+          notas.push(`${gs.map(g => g + '+' + g).join(', ')} y ${cruces.map(r => r.grupos.join('+')).join(', ')}${dobles[0].monto ? ` (hasta ${dobles[0].moneda} ${dobles[0].monto})` : ' (sin tope)'}: una sola regla ConjuntaIndistinta [${gs.join(', ')}] quorum 2` +
+            (distintos ? ` con los circuitos de todas (${circuitos.length}); antes cada combinación tenía los suyos.` : '.'));
+        }
+      }
+    });
+    lista = juntar(lista.filter(r => !quitar.has(r)).concat(nuevas));
+    // 5. Reglas cubiertas por otra menos exigente.
+    const firmasMinimas = r => { // conjuntos mínimos de firmas (lista de grupos) que cumplen la regla
+      if (r.tipo === 'Conjunta') return [r.grupos.flatMap(g => Array(r.quorum).fill(g))];
+      if (r.tipo !== 'ConjuntaIndistinta' || r.quorum > 4 || r.grupos.length > 6) return null;
+      const out = [], arma = (desde, acc) => { if (acc.length === r.quorum) { out.push(acc); return; } r.grupos.slice(desde).forEach((g, i) => arma(desde + i, acc.concat(g))); };
+      arma(0, []);
+      return out;
+    };
+    const cumple = (firmas, r) => r.tipo === 'ConjuntaIndistinta' ? firmas.filter(g => r.grupos.includes(g)).length >= r.quorum
+      : r.tipo === 'Conjunta' ? r.grupos.every(g => firmas.filter(x => x === g).length >= r.quorum) : false;
+    const cubre = (grande, chica) => grande !== chica && (grande._vto || '') === (chica._vto || '') && chica.circuitos.every(c => grande.circuitos.includes(c))
+      && (grande.monto || null) === (chica.monto || null) && (grande.moneda || null) === (chica.moneda || null)
+      && (firmasMinimas(chica) || [null]).every(f => f && cumple(f, grande));
+    const sobran = new Set();
+    lista.forEach(r => {
+      const g = lista.find(x => !sobran.has(x) && cubre(x, r));
+      if (g) { sobran.add(r); notas.push(`${r.descripcion.split(' · ')[0]} (${r.tipo} [${r.grupos.join(', ')}] quorum ${r.quorum}) ya está cubierta por "${g.descripcion.split(' · ')[0]}", que tiene todos sus circuitos: se saca.`); }
+    });
+    lista = lista.filter(r => !sobran.has(r));
+    return { lista, notas };
+  }
   function jsonBastanteoV1(unico, cliente, opciones = {}) {
     const fuente = opciones.fuente === 'complif' ? 'complif' : 'planilla';
     const firmantes = (cliente && cliente.firmantes) || [];
@@ -2820,7 +2984,16 @@
     const reglas = new Map();
     // Con los JSON de cada poder (opciones.jsons) y todos los usos conjuntos con combinaciones, cada regla sale del uso
     // de firma exacto del poder (sus circuitos y sus combinaciones). Si no, de los grupos del JSON único.
-    const porUso = (opciones.jsons || []).flatMap(j => j.estructuras_de_firma || []);
+    // Firma individual restringida ("únicamente verificar saldos y endosar cheques", "solo para endoso para depósito",
+    // E-BANVAL) en un poder con firma conjunta: no es una regla aparte (igual que en el JSON único); se avisa.
+    const porUso = (opciones.jsons || []).flatMap(j => {
+      const conConjunta = (j.estructuras_de_firma || []).some(e => e.firma_conjunta);
+      return (j.estructuras_de_firma || []).filter(e => {
+        const restringida = conConjunta && e.firma_individual && !e.firma_conjunta && USO_RESTRINGIDO.test(`${e.estructura_de_firma || ''} ${e.limitaciones || ''}`);
+        if (restringida) avisos.push(`No va como regla la firma individual restringida del poder${j.deed_number ? ' esc. ' + j.deed_number : ''}: "${String(e.estructura_de_firma || e.limitaciones || '').slice(0, 140)}".`);
+        return !restringida;
+      });
+    });
     const exacto = porUso.length && porUso.every(e => !e.firma_conjunta || (e.combinaciones || []).length);
     // Apoderados del poder que no están en el JSON único (grupos sin usos de firma, p. ej. un grupo C): van igual.
     if (opciones.jsons) {
@@ -2835,13 +3008,17 @@
     (exacto ? porUso : unico.estructuras_de_firma || []).forEach(e => {
       const circuitos = [...new Set(Object.entries(e.facultades || {}).filter(([k, v]) => v && CIRCUITO_DE_CLAVE[k])
         .flatMap(([k]) => [CIRCUITO_DE_CLAVE[k]].concat(CIRCUITOS_GEMELOS[CIRCUITO_DE_CLAVE[k]] || [])))].sort();
-      const agregar = (tipo, quorum, grupos, extra = {}, combo = '', firmantes = []) => {
-        // Misma regla (tipo, quorum, grupos, firmante y monto) desde varios grupos del poder: se juntan los circuitos.
-        const k = [tipo, quorum, grupos.join(','), firmantes.join(','), extra.monto || ''].join('|');
+      const mt = montoDeTexto(`${e.estructura_de_firma || ''} ${e.limitaciones || ''}`);
+      const delTexto = mt.monto ? { monto: mt.monto, moneda: mt.moneda } : {};
+      const agregar = (tipo, quorum, grupos, extra0 = {}, combo = '', firmantes = []) => {
+        const extra = Object.assign({}, delTexto, extra0);
+        // Misma regla (tipo, quorum, grupos, firmante, monto y vencimiento del poder) desde varios usos: se juntan los circuitos.
+        const vto = e.vencimiento || '';
+        const k = [tipo, quorum, grupos.join(','), firmantes.join(','), extra.monto || '', extra.moneda || '', vto].join('|');
         if (reglas.has(k)) { const r = reglas.get(k); r.circuitos = [...new Set(r.circuitos.concat(circuitos))].sort(); return; }
         const descripcion = tipo === 'Individual' ? `Firma individual - ${combo}`
           : tipo === 'ConjuntaIndistinta' ? (combo === 'individual' ? `Grupo ${grupos.join(' y/o ')} - firma individual` : grupos.length > 1 ? `Firma conjunta: ${combo}` : `Grupo ${grupos[0]} - firma conjunta ${combo}`) : `Firma conjunta ${combo}`;
-        reglas.set(k, Object.assign({ tipo, quorum, moneda: null, monto: null, descripcion, circuitos, grupos, firmantes }, extra));
+        reglas.set(k, Object.defineProperty(Object.assign({ tipo, quorum, moneda: null, monto: null, descripcion, circuitos, grupos, firmantes }, extra), '_vto', { value: vto, writable: true, enumerable: false }));
       };
       if (e.firma_individual && !e.firma_conjunta) {
         // Límite de la firma individual escrito en la planilla ("H/ $ 50.000.000"), si es el mismo para todo el grupo.
@@ -2893,17 +3070,37 @@
       return { cuitCuil: id.length === 11 ? formatoCuit(id) : id, nombre: n.nombre, apellido: n.apellido, estado: 'Activa',
         grupos: propia ? [propia] : [...new Set(String(a.grupo).split(',').map(x => ren(x.trim())).filter(Boolean))].sort() };
     });
+    const opt = optimizarReglas([...reglas.values()], apoderados);
+    // Tope en las dos monedas: cada regla con monto va también en la otra moneda al tipo de cambio Com. A 3500
+    // (opciones.tc = { tc, fecha }). Sin tipo de cambio, solo la del poder (y se avisa).
+    const conTope = opt.lista.filter(r => r.monto && (r.moneda === 'USD' || r.moneda === 'ARS'));
+    if (conTope.length && !(opciones.tc && opciones.tc.tc > 0)) avisos.push('Hay reglas con tope: falta el tipo de cambio (Com. A 3500) para agregar la misma regla en la otra moneda.');
+    if (conTope.length && opciones.tc && opciones.tc.tc > 0) {
+      const tc = opciones.tc.tc, fTc = String(opciones.tc.fecha || '').split('-').reverse().join('/');
+      const fmt = (n, d) => Number(n).toLocaleString('es-AR', { minimumFractionDigits: d, maximumFractionDigits: d });
+      conTope.forEach(r => {
+        const otra = r.moneda === 'USD' ? 'ARS' : 'USD';
+        const monto = round2(r.moneda === 'USD' ? r.monto * tc : r.monto / tc);
+        const gemela = Object.defineProperty(Object.assign({}, r, { moneda: otra, monto,
+          descripcion: `${r.descripcion} · equivale a ${r.moneda} ${fmt(r.monto, 2)} al TC Com. A 3500${fTc ? ' del ' + fTc : ''} (${fmt(tc, 4)})` }), '_vto', { value: r._vto, writable: true, enumerable: false });
+        opt.lista.splice(opt.lista.indexOf(r) + 1, 0, gemela);
+      });
+    }
+    const hoy = claveDia(opciones.hoy || new Date());
+    opt.lista.forEach(r => { if (r._vto) r.descripcion = `${r.descripcion} · vence ${r._vto.split('-').reverse().join('/')}`; });
+    [...new Set(opt.lista.filter(r => r._vto && r._vto < hoy).map(r => r._vto))].forEach(v => avisos.push(`Hay reglas de un poder vencido el ${v.split('-').reverse().join('/')} (vencimiento en Complif): revisar si sigue vigente.`));
     const json = {
       version: '1.0',
       empresa: { cuit: formatoCuit(unico.cuit_empresa), razonSocial: unico.razon_social || null, estado: 'Activa' },
       apoderados,
       // Orden: conjuntas indistintas, conjuntas e individuales.
-      reglasFirma: [...reglas.values()].sort((a, b) => ['ConjuntaIndistinta', 'Conjunta', 'Individual'].indexOf(a.tipo) - ['ConjuntaIndistinta', 'Conjunta', 'Individual'].indexOf(b.tipo))
+      reglasFirma: opt.lista.sort((a, b) => ['ConjuntaIndistinta', 'Conjunta', 'Individual'].indexOf(a.tipo) - ['ConjuntaIndistinta', 'Conjunta', 'Individual'].indexOf(b.tipo))
         .map((r, i) => Object.assign({ referencia: `regla-${i + 1}` }, r)),
     };
     // Avisos y grupos renombrados: para la pantalla, no se exportan.
-    Object.defineProperty(json, 'avisos', { value: avisos, enumerable: false });
+    Object.defineProperty(json, 'avisos', { value: [...new Set(avisos)], enumerable: false });
     Object.defineProperty(json, 'renombre', { value: renombre, enumerable: false });
+    Object.defineProperty(json, 'unificaciones', { value: opt.notas, enumerable: false });
     return json;
   }
 
@@ -4282,7 +4479,7 @@ try {
     leerTxtMeli, bancoMeliDeTxt, bancosParaMeli,
     sqlExtraccionCartera, bookmarkletCartera, scriptPowerShellCartera, comandoTareaCartera, IMPORTES_CARTERA,
     NO_COBIS, ultimoDiaHabil, fechasNoCobis, FCIC_MELI_INICIAL, FERIADOS_AR, diaHabilAnterior, fechasFcicMeli, leerReporteCupones, armarNoCobisFcic, lineaNoCobis, txtNoCobis, loteApiNoCobis, scriptPowerShellNoCobis, scriptPowerShellProbarNoCobis, scriptPowerShellAgenteNoCobis, cmdEnvioNoCobis,
-    leerCartera, BASTANTEO_CATALOGO, BASTANTEO_CLAVES, BASTANTEO_EXTRA, leerPoderesOcr, leerAutoridadesOcr, COMPLIF_TIPOS, poderDesdeComplif, actaDesdeComplif, complifDeEmpresa, controlResumen, usoDelResumen, aplicarRevocatorias, claveRevocatoria, poderesFirmantesD, presidentesDeActas, gruposDelUso, usoCompleto, tokensDe, combosDeClausula, poderDelPresidente, leerClienteBastanteo, cuitPorDni, formatoCuit, firmanteDe, firmantesSinPoder, jsonPoder, jsonBastanteoUnico, jsonBastanteoV1, validarJsonBastanteo, separarNombre, leerInventarioGarantias, leerUsoAcuerdos, leerCuentasPowerBI, clienteDeCuenta, leerPadronDesdeLineasPdf, INVENTARIOS_CONTABLES, INVENTARIO_DENOMINACION, INVENTARIO_FIRMAS, fechaReporteIso, fechaInventarioDesdeReporte, leerPadronDesdeInventarios, leerBaseEntes, unirPadron, armarInventariosContables, leerCom3500, leerTcApiBcra, elegirTipoCambio, numeroEnLetras, daxCarteraPowerBI, daxDiagnosticoPowerBI, daxSaldoDeuda, armarSaldoDeuda, daxSaldoDeudaDetalle, armarDeudaDetalle, leerFilasPowerBI, sugerirColumnaCartera, columnasNumericasCartera, agruparCartera, valoresDistintos, sqlCartera,
+    leerCartera, BASTANTEO_CATALOGO, BASTANTEO_CLAVES, BASTANTEO_EXTRA, leerPoderesOcr, leerAutoridadesOcr, COMPLIF_TIPOS, poderDesdeComplif, actaDesdeComplif, complifDeEmpresa, controlResumen, usoDelResumen, aplicarRevocatorias, claveRevocatoria, poderesFirmantesD, presidentesDeActas, gruposDelUso, usoCompleto, tokensDe, combosDeClausula, poderDelPresidente, leerClienteBastanteo, cuitPorDni, formatoCuit, firmanteDe, firmantesSinPoder, jsonPoder, jsonBastanteoUnico, jsonBastanteoV1, optimizarReglas, montoDeTexto, tcDePlanilla, validarJsonBastanteo, separarNombre, leerInventarioGarantias, leerUsoAcuerdos, leerCuentasPowerBI, clienteDeCuenta, leerPadronDesdeLineasPdf, INVENTARIOS_CONTABLES, INVENTARIO_DENOMINACION, INVENTARIO_FIRMAS, fechaReporteIso, fechaInventarioDesdeReporte, leerPadronDesdeInventarios, leerBaseEntes, unirPadron, armarInventariosContables, leerCom3500, leerTcApiBcra, elegirTipoCambio, numeroEnLetras, daxCarteraPowerBI, daxDiagnosticoPowerBI, daxSaldoDeuda, armarSaldoDeuda, daxSaldoDeudaDetalle, armarDeudaDetalle, leerFilasPowerBI, sugerirColumnaCartera, columnasNumericasCartera, agruparCartera, valoresDistintos, sqlCartera,
     leerCsv, encabezadosEjemplo, leerDefinicionInterfaz, sugerirColumna, detectarHojaInterfaz,
     normalizar, provinciaPorNombre, crearBuscadorBancoPorNombre, round2, aNumero, aFechaSerial, aCodigoBanco,
     fechaDDMMYY, fechaYYYYMMDD, fechaLegible, hoyDDMMYY,
