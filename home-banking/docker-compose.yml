@@ -35,6 +35,13 @@ x-backend-env: &backend-env
   HB_SMTP_USUARIO: ${HB_SMTP_USUARIO:-}
   HB_SMTP_STARTTLS: ${HB_SMTP_STARTTLS:-true}
   HB_SMTP_PASSWORD_FILE: /run/secrets/smtp_password
+  # Salida de correo de respaldo (opcional): si el principal falla, el correo se reintenta por acá.
+  HB_SMTP2_HOST: ${HB_SMTP2_HOST:-}
+  HB_SMTP2_PORT: ${HB_SMTP2_PORT:-}
+  HB_SMTP2_FROM: ${HB_SMTP2_FROM:-}
+  HB_SMTP2_USUARIO: ${HB_SMTP2_USUARIO:-}
+  HB_SMTP2_PASSWORD: ${HB_SMTP2_PASSWORD:-}
+  HB_SMTP2_STARTTLS: ${HB_SMTP2_STARTTLS:-true}
   HB_POWERAUTOMATE_URL: ${HB_POWERAUTOMATE_URL:-}   # alertas por chat de Teams; vacío = solo correo (ver powerautomate/)
   HB_CHAT_DOMINIO: ${HB_CHAT_DOMINIO:-@valo.ar}
   TZ: America/Argentina/Buenos_Aires

@@ -242,7 +242,9 @@ export async function procesarTarea(t) {
     const adjuntos = [{ filename: 'logo-valo.png', content: LOGO, cid: LOGO_CID }];
     if (correo.archivo) adjuntos.push({ filename: correo.archivo, content: await xlsxEnvio(e, alerta ? cuentas.filter((c) => c.movimientos?.length) : cuentas, alerta ? 'movimientos' : t.contenido, { titulo: correo.titulo, logo: LOGO, conSaldo: !alerta }),
       contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
-    await enviarCorreo({ para: e.emails, asunto: correo.asunto, html: correo.html, texto: correo.texto, adjuntos });
+    const envio = await enviarCorreo({ para: e.emails, asunto: correo.asunto, html: correo.html, texto: correo.texto, adjuntos });
+    // Si el servidor principal falló y salió por el de respaldo, queda anotado en la tarea.
+    const viaRespaldo = envio?.via === 'respaldo' ? ` · por SMTP de respaldo (el principal falló: ${envio.errorPrincipal})` : '';
     // Solo las alertas de movimientos: después del correo al cliente, se notifica por chat de Teams a los
     // oficiales de la cartera que lo tengan activado (Power Automate). Es best-effort: el correo ya salió.
     let extraChat = '';
@@ -251,7 +253,7 @@ export async function procesarTarea(t) {
       if (chat.estado === 'enviado') extraChat = ` · chat a ${chat.destinatarios.length} oficial(es)`;
       else if (chat.estado === 'error') extraChat = ` · chat con error: ${chat.detalle ?? ''}`;
     }
-    return terminar(t, 'enviado', `${correo.asunto}${correo.archivo ? ` · adjunto ${correo.archivo}` : ''}${extraChat}`, e.emails, banco);
+    return terminar(t, 'enviado', `${correo.asunto}${correo.archivo ? ` · adjunto ${correo.archivo}` : ''}${viaRespaldo}${extraChat}`, e.emails, banco);
   } catch (x) {
     if (t.intentos < t.max_intentos) { // vuelve a la cola con espera creciente
       const espera = ESPERAS_MIN[Math.min(t.intentos - 1, ESPERAS_MIN.length - 1)];
