@@ -67,9 +67,11 @@ BDV_TERMINAL=<terminal> BDV_IDENTIFICATION=<DNI> node scripts/probar-api.mjs
 
 El workflow `.github/workflows/home-banking-imagenes.yml` corre en cada push a `ALYC`:
 
-1. **Pruebas del backend** (`npm test`).
-2. **Prueba de humo:** levanta el stack completo con Docker (bases, backend, frontend y Keycloak local) y verifica frontend, `config.json`, CSP, `/api/health`, que la API pida token, Keycloak y el esquema de la base.
-3. **Publicación** en Docker Hub, solo si las dos anteriores pasan: `docker.io/<usuario>/home-banking-valo` con los tags `backend-alyc`, `frontend-alyc` y `backend-<commit>` / `frontend-<commit>`.
+1. **Pruebas del backend** (`npm test`): reglas de negocio y separación de funciones por rol.
+2. **Seguridad:** `npm audit` de producción (bloquea en vulnerabilidad crítica), gitleaks (secretos en el repo e historial) y Trivy (vulnerabilidades e IaC, informativo).
+3. **Autorización de punta a punta** (`backend/test/e2e`, con un SSO y un banco simulados): acceso por empresa (BOLA), operación por id (IDOR), doble control y envío único, y límite de pedidos por usuario.
+4. **Prueba de humo:** levanta el stack completo con Docker (bases, backend, frontend y Keycloak local) y verifica frontend, `config.json`, las cabeceras de seguridad y la CSP, `/api/health`, que la API pida token, Keycloak y el esquema de la base.
+5. **Publicación** en Docker Hub, solo si todo lo anterior pasa: `docker.io/<usuario>/home-banking-valo` con los tags `backend-alyc`, `frontend-alyc` y `backend-<commit>` / `frontend-<commit>`.
 
 Requiere dos secretos en GitHub (Settings → Secrets and variables → Actions): `DOCKERHUB_USERNAME` y `DOCKERHUB_TOKEN` (access token de Docker Hub con permiso **Read & Write**; con Read-only la publicación falla con "insufficient scopes"). Conviene que el repositorio de Docker Hub sea **privado**.
 
@@ -166,6 +168,14 @@ SPA en JavaScript (módulos ES, sin paso de build) servida por Nginx, con las pa
 ```sh
 cd backend && npm install && npm test     # reglas: requests según el PDF, estados, RSA, cifrado, roles, TXT, pase histórico
 ```
+
+**Pruebas de autorización de punta a punta** (contra el servidor real, con un SSO y un banco simulados). Necesitan Postgres; en el CI corren con un contenedor de servicio. Localmente, con `PGHOST/PGPORT/PGUSER/PGPASSWORD` apuntando a un Postgres:
+
+```sh
+cd backend && PGHOST=localhost PGPORT=5432 PGUSER=postgres PGPASSWORD=postgres sh test/e2e/correr.sh
+```
+
+Verifican acceso por empresa (BOLA), operación por id (IDOR), doble control y envío único, y límites de pedidos por usuario.
 
 ## Pendientes a confirmar
 

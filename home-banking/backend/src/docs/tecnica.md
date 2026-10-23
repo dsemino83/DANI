@@ -95,7 +95,11 @@ Secretos en `secrets/*.txt` (fuera del repositorio): claves de las bases, `crede
 
 - **Actualizar** (máquina de prueba): `hb-actualizar` (cambia a la rama ALYC, baja imágenes, levanta y migra). Servidor: `docker compose pull && docker compose up -d && sh scripts/migrar-bases.sh`.
 - **Resguardo:** `pg_dump` diario de ambas bases; nunca `docker compose down -v` en el servidor.
-- **CI:** GitHub Actions construye las imágenes, levanta el stack completo y prueba esquema, migraciones, correo (Mailpit), Keycloak y la CSP antes de publicar.
+- **CI:** GitHub Actions corre, antes de publicar las imágenes y como compuerta (si algo falla no se publica):
+  - **pruebas** unitarias del backend (incluye la separación de funciones por rol);
+  - **seguridad:** `npm audit` de producción (bloquea en crítica), gitleaks (secretos en el repo e historial) y Trivy (vulnerabilidades e IaC, informativo);
+  - **autorización** de punta a punta contra el servidor real con un SSO y un banco simulados (`backend/test/e2e`): acceso por empresa (BOLA), operación por id (IDOR), doble control y envío único, y límite de pedidos por usuario;
+  - **humo:** levanta el stack completo y verifica esquema, migraciones, correo (Mailpit), Keycloak, las cabeceras de seguridad y la CSP.
 
 ## Seguridad aplicada y hoja de ruta
 
@@ -108,6 +112,7 @@ Secretos en `secrets/*.txt` (fuera del repositorio): claves de las bases, `crede
 | Privacidad | Datos del banco no se almacenan (solo lo propio de la app); CBU/CUIT/cuentas enmascarados en los logs; datos de prueba sintéticos | Tokenización de CBU/CUIT en una bóveda; base analítica separada con datos seudonimizados |
 | Auditoría | Solo inserción, **cadena de hashes SHA-256** verificable (pantalla y diaria), id de pedido de punta a punta, base histórica de solo lectura | Envío al **SIEM** (Sentinel / Splunk / Wazuh) y almacenamiento WORM de logs |
 | Resiliencia | Healthchecks, reinicio automático, cola con reintentos, una sola consulta al banco por clave; resguardo cifrado con prueba de restauración | Alta disponibilidad (Postgres con réplica, 2+ nodos), segunda región, RPO/RTO cercanos a cero |
+| Verificación | Pruebas de seguridad automatizadas como compuerta del CI: separación de roles, acceso por empresa (BOLA), operación por id (IDOR), doble control y envío único, límites de pedidos, cabeceras y CSP, dependencias y secretos | Prueba de penetración contra el banco y el SSO reales; escaneo dinámico (ZAP) periódico contra staging |
 
 ## API del backend (principales rutas)
 

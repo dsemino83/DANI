@@ -111,13 +111,26 @@ Toda acción queda registrada en el momento, en un registro **de solo inserción
 | C18 | Buzón de avisos a los asociados del cliente, con lectura registrada | Operaciones pendientes sin atender | Tabla `mensaje` (destinatario, leído, motivo) |
 | C19 | Cadena de hashes SHA-256 en la auditoría, verificada a diario | Alteración o borrado de registros por un usuario privilegiado | Verificación de integridad (pantalla y diaria) |
 | C20 | Señales de riesgo de fraude; riesgo ALTO exige confirmación explícita | Aprobación de operaciones fraudulentas | Auditoría de la aprobación con el riesgo y la confirmación |
-| C21 | Límites de pedidos por IP (Nginx) y por usuario (backend) | Abuso, fuerza bruta, scraping | Respuestas 429 y logs |
+| C21 | Límites de pedidos por IP (Nginx) y por usuario (backend) | Abuso, fuerza bruta, scraping | Respuestas 429 con Retry-After; prueba automática `test/e2e/limites.mjs` |
 | C22 | Contenedores endurecidos y redes segmentadas (las bases solo en una red interna) | Movimiento lateral, escalada de privilegios | `docker-compose.yml` |
 | C23 | Resguardos cifrados con HMAC y prueba de restauración | Pérdida de datos, resguardo alterado | `scripts/resguardo.sh` y `restaurar-resguardo.sh --probar` |
+| C24 | Pruebas de seguridad automatizadas como compuerta de publicación en el CI | Regresión de un control de acceso o de una protección | GitHub Actions: no se publica una imagen si fallan (ver abajo) |
+
+**C24 — Qué verifica el CI en cada cambio, antes de publicar** (si algo falla, no se publica la imagen):
+
+| Prueba | Qué comprueba |
+| --- | --- |
+| Separación de funciones (roles) | El operador, el auditor y el administrador no acceden a funciones de otro rol; el administrador nunca opera aunque el token traiga los roles |
+| Acceso por empresa (BOLA) | Un usuario no ve ni opera cuentas de una empresa que no tiene habilitada, ni cambiando el número ni pivoteando por parámetros; Ver no habilita Operar |
+| Operación por id (IDOR) | No se puede ver la auditoría, aprobar ni rechazar una operación de otra empresa por su id |
+| Doble control y envío único | Nadie aprueba lo que cargó; una operación va al banco una sola vez aunque se apruebe varias veces o en paralelo; lo rechazado nunca se envía |
+| Límites de pedidos | Al pasarse, responde 429 con Retry-After; el límite es por usuario |
+| Navegador | Cabeceras de seguridad presentes y CSP estricta (sin `unsafe-inline` ni `unsafe-eval`) |
+| Dependencias, secretos e imágenes | Sin vulnerabilidad crítica en producción, sin secretos en el repositorio, escaneo de imágenes y de configuración de contenedores |
 
 ## Pendientes
 
 - Retención de la base histórica: a definir por Cumplimiento.
 - Credencial API exclusiva del Home Banking y de envíos, y rotación de la actual: a gestionar con el banco.
 - Servidor SMTP de producción, dominio y certificado: a definir con Infraestructura.
-- Prueba integrada de punta a punta en producción con evidencia para auditoría.
+- Prueba integrada de punta a punta en producción con evidencia para auditoría. Las pruebas automáticas del CI (C24) usan un SSO y un banco simulados; la prueba de penetración contra el banco y el SSO reales de VALO queda pendiente.
