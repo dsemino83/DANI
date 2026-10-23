@@ -130,7 +130,14 @@ export const codigoEjecucion = (id) => (id == null ? null : `EJ-${String(id).pad
 export async function encolarTurno(p, turno, { manual = false } = {}) {
   const responsable = p.actualizada_por ?? p.creada_por;
   const visibles = await clientesVisibles(responsable);
-  const destinos = p.todas_empresas ? visibles.map((e) => ({ empresaId: Number(e.id), cuentas: [] })) : (p.destinos ?? []);
+  let destinos = p.todas_empresas ? visibles.map((e) => ({ empresaId: Number(e.id), cuentas: [] })) : (p.destinos ?? []);
+  // Las alertas por hora / cada 30 minutos respetan el interruptor por cliente: un cliente apagado nunca
+  // se encola (ni por "todas las empresas", ni por lista, ni por "Ejecutar ahora"). El extracto diario no.
+  if (p.frecuencia !== 'diaria' && destinos.length) {
+    const apagadas = new Set((await operativa.query('SELECT id FROM empresa WHERE id = ANY($1) AND NOT alertas_horarias',
+      [destinos.map((d) => Number(d.empresaId))])).rows.map((r) => Number(r.id)));
+    destinos = destinos.filter((d) => !apagadas.has(Number(d.empresaId)));
+  }
   return tx(operativa, async (c) => {
     const { rows: [ej] } = await c.query(`INSERT INTO ejecucion_envio (programacion_id, programacion, turno, frecuencia, manual, responsable)
       VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (programacion_id, turno) DO UPDATE SET programacion = EXCLUDED.programacion RETURNING id`,

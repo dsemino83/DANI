@@ -13,7 +13,8 @@ CREATE TABLE empresa (
   activa        boolean     NOT NULL DEFAULT true,
   creada_por    text        NOT NULL,
   creada_en     timestamptz NOT NULL DEFAULT now(),
-  emails        text[]      NOT NULL DEFAULT '{}' CONSTRAINT empresa_emails_max CHECK (cardinality(emails) <= 20)  -- contactos de la empresa
+  emails        text[]      NOT NULL DEFAULT '{}' CONSTRAINT empresa_emails_max CHECK (cardinality(emails) <= 20),  -- contactos de la empresa
+  alertas_horarias boolean  NOT NULL DEFAULT true  -- si se apaga, no recibe alertas por hora / cada 30 min (el extracto diario sigue). Lo maneja el autorizante en Envios.
 );
 
 -- Cuentas (CBU) de cada empresa, con historial: quitar una cuenta no borra la fila, la pasa a estado 'baja'.

@@ -27,7 +27,7 @@ export default async function rutasEnvios(app) {
 
   // Empresas que el aprobador ve (las únicas que puede elegir como destino)
   const visibles = async (usuario) => (await operativa.query(
-    `SELECT e.id, e.razon_social, e.cuit, e.emails FROM empresa e JOIN permiso_empresa p ON p.empresa_id = e.id AND p.usuario = $1 AND p.ver
+    `SELECT e.id, e.razon_social, e.cuit, e.emails, e.alertas_horarias FROM empresa e JOIN permiso_empresa p ON p.empresa_id = e.id AND p.usuario = $1 AND p.ver
       WHERE e.activa ORDER BY e.razon_social`, [usuario])).rows;
   // Para elegir destino: cliente y después sus cuentas (las vinculadas activas; sin consultar al banco)
   app.get('/envios/empresas', async (req) => {
@@ -36,6 +36,20 @@ export default async function rutasEnvios(app) {
       [emp.map((e) => e.id)])).rows;
     return emp.map((e) => ({ ...e, cuentas: ctas.filter((c) => c.empresa_id === String(e.id)).map((c) => ({ cuenta: c.product_number, alias: c.alias, moneda: c.moneda })) }));
   });
+
+  // Prende/apaga las alertas por hora de un cliente. Apagado: no recibe NINGUNA alerta por hora / cada 30
+  // minutos (aunque un envío apunte a "todas las empresas"); el extracto diario le sigue llegando. Solo
+  // sobre los clientes que el aprobador ve. Auditado.
+  app.put('/envios/empresas/:id/alertas-horarias', async (req) => tx(operativa, async (c) => {
+    const recibe = req.body?.alertasHorarias !== false;
+    const mias = new Set((await visibles(req.user.usuario)).map((e) => Number(e.id)));
+    if (!mias.has(Number(req.params.id))) throw invalido('Solo podés configurar clientes que ves');
+    const { rows } = await c.query('UPDATE empresa SET alertas_horarias = $2 WHERE id = $1 RETURNING id, razon_social, alertas_horarias', [req.params.id, recibe]);
+    if (!rows[0]) throw noEncontrado('Empresa inexistente');
+    await auditar(c, req, { tipo: 'Administración', accion: recibe ? 'Activó alertas por hora de un cliente' : 'Desactivó alertas por hora de un cliente',
+      ref: { tipo: 'empresa', id: rows[0].id }, detalle: `${rows[0].razon_social} · alertas por hora: ${recibe ? 'sí' : 'no'}` });
+    return rows[0];
+  }));
 
   app.get('/envios', async () => {
     const esFeriado = await feriadosCargados();

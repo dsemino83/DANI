@@ -10,14 +10,43 @@ const hoy = () => new Date(Date.now() - 3 * 3600_000).toISOString().slice(0, 10)
 
 export async function render(main) {
   let progs = [], empresas = [], elegida = null, anio = new Date().getFullYear();
-  const lista = h('div', {}, cargando()), editor = h('div', {}), historial = h('div', {}), cola = h('div', {}), feriados = h('div', {});
+  const lista = h('div', {}, cargando()), editor = h('div', {}), historial = h('div', {}), cola = h('div', {}), feriados = h('div', {}), alertasCli = h('div', {});
 
   const cargar = async () => {
     [progs, empresas] = await Promise.all([api('/envios'), api('/envios/empresas')]);
     if (elegida) elegida = progs.find((p) => p.id === elegida.id) ?? null;
     pintarLista();
+    pintarAlertasCli();
     await pintarHistorial();
   };
+
+  // Interruptor por cliente de las alertas por hora. Apagado: el cliente no recibe NINGUNA alerta por hora /
+  // cada 30 minutos (aunque un envío apunte a "todos mis clientes"); el extracto diario le sigue llegando.
+  const buscarAlerta = h('input', { type: 'search', placeholder: 'Buscar cliente (contiene)' });
+  const pintarAlertasCli = () => {
+    const excluidos = empresas.filter((e) => e.alertas_horarias === false).length;
+    const filtradas = empresas.filter((e) => contiene(buscarAlerta.value, e.razon_social, e.cuit));
+    buscarAlerta.dataset.foco = 'envios-alertas';
+    poner(alertasCli, card('Alertas por hora por cliente',
+      'Si apagás un cliente, deja de recibir las alertas de movimientos por hora / cada 30 minutos, aunque un envío apunte a "todos mis clientes". El extracto diario no se ve afectado.',
+      h('div', { class: 'fila' },
+        excluidos ? pill(`${excluidos} cliente(s) sin alertas por hora`, 'warn') : pill('Todos reciben alertas por hora', 'ok'),
+        campo('Buscar cliente', buscarAlerta)),
+      h('div', { class: 'lista-scroll' }, filtradas.length ? filtradas.map((e) => {
+        const chk = h('input', { type: 'checkbox', checked: e.alertas_horarias !== false, 'aria-label': `Alertas por hora de ${e.razon_social}` });
+        chk.addEventListener('change', async () => {
+          chk.disabled = true;
+          try {
+            await api(`/envios/empresas/${e.id}/alertas-horarias`, { method: 'PUT', body: { alertasHorarias: chk.checked } });
+            e.alertas_horarias = chk.checked;
+            toast(chk.checked ? `${e.razon_social}: recibe alertas por hora.` : `${e.razon_social}: no recibe más alertas por hora.`);
+          } catch (x) { chk.checked = e.alertas_horarias !== false; error(x); }
+          chk.disabled = false; sinPerderFoco(pintarAlertasCli);
+        });
+        return h('label', { class: 'campo check' }, chk, h('b', {}, e.razon_social), ` · CUIT ${e.cuit}`, e.alertas_horarias === false ? [' · ', pill('Sin alertas por hora', 'warn')] : '');
+      }) : h('p', { class: 'nota' }, 'No hay clientes que coincidan.')));
+  };
+  buscarAlerta.addEventListener('input', () => sinPerderFoco(pintarAlertasCli));
 
   const pintarLista = () => poner(lista, tabla([
     { t: 'Nombre', v: (p) => p.nombre }, { t: 'Programación', v: (p) => p.descripcion },
@@ -205,7 +234,7 @@ export async function render(main) {
   poner(main,
     card('Envíos programados', 'Correos automáticos a los emails de cada empresa. Elegí uno para editarlo, ejecutarlo o ver su historial.',
       h('div', { class: 'fila' }, h('button', { class: 'btn primario', onclick: () => { elegida = null; pintarLista(); pintarEditor(); pintarHistorial(); } }, 'Nuevo envío programado')), lista),
-    editor, cola, historial, feriados);
+    editor, cola, alertasCli, historial, feriados);
   await cargar().catch(error);
   pintarCola();
   pintarFeriados();
