@@ -48,6 +48,28 @@ ok(r.s === 403, 'transferir DESDE una cuenta ajena → 403', r);
 r = await j('mgomez', 'GET', `/cuentas/${PROPIA}/movimientos`);
 ok(r.s === 200, 'control positivo: la cuenta propia sí responde', r.s);
 
+// ---- IDOR a nivel de operación: una transferencia de la empresa ajena, por su id, no se ve ni se aprueba
+//      desde otra empresa (OWASP API1). La crea un operador de la empresa B; el atacante solo tiene la A.
+await j('admin', 'PUT', '/admin/permisos/operadorb', { permisos: [{ empresaId: b.id, ver: true, operar: true }] });
+await j('admin', 'PUT', '/admin/permisos/lrodriguez', { permisos: [{ empresaId: a.id, ver: true }] }); // aprobador solo en la propia
+r = await j('operadorB', 'POST', '/transferencias', { referencia: 'IDOR-1', tipo: 'INMEDIATA', cuentaOrigen: AJENA, destino: 'PAGOS.PROVEEDOR', importe: 7, concepto: 'VARIOS' });
+ok(r.s === 201, 'preparación: el operador de B carga una transferencia en B', r.b);
+const opB = r.b?.id;
+// mgomez (solo empresa A) intenta alcanzar la operación de B por su id.
+r = await j('mgomez', 'GET', `/transferencias/${opB}/auditoria`);
+ok(r.s === 403, 'IDOR: auditoría de una operación ajena por id → 403', r);
+const hoy = new Date().toISOString().slice(0, 10);
+r = await j('mgomez', 'GET', `/transferencias?desde=${hoy}&hasta=${hoy}`);
+ok(r.s === 200 && !(r.b?.transferencias ?? []).some((t) => t.id === opB), 'el listado no incluye la operación ajena', r.b);
+// El aprobador sin permiso sobre B no puede aprobar ni rechazar la operación de B.
+r = await j('lrodriguez', 'POST', `/transferencias/${opB}/aprobar`);
+ok(r.s === 403, 'IDOR: aprobar una operación ajena por id → 403', r);
+r = await j('lrodriguez', 'POST', `/transferencias/${opB}/rechazar`);
+ok(r.s === 403, 'IDOR: rechazar una operación ajena por id → 403', r);
+// Control positivo: el operador de B sí ve la auditoría de su propia operación.
+r = await j('operadorB', 'GET', `/transferencias/${opB}/auditoria`);
+ok(r.s === 200 && r.b?.transferencia?.referencia === 'IDOR-1', 'control: el dueño sí ve su operación', r.s);
+
 // ---- Ver ≠ Operar: con permiso de solo lectura puede consultar pero no operar.
 await j('admin', 'PUT', '/admin/permisos/mgomez', { permisos: [{ empresaId: a.id, ver: true, operar: false }] });
 r = await j('mgomez', 'GET', `/cuentas/${PROPIA}/movimientos`);

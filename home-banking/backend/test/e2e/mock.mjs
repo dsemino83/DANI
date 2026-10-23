@@ -21,11 +21,13 @@ writeFileSync(process.argv[2], JSON.stringify({
   llaveBanco,
   admin: await token('admin.ti', ['administrador']),
   mgomez: await token('mgomez', ['operador', 'transferencias:crear']),
+  operadorB: await token('operadorb', ['operador', 'transferencias:crear']),
   lrodriguez: await token('lrodriguez', ['autorizante', 'transferencias:aprobar']),
   auditor: await token('svillalba', ['auditor']),
 }));
 
 const llamadas = [];
+const cbus = new Map();
 const cuentas = [
   { availableBalance: 18450320.55, accountingBalance: 18512000, currencyId: 80, productId: 3, productNumber: '300100000000000', productName: 'CUENTA CORRIENTE', aliasName: 'VALORES.OPERATIVA', productAlias: 'VALORES.OPERATIVA' },
   { availableBalance: 125430, accountingBalance: 125430, currencyId: 2, productId: 4, productNumber: '400200000000000', productName: 'CAJA DE AHORROS', aliasName: 'TESORERIA.DOLARES', productAlias: 'TESORERIA.DOLARES' },
@@ -54,7 +56,12 @@ http.createServer(async (req, res) => {
     const n = json.mode === '0' ? 900 : 5, off = json.mode === '0' ? 0 : 900;
     return env({ success: true, accountStatementArray: Array.from({ length: n }, (_, i) => mov(off + i)) });
   }
-  if (ruta === '/bdv/cbuInformation/getCustomerInformationCbu') return env({ success: true, cbu: '0110000000000000000077', alias: json.alias, headline: 'SERVICIOS DEL ESTE SA', cuit: '30712340001', currency: '80', activeAccount: 'T' });
+  if (ruta === '/bdv/cbuInformation/getCustomerInformationCbu') {
+    // Un CBU distinto y estable por alias/cuenta (COELSA real nunca repite CBU entre cuentas).
+    const k = json.cbu || json.alias || '';
+    if (!cbus.has(k)) cbus.set(k, '01100000000000' + String(10000001 + cbus.size).padStart(8, '0'));
+    return env({ success: true, cbu: cbus.get(k), alias: json.alias, headline: 'SERVICIOS DEL ESTE SA', cuit: '30712340001', currency: '80', activeAccount: 'T' });
+  }
   if (ruta === '/bdv/transfers/immediates') return env({ success: true, transactionId: 752162663, nroControl: 2204 });
   res.writeHead(404); res.end();
 }).listen(PUERTO, () => console.log('mock listo en', PUERTO));
