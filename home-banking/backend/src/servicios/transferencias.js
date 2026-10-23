@@ -90,7 +90,11 @@ async function tomarParaDecision(req, id, aprobar) {
     const t = rows[0];
     if (!t) throw noEncontrado('Transferencia inexistente');
     if (t.lote_id) throw conflicto('Pertenece a un lote: se aprueba o rechaza el lote completo');
-    if (t.estado !== 'PENDIENTE_APROBACION') throw conflicto(`La transferencia está en estado ${t.estado}`);
+    if (t.estado !== 'PENDIENTE_APROBACION') {
+      // Ya pasó la autorización (está en cola, enviándose o resuelta): mensaje claro para el que llega tarde.
+      if (aprobar && t.estado !== 'RECHAZADA') throw conflicto('La transferencia ya fue autorizada por otro usuario');
+      throw conflicto(`La transferencia está en estado ${t.estado}`);
+    }
     if (t.creador === req.user.usuario) throw prohibido('No podés aprobar ni rechazar una transferencia que cargaste vos');
     await exigirCuenta(req.user.usuario, t.cuenta_origen); // el aprobador también debe ver la empresa
     // Señales de fraude: con riesgo ALTO, aprobar exige que el aprobador confirme que las revisó
@@ -98,13 +102,13 @@ async function tomarParaDecision(req, id, aprobar) {
     if (aprobar && riesgo?.nivel === 'alto' && req.body?.confirmoRiesgo !== true) {
       throw riesgoAlto(`Riesgo ALTO: ${riesgo.senales.map((x) => x.texto).join('; ')}. Revisá y confirmá para aprobar.`);
     }
-    const estado = aprobar ? 'ENVIANDO' : 'RECHAZADA';
-    // Condicional sobre el estado: si otra aprobación ganó la carrera, no cambia nada y se aborta.
+    const estado = aprobar ? 'EN_COLA' : 'RECHAZADA';
+    // Condicional sobre el estado: si otra autorización ganó la carrera, no cambia nada y se aborta.
     const u = await c.query(`UPDATE transferencia SET estado = $2, aprobador = $3, aprobado_en = now(), actualizado_en = now()
                               WHERE id = $1 AND estado = 'PENDIENTE_APROBACION'`, [id, estado, req.user.usuario]);
-    if (u.rowCount !== 1) throw conflicto('La transferencia ya fue procesada por otro usuario');
+    if (u.rowCount !== 1) throw conflicto(aprobar ? 'La transferencia ya fue autorizada por otro usuario' : 'La transferencia ya fue procesada por otro usuario');
     await c.query('INSERT INTO transferencia_estado (transferencia_id, estado, usuario, detalle) VALUES ($1, $2, $3, $4)',
-      [id, estado, req.user.usuario, aprobar ? `Aprobada; se envía por ${t.api}` : 'Rechazada; no se envía al banco']);
+      [id, estado, req.user.usuario, aprobar ? `Autorizada; en cola de pago (${t.api})` : 'Rechazada; no se envía al banco']);
     await auditar(c, req, {
       tipo: 'Transferencias', accion: aprobar ? 'Aprobó transferencia' : 'Rechazó transferencia', api: aprobar ? t.api : null,
       detalle: `OP-${id} · ${t.titular ?? t.destino} · ${t.importe} ${t.moneda} · cargada por ${t.creador} · ${resumenRiesgo(riesgo)}${riesgo?.nivel === 'alto' && aprobar ? ' · confirmado por el aprobador' : ''}`, ref: { tipo: 'transferencia', id },
@@ -150,12 +154,12 @@ export async function registrarResultado(req, t, r) {
   });
 }
 
+// Autorizar NO envía al banco: valida (doble control, riesgo, permiso) y deja la transferencia EN_COLA.
+// El motor de pagos (src/servicios/motor-pagos.js, corriendo en jobs) la toma y la envía.
 export async function aprobar(req, id) {
   exigirEnviosHabilitados();
-  const t = await tomarParaDecision(req, id, true);
-  const r = await enviarUnaVez(req, t);
-  await registrarResultado(req, t, r);
-  return { id, estado: r.estado, transactionId: r.transactionId };
+  await tomarParaDecision(req, id, true);
+  return { id, estado: 'EN_COLA' };
 }
 
 export async function rechazar(req, id) {

@@ -35,6 +35,10 @@ r = await j('mgomez', 'GET', '/sistema/estado');
 ok(r.s === 403, 'operador: 403 en el panel de estado del sistema (solo administrador)', r);
 r = await j('admin', 'GET', '/sistema/estado');
 ok(r.s === 200 && r.b?.backend?.ok === true, 'administrador: ve el panel de estado del sistema', r.b);
+r = await j('admin', 'GET', '/pagos/cola');
+ok(r.s === 403, 'administrador: 403 en la cola de pagos (es de perfiles operativos)', r);
+r = await j('mgomez', 'GET', '/pagos/cola');
+ok(r.s === 200 && Array.isArray(r.b?.enCola), 'operador: ve la cola de pagos', r.b);
 r = await j('auditor', 'POST', '/transferencias', { referencia: 'AUD-1', tipo: 'INMEDIATA', cuentaOrigen: PROPIA, destino: 'A.B', importe: 1, concepto: 'VARIOS' });
 ok(r.s === 403, 'auditor: 403 al cargar transferencia (es de solo lectura)', r);
 

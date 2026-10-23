@@ -21,7 +21,8 @@ Ninguna transferencia llega al banco sin dos personas distintas: una la carga (r
 | Saldos, movimientos, débitos (empresas habilitadas) | Sí | Sí | Sí | No |
 | Consulta de CBU / constancia | Sí | Sí | No | No |
 | Crear transferencias y lotes (rol Crear) | Sí | No | No | No |
-| Aprobar y enviar al banco (rol Aprobar) | No | Sí | No | No |
+| Autorizar transferencias (rol Aprobar) | No | Sí | No | No |
+| Pagos en proceso (estado del motor de pagos) | Sí | Sí | Sí | No |
 | Cartera de oficiales | No | Sí | No | No |
 | Envíos programados de correo | No | Sí | No | No |
 | Auditoría general (solo lectura) | No | No | Sí | Sí |
@@ -42,9 +43,11 @@ Ninguna transferencia llega al banco sin dos personas distintas: una la carga (r
 
 ## Circuito de transferencias
 
-Cada paso queda registrado con fecha, hora y usuario: carga → **Pendiente de aprobación** → aprobación (o rechazo) → envío al banco → **Enviada / Debitada / Pendiente de autorización en el banco / Error API**. Lo rechazado nunca llega al banco. El estado se concilia con getTransfersStatus.
+Cada paso queda registrado con fecha, hora y usuario: carga → **Pendiente de aprobación** → **autorización** (o rechazo) → **En cola de pago** → **Enviando** (lo toma el motor de pagos) → **Debitada / Pendiente de autorización en el banco / Error API**. Lo rechazado nunca llega al banco. El estado se concilia con getTransfersStatus. La base rechaza cualquier salto fuera de este circuito (trigger de transiciones).
 
-- **Un solo envío por operación:** la aprobación es condicional, cada envío deja antes un registro único (`envio_banco`) y los envíos no se reintentan automáticamente.
+- **Autorización única:** el paso a *En cola* es un cambio de estado condicional bajo bloqueo de fila; dos autorizaciones simultáneas de la misma operación no pueden entrar las dos (al segundo le avisa "ya fue autorizada").
+- **Motor de pagos:** las operaciones autorizadas se envían desde una cola **ordenada por hora de creación**, paralelizando solo entre endpoints distintos; el resto es en serie. Evita superposiciones y deja el avance visible en "Pagos en proceso".
+- **Un solo envío por operación:** cada envío deja antes un registro único (`envio_banco`, clave primaria = id de la operación) y los envíos no se reintentan automáticamente.
 - **ID de operación único:** una misma referencia no se puede volver a cargar nunca (`referencia_usada`).
 - **Aviso a los autorizantes:** al cargarse una operación pendiente se crea, en la misma transacción, un mensaje en el buzón de cada persona asociada al cliente (salvo quien la cargó). Queda registrado cuándo lo leyó cada destinatario, o que se marcó solo porque la operación ya fue resuelta.
 
@@ -106,7 +109,7 @@ Toda acción queda registrada en el momento, en un registro **de solo inserción
 | C12 | Base histórica de solo lectura | Modificación de históricos | Permisos y triggers de la base histórica |
 | C13 | Documentación de auditoría y técnica solo para auditor y administrador | Exposición de controles | Acceso validado en el backend |
 | C14 | Seguridad del navegador: CSP estricta, HSTS | Robo de sesión o inyección | Encabezados de Nginx |
-| C15 | Un solo envío al banco por operación | Doble débito | `envio_banco` |
+| C15 | Un solo envío al banco por operación; autorización única y motor de pagos ordenado | Doble débito; doble autorización; superposición de envíos | `envio_banco`; trigger de transiciones; `motor-pagos.js` |
 | C16 | ID de operación único | Carga duplicada | `referencia_usada` |
 | C17 | Envíos programados: solo clientes visibles, uno por tipo, cola sin superposición | Envío de datos a destinatarios no autorizados o duplicados | Programaciones auditadas; cola e historial por tarea |
 | C18 | Buzón de avisos a los asociados del cliente, con lectura registrada | Operaciones pendientes sin atender | Tabla `mensaje` (destinatario, leído, motivo) |

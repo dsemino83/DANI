@@ -6,9 +6,9 @@ El Home Banking VALO permite consultar saldos y movimientos de las empresas clie
 
 | Perfil | Qué hace | Pestañas |
 | --- | --- | --- |
-| Operador | Consulta y carga transferencias (individuales o por lote) | Saldos, Movimientos, Débitos realizados, Consulta CBU, Transferir, Carga masiva, Transferencias, Ayuda |
-| Autorizante | Consulta, aprueba o rechaza transferencias, arma la cartera de oficiales y programa envíos de correo a los clientes | Saldos, Movimientos, Débitos realizados, Consulta CBU, Transferencias, Aprobaciones, Cartera de oficiales, Envíos programados, Ayuda |
-| Auditor | Consulta y revisa la auditoría | Saldos, Movimientos, Débitos realizados, Transferencias, Auditoría, Documentación, Ayuda |
+| Operador | Consulta y carga transferencias (individuales o por lote) | Saldos, Movimientos, Débitos realizados, Consulta CBU, Transferir, Carga masiva, Transferencias, Pagos en proceso, Ayuda |
+| Autorizante | Consulta, aprueba o rechaza transferencias, arma la cartera de oficiales y programa envíos de correo a los clientes | Saldos, Movimientos, Débitos realizados, Consulta CBU, Transferencias, Aprobaciones, Pagos en proceso, Cartera de oficiales, Envíos programados, Ayuda |
+| Auditor | Consulta y revisa la auditoría | Saldos, Movimientos, Débitos realizados, Transferencias, Pagos en proceso, Auditoría, Documentación, Ayuda |
 | Administrador de seguridad | Gestiona empresas, usuarios, permisos y credenciales; ve el estado del sistema; no ve saldos ni opera | Empresas, Usuarios y permisos, Credenciales API, Estado del sistema, Auditoría, Documentación, Ayuda |
 
 Transferir y Carga masiva aparecen solo con el rol **Crear transferencias**; Aprobaciones, solo con **Aprobar transferencias**.
@@ -68,9 +68,19 @@ Lo que cargues queda **Pendiente de aprobación**; no se envía al banco hasta q
 
 ## Aprobaciones y transferencias
 
-1. **Aprobaciones** (rol Aprobar) muestra lo pendiente con su **Riesgo** (bajo, medio o ALTO; tocalo para ver las señales). **Aprobar** envía al banco; **Rechazar** lo descarta sin enviarlo. No podés aprobar lo que cargaste vos. Con riesgo ALTO tenés que confirmar que revisaste las señales.
-2. **Estado de las transferencias aprobadas**: Debitada, Pendiente de autorización (en el banco) o Error API.
+1. **Aprobaciones** (rol Aprobar) muestra lo pendiente con su **Riesgo** (bajo, medio o ALTO; tocalo para ver las señales). **Aprobar** no envía al banco en el acto: dicta la autorización y la operación queda **en cola de pago**. **Rechazar** la descarta sin enviarla. No podés aprobar lo que cargaste vos. Con riesgo ALTO tenés que confirmar que revisaste las señales. Si otra persona la autoriza en el mismo momento, al segundo le avisa **"ya fue autorizada"**: una operación se autoriza una sola vez.
+2. **Estado de las transferencias aprobadas**: En cola de pago, Enviando, Debitada, Pendiente de autorización (en el banco) o Error API. El avance del envío se sigue en **Pagos en proceso**.
 3. **Transferencias** es el registro completo: **Hoy**, **Base operativa** (mes en curso y el anterior) o **Base histórica** (lo anterior, solo lectura). La ruedita **⚙** abre el historial completo de la operación.
+
+## Pagos en proceso
+
+Las transferencias autorizadas no se envían al banco una por una en el momento, sino que pasan por un **motor de pagos** para evitar superposiciones y doble envío. Esta pantalla (todos los perfiles operativos; no el administrador de seguridad) muestra cómo avanza:
+
+1. **En cola**, en **orden de creación**: las que esperan ser enviadas.
+2. **Enviándose ahora**: el motor envía de a una por endpoint (inmediata, entre cuentas propias, terceros, MEP) y **solo paraleliza endpoints distintos**; dentro de cada endpoint respeta el orden de creación.
+3. **Resueltas en las últimas 24 horas**: con su estado final (Debitada / Pendiente de autorización / Error) y el transactionId del banco.
+
+Se actualiza sola cada pocos segundos. Al banco cada operación llega **una sola vez**, aunque se la autorice varias veces o en paralelo.
 
 ## Cartera de oficiales (autorizante)
 

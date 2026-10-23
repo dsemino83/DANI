@@ -10,7 +10,7 @@ import { cuentasHabilitadas, exigirCuenta } from '../permisos.js';
 import { consultarCbu, cuentasPropias } from '../bdv/cliente.js';
 import { armarRequest } from '../bdv/transferencias.js';
 import { avisarPendiente, textoLote } from './mensajes.js';
-import { crearPendiente, enviarUnaVez, exigirEnviosHabilitados, idsUsados, normalizarId, registrarResultado } from './transferencias.js';
+import { crearPendiente, exigirEnviosHabilitados, idsUsados, normalizarId } from './transferencias.js';
 
 const COLUMNAS = ['id', 'tipo', 'cuenta_origen', 'destino', 'cuit', 'importe', 'concepto', 'titular', 'codigo_mep'];
 const TIPOS = { INMEDIATA: 'INMEDIATA', INTERNA: 'PROPIAS', PROPIAS: 'PROPIAS', TERCEROS: 'TERCEROS', MEP: 'MEP' };
@@ -165,13 +165,13 @@ export async function decidir(req, loteId, aprobarLote) {
     if (aprobarLote && altos.length && req.body?.confirmoRiesgo !== true) {
       throw riesgoAlto(`Riesgo ALTO en ${altos.length} transferencia(s) del lote (${altos.map((t) => `OP-${t.id}`).join(', ')}). Revisá y confirmá para aprobar.`);
     }
-    const estado = aprobarLote ? 'ENVIANDO' : 'RECHAZADA';
+    const estado = aprobarLote ? 'EN_COLA' : 'RECHAZADA';
     for (const t of ts) {
       const u = await c.query(`UPDATE transferencia SET estado = $2, aprobador = $3, aprobado_en = now(), actualizado_en = now()
                                 WHERE id = $1 AND estado = 'PENDIENTE_APROBACION'`, [t.id, estado, req.user.usuario]);
-      if (u.rowCount !== 1) throw conflicto(`La transferencia OP-${t.id} del lote ya fue procesada`);
+      if (u.rowCount !== 1) throw conflicto(`La transferencia OP-${t.id} del lote ya fue autorizada`);
       await c.query('INSERT INTO transferencia_estado (transferencia_id, estado, usuario, detalle) VALUES ($1, $2, $3, $4)',
-        [t.id, estado, req.user.usuario, `${aprobarLote ? 'Aprobada' : 'Rechazada'} con el lote ${loteId}`]);
+        [t.id, estado, req.user.usuario, `${aprobarLote ? 'Autorizada; en cola de pago' : 'Rechazada'} con el lote ${loteId}`]);
     }
     await c.query('UPDATE lote SET estado = $2, aprobador = $3, aprobado_en = now() WHERE id = $1',
       [loteId, aprobarLote ? 'PROCESADO' : 'RECHAZADO', req.user.usuario]);
@@ -182,19 +182,9 @@ export async function decidir(req, loteId, aprobarLote) {
     return ts;
   });
   if (!aprobarLote) return { loteId, estado: 'RECHAZADO' };
-  // Una llamada individual al banco por fila, secuencial para no saturar la sesión compartida.
-  const resultados = [];
-  for (const t of items) {
-    let r;
-    try { r = await enviarUnaVez(req, t); } catch (e) {
-      if (e.status !== 409) throw e;
-      resultados.push({ id: t.id, estado: 'YA_ENVIADA', detalle: e.message }); // nunca se reenvía
-      continue;
-    }
-    await registrarResultado(req, t, r);
-    resultados.push({ id: t.id, estado: r.estado, transactionId: r.transactionId });
-  }
-  return { loteId, estado: 'PROCESADO', resultados };
+  // Las filas quedan EN_COLA; el motor de pagos las envía (una por fila, ordenadas por hora de creación,
+  // en paralelo solo entre endpoints distintos). El lote queda PROCESADO (autorizado) al encolarse.
+  return { loteId, estado: 'PROCESADO', encoladas: items.length };
 }
 
 export async function descartar(req, loteId) {

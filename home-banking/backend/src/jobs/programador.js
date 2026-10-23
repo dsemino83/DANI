@@ -4,6 +4,7 @@ import { writeFileSync } from 'node:fs';
 import { conciliarDebitos, recuperarEnviando, sincronizarEstados } from './estado-banco.js';
 import { ejecutarPase } from './pase-historico.js';
 import { ejecutarEnviosPendientes, procesarCola } from '../servicios/envios.js';
+import { procesarPagos } from '../servicios/motor-pagos.js';
 import { sincronizarFeriados } from '../servicios/feriados.js';
 import { verificarAuditoria } from '../servicios/integridad.js';
 import { auditarSistema } from '../auditoria.js';
@@ -31,6 +32,14 @@ cron.schedule('* * * * *', async () => {
 cron.schedule('*/15 * * * * *', async () => {
   try { const r = await procesarCola(); if (r.procesadas) log('cola-envios', JSON.stringify(r)); }
   catch (e) { console.error(new Date().toISOString(), 'cola-envios', 'ERROR', e.message); }
+});
+
+// Motor de pagos: cada 2 segundos toma las transferencias EN_COLA y las envía (en orden de creación,
+// en paralelo solo entre endpoints distintos). Tiene su propio candado: si sigue ocupado, no arranca otro.
+const logger = { info: log, warn: (...a) => console.error(new Date().toISOString(), ...a) };
+cron.schedule('*/2 * * * * *', async () => {
+  try { await procesarPagos(logger); }
+  catch (e) { console.error(new Date().toISOString(), 'motor-pagos', 'ERROR', e.message); }
 });
 
 // Feriados de fuentes públicas: todos los días a las 03:20 (año en curso y el siguiente) y al arrancar

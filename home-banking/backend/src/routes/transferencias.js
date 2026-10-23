@@ -56,6 +56,24 @@ export default async function rutasTransferencias(app) {
     return { base: 'historica', desde, hasta, pagina, hayMas: rows.length > tam, transferencias: rows.slice(0, tam) };
   });
 
+  // --- Motor de pagos: estado de la cola (operador, autorizante y auditor; no el administrador) ---
+  app.get('/pagos/cola', operativos, async (req) => {
+    const cuentas = [...(await cuentasHabilitadas(req.user.usuario)).keys()];
+    const cols = `id, referencia, tipo, api, cuenta_origen, moneda, destino, titular, importe, creador, aprobador, estado, transaction_id, creado_en, aprobado_en, actualizado_en`;
+    const [enCola, enviando, recientes] = await Promise.all([
+      operativa.query(`SELECT ${cols} FROM transferencia WHERE estado = 'EN_COLA' AND cuenta_origen = ANY($1) ORDER BY creado_en, id`, [cuentas]),
+      operativa.query(`SELECT ${cols} FROM transferencia WHERE estado = 'ENVIANDO' AND cuenta_origen = ANY($1) ORDER BY creado_en, id`, [cuentas]),
+      operativa.query(`SELECT ${cols} FROM transferencia WHERE estado IN ('DEBITADA', 'PEND_AUTORIZACION', 'RECHAZADA_BANCO', 'ERROR_API')
+                         AND cuenta_origen = ANY($1) AND actualizado_en >= now() - interval '24 hours'
+                       ORDER BY actualizado_en DESC LIMIT 50`, [cuentas]),
+    ]);
+    // Resumen por endpoint: cuántas esperan y cuántas se están enviando.
+    const porEndpoint = {};
+    for (const t of enCola.rows) (porEndpoint[t.api] ??= { enCola: 0, enviando: 0 }).enCola++;
+    for (const t of enviando.rows) (porEndpoint[t.api] ??= { enCola: 0, enviando: 0 }).enviando++;
+    return { enCola: enCola.rows, enviando: enviando.rows, recientes: recientes.rows, porEndpoint };
+  });
+
   // --- Auditoría de una operación (ruedita ⚙) ---
   app.get('/transferencias/:id/auditoria', operativos, async (req) => transferencias.auditoriaDeOperacion(req, idDe(req)));
 

@@ -59,7 +59,17 @@ Roles: `operador`, `autorizante`, `auditor`, `administrador`, `transferencias:cr
 | `mensaje` | Buzón: destinatario, operación, leído (`visto_en`, `visto_motivo`) |
 | `pase_historico` | Registro de cada pase a la histórica |
 
-Migraciones idempotentes en `db/operativa/migraciones` (001 a 013): una base nueva las aplica al crearse; `scripts/migrar-bases.sh` (y `hb-actualizar`) en una existente.
+Migraciones idempotentes en `db/operativa/migraciones` (001 a 014): una base nueva las aplica al crearse; `scripts/migrar-bases.sh` (y `hb-actualizar`) en una existente.
+
+## Motor de pagos
+
+La autorización no envía al banco en el acto. **Aprobar** valida (doble control, riesgo, permiso) y deja la transferencia en estado **`EN_COLA`**; un **motor de pagos** la toma y la envía. Esto evita superposiciones y deja una sola fila de la verdad.
+
+- **Circuito de estados** (lo fuerza la base con el trigger `hb_transicion_valida`, no se puede saltear): `PENDIENTE_APROBACION` → **`EN_COLA`** (autorizada) → `ENVIANDO` (la tomó el motor) → `DEBITADA` / `PEND_AUTORIZACION` / `ERROR_API` / `RECHAZADA_BANCO`. Rechazar va de `PENDIENTE_APROBACION` a `RECHAZADA`. Ninguna retrocede.
+- **Autorización única:** el paso a `EN_COLA` es un `UPDATE` condicional bajo `FOR UPDATE`; dos autorizaciones simultáneas de la misma operación → solo una entra, la otra recibe *"ya fue autorizada"*. Al banco se envía una sola vez (`envio_banco`, PK = id de la transferencia).
+- **Motor** (`src/servicios/motor-pagos.js`, corriendo en `jobs` cada 2 s): toma la `EN_COLA` más vieja de **cada endpoint** (`api`) con `FOR UPDATE SKIP LOCKED` ordenando por `creado_en`, y **paraleliza solo entre endpoints distintos** (inmediata, propias, terceros, MEP); dentro de un endpoint es estrictamente serie y por orden de creación. Reutiliza el único camino de envío (`enviarUnaVez`). **No reintenta**: un envío con error queda `ENVIANDO`/`ERROR_API` y lo concilia el job de estado con `getTransfersStatus`.
+- En **modo solo consultas** el motor no envía nada (y la autorización ya se rechaza antes de encolar).
+- **Pantalla "Pagos en proceso"** (`GET /pagos/cola`, perfiles operativos; no el administrador): en cola por orden de creación, enviándose y resueltas de las últimas 24 h, con resumen por endpoint. Se filtra por las cuentas habilitadas del usuario.
 
 ## Envíos programados de correo
 
@@ -124,7 +134,8 @@ Secretos en `secrets/*.txt` (fuera del repositorio): claves de las bases, `crede
 | `GET /cuentas`, `/cuentas/:n/movimientos`, `/debitos` | operativos | Consultas al banco (`?formato=xlsx` exporta) |
 | `GET /cuentas/:n/constancia` | operativos | Constancia de CBU |
 | `POST /transferencias`, `/lotes` | rol Crear | Carga (queda pendiente) |
-| `POST /transferencias/:id/aprobar` | rol Aprobar | Aprobación y envío |
+| `POST /transferencias/:id/aprobar` | rol Aprobar | Autoriza y encola el pago (EN_COLA); el motor lo envía |
+| `GET /pagos/cola` | operativos (no administrador) | Estado del motor de pagos: en cola, enviándose, resueltas 24 h |
 | `GET /historico/transferencias`, `/historico/auditoria` | operativos / auditor | Base histórica |
 | `/envios`, `/envios/cola`, `/feriados` | autorizante | Envíos programados |
 | `GET /mensajes`, `/mensajes/no-vistos`, `POST /mensajes/:id/visto` | todos | Buzón |

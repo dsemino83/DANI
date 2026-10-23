@@ -42,8 +42,8 @@ export async function render(main, ctx) {
     pendientes.querySelectorAll('button').forEach((b) => { b.disabled = true; });
     try {
       const r = await api(ruta, { method: 'POST', body: alto ? { confirmoRiesgo: true } : {} });
-      if (r.resultados) toast(`Lote ${r.loteId} procesado: ${r.resultados.map((x) => `OP-${x.id} ${x.estado === 'YA_ENVIADA' ? 'ya enviada (no se reenvía)' : ESTADOS[x.estado]?.[0] ?? x.estado}`).join(' · ')}`);
-      else toast(aprobar ? `OP-${r.id} enviada al banco · ${ESTADOS[r.estado]?.[0] ?? r.estado}${r.transactionId ? ` · transactionId ${r.transactionId}` : ''}` : `OP-${r.id} rechazada: no se envía al banco.`, r.estado === 'ERROR_API');
+      if (r.encoladas != null) toast(`Lote ${r.loteId} autorizado: ${r.encoladas} transferencia(s) en cola de pago. Seguí el envío en Pagos en proceso.`);
+      else toast(aprobar ? `OP-${r.id} autorizada: en cola de pago. Seguí el envío en Pagos en proceso.` : `OP-${r.id} rechazada: no se envía al banco.`);
     } catch (e) { error(e); }
     enCurso = false;
     await Promise.all([cargarPendientes(), cargarAprobadas()]);

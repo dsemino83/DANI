@@ -17,7 +17,7 @@ export const TABLAS = [
   { tabla: 'transferencia_estado', columna: 'en' },
   { tabla: 'auditoria', columna: 'en' },
 ];
-const NO_FINALES = ['PENDIENTE_APROBACION', 'ENVIANDO', 'ENVIADA', 'PEND_AUTORIZACION'];
+const NO_FINALES = ['PENDIENTE_APROBACION', 'EN_COLA', 'ENVIANDO', 'ENVIADA', 'PEND_AUTORIZACION'];
 const LOTE = 5000;
 
 // Tablas sin partición: se pasan por filas, solo las terminadas (lo pendiente o no leído sigue en la operativa).

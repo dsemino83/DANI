@@ -96,7 +96,7 @@ export function tabla(cols, filas, { alClic, sel, vacio = 'Sin datos para mostra
 }
 
 export const ESTADOS = {
-  PENDIENTE_APROBACION: ['Pendiente de aprobación', 'warn'], RECHAZADA: ['Rechazada', 'bad'], ENVIANDO: ['Enviando', 'warn'],
+  PENDIENTE_APROBACION: ['Pendiente de aprobación', 'warn'], EN_COLA: ['En cola de pago', 'warn'], RECHAZADA: ['Rechazada', 'bad'], ENVIANDO: ['Enviando', 'warn'],
   ENVIADA: ['Enviada', 'warn'], PEND_AUTORIZACION: ['Pendiente de autorización', 'warn'], DEBITADA: ['Debitada', 'ok'],
   RECHAZADA_BANCO: ['Rechazada por el banco', 'bad'], ERROR_API: ['Error API', 'bad'],
 };

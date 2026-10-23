@@ -35,16 +35,19 @@ echo "== Levantar mock (SSO + banco)"
 node "$AQUI/mock.mjs" "$TOKENS" & MOCK_PID=$!
 for i in $(seq 1 30); do curl -fs "http://127.0.0.1:$MOCK_PORT/realms/staff/protocol/openid-connect/certs" >/dev/null 2>&1 && break; sleep 0.5; done
 
+# Entorno del backend, compartido por el servidor y por las suites que disparan el motor de pagos
+# (test/e2e/motor.mjs importa los servicios del backend y necesita las mismas variables).
+export OIDC_ISSUER="http://127.0.0.1:$MOCK_PORT/realms/staff"
+export BDV_AMBIENTE=homo BDV_URL_HOMO="http://127.0.0.1:$MOCK_PORT/bdv" BDV_SOLO_CONSULTAS=false BDV_TIMEOUT_MS=5000
+export DB_HOST="$PGHOST" DB_PORT="$PGPORT" DB_NAME=homebanking DB_USER=hb_app DB_PASSWORD=apppass
+export DBH_HOST="$PGHOST" DBH_PORT="$PGPORT" DBH_NAME=homebanking_hist DBH_USER=hb_hist_ro DBH_PASSWORD=ropass
+export CREDENCIALES_MASTER_KEY="$MASTER" BACKEND="$BACKEND"
+
 # Cada suite: bases limpias + servidor nuevo (así una no contamina a la otra). El mock queda igual.
 for suite in autorizacion envio-unico limites; do
   echo "== $suite: preparar bases"
   bases
-  OIDC_ISSUER="http://127.0.0.1:$MOCK_PORT/realms/staff" \
-  BDV_AMBIENTE=homo BDV_URL_HOMO="http://127.0.0.1:$MOCK_PORT/bdv" BDV_SOLO_CONSULTAS=false BDV_TIMEOUT_MS=5000 \
-  DB_HOST="$PGHOST" DB_PORT="$PGPORT" DB_NAME=homebanking DB_USER=hb_app DB_PASSWORD=apppass \
-  DBH_HOST="$PGHOST" DBH_PORT="$PGPORT" DBH_NAME=homebanking_hist DBH_USER=hb_hist_ro DBH_PASSWORD=ropass \
-  CREDENCIALES_MASTER_KEY="$MASTER" LOG_LEVEL=warn PORT=$PORT \
-  node "$BACKEND/src/server.js" & SRV_PID=$!
+  LOG_LEVEL=warn PORT=$PORT node "$BACKEND/src/server.js" & SRV_PID=$!
   for i in $(seq 1 40); do curl -fs "http://127.0.0.1:$PORT/api/health" >/dev/null 2>&1 && break; sleep 0.5; done
   echo "== $suite: correr"
   PORT=$PORT MOCK_PORT=$MOCK_PORT node "$AQUI/$suite.mjs" "$TOKENS" || { CODE=$?; kill "$SRV_PID" 2>/dev/null || true; exit $CODE; }

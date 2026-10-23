@@ -129,7 +129,7 @@ CREATE TABLE transferencia (
   request         jsonb NOT NULL,
   creador         text NOT NULL,
   aprobador       text,
-  estado          text NOT NULL CHECK (estado IN ('PENDIENTE_APROBACION', 'RECHAZADA', 'ENVIANDO', 'ENVIADA',
+  estado          text NOT NULL CHECK (estado IN ('PENDIENTE_APROBACION', 'EN_COLA', 'RECHAZADA', 'ENVIANDO', 'ENVIADA',
                                                   'PEND_AUTORIZACION', 'DEBITADA', 'RECHAZADA_BANCO', 'ERROR_API')),
   transaction_id  text,
   nro_control     text,
@@ -143,6 +143,7 @@ CREATE TABLE transferencia (
   CHECK (aprobador IS NULL OR aprobador <> creador)          -- nadie aprueba lo que cargó
 ) PARTITION BY RANGE (creado_en);
 CREATE INDEX transferencia_estado_idx  ON transferencia (estado);
+CREATE INDEX transferencia_cola_pago_idx ON transferencia (api, creado_en) WHERE estado = 'EN_COLA'; -- motor de pagos
 CREATE INDEX transferencia_origen_idx  ON transferencia (cuenta_origen, creado_en);
 CREATE INDEX transferencia_lote_idx    ON transferencia (lote_id);
 CREATE INDEX transferencia_trn_idx     ON transferencia (transaction_id);
@@ -215,8 +216,8 @@ CREATE TRIGGER transferencia_estado_inmutable BEFORE UPDATE OR DELETE ON transfe
 --    a la API. La clave primaria impide un segundo envío aunque fallen todas las
 --    demás validaciones. Solo inserción; queda en la base operativa para siempre
 --    (el pase histórico no la toca), así que tampoco se reenvía algo archivado.
--- 2) hb_transicion_valida: la base rechaza cualquier cambio de estado fuera del
---    circuito; ninguna transferencia vuelve a PENDIENTE_APROBACION ni a ENVIANDO.
+-- 2) hb_transicion_valida: la base rechaza cualquier cambio de estado fuera del circuito
+--    (PENDIENTE_APROBACION → EN_COLA → ENVIANDO → final); ninguna transferencia retrocede.
 -- ---------------------------------------------------------------------------
 CREATE TABLE envio_banco (
   transferencia_id  bigint PRIMARY KEY,
@@ -243,7 +244,8 @@ CREATE FUNCTION hb_transicion_valida() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
   IF NEW.estado = OLD.estado THEN RETURN NEW; END IF;
   IF (OLD.estado, NEW.estado) IN (
-       ('PENDIENTE_APROBACION', 'ENVIANDO'), ('PENDIENTE_APROBACION', 'RECHAZADA'),
+       ('PENDIENTE_APROBACION', 'EN_COLA'), ('PENDIENTE_APROBACION', 'RECHAZADA'),
+       ('EN_COLA', 'ENVIANDO'),
        ('ENVIANDO', 'ENVIADA'), ('ENVIANDO', 'PEND_AUTORIZACION'), ('ENVIANDO', 'DEBITADA'),
        ('ENVIANDO', 'ERROR_API'), ('ENVIANDO', 'RECHAZADA_BANCO'),
        ('ENVIADA', 'PEND_AUTORIZACION'), ('ENVIADA', 'DEBITADA'), ('ENVIADA', 'RECHAZADA_BANCO'), ('ENVIADA', 'ERROR_API'),
