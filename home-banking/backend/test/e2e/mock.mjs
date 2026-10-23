@@ -23,6 +23,7 @@ writeFileSync(process.argv[2], JSON.stringify({
   mgomez: await token('mgomez', ['operador', 'transferencias:crear']),
   operadorB: await token('operadorb', ['operador', 'transferencias:crear']),
   lrodriguez: await token('lrodriguez', ['autorizante', 'transferencias:aprobar']),
+  ambos: await token('cfunes', ['autorizante', 'transferencias:crear', 'transferencias:aprobar']),
   auditor: await token('svillalba', ['auditor']),
 }));
 
