@@ -61,7 +61,23 @@ export async function render(main, ctx) {
       pill(est.habilitado ? 'Habilitado' : 'Deshabilitado', est.habilitado ? 'ok' : 'bad'),
       est.bloqueado && pill(`Bloqueado por intentos fallidos (${est.intentosFallidos})`, 'bad'),
       est.debeCambiarClave && pill('Debe cambiar la clave', 'warn'),
+      est.requiereOtp && pill(est.otpConfigurado ? 'OTP obligatorio' : 'OTP pendiente de enrolar', est.otpConfigurado ? 'ok' : 'warn'),
     ].filter(Boolean) : [pill('Estado no disponible', 'warn')];
+    // OTP por usuario: lo define el administrador. Activar = lo enrola en el próximo ingreso; desactivar
+    // borra sus credenciales OTP (se confirma, porque le saca un factor de seguridad).
+    const otp = h('input', { type: 'checkbox', checked: !!est?.requiereOtp, disabled: !est });
+    otp.addEventListener('change', async () => {
+      const activar = otp.checked;
+      if (!activar && !(await confirmar('Quitar OTP obligatorio',
+        `${u.usuario} deja de necesitar código OTP para ingresar y se borran sus credenciales OTP del SSO (tendrá que volver a configurarlo si se reactiva). Se cierran sus sesiones abiertas.`, 'Quitar OTP'))) { otp.checked = true; return; }
+      otp.disabled = true;
+      try {
+        await api(`/admin/usuarios/${encodeURIComponent(u.usuario)}/otp`, { method: 'PUT', body: { requiereOtp: activar } });
+        toast(activar ? `${u.usuario}: OTP obligatorio. Configura la app de autenticación en su próximo ingreso.` : `${u.usuario}: OTP ya no es obligatorio.`);
+      } catch (x) { otp.checked = !activar; error(x); }
+      otp.disabled = false;
+      await cargar();
+    });
     const datos = { nombre: h('input', { value: u.nombres ?? '' }), apellido: h('input', { value: u.apellido ?? '' }), email: h('input', { type: 'email', value: u.email ?? '' }) };
     const guardarDatos = async () => {
       try {
@@ -82,6 +98,8 @@ export async function render(main, ctx) {
       h('div', { class: 'fila' }, campo('Perfil', perfil), h('button', { class: 'btn primario', onclick: guardarPerfil }, 'Guardar perfil'),
         h('button', { class: 'btn', onclick: cambiarEstado }, u.habilitado === false ? 'Habilitar' : 'Deshabilitar'),
         est?.bloqueado && h('button', { class: 'btn', onclick: desbloquear }, 'Desbloquear')),
+      h('div', { class: 'fila' }, h('label', { class: 'campo check' }, otp, 'Requiere OTP (código de la app de autenticación) para ingresar'),
+        est?.otpPendiente && !est?.otpConfigurado && h('span', { class: 'nota' }, 'Lo configura en su próximo ingreso.')),
       h('p', { class: 'nota' }, 'Clave: enviale un correo para que la cambie él mismo, obligalo a cambiarla en su próximo ingreso, o cargale una clave temporal.'),
       h('div', { class: 'fila' },
         h('button', { class: 'btn', onclick: correo, disabled: !(est?.email || u.email) }, 'Enviar correo para cambiar la clave'),

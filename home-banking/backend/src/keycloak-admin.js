@@ -148,16 +148,45 @@ export async function restablecerClave(usuario, claveTemporal) {
   return { usuario };
 }
 
-// Estado de la cuenta para la ficha del usuario: habilitación, bloqueo por intentos fallidos y cambio de clave pendiente
+// Estado de la cuenta para la ficha del usuario: habilitación, bloqueo por intentos fallidos, cambio de
+// clave pendiente y si necesita OTP (TOTP) para ingresar: configurado (tiene credencial OTP) o pendiente de
+// enrolar (required action CONFIGURE_TOTP). El login de Keycloak pide OTP solo si el usuario lo tiene.
 export async function estadoUsuario(usuario) {
   const t = await token();
   const { id } = await idDeUsuario(t, usuario);
-  const [u, bf] = await Promise.all([api(t, `/users/${id}`), api(t, `/attack-detection/brute-force/users/${id}`)]);
+  const [u, bf, creds] = await Promise.all([
+    api(t, `/users/${id}`),
+    api(t, `/attack-detection/brute-force/users/${id}`),
+    api(t, `/users/${id}/credentials`).catch(() => []),
+  ]);
+  const acciones = u.requiredActions ?? [];
+  const otpConfigurado = (creds ?? []).some((c) => c.type === 'otp');
+  const otpPendiente = acciones.includes('CONFIGURE_TOTP');
   return {
     usuario, email: u.email ?? '', habilitado: u.enabled !== false,
     bloqueado: !!bf?.disabled, intentosFallidos: bf?.numFailures ?? 0,
-    debeCambiarClave: (u.requiredActions ?? []).includes('UPDATE_PASSWORD'),
+    debeCambiarClave: acciones.includes('UPDATE_PASSWORD'),
+    requiereOtp: otpConfigurado || otpPendiente, otpConfigurado, otpPendiente,
   };
+}
+
+// El administrador define, por usuario, si necesita OTP para ingresar.
+//  - Activar: agrega la required action CONFIGURE_TOTP (lo enrola en el próximo ingreso; después el login se
+//    lo pide siempre, porque el usuario pasa a tener una credencial OTP).
+//  - Desactivar: quita esa acción y borra sus credenciales OTP, así el login deja de pedírselo.
+// En los dos casos cierra las sesiones abiertas para que el cambio tome efecto en el próximo ingreso.
+export async function requerirOtp(usuario, requiere) {
+  const t = await token();
+  const u = await idDeUsuario(t, usuario);
+  const acciones = new Set(u.requiredActions ?? []);
+  if (requiere) acciones.add('CONFIGURE_TOTP'); else acciones.delete('CONFIGURE_TOTP');
+  await api(t, `/users/${u.id}`, { method: 'PUT', body: JSON.stringify({ requiredActions: [...acciones] }) });
+  if (!requiere) {
+    const creds = await api(t, `/users/${u.id}/credentials`).catch(() => []);
+    for (const cr of (creds ?? []).filter((c) => c.type === 'otp')) await api(t, `/users/${u.id}/credentials/${cr.id}`, { method: 'DELETE' });
+  }
+  await api(t, `/users/${u.id}/logout`, { method: 'POST' });
+  return { usuario, requiereOtp: !!requiere };
 }
 
 // Obliga a elegir una clave nueva en el próximo ingreso (sin cambiar la actual) y cierra las sesiones abiertas.

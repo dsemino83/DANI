@@ -7,7 +7,7 @@ import { conflicto, ErrorHttp, invalido, noEncontrado } from '../errores.js';
 import { esAmbiente, urlBase } from '../bdv/ambientes.js';
 import { cifrar, esUso, estadoCredencial, leerCredencial, USOS } from '../secretos.js';
 import { bdv, bdvEnvios, consultarCbu, cuentasPropias, pemDesdeBase64 } from '../bdv/cliente.js';
-import { cambiarPerfil, cambiarRol, crearUsuario, desbloquearUsuario, editarDatosUsuario, eliminarUsuario, enviarCorreoClave, estadoUsuario, forzarCambioClave, habilitarUsuario, listarUsuarios, restablecerClave, rolesDeTransferencias } from '../keycloak-admin.js';
+import { cambiarPerfil, cambiarRol, crearUsuario, desbloquearUsuario, editarDatosUsuario, eliminarUsuario, enviarCorreoClave, estadoUsuario, forzarCambioClave, habilitarUsuario, listarUsuarios, requerirOtp, restablecerClave, rolesDeTransferencias } from '../keycloak-admin.js';
 import { cbuDeCuenta, filaCoelsa, normalizarEmails } from '../servicios/empresas.js';
 import { createPublicKey } from 'node:crypto';
 
@@ -303,6 +303,16 @@ export default async function rutasAdmin(app) {
     noASiMismo(req, usuario);
     const r = await enviarCorreoClave(usuario);
     await auditar(null, req, { tipo: 'Administración', accion: 'Envió correo para cambiar la clave', api: 'Keycloak Admin', detalle: `${usuario} · ${r.email} · link válido 24 h` });
+    return r;
+  });
+
+  // El administrador define si el usuario necesita OTP (TOTP) para ingresar. Parte de la ficha del usuario.
+  app.put('/usuarios/:usuario/otp', async (req) => {
+    const usuario = req.params.usuario;
+    const requiere = req.body?.requiereOtp === true;
+    const r = await requerirOtp(usuario, requiere);
+    await auditar(null, req, { tipo: 'Administración', accion: requiere ? 'Activó OTP obligatorio para un usuario' : 'Desactivó OTP obligatorio para un usuario', api: 'Keycloak Admin',
+      detalle: `${usuario} · OTP para ingresar: ${requiere ? 'sí · lo enrola en el próximo ingreso' : 'no · credenciales OTP eliminadas'} · sesiones abiertas cerradas` });
     return r;
   });
 

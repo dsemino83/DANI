@@ -329,6 +329,11 @@ en `keycloak/realm-staff-dev.json` (realm de desarrollo):
 - Política de contraseñas de nivel bancario.
 - Política OTP (TOTP) lista para enrolar al personal.
 - Listener de eventos explícito para enviar al SIEM.
+- **OTP por usuario definido por el administrador** (en "Usuarios y permisos", ficha
+  del usuario): el administrador decide, por usuario, si necesita OTP para ingresar.
+  Activar agrega la required action `CONFIGURE_TOTP` (lo enrola en el próximo ingreso;
+  el login de Keycloak se lo pide a partir de ahí); desactivar borra sus credenciales
+  OTP. Todo vía Keycloak Admin API con la service account, y auditado.
 
 **Queda para el próximo incremento** (requiere decisiones de política y cambios en el
 backend + mock + tests, por eso no se hace a ciegas):
@@ -340,8 +345,8 @@ backend + mock + tests, por eso no se hace a ciegas):
   operaciones** y **ventana de frescura**.
   Factor elegido para el primer incremento: **TOTP** (más simple de enrolar; Passkey
   queda como paso 2). Falta definir el umbral de monto y la ventana de frescura.
-- Forzar enrolamiento de TOTP/Passkey a todo el personal (puede dejar fuera a usuarios
-  en sesión; se coordina).
+- Forzar enrolamiento de TOTP/Passkey a todo el personal de una (hoy se hace **por
+  usuario** desde la ficha; un "obligatorio para todos" masivo se coordina aparte).
 - Event Listener SPI propio hacia el SIEM / cadena de auditoría.
 
 > Los valores del realm de **producción** se endurecen más que los de desarrollo
