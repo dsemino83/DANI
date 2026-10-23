@@ -129,6 +129,20 @@ jobs:
           test "$(curl -sk -o /dev/null -w '%{http_code}' https://localhost/api/me)" = 401 && echo '/api/me sin token → 401 OK'
           curl -fsSk -I https://localhost/ | grep -qi 'content-security-policy'      && echo 'CSP OK'
           curl -fsSk -I https://localhost/js/app.js | grep -qi 'cache-control: no-cache' && curl -fsSk -I https://localhost/js/app.js | grep -qi 'content-security-policy' && echo 'JS sin caché vieja y con CSP OK'
+          # Cabeceras de seguridad del navegador (lo que revisa un pentest con testssl/ZAP): tienen que estar y ser estrictas.
+          H=$(curl -fsSk -I https://localhost/)
+          echo "$H" | grep -qi '^strict-transport-security:.*max-age=31536000'       && echo 'HSTS OK'
+          echo "$H" | grep -qi '^x-content-type-options:[[:space:]]*nosniff'          && echo 'X-Content-Type-Options OK'
+          echo "$H" | grep -qiE '^x-frame-options:[[:space:]]*DENY'                   && echo 'X-Frame-Options DENY OK'
+          echo "$H" | grep -qi '^referrer-policy:[[:space:]]*no-referrer'             && echo 'Referrer-Policy OK'
+          echo "$H" | grep -qi '^cross-origin-opener-policy:[[:space:]]*same-origin'  && echo 'COOP OK'
+          echo "$H" | grep -qi '^permissions-policy:'                                 && echo 'Permissions-Policy OK'
+          CSP=$(echo "$H" | grep -i '^content-security-policy:')
+          echo "$CSP" | grep -qi "default-src 'self'"       && echo "CSP default-src 'self' OK"
+          echo "$CSP" | grep -qi "frame-ancestors 'none'"   && echo "CSP frame-ancestors 'none' OK"
+          echo "$CSP" | grep -qi "base-uri 'none'"          && echo "CSP base-uri 'none' OK"
+          ! echo "$CSP" | grep -qi "unsafe-inline"          && echo 'CSP sin unsafe-inline OK'
+          ! echo "$CSP" | grep -qi "unsafe-eval"            && echo 'CSP sin unsafe-eval OK'
           for i in $(seq 1 40); do curl -fsk https://localhost/auth/realms/staff/.well-known/openid-configuration >/dev/null && break; sleep 5; done
           curl -fsk https://localhost/auth/realms/staff/.well-known/openid-configuration | grep -q '"issuer":"https://localhost/auth/realms/staff"' && echo 'Keycloak en /auth OK'
           AUTH='https://localhost/auth/realms/staff/protocol/openid-connect/auth?client_id=home-banking-web&response_type=code&scope=openid'
