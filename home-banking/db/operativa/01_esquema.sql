@@ -62,6 +62,14 @@ CREATE TABLE cartera_oficial (
   PRIMARY KEY (oficial, empresa_id)
 );
 
+-- Oficiales que reciben las alertas de movimientos por chat de Teams (Power Automate). Ver migración 015.
+CREATE TABLE oficial_chat (
+  oficial        text PRIMARY KEY,
+  notificar      boolean NOT NULL DEFAULT false,
+  actualizado_por text,
+  actualizado_en timestamptz NOT NULL DEFAULT now()
+);
+
 -- ---------------------------------------------------------------------------
 -- Credencial API Banking de VALO (la migración 006 agrega una adicional, exclusiva de los envíos programados). La clave va cifrada con AES-256-GCM
 -- usando la llave maestra que el backend lee de un Docker secret.

@@ -32,10 +32,12 @@ export default async function rutasCartera(app) {
       'SELECT co.empresa_id::text, e.razon_social FROM cartera_oficial co JOIN empresa e ON e.id = co.empresa_id WHERE co.oficial = $1', [req.params.oficial])).rows;
     const ids = new Set(asignadas.map((a) => a.empresa_id));
     const visibles = new Set(propias.map((e) => String(e.id)));
+    const chat = (await operativa.query('SELECT notificar FROM oficial_chat WHERE oficial = $1', [req.params.oficial])).rows[0];
     return {
       oficial: req.params.oficial,
       clientes: propias.map((e) => ({ ...e, asignada: ids.has(String(e.id)) })),
       fueraDeTuVista: asignadas.filter((a) => !visibles.has(a.empresa_id)).map((a) => a.razon_social), // asignadas por otro aprobador
+      notificarChat: chat?.notificar ?? false, // recibe las alertas de movimientos por chat de Teams
     };
   });
 
@@ -61,7 +63,19 @@ export default async function rutasCartera(app) {
         await auditar(c, req, { tipo: 'Administración', accion: 'Modificó cartera de oficial', api: 'Cartera de oficiales',
           detalle: `${oficial} · asignó: ${nombres(altas)} · quitó: ${nombres(bajas)} · ${total ? `ve solo ${total} cliente(s)` : 'sin cartera: ve todas sus empresas'}` });
       }
-      return { oficial, altas: altas.length, bajas: bajas.length, total };
+      // Recepción de las alertas de movimientos por chat de Teams (flag por oficial).
+      let notificarChat;
+      if (req.body?.notificarChat !== undefined) {
+        notificarChat = Boolean(req.body.notificarChat);
+        const antesChat = (await c.query('SELECT notificar FROM oficial_chat WHERE oficial = $1', [oficial])).rows[0]?.notificar ?? false;
+        if (antesChat !== notificarChat) {
+          await c.query(`INSERT INTO oficial_chat (oficial, notificar, actualizado_por, actualizado_en) VALUES ($1, $2, $3, now())
+                          ON CONFLICT (oficial) DO UPDATE SET notificar = $2, actualizado_por = $3, actualizado_en = now()`, [oficial, notificarChat, req.user.usuario]);
+          await auditar(c, req, { tipo: 'Administración', accion: 'Configuró alertas por chat de un oficial', api: 'Cartera de oficiales',
+            detalle: `${oficial} · alertas de movimientos por chat de Teams: ${notificarChat ? 'activadas' : 'desactivadas'}` });
+        }
+      }
+      return { oficial, altas: altas.length, bajas: bajas.length, total, notificarChat };
     });
   });
 }

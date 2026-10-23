@@ -86,13 +86,15 @@ Se actualiza sola cada pocos segundos. Al banco cada operación llega **una sola
 
 El autorizante asigna a cada oficial (operador) los clientes de su cartera. Si un oficial tiene clientes asignados, solo ve las cuentas de esos clientes (dentro de sus permisos).
 
+- **Recibir las alertas de movimientos por chat de Teams:** un check por oficial. Activado, el oficial recibe por chat de Teams las **alertas de movimientos** (no el extracto diario) de los clientes de su cartera, con el mismo contenido que el correo al cliente. Se envía justo después del correo. El destinatario se arma con su usuario (`jperez` → `jperez@valo.ar`). Requiere que esté configurado el flujo de Power Automate.
+
 ## Envíos programados de correo (autorizante)
 
 Correos automáticos a los clientes, solo sobre los clientes que ves.
 
 1. **Tipo y repetición:**
    - **1 vez al día · extracto diario:** a una hora. Asunto *Envío de extracto diario*. Saldos y/o movimientos del día por cuenta, con débitos y créditos separados. Se envía aunque no haya movimientos.
-   - **1 vez cada hora** o **cada 30 minutos · alerta de movimientos:** entre una hora y otra. En cada ejecución toma los movimientos desde 29:59 minutos antes hasta la hora de ejecución (10:00 → 09:30:01 a 10:00:00). **Solo se envía si hubo movimientos.** Asunto *Alerta de movimientos*, con la franja horaria y, por cuenta, débitos y créditos (sin saldo).
+   - **1 vez cada hora** o **cada 30 minutos · alerta de movimientos:** entre una hora y otra. En cada ejecución toma los movimientos desde 29:59 minutos antes hasta la hora de ejecución (10:00 → 09:30:01 a 10:00:00). **Solo se envía si hubo movimientos.** Asunto *Alerta de movimientos*, con la franja horaria y, por cuenta, débitos y créditos (sin saldo). Estas alertas (solo estas) también pueden llegar por **chat de Teams** a los oficiales de la cartera que lo tengan activado (ver Cartera de oficiales).
 2. **Formato:** solo en el cuerpo del correo, o cuerpo + **Excel adjunto** (un archivo con **una pestaña por cuenta**, con el logo del banco).
 3. **Destino:** primero el cliente y después sus cuentas (todas o algunas), o *Todos mis clientes*.
 4. **Días**, **inicio**, **fin** y **No enviar en feriados** (los feriados se traen de fuentes públicas; los bancarios se cargan a mano).

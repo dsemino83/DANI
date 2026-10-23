@@ -208,3 +208,7 @@ pre { background: var(--bg); border: 1px solid var(--line); border-radius: var(-
 .estado-accion { display: flex; align-items: center; gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
 .estado-accion:last-of-type { border-bottom: 0; }
 .estado-accion .btn { min-width: 230px; }
+
+/* Check de configuración (p. ej. recibir alertas por chat) */
+.campo-check { display: flex; align-items: flex-start; gap: 8px; margin: 10px 0; font-size: 14px; color: var(--fg); }
+.campo-check input { margin-top: 2px; }

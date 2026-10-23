@@ -16,6 +16,7 @@ const { leerTxt, formatoDe } = await import('../src/servicios/lotes.js');
 const { normalizarId } = await import('../src/servicios/transferencias.js');
 const { particionesAPasar, mesCorte } = await import('../src/jobs/pase-historico.js');
 const { retencionMeses } = await import('../src/corte.js');
+const { destinatarioChat } = await import('../src/servicios/notificaciones-chat.js');
 const { urlBase, urlDelAmbiente, esAmbiente } = await import('../src/bdv/ambientes.js');
 
 const origenARS = { productId: 3, currencyId: 80, productNumber: '300100000000000', productAlias: 'X' };
@@ -359,4 +360,11 @@ test('límites de pedidos y enmascarado de logs', async () => {
   assert.equal(mascarar('/api/cbu?cbu=0720000720000001234567'), '/api/cbu?cbu=0720…67');
   assert.equal(mascarar('/api/cbu?alias=mi.alias.secreto&x=1'), '/api/cbu?alias=***&x=1');
   assert.equal(mascarar('/api/cuentas/300100000143178/movimientos?desde=2026-10-01'), '/api/cuentas/3001…78/movimientos?desde=2026-10-01', 'fechas intactas');
+});
+
+test('alerta por chat: destinatario de Teams (agrega el dominio si no tiene @valo)', () => {
+  assert.equal(destinatarioChat('jperez'), 'jperez@valo.ar');           // sin @valo → se agrega el dominio
+  assert.equal(destinatarioChat('maria.lopez'), 'maria.lopez@valo.ar');
+  assert.equal(destinatarioChat('jperez@valo.ar'), 'jperez@valo.ar');   // ya tiene @valo → tal cual
+  assert.equal(destinatarioChat('jperez@valo.com.ar'), 'jperez@valo.com.ar');
 });

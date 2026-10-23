@@ -34,16 +34,19 @@ export async function render(main) {
     ], filas.filter((f) => !buscar.value.trim() || plano(`${f.c.razon_social} ${f.c.cuit}`).includes(plano(buscar.value).trim())),
     { vacio: d.clientes.length ? 'Ningún cliente coincide con la búsqueda.' : 'No ves ningún cliente: pedile al administrador permisos sobre empresas.' }));
     buscar.addEventListener('input', pintar);
+    // Recepción de las alertas de movimientos por chat de Teams (flag del oficial).
+    const chat = h('input', { type: 'checkbox', checked: d.notificarChat, 'aria-label': 'Recibir las alertas de movimientos por chat de Teams' });
     const guardar = async (ids) => {
       try {
-        const r = await api(`/cartera/oficiales/${encodeURIComponent(oficial)}`, { method: 'PUT', body: { empresas: ids } });
-        toast(r.total ? `${oficial} ve solo ${r.total} cliente(s).` : `${oficial} sin cartera: ve todos sus clientes.`);
+        const r = await api(`/cartera/oficiales/${encodeURIComponent(oficial)}`, { method: 'PUT', body: { empresas: ids, notificarChat: chat.checked } });
+        toast(`${r.total ? `${oficial} ve solo ${r.total} cliente(s)` : `${oficial} sin cartera: ve todos sus clientes`}. Chat de Teams: ${chat.checked ? 'activado' : 'desactivado'}.`);
       } catch (x) { error(x); return; }
       await cargar();
     };
     pintar();
     poner(detalle, card(`Cartera de ${oficial}`, 'Tildá los clientes que atiende este oficial: solo va a ver las cuentas de esos clientes. Sin ninguno tildado ve todos los clientes que le habilitó el administrador.',
       d.fueraDeTuVista.length > 0 && h('p', { class: 'aviso' }, `También tiene asignados clientes que vos no ves (los asignó otro aprobador): ${d.fueraDeTuVista.join(', ')}. No se modifican.`),
+      h('label', { class: 'campo-check' }, chat, ' Recibir las alertas de movimientos por chat de Teams (de los clientes de su cartera). Se envía después del correo al cliente.'),
       campo('Buscar', buscar), cuerpo,
       h('div', { class: 'fila' },
         h('button', { class: 'btn primario', onclick: () => guardar(filas.filter((f) => f.x.checked).map((f) => f.c.id)) }, 'Guardar cartera'),

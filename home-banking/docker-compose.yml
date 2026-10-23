@@ -35,6 +35,8 @@ x-backend-env: &backend-env
   HB_SMTP_USUARIO: ${HB_SMTP_USUARIO:-}
   HB_SMTP_STARTTLS: ${HB_SMTP_STARTTLS:-true}
   HB_SMTP_PASSWORD_FILE: /run/secrets/smtp_password
+  HB_POWERAUTOMATE_URL: ${HB_POWERAUTOMATE_URL:-}   # alertas por chat de Teams; vacío = solo correo (ver powerautomate/)
+  HB_CHAT_DOMINIO: ${HB_CHAT_DOMINIO:-@valo.ar}
   TZ: America/Argentina/Buenos_Aires
 
 # Endurecimiento común: sin escalada de privilegios y logs rotados (no llenan el disco)

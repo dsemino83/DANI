@@ -61,7 +61,7 @@ Toda acción queda registrada en el momento, en un registro **de solo inserción
 | --- | --- |
 | Accesos | Inicio y cierre de sesión, intentos rechazados |
 | Transferencias | Carga individual y de lote, aprobación, rechazo, envío y cambios de estado |
-| Administración | Empresas, emails (incluye "cambió X por Y"), cuentas, permisos, roles, usuarios, credenciales API (sin el valor de la clave), programaciones de envíos, feriados; mantenimiento del sistema (reconectar banco, reprocesar cola, refrescar feriados, verificar integridad); acciones rechazadas |
+| Administración | Empresas, emails (incluye "cambió X por Y"), cuentas, permisos, roles, usuarios, credenciales API (sin el valor de la clave), programaciones de envíos, feriados, cartera de oficiales y su alerta por chat; mantenimiento del sistema (reconectar banco, reprocesar cola, refrescar feriados, verificar integridad); acciones rechazadas |
 | Consultas | Saldos, movimientos, CBU, constancias de CBU, exportaciones a Excel, consultas a la base histórica |
 | Sistema | Pase mensual a la base histórica (por tabla y mes, con filas y hash) |
 
@@ -83,6 +83,7 @@ Toda acción queda registrada en el momento, en un registro **de solo inserción
 - Cada ejecución tiene un **id transaccional** (EJ-000123) que agrupa sus tareas y registra sus totales y las consultas hechas al banco.
 - Cola de tareas sin superposición, con reintentos; cada tarea termina en un correo y queda registrada (ejecución, destinatarios, estado, detalle).
 - Remitente **alyc@valo.ar**; los correos llevan saldos y movimientos, por eso el servidor SMTP debe usar TLS.
+- **Alertas por chat de Teams:** solo las alertas de movimientos (no el extracto). Después del correo al cliente, el sistema llama a un flujo de Power Automate que publica el mismo contenido por chat a los oficiales de la cartera con el chat activado (`oficial_chat`). Activar o desactivar ese chat por oficial queda auditado (Administración). La URL del flujo es un secreto; si no está configurada, solo se manda el correo.
 
 ## Base operativa e histórica
 

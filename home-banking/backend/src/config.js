@@ -19,6 +19,12 @@ export const config = {
   // Pensado para la primera prueba con producción.
   soloConsultas: ['true', '1', 'si', 'sí'].includes(String(leer('BDV_SOLO_CONSULTAS', 'false')).toLowerCase()),
 
+  // Power Automate: URL del flujo HTTP que publica las alertas de movimientos por chat de Teams.
+  // Vacío = no se envían notificaciones por chat (solo el correo al cliente). Es un secreto: puede ir por
+  // HB_POWERAUTOMATE_URL_FILE. El dominio por defecto para armar el destinatario de Teams es HB_CHAT_DOMINIO.
+  powerAutomateUrl: leer('HB_POWERAUTOMATE_URL', ''),
+  chatDominio: leer('HB_CHAT_DOMINIO', '@valo.ar'),
+
   oidc: {
     issuer: leer('OIDC_ISSUER'), // p. ej. https://ssohomo.valo.ar/valo/realms/staff (debe coincidir con el iss del token)
     // URL con la que el backend llega al realm (JWKS, tokens, Admin API). En desarrollo difiere del issuer público.

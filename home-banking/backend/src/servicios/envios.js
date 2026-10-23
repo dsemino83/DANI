@@ -6,6 +6,7 @@ import { enviarCorreo } from '../correo.js';
 import { readFileSync } from 'node:fs';
 import { cbuOrigen, xlsxEnvio } from '../excel.js';
 import { feriadosCargados } from './feriados.js';
+import { notificarChatAlerta } from './notificaciones-chat.js';
 import { enArgentina, enFranja, franjaDeTurno, turnoVencido } from './programacion.js';
 
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -242,7 +243,15 @@ export async function procesarTarea(t) {
     if (correo.archivo) adjuntos.push({ filename: correo.archivo, content: await xlsxEnvio(e, alerta ? cuentas.filter((c) => c.movimientos?.length) : cuentas, alerta ? 'movimientos' : t.contenido, { titulo: correo.titulo, logo: LOGO, conSaldo: !alerta }),
       contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
     await enviarCorreo({ para: e.emails, asunto: correo.asunto, html: correo.html, texto: correo.texto, adjuntos });
-    return terminar(t, 'enviado', `${correo.asunto}${correo.archivo ? ` · adjunto ${correo.archivo}` : ''}`, e.emails, banco);
+    // Solo las alertas de movimientos: después del correo al cliente, se notifica por chat de Teams a los
+    // oficiales de la cartera que lo tengan activado (Power Automate). Es best-effort: el correo ya salió.
+    let extraChat = '';
+    if (alerta) {
+      const chat = await notificarChatAlerta(e, correo);
+      if (chat.estado === 'enviado') extraChat = ` · chat a ${chat.destinatarios.length} oficial(es)`;
+      else if (chat.estado === 'error') extraChat = ` · chat con error: ${chat.detalle ?? ''}`;
+    }
+    return terminar(t, 'enviado', `${correo.asunto}${correo.archivo ? ` · adjunto ${correo.archivo}` : ''}${extraChat}`, e.emails, banco);
   } catch (x) {
     if (t.intentos < t.max_intentos) { // vuelve a la cola con espera creciente
       const espera = ESPERAS_MIN[Math.min(t.intentos - 1, ESPERAS_MIN.length - 1)];
