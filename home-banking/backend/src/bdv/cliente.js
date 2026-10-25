@@ -124,6 +124,7 @@ class ClienteBdv {
   // En envíos de dinero (envio: true) NUNCA se reintenta, y todo lo que no sea un rechazo
   // claro del banco (HTTP 5xx, respuesta ilegible) se marca sinRespuesta: resultado incierto.
   async llamar(ruta, body, { reintentar = true, envio = false } = {}) {
+    const inicio = performance.now();
     await this.sesion();
     const res = await this.fetch(`${this.base}/${ruta.replace(/^\//, '')}`, body, this.cookie, { sinRespuesta: true });
     if ((res.status === 401 || res.status === 403) && reintentar && !envio) {
@@ -135,10 +136,13 @@ class ClienteBdv {
     // hacer login mientras la sesión sigue viva del lado del banco (en ese caso el banco no entrega cookie nueva).
     else if (res.ok && this.cookie) this.vence = Date.now() + config.bdv.sesionMinutos * 60_000;
     const json = await res.json().catch(() => null);
+    const duracionMs = Math.round((performance.now() - inicio) * 10) / 10;
     if (!res.ok || json === null) {
       const incierto = envio && (res.status >= 500 || res.ok); // 4xx = rechazado antes de procesar
+      console.warn(JSON.stringify({ metrica: 'bdv_api', ruta, duracionMs, http: res.status, ok: false }));
       throw new ErrorBanco(`El banco respondió HTTP ${res.status} en ${ruta}${incierto ? ' (resultado incierto)' : ''}`, { http: res.status, sinRespuesta: incierto });
     }
+    console.info(JSON.stringify({ metrica: 'bdv_api', ruta, duracionMs, http: res.status, ok: true }));
     return json;
   }
 }
