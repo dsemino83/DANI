@@ -27,6 +27,14 @@ x-backend-env: &backend-env
   CREDENCIALES_MASTER_KEY_FILE: /run/secrets/credenciales_master_key
   BDV_SESION_MINUTOS: ${BDV_SESION_MINUTOS:-20}
   TZ: America/Argentina/Buenos_Aires
+  ZAP_ENABLED: ${ZAP_ENABLED:-false}
+  ZAP_TARGET_URL: ${ZAP_TARGET_URL:-}
+  ZAP_STAGING_HOST: ${ZAP_STAGING_HOST:-}
+  ZAP_URL: http://zap:8080
+  ZAP_API_KEY_FILE: /run/secrets/zap_api_key
+  ZAP_REPORT_DIR: /tmp/zap-reports
+  ZAP_MAX_MINUTES: ${ZAP_MAX_MINUTES:-5}
+  ZAP_SPIDER_MINUTES: ${ZAP_SPIDER_MINUTES:-1}
 
 services:
   frontend:
@@ -73,7 +81,7 @@ services:
       DB_OWNER_PASSWORD_FILE: /run/secrets/db_owner_password
       DBH_OWNER_USER: postgres
       DBH_OWNER_PASSWORD_FILE: /run/secrets/dbh_owner_password
-    secrets: [db_app_password, db_hist_ro_password, credenciales_master_key, keycloak_admin_client_secret, db_owner_password, dbh_owner_password]
+    secrets: [db_app_password, db_hist_ro_password, credenciales_master_key, keycloak_admin_client_secret, db_owner_password, dbh_owner_password, zap_api_key]
     healthcheck:   # el programador actualiza /tmp/latido cada minuto
       test: ["CMD-SHELL", "find /tmp/latido -mmin -3 | grep -q ."]
       interval: 60s
@@ -86,6 +94,19 @@ services:
         condition: service_healthy
       postgres-historico:
         condition: service_healthy
+    restart: unless-stopped
+    networks: [interna, salida]
+
+  zap:
+    image: ghcr.io/zaproxy/zaproxy:stable
+    command: ["sh", "-c", "zap.sh -daemon -host 0.0.0.0 -port 8080 -config api.key=$(cat /run/secrets/zap_api_key) -config api.addrs.addr.name=.* -config api.addrs.addr.regex=true"]
+    secrets: [zap_api_key]
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- 'http://127.0.0.1:8080/JSON/core/view/version/?apikey=$(cat /run/secrets/zap_api_key)' >/dev/null"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
     restart: unless-stopped
     networks: [interna, salida]
 
@@ -168,6 +189,8 @@ secrets:
     file: ./secrets/credenciales_master_key.txt
   keycloak_admin_client_secret:
     file: ./secrets/keycloak_admin_client_secret.txt
+  zap_api_key:
+    file: ./secrets/zap_api_key.txt
   keycloak_bootstrap_password:
     file: ./secrets/keycloak_bootstrap_password.txt
 
