@@ -96,6 +96,20 @@ LIMIT 20;
 ## 6. Saldos y movimientos del banco
 En el código actual, saldos/movimientos provienen de APIs del Banco de Valores, no de PostgreSQL. Los índices locales no reducen esa latencia externa. Para saldos, evitar caché larga: si se incorpora, TTL de segundos y UI indicando freshness. Para movimientos históricos externos, una estrategia futura es ingestarlos de forma idempotente a un read model propio si el contrato/regulación lo permite.
 
+## 7. Seguridad dinámica y observabilidad
+
+El stack incorpora un baseline nocturno de OWASP ZAP contra staging, ejecutado por el servicio `jobs` a las 02:30 (America/Argentina/Buenos_Aires). Es **pasivo/informativo**: hace crawling y espera el passive scan, pero no ejecuta Active Scan ni intenta explotar vulnerabilidades. Esto es coherente con el objetivo de complementar el monitoreo sin introducir una compuerta de despliegue ni operaciones contra el banco. ZAP indica que el baseline no realiza ataques y que el passive scan no modifica requests/responses. citeturn0search0turn0search1
+
+Controles implementados alrededor del job:
+- activación explícita mediante `ZAP_ENABLED=true`;
+- `ZAP_TARGET_URL` debe usar exactamente el hostname indicado en `ZAP_STAGING_HOST`;
+- API de ZAP solo en red Docker interna, con API key en Docker Secret;
+- límite de tiempo configurable;
+- informe JSON temporal y resumen de resultados en logs;
+- el job no bloquea despliegues ni cambia estados financieros.
+
+El baseline no sustituye el pentest autenticado contra staging. Ese pentest sigue siendo una actividad pendiente de la infraestructura real, junto con HSM/Vault, K8s/service mesh, SIEM, passkeys/MFA, tokenización y los procedimientos operativos de resguardo/rotación/retención/SMTP.
+
 ## 7. Despliegue seguro
 1. Medir baseline con pg_stat_statements.
 2. Aplicar índices en homologación y correr EXPLAIN ANALYZE sobre consultas reales.
