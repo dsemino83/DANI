@@ -5,7 +5,7 @@ set -eu
 cd "$(dirname "$0")/.."
 BASE="${HB_RESGUARDO_DIR:-/var/backups/home-banking}"
 ESTADO="${HB_DR_STATUS_FILE:-/var/backups/home-banking/ultimo-simulacro-dr.env}"
-ULTIMO="$(find "$BASE" -mindepth 1 -maxdepth 1 -type d -name '20*T*Z' 2>/dev/null | sort | tail -1)"
+ULTIMO="$(find "$BASE" -mindepth 2 -maxdepth 2 -type f -name COMPLETO 2>/dev/null | sed 's#/COMPLETO$##' | sort | tail -1)"
 [ -n "$ULTIMO" ] || { echo "No hay resguardos en $BASE" >&2; exit 2; }
 INICIO="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 TMP="${ESTADO}.tmp"
