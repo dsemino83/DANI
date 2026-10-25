@@ -46,6 +46,12 @@ x-backend-env: &backend-env
   HB_CHAT_DOMINIO: ${HB_CHAT_DOMINIO:-@valo.ar}
   METRICS_ENABLED: ${METRICS_ENABLED:-false}        # observabilidad: expone /api/metrics para Prometheus (ver ops/)
   METRICS_TOKEN: ${METRICS_TOKEN:-}                 # protege el scrape; vacío = sin token (solo red interna)
+  OTEL_ENABLED: ${OTEL_ENABLED:-false}              # OpenTelemetry (trazas); apagado por defecto (ver ops/docker-compose.otel.yml)
+  OTEL_SERVICE_NAME: ${OTEL_SERVICE_NAME:-home-banking-backend}
+  OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://otel-collector:4318}
+  OTEL_TRACES_SAMPLER: ${OTEL_TRACES_SAMPLER:-parentbased_traceidratio}
+  OTEL_TRACES_SAMPLER_ARG: ${OTEL_TRACES_SAMPLER_ARG:-0.10}
+  OTEL_METRIC_EXPORT_INTERVAL_MS: ${OTEL_METRIC_EXPORT_INTERVAL_MS:-15000}
   TZ: America/Argentina/Buenos_Aires
 
 # Endurecimiento común: sin escalada de privilegios y logs rotados (no llenan el disco)

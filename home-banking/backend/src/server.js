@@ -1,4 +1,5 @@
 // Backend (BFF) del Home Banking VALO.
+import { contextoTraza } from './otel.js'; // PRIMERO: inicia OpenTelemetry (si OTEL_ENABLED) antes de Fastify/pg
 import Fastify from 'fastify';
 import { randomUUID } from 'node:crypto';
 import multipart from '@fastify/multipart';
@@ -30,6 +31,8 @@ const app = Fastify({
     level: process.env.LOG_LEVEL ?? 'info',
     // Nunca loguear tokens, cookies ni el cuerpo con claves; CBU, CUIT y cuentas enmascarados en las URLs
     redact: ['req.headers.authorization', 'req.headers.cookie', 'res.headers["set-cookie"]'],
+    // Correlación de logs: agrega trace_id/span_id cuando OpenTelemetry está activo; {} si no (sin cambios).
+    mixin: () => contextoTraza(),
     serializers: {
       req: (req) => ({ id: req.id, method: req.method, url: mascarar(req.url), ip: req.ip }),
     },
