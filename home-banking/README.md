@@ -28,7 +28,7 @@ Después de levantar:
 
 ## ZAP baseline nocturno de staging
 
-El servicio `jobs` ejecuta a las **02:30 (America/Argentina/Buenos_Aires)** un baseline de OWASP ZAP contra el staging configurado. Es un escaneo **pasivo/informativo**, sin active scan y sin compuerta de despliegue: sirve para detectar cambios de superficie y cabeceras/configuraciones inseguras sin bloquear la operación. ZAP documenta que su Baseline usa el spider y espera el passive scan, sin realizar ataques. citeturn2search0turn2search8
+El servicio `jobs` ejecuta a las **02:30 (America/Argentina/Buenos_Aires)** un baseline de OWASP ZAP contra el staging configurado. Es un escaneo **pasivo/informativo**, sin active scan y sin compuerta de despliegue: sirve para detectar cambios de superficie y cabeceras/configuraciones inseguras sin bloquear la operación. ZAP documenta que su Baseline usa el spider y espera el passive scan, sin realizar ataques.
 
 Se activa explícitamente en el `.env`:
 
@@ -53,6 +53,18 @@ El código exige que el hostname de `ZAP_TARGET_URL` coincida exactamente con `Z
 | `home-banking-admin` | confidencial, service account con `realm-management: view-users, manage-users, view-clients` | Asignar Crear/Aprobar desde Permisos |
 
 `keycloak/realm-staff-dev.json` es un ejemplo completo para desarrollo (usuarios `mgomez`, `lrodriguez`, `svillalba`, `admin.ti` con claves temporales).
+
+## Estado de seguridad y pendientes de infraestructura
+
+### Implementado en código
+- Baseline nocturno OWASP ZAP contra **staging**, programado a las 02:30 (America/Argentina/Buenos_Aires).
+- Escaneo limitado a crawling + análisis pasivo/informativo; no Active Scan y no es compuerta de despliegue.
+- Protección contra configuración accidental: el hostname de `ZAP_TARGET_URL` debe coincidir exactamente con `ZAP_STAGING_HOST`.
+- API de ZAP únicamente en la red Docker interna y protegida mediante Secret.
+- Límite de duración e informe JSON temporal.
+
+### Pendiente de infraestructura/operación real
+El baseline no reemplaza el pentest autenticado contra staging. Siguen fuera del alcance de este código: HSM/Vault, K8s + service mesh/Zero Trust, SIEM, passkeys/MFA, tokenización y la operación de resguardos con llave fuera del servidor, rotación de la credencial del banco, retención histórica y SMTP de producción.
 
 ## Primera prueba con producción (sin mover dinero)
 
