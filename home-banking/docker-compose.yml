@@ -94,6 +94,8 @@ services:
         condition: service_healthy
       postgres-historico:
         condition: service_healthy
+      zap:
+        condition: service_healthy
     restart: unless-stopped
     networks: [interna, salida]
 
