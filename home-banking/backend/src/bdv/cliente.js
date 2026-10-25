@@ -145,6 +145,24 @@ class ClienteBdv {
 
 export const bdv = new ClienteBdv();
 
+// Cache local ultracorto + request coalescing: si muchos usuarios piden el mismo
+// dato a la vez, solo una llamada llega al banco. No se usa para transferencias.
+const cacheOnline = new Map();
+const onlineEnCurso = new Map();
+async function consultaCompartida(clave, ttlMs, fn) {
+  const ahora = Date.now();
+  const hit = cacheOnline.get(clave);
+  if (hit && hit.vence > ahora) return hit.valor;
+  const pendiente = onlineEnCurso.get(clave);
+  if (pendiente) return pendiente;
+  const p = Promise.resolve().then(fn).then((valor) => {
+    cacheOnline.set(clave, { valor, vence: Date.now() + ttlMs });
+    return valor;
+  }).finally(() => onlineEnCurso.delete(clave));
+  onlineEnCurso.set(clave, p);
+  return p;
+}
+
 // ---------------------------------------------------------------------------
 // Consultas
 // ---------------------------------------------------------------------------
@@ -154,13 +172,16 @@ const exigirExito = (json, ruta) => {
 };
 
 export async function cuentasPropias() {
-  return exigirExito(await bdv.llamar('accounts/getOwnAccounts', {}), 'getOwnAccounts').accountsArray ?? [];
+  return consultaCompartida('cuentas-propias', config.bdv.cacheCuentasMs, async () =>
+    exigirExito(await bdv.llamar('accounts/getOwnAccounts', {}), 'getOwnAccounts').accountsArray ?? []);
 }
 
 export async function detalleSaldos(cuenta) {
-  return exigirExito(await bdv.llamar('accounts/getBalancesDetail', {
-    productId: cuenta.productId, currencyId: cuenta.currencyId, productNumber: cuenta.productNumber, productAlias: cuenta.productAlias,
-  }), 'getBalancesDetail');
+  const clave = ['saldo', cuenta.productId, cuenta.currencyId, cuenta.productNumber].join(':');
+  return consultaCompartida(clave, config.bdv.cacheSaldosMs, async () =>
+    exigirExito(await bdv.llamar('accounts/getBalancesDetail', {
+      productId: cuenta.productId, currencyId: cuenta.currencyId, productNumber: cuenta.productNumber, productAlias: cuenta.productAlias,
+    }), 'getBalancesDetail'));
 }
 
 export async function consultarCbu({ cbu = '', alias = '' }) {
