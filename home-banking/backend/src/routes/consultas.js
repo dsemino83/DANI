@@ -16,6 +16,20 @@ const rango = (q) => {
 };
 const monedaDe = (c) => (Number(c.currencyId) === 80 ? 'ARS' : 'USD');
 
+async function mapConLimite(items, limite, fn) {
+  const resultados = new Array(items.length);
+  let siguiente = 0;
+  const workers = Array.from({ length: Math.min(limite, items.length) }, async () => {
+    while (true) {
+      const i = siguiente++;
+      if (i >= items.length) return;
+      resultados[i] = await fn(items[i], i);
+    }
+  });
+  await Promise.all(workers);
+  return resultados;
+}
+
 // Cuentas del banco filtradas por las empresas habilitadas del usuario
 async function cuentasVisibles(usuario, empresaId = null) {
   const habilitadas = await cuentasHabilitadas(usuario);
@@ -83,13 +97,13 @@ export default async function rutasConsultas(app) {
   app.get('/debitos', soloOperativos, async (req, reply) => {
     const { desde, hasta } = rango(req.query);
     const cuentas = await cuentasVisibles(req.user.usuario, req.query.empresa);
-    const filas = [];
-    for (const c of cuentas) {
+    const porCuenta = await mapConLimite(cuentas, config.bdv.concurrenciaConsultas, async (c) => {
       const r = await movimientos(c, desde, hasta);
-      for (const m of r.movimientos) {
-        if (m.signDC === 'D') filas.push(filaMovimiento(m, { cuenta: c.productNumber, cliente: c.empresa.razon_social, moneda: monedaDe(c) }));
-      }
-    }
+      return r.movimientos
+        .filter((m) => m.signDC === 'D')
+        .map((m) => filaMovimiento(m, { cuenta: c.productNumber, cliente: c.empresa.razon_social, moneda: monedaDe(c) }));
+    });
+    const filas = porCuenta.flat();
     if (req.query.formato === 'xlsx') {
       await auditar(null, req, { tipo: 'Consultas', accion: 'Exportó a Excel', api: 'getMovementsDetail', detalle: `Débitos ${desde} a ${hasta} · ${filas.length} filas` });
       return reply.header('content-type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
