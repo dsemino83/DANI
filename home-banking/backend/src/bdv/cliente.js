@@ -39,6 +39,58 @@ export class ClienteBdv {
     this.vence = 0;
     this.renovando = null; // promesa compartida: una sola renovación a la vez
     this.base = null;
+    this.circuito = { estado: 'cerrado', fallos: 0, abiertoHasta: 0, probando: false };
+  }
+
+  estadoCircuito() {
+    const c = this.circuito;
+    return {
+      estado: c.estado,
+      fallosConsecutivos: c.fallos,
+      reintentoEn: c.estado === 'abierto' && c.abiertoHasta ? new Date(c.abiertoHasta).toISOString() : null,
+    };
+  }
+
+  permitirPorCircuito({ envio = false } = {}) {
+    const conf = config.bdv.circuitBreaker;
+    if (!conf.habilitado || this.circuito.estado === 'cerrado') return { prueba: false };
+    const ahora = Date.now();
+    if (this.circuito.estado === 'abierto' && ahora >= this.circuito.abiertoHasta) {
+      // Una transferencia jamás es la sonda de recuperación: primero debe prosperar una consulta.
+      if (envio) throw new ErrorBanco('Banco temporalmente no disponible; la transferencia no fue enviada');
+      if (this.circuito.probando) throw new ErrorBanco('Banco temporalmente no disponible; recuperación en curso');
+      this.circuito.estado = 'semiabierto';
+      this.circuito.probando = true;
+      return { prueba: true };
+    }
+    if (this.circuito.estado === 'semiabierto') {
+      if (envio || this.circuito.probando) throw new ErrorBanco('Banco temporalmente no disponible; recuperación en curso');
+    }
+    throw new ErrorBanco('Banco temporalmente no disponible; circuito de protección abierto');
+  }
+
+  registrarExitoCircuito() {
+    this.circuito.estado = 'cerrado';
+    this.circuito.fallos = 0;
+    this.circuito.abiertoHasta = 0;
+    this.circuito.probando = false;
+  }
+
+  registrarFalloCircuito(error, { prueba = false } = {}) {
+    const conf = config.bdv.circuitBreaker;
+    this.circuito.probando = false;
+    if (!conf.habilitado) return;
+    // Solo fallas de disponibilidad: red/timeout o HTTP 5xx. No abre por 4xx, auth ni errores funcionales.
+    const disponibilidad = error instanceof ErrorBanco && (error.sinRespuesta || error.http >= 500 || error.http == null);
+    if (!disponibilidad) {
+      if (prueba) this.registrarExitoCircuito();
+      return;
+    }
+    this.circuito.fallos += 1;
+    if (prueba || this.circuito.fallos >= conf.umbralFallos) {
+      this.circuito.estado = 'abierto';
+      this.circuito.abiertoHasta = Date.now() + conf.esperaMs;
+    }
   }
 
   invalidar() {
@@ -60,6 +112,7 @@ export class ClienteBdv {
       ambiente: config.ambiente,
       conectado: Boolean(this.cookie && Date.now() < this.vence),
       venceEn: this.vence ? new Date(this.vence).toISOString() : null,
+      circuito: this.estadoCircuito(),
     };
   }
 
@@ -157,22 +210,38 @@ export class ClienteBdv {
   // En envíos de dinero (envio: true) NUNCA se reintenta, y todo lo que no sea un rechazo
   // claro del banco (HTTP 5xx, respuesta ilegible) se marca sinRespuesta: resultado incierto.
   async llamar(ruta, body, { reintentar = true, envio = false } = {}) {
-    await this.sesion();
-    const res = await this.fetch(`${this.base}/${ruta.replace(/^\//, '')}`, body, this.cookie, { sinRespuesta: true });
-    if ((res.status === 401 || res.status === 403) && reintentar && !envio) {
-      this.invalidar();
-      return this.llamar(ruta, body, { reintentar: false });
+    const { prueba } = this.permitirPorCircuito({ envio });
+    try {
+      await this.sesion();
+      const res = await this.fetch(`${this.base}/${ruta.replace(/^\//, '')}`, body, this.cookie, { sinRespuesta: true });
+      if ((res.status === 401 || res.status === 403) && reintentar && !envio) {
+        this.invalidar();
+        // El reintento por sesión expirada pertenece a la misma llamada lógica y no vuelve a pasar por el breaker.
+        await this.sesion();
+        const segundo = await this.fetch(`${this.base}/${ruta.replace(/^\//, '')}`, body, this.cookie, { sinRespuesta: true });
+        if (segundo.status === 401 || segundo.status === 403) this.invalidar();
+        else if (segundo.ok && this.cookie) this.vence = Date.now() + config.bdv.sesionMinutos * 60_000;
+        const json2 = await segundo.json().catch(() => null);
+        if (!segundo.ok || json2 === null) {
+          throw new ErrorBanco(`El banco respondió HTTP ${segundo.status} en ${ruta}`, { http: segundo.status });
+        }
+        this.registrarExitoCircuito();
+        return json2;
+      }
+      if (res.status === 401 || res.status === 403) this.invalidar();
+      // Vencimiento por inactividad: cada llamada que el banco atiende extiende la sesión.
+      else if (res.ok && this.cookie) this.vence = Date.now() + config.bdv.sesionMinutos * 60_000;
+      const json = await res.json().catch(() => null);
+      if (!res.ok || json === null) {
+        const incierto = envio && (res.status >= 500 || res.ok); // 4xx = rechazado antes de procesar
+        throw new ErrorBanco(`El banco respondió HTTP ${res.status} en ${ruta}${incierto ? ' (resultado incierto)' : ''}`, { http: res.status, sinRespuesta: incierto });
+      }
+      this.registrarExitoCircuito();
+      return json;
+    } catch (error) {
+      this.registrarFalloCircuito(error, { prueba });
+      throw error;
     }
-    if (res.status === 401 || res.status === 403) this.invalidar();
-    // Vencimiento por inactividad: cada llamada que el banco atiende extiende la sesión. Así no se vuelve a
-    // hacer login mientras la sesión sigue viva del lado del banco (en ese caso el banco no entrega cookie nueva).
-    else if (res.ok && this.cookie) this.vence = Date.now() + config.bdv.sesionMinutos * 60_000;
-    const json = await res.json().catch(() => null);
-    if (!res.ok || json === null) {
-      const incierto = envio && (res.status >= 500 || res.ok); // 4xx = rechazado antes de procesar
-      throw new ErrorBanco(`El banco respondió HTTP ${res.status} en ${ruta}${incierto ? ' (resultado incierto)' : ''}`, { http: res.status, sinRespuesta: incierto });
-    }
-    return json;
   }
 }
 
