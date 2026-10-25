@@ -64,12 +64,12 @@ jobs:
       - name: Trivy — bloquea CRITICAL
         run: |
           docker run --rm -v "$PWD:/scan" aquasec/trivy:0.58.1 fs --no-progress --severity CRITICAL --ignore-unfixed --exit-code 1 /scan/home-banking
-          docker run --rm -v "$PWD:/scan" aquasec/trivy:0.58.1 config --no-progress --severity CRITICAL --exit-code 1 /scan/home-banking
+          docker run --rm -v "$PWD:/scan" aquasec/trivy:0.58.1 config --severity CRITICAL --exit-code 1 /scan/home-banking
         working-directory: .
       - name: Trivy — HIGH (informativo)
         run: |
           docker run --rm -v "$PWD:/scan" aquasec/trivy:0.58.1 fs --no-progress --severity HIGH --ignore-unfixed --exit-code 0 /scan/home-banking || true
-          docker run --rm -v "$PWD:/scan" aquasec/trivy:0.58.1 config --no-progress --severity HIGH --exit-code 0 /scan/home-banking || true
+          docker run --rm -v "$PWD:/scan" aquasec/trivy:0.58.1 config --severity HIGH --exit-code 0 /scan/home-banking || true
         working-directory: .
 
   autorizacion:
