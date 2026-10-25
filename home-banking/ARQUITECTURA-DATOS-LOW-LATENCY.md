@@ -98,7 +98,7 @@ En el código actual, saldos/movimientos provienen de APIs del Banco de Valores,
 
 ## 7. Seguridad dinámica y observabilidad
 
-El stack incorpora un baseline nocturno de OWASP ZAP contra staging, ejecutado por el servicio `jobs` a las 02:30 (America/Argentina/Buenos_Aires). Es **pasivo/informativo**: hace crawling y espera el passive scan, pero no ejecuta Active Scan ni intenta explotar vulnerabilidades. Esto es coherente con el objetivo de complementar el monitoreo sin introducir una compuerta de despliegue ni operaciones contra el banco. ZAP indica que el baseline no realiza ataques y que el passive scan no modifica requests/responses. citeturn0search0turn0search1
+El stack incorpora un baseline nocturno de OWASP ZAP contra staging, ejecutado por el servicio `jobs` a las 02:30 (America/Argentina/Buenos_Aires). Es **pasivo/informativo**: hace crawling y espera el passive scan, pero no ejecuta Active Scan ni intenta explotar vulnerabilidades. Esto es coherente con el objetivo de complementar el monitoreo sin introducir una compuerta de despliegue ni operaciones contra el banco. ZAP indica que el baseline no realiza ataques y que el passive scan no modifica requests/responses.
 
 Controles implementados alrededor del job:
 - activación explícita mediante `ZAP_ENABLED=true`;
