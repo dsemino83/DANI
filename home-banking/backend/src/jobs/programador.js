@@ -1,5 +1,6 @@
 // Proceso de tareas programadas (servicio "jobs" del docker-compose).
 import cron from 'node-cron';
+import monitoreoSintetico from './monitoreo-sintetico.js';
 import { writeFileSync } from 'node:fs';
 import { conciliarDebitos, recuperarEnviando, sincronizarEstados } from './estado-banco.js';
 import { ejecutarPase } from './pase-historico.js';
