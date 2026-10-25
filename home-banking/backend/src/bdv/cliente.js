@@ -81,9 +81,11 @@ export class ClienteBdv {
     this.circuito.probando = false;
     if (!conf.habilitado) return;
     // Solo fallas de disponibilidad: red/timeout o HTTP 5xx. No abre por 4xx, auth ni errores funcionales.
-    const disponibilidad = error instanceof ErrorBanco && (error.sinRespuesta || error.http >= 500 || error.http == null);
+    const disponibilidad = error instanceof ErrorBanco
+      && (error.sinRespuesta || error.http >= 500 || error.message === 'No se pudo conectar con el Banco de Valores');
     if (!disponibilidad) {
-      if (prueba) this.registrarExitoCircuito();
+      // Si BDV respondió (4xx/auth/error funcional), hay conectividad: corta la racha de fallas de disponibilidad.
+      this.registrarExitoCircuito();
       return;
     }
     this.circuito.fallos += 1;
