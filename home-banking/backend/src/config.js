@@ -72,6 +72,13 @@ export const config = {
     sesionMinutos: Number(leer('BDV_SESION_MINUTOS', '20')), // minutos sin usar la sesión del banco antes de renovarla
     paginaMovimientos: 900, // getMovementsDetail: tamaño de página acordado
     maxPaginasMovimientos: Number(leer('BDV_MAX_PAGINAS', '200')),
+    // Circuit breaker de consultas: evita insistir contra BDV cuando hay una degradación sostenida.
+    // Los envíos de dinero nunca se usan como prueba de recuperación (half-open).
+    circuitBreaker: {
+      habilitado: ['true', '1', 'si', 'sí'].includes(String(leer('BDV_CIRCUIT_BREAKER_ENABLED', 'true')).toLowerCase()),
+      umbralFallos: Math.max(1, Number(leer('BDV_CIRCUIT_BREAKER_FAILURES', '5'))),
+      esperaMs: Math.max(1000, Number(leer('BDV_CIRCUIT_BREAKER_RESET_MS', '30000'))),
+    },
   },
 
   // Monto (ARS) que el banco deja operar sin su propia autorización. Solo informativo:
