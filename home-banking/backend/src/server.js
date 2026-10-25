@@ -7,6 +7,7 @@ import { autenticar } from './auth.js';
 import { ErrorHttp } from './errores.js';
 import { ErrorBanco } from './bdv/cliente.js';
 import { operativa, historica } from './db.js';
+import { instalarMetricas, metricsPrometheus } from './observabilidad.js';
 import rutasConsultas from './routes/consultas.js';
 import rutasTransferencias from './routes/transferencias.js';
 import rutasAdmin from './routes/admin.js';
@@ -36,6 +37,9 @@ const app = Fastify({
 });
 app.addHook('onSend', async (req, reply) => { reply.header('x-request-id', req.id); });
 
+// Observabilidad: cuenta requests, errores 5xx y tiempos por ruta (sin datos sensibles). Apagada por defecto.
+instalarMetricas(app);
+
 await app.register(multipart, { limits: { fileSize: 10 * 1024 * 1024, files: 1 } });
 
 app.setErrorHandler((err, req, reply) => {
@@ -54,6 +58,18 @@ app.get('/api/health', async () => {
   await operativa.query('SELECT 1');
   await historica.query('SELECT 1');
   return { ok: true };
+});
+
+// Métricas Prometheus: fuera del flujo autenticado por JWT (como /api/health), protegido por METRICS_TOKEN.
+// Nginx NO lo expone al público (ver frontend/templates/default.conf.template); Prometheus lo consulta directo
+// en la red interna (backend:8080). Apagado por defecto (404). Nunca devuelve datos sensibles.
+app.get('/api/metrics', async (req, reply) => {
+  if (!config.metricas.habilitado) return reply.code(404).send({ error: 'no_disponible' });
+  if (config.metricas.token && req.headers.authorization !== `Bearer ${config.metricas.token}`) {
+    return reply.code(401).send({ error: 'no_autorizado' });
+  }
+  reply.type('text/plain; version=0.0.4; charset=utf-8');
+  return metricsPrometheus();
 });
 
 await app.register(async (api) => {

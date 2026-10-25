@@ -28,6 +28,10 @@ server {
 
   client_max_body_size 10m;   # carga masiva
 
+  # Métricas de observabilidad: NO se exponen al público. Prometheus las consulta directo al backend por la
+  # red interna (backend:8080/api/metrics), nunca por acá. Debe ir antes de "location /api/".
+  location = /api/metrics { return 404; }
+
   location /api/ {
     limit_req zone=hb_api burst=60 nodelay;
     # Se resuelve en cada pedido (como /auth/): si se recrea el backend cambia su IP, y con un

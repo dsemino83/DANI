@@ -25,6 +25,14 @@ export const config = {
   powerAutomateUrl: leer('HB_POWERAUTOMATE_URL', ''),
   chatDominio: leer('HB_CHAT_DOMINIO', '@valo.ar'),
 
+  // Observabilidad: endpoint /api/metrics para Prometheus. Apagado por defecto. El token protege el scrape
+  // (Prometheus manda Authorization: Bearer <token>); puede ir por METRICS_TOKEN o METRICS_TOKEN_FILE. Vacío
+  // y habilitado = sin token (aceptable solo en red interna; nginx igual no expone /api/metrics al público).
+  metricas: {
+    habilitado: ['true', '1', 'si', 'sí'].includes(String(leer('METRICS_ENABLED', 'false')).toLowerCase()),
+    token: leer('METRICS_TOKEN', ''),
+  },
+
   oidc: {
     issuer: leer('OIDC_ISSUER'), // p. ej. https://ssohomo.valo.ar/valo/realms/staff (debe coincidir con el iss del token)
     // URL con la que el backend llega al realm (JWKS, tokens, Admin API). En desarrollo difiere del issuer público.

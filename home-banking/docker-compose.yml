@@ -44,6 +44,8 @@ x-backend-env: &backend-env
   HB_SMTP2_STARTTLS: ${HB_SMTP2_STARTTLS:-true}
   HB_POWERAUTOMATE_URL: ${HB_POWERAUTOMATE_URL:-}   # alertas por chat de Teams; vacío = solo correo (ver powerautomate/)
   HB_CHAT_DOMINIO: ${HB_CHAT_DOMINIO:-@valo.ar}
+  METRICS_ENABLED: ${METRICS_ENABLED:-false}        # observabilidad: expone /api/metrics para Prometheus (ver ops/)
+  METRICS_TOKEN: ${METRICS_TOKEN:-}                 # protege el scrape; vacío = sin token (solo red interna)
   TZ: America/Argentina/Buenos_Aires
 
 # Endurecimiento común: sin escalada de privilegios y logs rotados (no llenan el disco)
