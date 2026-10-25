@@ -40,12 +40,15 @@ x-backend-env: &backend-env
   HB_SMTP2_PORT: ${HB_SMTP2_PORT:-}
   HB_SMTP2_FROM: ${HB_SMTP2_FROM:-}
   HB_SMTP2_USUARIO: ${HB_SMTP2_USUARIO:-}
-  HB_SMTP2_PASSWORD: ${HB_SMTP2_PASSWORD:-}
+  HB_SMTP2_PASSWORD_FILE: /run/secrets/smtp2_password   # clave del SMTP de respaldo: Docker secret (vacío si no se usa)
   HB_SMTP2_STARTTLS: ${HB_SMTP2_STARTTLS:-true}
   HB_POWERAUTOMATE_URL: ${HB_POWERAUTOMATE_URL:-}   # alertas por chat de Teams; vacío = solo correo (ver powerautomate/)
   HB_CHAT_DOMINIO: ${HB_CHAT_DOMINIO:-@valo.ar}
   METRICS_ENABLED: ${METRICS_ENABLED:-false}        # observabilidad: expone /api/metrics para Prometheus (ver ops/)
   METRICS_TOKEN: ${METRICS_TOKEN:-}                 # protege el scrape; vacío = sin token (solo red interna)
+  SYNTHETIC_MONITOR_ENABLED: ${SYNTHETIC_MONITOR_ENABLED:-false}   # monitoreo sintético de disponibilidad del banco (solo lectura; lo corre jobs)
+  SYNTHETIC_MONITOR_CRON: ${SYNTHETIC_MONITOR_CRON:-*/5 * * * *}
+  SYNTHETIC_TIMEOUT_MS: ${SYNTHETIC_TIMEOUT_MS:-10000}
   OTEL_ENABLED: ${OTEL_ENABLED:-false}              # OpenTelemetry (trazas); apagado por defecto (ver ops/docker-compose.otel.yml)
   OTEL_SERVICE_NAME: ${OTEL_SERVICE_NAME:-home-banking-backend}
   OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://otel-collector:4318}
@@ -89,7 +92,7 @@ services:
     build: ./backend
     image: ${HB_IMAGEN:-home-banking-valo}:backend-${HB_VERSION:-local}
     environment: *backend-env
-    secrets: [db_app_password, db_hist_ro_password, credenciales_master_key, keycloak_admin_client_secret, smtp_password]
+    secrets: [db_app_password, db_hist_ro_password, credenciales_master_key, keycloak_admin_client_secret, smtp_password, smtp2_password]
     depends_on:
       postgres:
         condition: service_healthy
@@ -110,11 +113,12 @@ services:
     command: ["node", "src/jobs/programador.js"]
     environment:
       <<: *backend-env
-      DB_OWNER_USER: postgres
-      DB_OWNER_PASSWORD_FILE: /run/secrets/db_owner_password
-      DBH_OWNER_USER: postgres
-      DBH_OWNER_PASSWORD_FILE: /run/secrets/dbh_owner_password
-    secrets: [db_app_password, db_hist_ro_password, credenciales_master_key, keycloak_admin_client_secret, db_owner_password, dbh_owner_password, smtp_password]
+      # Pase mensual a la histórica: roles dedicados (dueños solo de las tablas del pase), NO el superusuario postgres
+      DB_PASE_USER: hb_pase
+      DB_PASE_PASSWORD_FILE: /run/secrets/db_jobs_password
+      DBH_PASE_USER: hb_pase_h
+      DBH_PASE_PASSWORD_FILE: /run/secrets/dbh_jobs_password
+    secrets: [db_app_password, db_hist_ro_password, credenciales_master_key, keycloak_admin_client_secret, db_jobs_password, dbh_jobs_password, smtp_password, smtp2_password]
     healthcheck:   # el programador actualiza /tmp/latido cada minuto
       test: ["CMD-SHELL", "find /tmp/latido -mmin -3 | grep -q ."]
       interval: 60s
@@ -144,7 +148,7 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD_FILE: /run/secrets/db_owner_password
       TZ: UTC
-    secrets: [db_owner_password, db_app_password]
+    secrets: [db_owner_password, db_app_password, db_jobs_password]
     volumes:
       - pg_operativa:/var/lib/postgresql/data
     healthcheck:
@@ -168,7 +172,7 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD_FILE: /run/secrets/dbh_owner_password
       TZ: UTC
-    secrets: [dbh_owner_password, db_hist_ro_password]
+    secrets: [dbh_owner_password, db_hist_ro_password, dbh_jobs_password]
     volumes:
       - pg_historica:/var/lib/postgresql/data
     healthcheck:
@@ -223,6 +227,10 @@ secrets:
     file: ./secrets/db_owner_password.txt
   dbh_owner_password:
     file: ./secrets/dbh_owner_password.txt
+  db_jobs_password:
+    file: ./secrets/db_jobs_password.txt
+  dbh_jobs_password:
+    file: ./secrets/dbh_jobs_password.txt
   db_app_password:
     file: ./secrets/db_app_password.txt
   db_hist_ro_password:
@@ -235,6 +243,8 @@ secrets:
     file: ./secrets/keycloak_bootstrap_password.txt
   smtp_password:   # vacío si el servidor de correo no pide clave (o con el buzón de prueba)
     file: ./secrets/smtp_password.txt
+  smtp2_password:  # clave del SMTP de respaldo (HB_SMTP2_*); vacío si no se usa
+    file: ./secrets/smtp2_password.txt
 
 volumes:
   pg_operativa:

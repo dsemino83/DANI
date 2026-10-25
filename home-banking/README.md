@@ -96,7 +96,8 @@ Las imágenes no contienen secretos: claves, certificado y credencial del banco 
 
 | Archivo en `./secrets` | Uso |
 |---|---|
-| `db_owner_password.txt` / `dbh_owner_password.txt` | Dueño de cada base (solo inicialización y job del pase histórico) |
+| `db_owner_password.txt` / `dbh_owner_password.txt` | Dueño (postgres) de cada base: solo inicialización y migraciones; ya no lo usa ningún servicio de la app |
+| `db_jobs_password.txt` / `dbh_jobs_password.txt` | Roles `hb_pase` / `hb_pase_h` del pase mensual a la histórica (job): dueños solo de las tablas que mueve |
 | `db_app_password.txt` | Usuario `hb_app` de la operativa: sin DELETE en transferencias ni UPDATE/DELETE en auditoría |
 | `db_hist_ro_password.txt` | Usuario `hb_hist_ro`: solo lectura de la histórica |
 | `credenciales_master_key.txt` | Llave AES-256 (32 bytes base64) que cifra la clave API en reposo |

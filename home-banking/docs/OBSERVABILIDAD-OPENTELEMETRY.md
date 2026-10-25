@@ -53,9 +53,20 @@ Para encenderlo sin el overlay, basta `OTEL_ENABLED=true` en `.env` apuntando a 
   `mixin` del logger.
 - `ops/otel-collector/config.yaml`, `ops/docker-compose.otel.yml` — collector y overlay.
 
+## Verificado / no verificado
+
+- **Verificado (local):** con `OTEL_ENABLED=true`, un servidor Fastify real genera spans HTTP/Fastify y se exportan
+  por OTLP/HTTP a un receptor de prueba. El span lleva la ruta con números largos enmascarados y sin query
+  (`/api/cuentas/*/movimientos`), el patrón en `http.route`, y **no** contiene cuenta, CBU, `Authorization` ni cookies.
+- **Versiones:** se fijó un único set de la línea `0.213` (`sdk-node`, `exporter`, `instrumentation-http` 0.213.0,
+  `instrumentation-fastify` 0.57.0, `instrumentation-pg` 0.65.0, `api` 1.9.1, `resources` 2.6.0) para tener una sola
+  copia de `@opentelemetry/instrumentation`. Con versiones mezcladas (fastify 0.56 sobre 0.212 y el resto sobre 0.300) no se generaban spans.
+- **No verificado:** los spans de PostgreSQL (`instrumentation-pg`) no se comprobaron de punta a punta, ni el
+  Collector real en Docker.
+- **Sin persistencia de trazas:** el Collector incluido exporta con `debug` (imprime un resumen): **no hay
+  almacenamiento ni visualización persistente de trazas** hasta que se configure un exporter a Tempo/Jaeger.
+
 ## Estado
 
-**IMPLEMENTADO EN CÓDIGO, NO VALIDADO DE PUNTA A PUNTA.** Está verificado que `otel.js` carga apagado sin
-efecto y, encendido, inicia el SDK sin romper la app aunque el collector no esté. La recepción real de trazas
-en el collector y su visualización NO se validaron en este entorno (requiere levantar el collector). No se
-afirma "OTEL OK".
+**IMPLEMENTADO Y VERIFICADO PARCIALMENTE** (HTTP/Fastify con exportación OTLP y sin datos sensibles). **Tracing
+persistente: NO** (requiere un backend de trazas). No se afirma "OTEL OK" de punta a punta.

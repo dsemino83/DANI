@@ -5,6 +5,7 @@ import { operativa, tx } from '../db.js';
 import { auditarSistema } from '../auditoria.js';
 import { cuentasPropias, estadoTransferencias, movimientos } from '../bdv/cliente.js';
 import { estadoDesdeBanco } from '../bdv/transferencias.js';
+import { instante, segundosDeHora } from '../servicios/programacion.js';
 
 const iso = (d) => new Date(d).toISOString().slice(0, 10);
 
@@ -68,10 +69,44 @@ export async function recuperarEnviando(minutos = 10) {
   return n;
 }
 
-// Vincula débitos con transferencias DEBITADA sin vínculo (misma cuenta, fecha e importe).
+// Conciliación débito ↔ transferencia. Nunca adivina: un débito se asocia a una transferencia solo si la
+// coincidencia es ÚNICA. Prioridad: 1) ID / referencia / nro. de control (coincidencia fuerte); 2) cuenta +
+// importe + fecha + hora (coincidencia débil). Si hay más de un candidato equivalente (o más de una
+// transferencia equivalente compitiendo por el mismo débito) => CONCILIACION_AMBIGUA y NO se asigna nada.
+export const CONCILIACION_AMBIGUA = 'CONCILIACION_AMBIGUA';
+
+const idsDeTransferencia = (t) => [t.transaction_id, t.nro_control, t.referencia].filter((x) => x != null && x !== '').map(String);
+const idsDeMovimiento = (m) => [m.transactionId, m.reference, m.referencia, m.nroControl, m.controlNumber].filter((x) => x != null && x !== '').map(String);
+
+// Instante del movimiento (processDate ISO o dd/mm/aaaa + hora del banco); null si no se entiende.
+function instanteDe(m) {
+  const f = String(m.processDate ?? '');
+  const iso = /^(\d{4}-\d{2}-\d{2})/.exec(f)?.[1] ?? (/^(\d{2})\/(\d{2})\/(\d{4})/.exec(f) ? f.replace(/^(\d{2})\/(\d{2})\/(\d{4}).*/, '$3-$2-$1') : null);
+  const seg = segundosDeHora(m.hour);
+  if (!iso || seg == null) return null;
+  return instante(iso, '00:00').getTime() + seg * 1000;
+}
+
+// Decide el movimiento de una transferencia. `usados`: movimientos ya vinculados; `competidoras`: otras
+// transferencias pendientes de vincular con la misma cuenta e importe. Devuelve { movimiento } o { ambigua } o {}.
+export function elegirMovimiento(t, movimientos, usados = new Set(), competidoras = 0) {
+  const libres = movimientos.filter((m) => m.signDC === 'D' && !usados.has(String(m.transactionId)));
+  // 1) Coincidencia fuerte por ID / referencia / control
+  const mis = new Set(idsDeTransferencia(t));
+  const fuertes = libres.filter((m) => idsDeMovimiento(m).some((id) => mis.has(id)));
+  if (fuertes.length === 1) return { movimiento: fuertes[0], por: 'id' };
+  if (fuertes.length > 1) return { ambigua: true, candidatos: fuertes.length };
+  // 2) Cuenta (ya filtrada por la consulta) + importe + fecha/hora
+  const desde = t.aprobado_en ? +new Date(t.aprobado_en) - 5 * 60_000 : null;
+  const debiles = libres.filter((m) => Number(m.amount) === Number(t.importe) && (desde == null || (instanteDe(m) ?? Infinity) >= desde));
+  if (!debiles.length) return {};
+  if (debiles.length === 1 && competidoras === 0) return { movimiento: debiles[0], por: 'importe' };
+  return { ambigua: true, candidatos: debiles.length, competidoras };
+}
+
 export async function conciliarDebitos() {
   const { rows } = await operativa.query(
-    `SELECT t.id, t.cuenta_origen, t.importe, t.aprobado_en FROM transferencia t
+    `SELECT t.id, t.cuenta_origen, t.importe, t.aprobado_en, t.transaction_id, t.nro_control, t.referencia FROM transferencia t
       LEFT JOIN debito_transferencia d ON d.transferencia_id = t.id
      WHERE t.estado = 'DEBITADA' AND d.transferencia_id IS NULL AND t.creado_en >= now() - interval '7 days'`);
   if (!rows.length) return 0;
@@ -83,14 +118,26 @@ export async function conciliarDebitos() {
     if (!c) continue;
     const dia = iso(t.aprobado_en);
     const { movimientos: ms } = await movimientos(c, dia, iso(Date.now()));
-    const m = ms.find((x) => x.signDC === 'D' && Number(x.amount) === Number(t.importe) && !usados.has(String(x.transactionId)));
-    if (!m) continue;
+    const competidoras = rows.filter((o) => o.id !== t.id && o.cuenta_origen === t.cuenta_origen && Number(o.importe) === Number(t.importe)).length;
+    const r = elegirMovimiento(t, ms, usados, competidoras);
+    if (r.ambigua) { await avisarAmbigua(t, r); continue; }   // sin asignación: lo resuelve una persona
+    if (!r.movimiento) continue;
+    const m = r.movimiento;
     usados.add(String(m.transactionId));
     await operativa.query('INSERT INTO debito_transferencia (movimiento_id, cuenta, transferencia_id) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING',
       [String(m.transactionId), t.cuenta_origen, t.id]);
     n++;
   }
   return n;
+}
+
+// Deja constancia (una sola vez por operación) de que no se pudo vincular sin ambigüedad. No toca el estado.
+async function avisarAmbigua(t, r) {
+  const ya = await operativa.query(`SELECT 1 FROM auditoria WHERE ref_tipo = 'transferencia' AND ref_id = $1 AND accion = $2 LIMIT 1`, [t.id, CONCILIACION_AMBIGUA]);
+  if (ya.rowCount) return;
+  await tx(operativa, (c) => auditarSistema(c, { tipo: 'Transferencias', accion: CONCILIACION_AMBIGUA, api: 'getMovementsDetail', resultado: 'Error',
+    detalle: `OP-${t.id} · ${r.candidatos} débito(s) equivalente(s) y ${r.competidoras ?? 0} operación(es) equivalente(s): no se vincula automáticamente, conciliar a mano`,
+    ref: { tipo: 'transferencia', id: t.id } }));
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

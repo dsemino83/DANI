@@ -31,6 +31,8 @@ case "$MODO" in
     [ "$ok" = RESTAURAR ] || { echo cancelado; exit 1; }
     restaurar postgres homebanking operativa "--clean --if-exists"
     restaurar postgres-historico homebanking_hist historica "--clean --if-exists"
+    # El resguardo va --no-owner: se vuelve a dar la propiedad de las tablas del pase a hb_pase / hb_pase_h (idempotente).
+    sh "$(dirname "$0")/migrar-bases.sh"
     echo "restaurado";;
   *) echo "modo: --probar o --restaurar" >&2; exit 1;;
 esac

@@ -58,13 +58,18 @@ jobs:
           docker run --rm -v "$PWD:/repo" zricethezav/gitleaks:latest \
             detect --source=/repo --config=/repo/.gitleaks.toml --redact --no-banner --exit-code 1
         working-directory: .
-      # Trivy con la imagen oficial: vulnerabilidades (fs) y malas configuraciones de contenedor/IaC
-      # (Dockerfiles, docker-compose). Informativo (no bloquea): se revisa, no frena el deploy; el
-      # "|| true" evita que un problema de descarga de la imagen tumbe el CI.
-      - name: Trivy (vulnerabilidades e IaC) — informativo
+      # Trivy (imagen oficial, versión fija): vulnerabilidades del repo (fs) y malas configuraciones de contenedor/IaC.
+      # BLOQUEA ante cualquier hallazgo CRITICAL (--exit-code 1, sin "|| true": si falla acá, no se publica).
+      # Los HIGH quedan como informativos (se listan pero no frenan).
+      - name: Trivy — bloquea CRITICAL
         run: |
-          docker run --rm -v "$PWD:/scan" aquasec/trivy:0.58.1 fs --no-progress --severity HIGH,CRITICAL --ignore-unfixed --exit-code 0 /scan/home-banking || true
-          docker run --rm -v "$PWD:/scan" aquasec/trivy:0.58.1 config --no-progress --severity HIGH,CRITICAL --exit-code 0 /scan/home-banking || true
+          docker run --rm -v "$PWD:/scan" aquasec/trivy:0.58.1 fs --no-progress --severity CRITICAL --ignore-unfixed --exit-code 1 /scan/home-banking
+          docker run --rm -v "$PWD:/scan" aquasec/trivy:0.58.1 config --no-progress --severity CRITICAL --exit-code 1 /scan/home-banking
+        working-directory: .
+      - name: Trivy — HIGH (informativo)
+        run: |
+          docker run --rm -v "$PWD:/scan" aquasec/trivy:0.58.1 fs --no-progress --severity HIGH --ignore-unfixed --exit-code 0 /scan/home-banking || true
+          docker run --rm -v "$PWD:/scan" aquasec/trivy:0.58.1 config --no-progress --severity HIGH --exit-code 0 /scan/home-banking || true
         working-directory: .
 
   autorizacion:

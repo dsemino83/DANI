@@ -2,7 +2,8 @@
 // HB_RETENCION_MESES, 1 por defecto) se copia a la histórica, se verifica (filas + hash) y recién entonces
 // se elimina de la operativa. Tablas particionadas: se mueve la partición del mes entera. Tablas sin
 // partición (cola y log de envíos de correo): se mueven las filas terminadas de ese mes.
-// Usa usuarios dueños de cada base (no el de la aplicación).
+// Usa roles dedicados del pase (hb_pase / hb_pase_h: dueños solo de las tablas que mueve), no el de la aplicación
+// ni el superusuario postgres.
 import { pathToFileURL } from 'node:url';
 import pg from 'pg';
 import { readFileSync } from 'node:fs';
@@ -75,8 +76,8 @@ export function particionesAPasar(nombres, tabla, corte) {
 const hashSql = (rel) => `SELECT count(*)::bigint AS filas, coalesce(md5(string_agg(md5(t::text), '' ORDER BY id)), '') AS hash FROM ${rel} t`;
 
 export async function ejecutarPase(log = console) {
-  const op = new pg.Client({ host: leer('DB_HOST', 'postgres'), port: Number(leer('DB_PORT', '5432')), database: leer('DB_NAME', 'homebanking'), user: leer('DB_OWNER_USER', 'postgres'), password: leer('DB_OWNER_PASSWORD') });
-  const hi = new pg.Client({ host: leer('DBH_HOST', 'postgres-historico'), port: Number(leer('DBH_PORT', '5432')), database: leer('DBH_NAME', 'homebanking_hist'), user: leer('DBH_OWNER_USER', 'postgres'), password: leer('DBH_OWNER_PASSWORD') });
+  const op = new pg.Client({ host: leer('DB_HOST', 'postgres'), port: Number(leer('DB_PORT', '5432')), database: leer('DB_NAME', 'homebanking'), user: leer('DB_PASE_USER', 'hb_pase'), password: leer('DB_PASE_PASSWORD') });
+  const hi = new pg.Client({ host: leer('DBH_HOST', 'postgres-historico'), port: Number(leer('DBH_PORT', '5432')), database: leer('DBH_NAME', 'homebanking_hist'), user: leer('DBH_PASE_USER', 'hb_pase_h'), password: leer('DBH_PASE_PASSWORD') });
   await op.connect();
   await hi.connect();
   await op.query("SET TIME ZONE 'UTC'");

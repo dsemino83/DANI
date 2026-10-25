@@ -36,13 +36,21 @@ if (process.env.OTEL_ENABLED === 'true') {
 
     const servicio = process.env.OTEL_SERVICE_NAME || 'home-banking-backend';
     const sinInteres = (url = '') => url.startsWith('/api/health') || url.startsWith('/api/metrics');
+    // La URL cruda puede traer cuentas/CBU/CUIT en la ruta o datos en la query: el span lleva solo la ruta con los
+    // números largos enmascarados y SIN query string. (La ruta-patrón de Fastify viaja aparte en http.route.)
+    const rutaSegura = (url = '') => String(url).split('?')[0].replace(/\d{6,}/g, '*');
+    const limpiarSpan = (span, req) => {
+      const r = rutaSegura(req?.url);
+      for (const k of ['http.target', 'url.path', 'http.url', 'url.full']) span.setAttribute(k, r);
+      span.setAttribute('url.query', '');
+    };
 
     const sdk = new NodeSDK({
       resource: resourceFromAttributes({ [ATTR_SERVICE_NAME]: servicio }),
       traceExporter: new OTLPTraceExporter(), // usa OTEL_EXPORTER_OTLP_ENDPOINT
       instrumentations: [
         // Sin captura de encabezados ni cuerpos (defaults): nunca Authorization/Cookie/payload en el span.
-        new HttpInstrumentation({ ignoreIncomingRequestHook: (req) => sinInteres(req.url ?? '') }),
+        new HttpInstrumentation({ ignoreIncomingRequestHook: (req) => sinInteres(req.url ?? ''), requestHook: limpiarSpan }),
         new FastifyInstrumentation(),
         new PgInstrumentation({ enhancedDatabaseReporting: false }), // no captura valores de parámetros SQL
       ],

@@ -12,6 +12,17 @@ const fechaOk = (f) => /^\d{4}-\d{2}-\d{2}$/.test(f ?? '');
 // Id numérico de la URL: uno mal armado es un pedido inválido (400), no un error de la base (500)
 const idDe = (req) => { const id = Number(req.params.id); if (!Number.isSafeInteger(id) || id < 1) throw invalido('Id inválido'); return id; };
 
+// Cursor opaco de paginación del histórico: (creado_en con microsegundos en UTC, id)
+const codificarCursor = (ts, id) => Buffer.from(JSON.stringify([ts, String(id)])).toString('base64url');
+function cursorDe(valor) {
+  if (!valor) return null;
+  try {
+    const [ts, id] = JSON.parse(Buffer.from(String(valor), 'base64url').toString('utf8'));
+    if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{1,6}Z$/.test(ts) || !/^\d{1,18}$/.test(String(id))) throw new Error();
+    return { ts, id: String(id) };
+  } catch { throw invalido('Cursor inválido'); }
+}
+
 export default async function rutasTransferencias(app) {
   const operativos = { preHandler: exigirRol(...ROLES_OPERATIVOS) };
 
@@ -44,16 +55,25 @@ export default async function rutasTransferencias(app) {
     const { desde, hasta } = req.query;
     if (!fechaOk(desde) || !fechaOk(hasta) || desde > hasta) throw invalido('Indicá desde y hasta (AAAA-MM-DD)');
     if (hasta >= corte) throw invalido(`La base histórica tiene lo anterior al ${corte}. Para fechas posteriores usá /transferencias`);
-    const pagina = Math.max(0, Number(req.query.pagina ?? 0)), tam = 500;
+    // Paginación por cursor (keyset sobre creado_en, id): estable y sin OFFSET aunque entren filas nuevas.
+    const tam = 500;
+    const cur = cursorDe(req.query.cursor);
+    if (!cur && Number(req.query.pagina ?? 0) > 0) throw invalido('Paginá con "cursor" (el valor "siguiente" de la respuesta anterior)');
     const cuentas = [...(await cuentasHabilitadas(req.user.usuario)).keys()];
     const { rows } = await historica.query(
-      `SELECT id, referencia, tipo, api, cuenta_origen, moneda, destino, titular, importe, creador, aprobador, estado, transaction_id, lote_id, creado_en, aprobado_en
+      `SELECT id, referencia, tipo, api, cuenta_origen, moneda, destino, titular, importe, creador, aprobador, estado, transaction_id, lote_id, creado_en, aprobado_en,
+              to_char(creado_en AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS cursor_ts
          FROM transferencia
         WHERE creado_en >= $1::date AND creado_en < $2::date + 1 AND cuenta_origen = ANY($3)
-        ORDER BY creado_en DESC OFFSET $4 LIMIT $5`,
-      [desde, hasta, cuentas, pagina * tam, tam + 1]);
-    await auditar(null, req, { tipo: 'Consultas', accion: 'Consultó base histórica de transferencias', detalle: `${desde} a ${hasta} · página ${pagina}` });
-    return { base: 'historica', desde, hasta, pagina, hayMas: rows.length > tam, transferencias: rows.slice(0, tam) };
+          AND ($4::timestamptz IS NULL OR (creado_en, id) < ($4::timestamptz, $5::bigint))
+        ORDER BY creado_en DESC, id DESC LIMIT $6`,
+      [desde, hasta, cuentas, cur?.ts ?? null, cur?.id ?? null, tam + 1]);
+    const hayMas = rows.length > tam;
+    const pagina = rows.slice(0, tam);
+    const ultima = pagina.at(-1);
+    await auditar(null, req, { tipo: 'Consultas', accion: 'Consultó base histórica de transferencias', detalle: `${desde} a ${hasta} · ${cur ? 'continuación' : 'primera página'}` });
+    return { base: 'historica', desde, hasta, hayMas, siguiente: hayMas && ultima ? codificarCursor(ultima.cursor_ts, ultima.id) : null,
+      transferencias: pagina.map(({ cursor_ts, ...t }) => t) };
   });
 
   // --- Motor de pagos: estado de la cola (operador, autorizante y auditor; no el administrador) ---

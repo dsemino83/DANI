@@ -9,6 +9,8 @@ gen db_owner_password
 gen dbh_owner_password
 gen db_app_password
 gen db_hist_ro_password
+gen db_jobs_password     # rol hb_pase (pase mensual a la histórica)
+gen dbh_jobs_password    # rol hb_pase_h
 gen credenciales_master_key 32
 # Keycloak: secret de la service account home-banking-admin (el Keycloak propio lo toma de acá;
 # con el SSO de VALO, reemplazarlo por el que entregue Identidad) y clave inicial de la consola maestra.
@@ -19,6 +21,8 @@ gen keycloak_bootstrap_password
 gen resguardo_clave 32
 # Clave del servidor de correo (SMTP): se crea vacía; con un servidor real, escribirla acá (sin salto de línea)
 [ -f secrets/smtp_password.txt ] || : > secrets/smtp_password.txt
+# Idem para el SMTP de respaldo (HB_SMTP2_*): archivo vacío si no se usa; la clave NO va en el .env
+[ -f secrets/smtp2_password.txt ] || : > secrets/smtp2_password.txt
 # Permisos: la carpeta solo la abre el dueño (700). Los archivos quedan legibles (644) porque
 # docker compose los monta tal cual dentro de los contenedores, que corren con otros usuarios
 # (node, postgres); con 600 el backend y la inicialización de las bases no pueden leerlos.

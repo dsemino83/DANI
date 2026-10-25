@@ -33,6 +33,13 @@ export const config = {
     token: leer('METRICS_TOKEN', ''),
   },
 
+  // Monitoreo sintético de disponibilidad del banco (solo lectura). Apagado por defecto.
+  sintetico: {
+    habilitado: ['true', '1', 'si', 'sí'].includes(String(leer('SYNTHETIC_MONITOR_ENABLED', 'false')).toLowerCase()),
+    cron: leer('SYNTHETIC_MONITOR_CRON', '*/5 * * * *'),
+    timeoutMs: Math.max(1000, Number(leer('SYNTHETIC_TIMEOUT_MS', '10000'))),
+  },
+
   oidc: {
     issuer: leer('OIDC_ISSUER'), // p. ej. https://ssohomo.valo.ar/valo/realms/staff (debe coincidir con el iss del token)
     // URL con la que el backend llega al realm (JWKS, tokens, Admin API). En desarrollo difiere del issuer público.

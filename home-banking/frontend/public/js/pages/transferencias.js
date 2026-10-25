@@ -47,10 +47,12 @@ export async function render(main, ctx) {
     try {
       if (st.tModo === 'arch') {
         const todas = [];
+        let cursor = '';
         for (let p = 0; p < 20; p++) {
-          const r = await api(`/historico/transferencias?desde=${st.tArchDesde}&hasta=${st.tArchHasta}&pagina=${p}`);
+          const r = await api(`/historico/transferencias?desde=${st.tArchDesde}&hasta=${st.tArchHasta}${cursor}`);
           todas.push(...r.transferencias);
-          if (!r.hayMas) break;
+          if (!r.hayMas || !r.siguiente) break;
+          cursor = `&cursor=${encodeURIComponent(r.siguiente)}`;
         }
         datos = todas;
       } else {

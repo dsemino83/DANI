@@ -394,3 +394,36 @@ test('circuit breaker BDV: 4xx no abre y recuperación half-open solo usa consul
 function configBdv() {
   return { umbralFallos: Math.max(1, Number(process.env.BDV_CIRCUIT_BREAKER_FAILURES ?? 5)) };
 }
+
+// Conciliación débito ↔ transferencia: nunca asigna si hay candidatos equivalentes
+const { elegirMovimiento } = await import('../src/jobs/estado-banco.js');
+test('conciliación: un solo débito equivalente se vincula', () => {
+  const t = { id: 1, importe: '1000.00', aprobado_en: '2026-10-20T13:00:00Z', transaction_id: 'T-1' };
+  const r = elegirMovimiento(t, [{ signDC: 'D', amount: 1000, transactionId: 'M-1', processDate: '2026-10-20', hour: '10:15:00' }], new Set(), 0);
+  assert.equal(r.movimiento.transactionId, 'M-1');
+});
+test('conciliación: dos débitos idénticos => ambigua, sin asignación', () => {
+  const t = { id: 1, importe: '1000.00', aprobado_en: '2026-10-20T13:00:00Z', transaction_id: 'T-1' };
+  const ms = [{ signDC: 'D', amount: 1000, transactionId: 'M-1', processDate: '2026-10-20', hour: '10:15:00' },
+    { signDC: 'D', amount: 1000, transactionId: 'M-2', processDate: '2026-10-20', hour: '10:16:00' }];
+  const r = elegirMovimiento(t, ms, new Set(), 0);
+  assert.equal(r.ambigua, true);
+  assert.equal(r.movimiento, undefined);
+});
+test('conciliación: dos transferencias idénticas y un solo débito => ambigua', () => {
+  const t = { id: 1, importe: '1000.00', aprobado_en: '2026-10-20T13:00:00Z' };
+  const r = elegirMovimiento(t, [{ signDC: 'D', amount: 1000, transactionId: 'M-1', processDate: '2026-10-20', hour: '10:15:00' }], new Set(), 1);
+  assert.equal(r.ambigua, true);
+  assert.equal(r.movimiento, undefined);
+});
+test('conciliación: el ID/referencia desempata aunque haya importes iguales', () => {
+  const t = { id: 1, importe: '1000.00', aprobado_en: '2026-10-20T13:00:00Z', referencia: 'OP-77' };
+  const ms = [{ signDC: 'D', amount: 1000, transactionId: 'M-1', processDate: '2026-10-20', hour: '10:15:00' },
+    { signDC: 'D', amount: 1000, transactionId: 'OP-77', processDate: '2026-10-20', hour: '10:16:00' }];
+  assert.equal(elegirMovimiento(t, ms, new Set(), 1).movimiento.transactionId, 'OP-77');
+});
+test('conciliación: un movimiento ya vinculado no se reutiliza', () => {
+  const t = { id: 1, importe: '1000.00', aprobado_en: '2026-10-20T13:00:00Z' };
+  const ms = [{ signDC: 'D', amount: 1000, transactionId: 'M-1', processDate: '2026-10-20', hour: '10:15:00' }];
+  assert.deepEqual(elegirMovimiento(t, ms, new Set(['M-1']), 0), {});
+});

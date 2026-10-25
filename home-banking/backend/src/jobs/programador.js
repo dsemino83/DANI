@@ -1,6 +1,7 @@
 // Proceso de tareas programadas (servicio "jobs" del docker-compose).
 import cron from 'node-cron';
 import monitoreoSintetico from './monitoreo-sintetico.js';
+import { config } from '../config.js';
 import { writeFileSync } from 'node:fs';
 import { conciliarDebitos, recuperarEnviando, sincronizarEstados } from './estado-banco.js';
 import { ejecutarPase } from './pase-historico.js';
@@ -42,6 +43,27 @@ cron.schedule('*/2 * * * * *', async () => {
   try { await procesarPagos(logger); }
   catch (e) { console.error(new Date().toISOString(), 'motor-pagos', 'ERROR', e.message); }
 });
+
+// Monitoreo sintético de disponibilidad del banco (solo lectura; apagado por defecto: SYNTHETIC_MONITOR_ENABLED).
+// Log mínimo: resultado y duración. Si falla, deja una línea ALERTA (para el SIEM) y una entrada de auditoría
+// SOLO al cambiar de estado (no una por corrida), sin datos del banco.
+let sinteticoCaido = false;
+if (config.sintetico.habilitado) {
+  if (!cron.validate(config.sintetico.cron)) throw new Error('SYNTHETIC_MONITOR_CRON inválido');
+  cron.schedule(config.sintetico.cron, async () => {
+    try {
+      const r = await monitoreoSintetico();
+      log('monitoreo-sintetico', JSON.stringify(r));
+      if (!r.ok && !sinteticoCaido) {
+        console.error(new Date().toISOString(), 'ALERTA monitoreo-sintetico', JSON.stringify(r));
+        await auditarSistema(null, { tipo: 'Sistema', accion: 'Monitoreo sintético: banco no disponible', api: 'Monitoreo', resultado: 'Error', detalle: `${r.error} · ${r.ms} ms` });
+      } else if (r.ok && sinteticoCaido) {
+        await auditarSistema(null, { tipo: 'Sistema', accion: 'Monitoreo sintético: banco recuperado', api: 'Monitoreo', detalle: `${r.ms} ms` });
+      }
+      sinteticoCaido = !r.ok;
+    } catch (e) { console.error(new Date().toISOString(), 'monitoreo-sintetico', 'ERROR', e.message); }
+  }, { timezone: 'America/Argentina/Buenos_Aires' });
+}
 
 // Feriados de fuentes públicas: todos los días a las 03:20 (año en curso y el siguiente) y al arrancar
 const feriados = seguro('feriados', async () => {

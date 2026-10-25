@@ -101,7 +101,7 @@ URL_APP=$(grep '^HB_URL_PUBLICA=' .env | cut -d= -f2-)
 cat <<EOT
 
 Listo.
-  Home Banking: ${URL_APP}   (usuario admin.ti, clave Dev-admin-1; pide cambiarla)
+  Home Banking: ${URL_APP}   (usuario admin.ti, clave Dev-admin-ti-1; pide cambiarla)
   Portainer:    ${PANEL}   (usuario admin, clave en home-banking/secrets/portainer_admin_password.txt)
   Correo de prueba: ${CORREO}   (los correos de cambio de clave que manda el Home Banking)
 Para actualizar a la última versión: bash home-banking/scripts/maquina-prueba.sh

@@ -77,7 +77,7 @@ La primera vez tarda unos minutos (descarga imágenes y compila). Esperá a que 
 ## 6. Cargar la credencial de producción
 
 1. Abrí **https://localhost** y aceptá el aviso del certificado autofirmado.
-2. **Ingresar con usuario de VALO** → usuario `admin.ti`, clave `Dev-admin-1` (usuario del Keycloak local).
+2. **Ingresar con usuario de VALO** → usuario `admin.ti`, clave `Dev-admin-ti-1` (usuario del Keycloak local).
 3. **Credenciales API** → **Producción**. La URL ya muestra `https://api.bancodevalores.com/…`.
 4. Completá **Usuario**, **identification** (DNI) y **Terminal**. En **Clave** pegá el texto cifrado en base64 que entregó el banco y tildá **La clave ya viene cifrada por el banco**. La llave RSA no hace falta.
 5. **Guardar** → **Probar conexión**. Tiene que decir "Conexión OK" con el nombre de la entidad.

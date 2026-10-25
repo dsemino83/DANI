@@ -24,6 +24,8 @@ Generar 'db_owner_password'
 Generar 'dbh_owner_password'
 Generar 'db_app_password'
 Generar 'db_hist_ro_password'
+Generar 'db_jobs_password'
+Generar 'dbh_jobs_password'
 Generar 'credenciales_master_key' 32
 Generar 'resguardo_clave' 32   # cifrado de los resguardos (no se monta en contenedores)
 # Keycloak: secret de la service account home-banking-admin (el Keycloak propio lo toma de acá;
@@ -32,6 +34,7 @@ Generar 'keycloak_admin_client_secret' 32
 Generar 'keycloak_bootstrap_password'
 # Clave del servidor de correo (SMTP): se crea vacía; con un servidor real, escribirla en el archivo
 if (-not (Test-Path 'secrets\smtp_password.txt')) { Guardar 'secrets\smtp_password.txt' '' }
+if (-not (Test-Path 'secrets\smtp2_password.txt')) { Guardar 'secrets\smtp2_password.txt' '' }
 
 # Certificado autofirmado solo para desarrollo: se genera con openssl dentro de un contenedor
 if (-not (Test-Path 'frontend\certs\tls.crt')) {

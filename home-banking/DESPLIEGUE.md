@@ -126,7 +126,7 @@ La ficha de cada usuario muestra su estado: **Habilitado / Deshabilitado**, **Bl
 
 Nadie puede modificar su propio usuario. Para lo que no está en la app (por ejemplo, borrar un usuario o ver los eventos de ingreso), `admin.ti` tiene la consola del realm en `https://<servidor>/auth/admin/staff/console/`.
 
-Usuarios iniciales: `admin.ti`, `mgomez` (operador, Crear), `lrodriguez` (autorizante, Aprobar) y `svillalba` (auditor), con clave temporal `Dev-<usuario>-1` (por ejemplo `Dev-admin-1`) que **se cambia obligatoriamente en el primer ingreso**.
+Usuarios iniciales: `admin.ti`, `mgomez` (operador, Crear), `lrodriguez` (autorizante, Aprobar) y `svillalba` (auditor), con clave temporal `Dev-<usuario>-1` (para `admin.ti`: `Dev-admin-ti-1`) que **se cambia obligatoriamente en el primer ingreso**.
 
 La consola maestra (`https://<servidor>/auth/admin/`, usuario `admin`, clave en `secrets/keycloak_bootstrap_password.txt`) es solo para emergencias: el trabajo diario lo hace `admin.ti` en la consola del realm `staff`. Todo cambio de roles que se haga desde la app queda en la auditoría del Home Banking; los que se hagan en la consola quedan en los eventos de Keycloak.
 
@@ -140,7 +140,7 @@ Para probar sin instalar nada: una máquina virtual de GitHub con Docker que lev
 
 1. En el repositorio, elegí la rama **ALYC** → botón verde **Code** → pestaña **Codespaces** → **⋯** → **New with options** → máquina de **4 cores** → **Create codespace**.
 2. Se abre un editor en el navegador. Abajo, en la terminal, esperá el mensaje **Listo** (5 a 10 minutos la primera vez) con las dos direcciones:
-   - **Home Banking:** `https://<nombre>-443.app.github.dev` → `admin.ti` / `Dev-admin-1`.
+   - **Home Banking:** `https://<nombre>-443.app.github.dev` → `admin.ti` / `Dev-admin-ti-1`.
    - **Portainer:** `https://<nombre>-9443.app.github.dev` → usuario `admin`, clave en `home-banking/secrets/portainer_admin_password.txt` (abrilo desde el explorador de archivos del editor).
    También están en la pestaña **Ports**.
 3. Seguí con **Credenciales API**, Empresas y Usuarios y permisos como en `PRUEBA-INTEGRADA.md` (pasos 6 a 8). La máquina ya viene con banco **Producción** y **solo consultas**.
