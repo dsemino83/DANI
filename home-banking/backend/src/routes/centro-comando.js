@@ -7,7 +7,7 @@ export default async function rutasCentroComando(app) {
 
   app.get('/estado', async () => {
     const inicio = performance.now();
-    const [db, hist, pendientes, inciertas, errores] = await Promise.all([
+    const [db, hist, pendientes, enviadas, errores] = await Promise.all([
       operativa.query('SELECT 1 AS ok'),
       historica.query('SELECT 1 AS ok'),
       operativa.query("SELECT count(*)::int AS n FROM transferencia WHERE estado = 'PENDIENTE_APROBACION'"),
@@ -28,7 +28,7 @@ export default async function rutasCentroComando(app) {
       },
       negocio: {
         pendientesAprobacion: pendientes.rows[0].n,
-        enviadasInciertas: inciertas.rows[0].n,
+        enviadas: enviadas.rows[0].n,
         erroresApi: errores.rows[0].n,
       },
       zap: { enabled: process.env.ZAP_ENABLED === 'true', targetConfigured: Boolean(process.env.ZAP_TARGET_URL) },
