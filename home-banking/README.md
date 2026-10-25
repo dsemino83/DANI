@@ -183,3 +183,17 @@ Verifican acceso por empresa (BOLA), operación por id (IDOR), doble control y e
 - Con el banco: qué campo de `getTransfersStatus` (`code` o `idTrn`) corresponde al `transactionId` devuelto al enviar; si los campos `ddjj*` de transferMep van como booleanos (ejemplo del PDF) o `S`/`N` (diccionario de datos).
 - Con Operaciones: layout definitivo del TXT de ancho fijo (hoy es una propuesta en `src/servicios/lotes.js`).
 - Con Cumplimiento: retención de la base histórica.
+
+
+## Estado de validación y salida a producción
+
+El código y el pipeline automatizado no sustituyen la habilitación operativa. Antes de una salida real:
+
+- desplegar una **versión inmutable** usando `HB_VERSION=<commit>`, no depender solo de `alyc`;
+- comenzar contra producción con `BDV_SOLO_CONSULTAS=true` y completar `PRUEBA-INTEGRADA.md`;
+- custodiar secretos y la llave maestra fuera del servidor, en el mecanismo corporativo aprobado;
+- conservar al menos una copia de resguardo **fuera del servidor** y probar periódicamente su restauración;
+- habilitar métricas, monitor sintético y alertas; OpenTelemetry está disponible para integración con la plataforma de observabilidad;
+- ejecutar pruebas controladas de indisponibilidad del banco, SSO, SMTP y base antes de habilitar transferencias.
+
+La rama `ALYC` debe protegerse administrativamente en GitHub con PR y checks obligatorios. Esta configuración es externa al código y debe verificarse en el repositorio.

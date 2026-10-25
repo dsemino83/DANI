@@ -124,3 +124,20 @@ docker compose --profile sso-local down -v
 | El login de la aplicación no abre o vuelve a la pantalla de ingreso | Keycloak todavía está arrancando (esperá 1 minuto), o el `.env` no tiene los valores del paso 4 |
 | El backend se reinicia con `EACCES: permission denied, open '/run/secrets/…'` (Linux/macOS) | Secretos generados con una versión anterior del script: `chmod 700 secrets && chmod 644 secrets/*.txt`, después `docker compose --profile sso-local down -v` (la base quedó a medio inicializar) y volver a levantar |
 | `docker compose` falla en Windows con errores en archivos `.sh` | Clonado con fines de línea de Windows: volvé a clonar (el repositorio ya fuerza LF en esos archivos) |
+
+
+## Criterio de aprobación de preproducción
+
+Esta prueba debe completarse primero con `BDV_SOLO_CONSULTAS=true`. Registrar fecha, versión/commit desplegado, ambiente, ejecutor y resultado de cada punto.
+
+Se considera apta para avanzar únicamente si:
+
+- login/SSO, permisos por empresa y separación de roles funcionan;
+- saldos, movimientos, débitos, CBU e histórico coinciden con las fuentes esperadas;
+- una transferencia cargada no puede ser aprobada por su creador y en modo solo consultas no llega al banco;
+- auditoría e integridad no presentan errores;
+- backup y restauración de prueba finalizan correctamente;
+- métricas/alertas y monitor sintético responden;
+- las pruebas controladas de timeout o indisponibilidad no provocan doble envío ni pérdida silenciosa de estado.
+
+La habilitación de transferencias reales (`BDV_SOLO_CONSULTAS=false`) es un paso separado y debe realizarse solo después de aprobar esta evidencia y fijar una versión inmutable.

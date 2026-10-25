@@ -253,3 +253,25 @@ Guardar también `secrets/` y `.env`. **`docker compose down -v` borra los volú
 | `EACCES … /run/secrets/…` | Permisos de `secrets/`: `chmod 700 secrets && chmod 644 secrets/*.txt` |
 | El login vuelve a la pantalla de ingreso | Redirect URI y web origin del cliente `home-banking-web` en el SSO, y `OIDC_ISSUER` / `OIDC_ORIGIN` |
 | "Probar conexión" no conecta con el banco | Salida HTTPS del servidor hacia el host del banco, y el filtrado por IP del banco |
+
+
+## Checklist previo a producción
+
+Antes de cambiar `BDV_SOLO_CONSULTAS=false`:
+
+1. Fijar `HB_VERSION` al commit aprobado y conservar el identificador para rollback.
+2. Verificar certificado TLS, DNS, SSO, IP de salida habilitada y secretos definitivos.
+3. Ejecutar la prueba integrada completa en modo solo consultas y guardar evidencia.
+4. Ejecutar `scripts/resguardo.sh` y `scripts/probar-dr.sh`; el estado debe finalizar en `OK`.
+5. Copiar el resguardo a almacenamiento externo al host, con la retención definida por la organización.
+6. Habilitar observabilidad según `ops/README-OBSERVABILIDAD.md`: métricas, alertas y monitor sintético. OpenTelemetry puede activarse con la configuración de `ops/docker-compose.otel.yml`.
+7. Probar de forma controlada indisponibilidad/timeout del banco, SSO, SMTP y reinicio de base, verificando que no haya doble envío.
+8. Recién después habilitar transferencias y ejecutar una primera operación controlada conforme al procedimiento operativo aprobado.
+
+### Recuperación ante desastres
+
+El CI ejecuta un simulacro real de resguardo y restauración sobre bases temporales. `resguardo.sh` no marca un respaldo como completo si falla `pg_dump`, y la prueba de restauración exige las tablas centrales de la base operativa. Esto valida el mecanismo; en producción siguen siendo responsabilidad operativa la frecuencia, la copia fuera del servidor, la retención, el cifrado/custodia y los simulacros periódicos.
+
+### Separación de credenciales de base
+
+La aplicación usa roles distintos por función: `hb_app` para el backend, `hb_jobs` para las tareas programadas, `hb_pase`/`hb_pase_h` para el pase histórico y `hb_hist_ro` para lectura histórica. `hb_jobs` tiene permisos mínimos sobre las tablas necesarias y no debe sustituirse por el usuario del backend ni por `postgres`.

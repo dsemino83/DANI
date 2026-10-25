@@ -139,3 +139,10 @@ Toda acción queda registrada en el momento, en un registro **de solo inserción
 - Credencial API exclusiva del Home Banking y de envíos, y rotación de la actual: a gestionar con el banco.
 - Servidor SMTP de producción, dominio y certificado: a definir con Infraestructura.
 - Prueba integrada de punta a punta en producción con evidencia para auditoría. Las pruebas automáticas del CI (C24) usan un SSO y un banco simulados; la prueba de penetración contra el banco y el SSO reales de VALO queda pendiente.
+
+
+## Evidencia operativa previa a producción
+
+Además de los controles automáticos, conservar evidencia de la versión/commit desplegado, ejecución verde del CI, prueba integrada en modo solo consultas, prueba de resguardo/restauración y configuración de monitoreo. El simulacro de DR del CI valida el mecanismo sobre bases temporales; no reemplaza la política operativa de copias externas, retención ni los simulacros periódicos de producción.
+
+La protección de la rama `ALYC` (PR, checks obligatorios, bloqueo de force-push y eliminación) es un control administrativo de GitHub y debe verificarse por separado: no puede inferirse del contenido del repositorio.
