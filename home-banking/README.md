@@ -26,6 +26,24 @@ Después de levantar:
 2. En **Empresas**, dar de alta empresas y asignarles cuentas; en **Permisos**, otorgar Ver / Operar por empresa.
 3. En **Permisos**, asignar los roles Crear (`transferencias:crear`) y Aprobar (`transferencias:aprobar`); también se pueden asignar directamente en el SSO.
 
+## ZAP baseline nocturno de staging
+
+El servicio `jobs` ejecuta a las **02:30 (America/Argentina/Buenos_Aires)** un baseline de OWASP ZAP contra el staging configurado. Es un escaneo **pasivo/informativo**, sin active scan y sin compuerta de despliegue: sirve para detectar cambios de superficie y cabeceras/configuraciones inseguras sin bloquear la operación. ZAP documenta que su Baseline usa el spider y espera el passive scan, sin realizar ataques. citeturn2search0turn2search8
+
+Se activa explícitamente en el `.env`:
+
+```env
+ZAP_ENABLED=true
+ZAP_TARGET_URL=https://<staging-host>/
+ZAP_STAGING_HOST=<staging-host>
+ZAP_MAX_MINUTES=5
+ZAP_SPIDER_MINUTES=1
+```
+
+El código exige que el hostname de `ZAP_TARGET_URL` coincida exactamente con `ZAP_STAGING_HOST`, evitando que una configuración accidental apunte a producción. La API de ZAP queda únicamente en la red Docker interna y protegida con `secrets/zap_api_key.txt`. El informe JSON queda temporalmente en el contenedor de `jobs` y el resumen se registra en sus logs.
+
+> Esta tarea no autentica usuarios del SSO ni ejecuta operaciones bancarias. Por diseño, el baseline inicial cubre la superficie que pueda descubrir sin credenciales. El pentest autenticado contra staging sigue siendo una tarea separada.
+
 ### Lo que tiene que crear el equipo de Identidad en el realm `staff`
 
 | Client | Tipo | Para qué |
