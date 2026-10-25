@@ -5,8 +5,28 @@ import { config } from './config.js';
 // numeric -> number para importes (dos decimales; dentro del rango seguro de JS)
 pg.types.setTypeParser(1700, (v) => (v === null ? null : Number(v)));
 
-export const operativa = new pg.Pool(config.db.operativa);
-export const historica = new pg.Pool(config.db.historica);
+function poolMedido(nombre, opciones) {
+  const pool = new pg.Pool(opciones);
+  const queryOriginal = pool.query.bind(pool);
+  pool.query = async (...args) => {
+    const inicio = performance.now();
+    try {
+      const r = await queryOriginal(...args);
+      const duracionMs = Math.round((performance.now() - inicio) * 10) / 10;
+      if (duracionMs >= 100) console.warn(JSON.stringify({ metrica: 'db_query_lenta', base: nombre, duracionMs, filas: r.rowCount }));
+      return r;
+    } catch (e) {
+      const duracionMs = Math.round((performance.now() - inicio) * 10) / 10;
+      console.warn(JSON.stringify({ metrica: 'db_query_error', base: nombre, duracionMs, codigo: e.code }));
+      throw e;
+    }
+  };
+  pool.on('error', (e) => console.error(JSON.stringify({ metrica: 'db_pool_error', base: nombre, codigo: e.code })));
+  return pool;
+}
+
+export const operativa = poolMedido('operativa', config.db.operativa);
+export const historica = poolMedido('historica', config.db.historica);
 
 // Ejecuta fn dentro de una transacción; si fn lanza, revierte todo (incluida la auditoría).
 export async function tx(pool, fn) {
