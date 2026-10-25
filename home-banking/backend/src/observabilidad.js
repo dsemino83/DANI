@@ -2,6 +2,7 @@
 // nombres de clientes, tokens ni payloads del banco): solo método, ruta (el PATRÓN de Fastify, nunca la URL
 // con ids ni query string), status y tiempos. La cardinalidad queda acotada porque las rutas son un conjunto fijo.
 import { performance } from 'node:perf_hooks';
+import { bdv, bdvEnvios } from './bdv/cliente.js';
 
 const metricas = {
   requests: new Map(),   // "metodo|ruta|status" -> total
@@ -56,6 +57,16 @@ export function metricsPrometheus() {
   for (const [clave, valor] of metricas.latencias) {
     const [m, r] = clave.split('|');
     out.push(`homebanking_http_request_duration_ms_count{method="${esc(m)}",route="${esc(r)}"} ${valor.count}`);
+  }
+  out.push('# HELP homebanking_bdv_circuit_state Estado del circuit breaker BDV: 0 cerrado, 1 semiabierto, 2 abierto.');
+  out.push('# TYPE homebanking_bdv_circuit_state gauge');
+  out.push('# HELP homebanking_bdv_circuit_failures Fallas consecutivas de disponibilidad observadas por el circuit breaker.');
+  out.push('# TYPE homebanking_bdv_circuit_failures gauge');
+  for (const cliente of [bdv, bdvEnvios]) {
+    const e = cliente.estadoCircuito();
+    const valor = e.estado === 'abierto' ? 2 : e.estado === 'semiabierto' ? 1 : 0;
+    out.push(`homebanking_bdv_circuit_state{usage="${esc(cliente.uso)}"} ${valor}`);
+    out.push(`homebanking_bdv_circuit_failures{usage="${esc(cliente.uso)}"} ${e.fallosConsecutivos}`);
   }
   return out.join('\n') + '\n';
 }
