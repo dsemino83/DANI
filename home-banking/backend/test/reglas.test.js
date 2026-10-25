@@ -9,7 +9,7 @@ process.env.DBH_PASSWORD = 'x';
 process.env.CREDENCIALES_MASTER_KEY = randomBytes(32).toString('base64');
 
 const { armarRequest, estadoTrasEnvio, estadoDesdeBanco, largoConceptoMep } = await import('../src/bdv/transferencias.js');
-const { cifrarClave, fechaMDY, fechaDMY } = await import('../src/bdv/cliente.js');
+const { cifrarClave, fechaMDY, fechaDMY, ClienteBdv, ErrorBanco } = await import('../src/bdv/cliente.js');
 const { cifrar, descifrar } = await import('../src/secretos.js');
 const { usuarioDesdeToken } = await import('../src/auth.js');
 const { leerTxt, formatoDe } = await import('../src/servicios/lotes.js');
@@ -368,3 +368,29 @@ test('alerta por chat: destinatario de Teams (agrega el dominio si no tiene @val
   assert.equal(destinatarioChat('jperez@valo.ar'), 'jperez@valo.ar');   // ya tiene @valo → tal cual
   assert.equal(destinatarioChat('jperez@valo.com.ar'), 'jperez@valo.com.ar');
 });
+
+
+test('circuit breaker BDV: abre por disponibilidad y bloquea transferencias antes de enviarlas', () => {
+  const c = new ClienteBdv('prueba');
+  const n = configBdv().umbralFallos;
+  for (let i = 0; i < n; i++) c.registrarFalloCircuito(new ErrorBanco('Sin respuesta', { sinRespuesta: true }));
+  assert.equal(c.estadoCircuito().estado, 'abierto');
+  assert.throws(() => c.permitirPorCircuito({ envio: true }), /no fue enviada|circuito|recuperación/i);
+});
+
+test('circuit breaker BDV: 4xx no abre y recuperación half-open solo usa consultas', () => {
+  const c = new ClienteBdv('prueba');
+  c.registrarFalloCircuito(new ErrorBanco('HTTP 400', { http: 400 }));
+  assert.equal(c.estadoCircuito().estado, 'cerrado');
+  c.circuito.estado = 'abierto'; c.circuito.abiertoHasta = Date.now() - 1;
+  assert.throws(() => c.permitirPorCircuito({ envio: true }), /no fue enviada/i);
+  const permiso = c.permitirPorCircuito({ envio: false });
+  assert.equal(permiso.prueba, true);
+  assert.equal(c.estadoCircuito().estado, 'semiabierto');
+  c.registrarExitoCircuito();
+  assert.equal(c.estadoCircuito().estado, 'cerrado');
+});
+
+function configBdv() {
+  return { umbralFallos: Math.max(1, Number(process.env.BDV_CIRCUIT_BREAKER_FAILURES ?? 5)) };
+}
