@@ -162,6 +162,32 @@ La aplicación y el inicio de sesión usan la misma dirección: al entrar a `htt
 3. En `.env`: `HB_URL_PUBLICA=https://ealyc.valo.ar`, `OIDC_ISSUER=https://ealyc.valo.ar/auth/realms/staff` y `OIDC_ORIGIN=https://ealyc.valo.ar`.
 4. `docker compose --profile sso-local up -d` y `sh scripts/configurar-dominio.sh` (habilita la dirección nueva en el cliente `home-banking-web` de Keycloak; la anterior deja de funcionar).
 
+## 6 bis. ZAP baseline nocturno de staging
+
+El stack incluye un servicio interno de OWASP ZAP para ejecutar un baseline **pasivo/informativo** contra staging. Se programa desde `jobs` a las **02:30 (America/Argentina/Buenos_Aires)** y no es una compuerta de despliegue.
+
+Configurar únicamente en staging:
+
+```env
+ZAP_ENABLED=true
+ZAP_TARGET_URL=https://<staging-host>/
+ZAP_STAGING_HOST=<staging-host>
+ZAP_MAX_MINUTES=5
+ZAP_SPIDER_MINUTES=1
+```
+
+El código valida que el hostname de `ZAP_TARGET_URL` sea exactamente `ZAP_STAGING_HOST`. La API de ZAP no se publica en ningún puerto del host y usa `secrets/zap_api_key.txt`. Si la variable `ZAP_ENABLED` queda en `false`, el job no realiza ningún escaneo.
+
+El baseline usa crawling y análisis pasivo; no realiza Active Scan ni intenta explotar vulnerabilidades. El objetivo es detectar cambios de superficie, cabeceras y otras señales informativas de seguridad. El pentest autenticado contra staging continúa siendo una actividad independiente.
+
+Para crear la clave localmente:
+
+```sh
+sh scripts/generar-secretos.sh
+```
+
+El informe JSON se genera temporalmente dentro del contenedor `jobs`; el resumen queda disponible en sus logs. Si se necesita conservar evidencias para auditoría, deben copiarse a un repositorio de evidencias o almacenamiento de resguardo aprobado, sin guardar secretos ni tokens.
+
 ## 7. Actualizar a una versión nueva
 
 Cada push a `ALYC` que pasa las pruebas publica `backend-alyc`/`frontend-alyc` y la versión fija `backend-<commit>`/`frontend-<commit>`.
