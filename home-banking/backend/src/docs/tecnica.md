@@ -146,3 +146,25 @@ Secretos en `secrets/*.txt` (fuera del repositorio): claves de las bases, `crede
 | `POST /sistema/{reconectar-banco,reprocesar-cola,refrescar-feriados,verificar-integridad}` | administrador | Reinicios seguros por subsistema, sin tocar contenedores; auditados |
 | `GET /docs/:nombre` | manual: todos; auditoría y técnica: auditor y administrador | Esta documentación |
 | `GET /auditoria/integridad` | auditor y administrador | Verifica la cadena de hashes de la auditoría |
+
+
+## Mínimo privilegio de base de datos
+
+Los procesos no comparten un usuario privilegiado:
+
+- `backend`: `hb_app`;
+- `jobs`: `hb_jobs`, con permisos explícitos solo sobre las tablas/secuencias que necesita y sin DELETE;
+- pase histórico: `hb_pase` y `hb_pase_h`;
+- lectura histórica: `hb_hist_ro`.
+
+Los usuarios `postgres` quedan reservados para inicialización/migración y no son credenciales de ejecución de la aplicación.
+
+## Observabilidad y DR
+
+`METRICS_ENABLED` habilita métricas para Prometheus y `SYNTHETIC_MONITOR_ENABLED` ejecuta comprobaciones sintéticas de solo lectura del banco. OpenTelemetry se habilita con `OTEL_ENABLED` y exporta por OTLP; la configuración de referencia está en `ops/docker-compose.otel.yml`. La persistencia/retención de trazas depende de la plataforma de observabilidad elegida.
+
+El CI ejecuta `resguardo.sh` y un simulacro de restauración mediante `probar-dr.sh`. Un fallo de `pg_dump` impide marcar el resguardo como completo y la restauración de prueba valida tablas centrales. Para producción se requiere además copia externa al host, retención y simulacros periódicos.
+
+## Versionado de despliegue
+
+Para una liberación aprobada usar `HB_VERSION=<commit>` y registrar ese commit como evidencia. La etiqueta `alyc` es útil para pruebas continuas, pero una versión fijada facilita trazabilidad y rollback.
