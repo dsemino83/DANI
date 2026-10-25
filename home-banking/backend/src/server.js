@@ -10,6 +10,7 @@ import rutasConsultas from './routes/consultas.js';
 import rutasTransferencias from './routes/transferencias.js';
 import rutasAdmin from './routes/admin.js';
 import rutasCartera from './routes/cartera.js';
+import rutasCentroComando from './routes/centro-comando.js';
 import rutasAuditoria from './routes/auditoria.js';
 
 const app = Fastify({
@@ -63,6 +64,7 @@ await app.register(async (api) => {
   await api.register(rutasTransferencias);
   await api.register(rutasAuditoria);
   await api.register(rutasAdmin, { prefix: '/admin' });
+  await api.register(rutasCentroComando, { prefix: '/admin/centro-comando' });
   await api.register(rutasCartera, { prefix: '/cartera' });
 }, { prefix: '/api' });
 
