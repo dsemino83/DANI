@@ -20,8 +20,8 @@ trap limpiar EXIT
 grant() { sed -n "/<<'SQL'/,/^SQL/p" "$1" | sed '1d;$d' | grep -v 'CREATE ROLE'; }
 bases() {
   $PSQL -d postgres -c "DROP DATABASE IF EXISTS homebanking WITH (FORCE)" -c "DROP DATABASE IF EXISTS homebanking_hist WITH (FORCE)"
-  $PSQL -d postgres -c "DROP ROLE IF EXISTS hb_app" -c "DROP ROLE IF EXISTS hb_hist_ro"
-  $PSQL -d postgres -c "CREATE ROLE hb_app LOGIN PASSWORD 'apppass'" -c "CREATE ROLE hb_hist_ro LOGIN PASSWORD 'ropass'"
+  $PSQL -d postgres -c "DROP ROLE IF EXISTS hb_app" -c "DROP ROLE IF EXISTS hb_hist_ro" -c "DROP ROLE IF EXISTS hb_jobs"
+  $PSQL -d postgres -c "CREATE ROLE hb_app LOGIN PASSWORD 'apppass'" -c "CREATE ROLE hb_hist_ro LOGIN PASSWORD 'ropass'" -c "CREATE ROLE hb_jobs LOGIN PASSWORD 'jobspass'"
   $PSQL -d postgres -c "CREATE DATABASE homebanking" -c "CREATE DATABASE homebanking_hist"
   # Los GRANT salen del mismo script de init del repo (sin el CREATE ROLE, que ya hicimos arriba).
   $PSQL -d homebanking -f "$DB/operativa/01_esquema.sql" >/dev/null

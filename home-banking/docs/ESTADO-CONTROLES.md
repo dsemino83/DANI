@@ -22,7 +22,7 @@ INFRAESTRUCTURA** = depende de algo externo no desplegado · **PENDIENTE** = no 
 | Rate limiting | TESTEADO | por IP (Nginx) + por usuario (backend) |
 | TLS / HSTS / CSP / security headers | IMPLEMENTADO | Nginx |
 | Docker hardening + redes segmentadas | IMPLEMENTADO | cap_drop, read_only, pids/mem, publica/app/datos/salida |
-| Jobs sin superusuario | IMPLEMENTADO Y PROBADO (local) | el pase usa `hb_pase`/`hb_pase_h` (dueños solo de las tablas del pase); probado un pase real contra Postgres local; no ejecutado en Docker |
+| Jobs con mínimo privilegio | IMPLEMENTADO Y PROBADO (e2e + local) | el servicio `jobs` usa el rol `hb_jobs` (sin DELETE ni escritura sobre empresas/permisos/credenciales/lotes; el motor de pagos corre como `hb_jobs` en los e2e); el pase usa `hb_pase`/`hb_pase_h` (dueños solo de las tablas del pase); probado un pase real contra Postgres local; no ejecutado en Docker |
 | Conciliación débito↔transferencia | TESTEADO | ante candidatos equivalentes: `CONCILIACION_AMBIGUA`, sin asignación (tests con dos débitos idénticos) |
 | Histórico de transferencias | IMPLEMENTADO | paginación por cursor `(creado_en,id)`, sin OFFSET |
 | `X-Forwarded-For` | IMPLEMENTADO | Nginx lo sobrescribe con la IP real (no falsificable) |

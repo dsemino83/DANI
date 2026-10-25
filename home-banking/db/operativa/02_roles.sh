@@ -4,9 +4,11 @@
 set -eu
 APP_PASS="$(cat /run/secrets/db_app_password)"
 JOBS_PASS="$(cat /run/secrets/db_jobs_password)"
+JOBSAPP_PASS="$(cat /run/secrets/db_jobs_app_password)"
 
-psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" -v app_pass="$APP_PASS" -v jobs_pass="$JOBS_PASS" <<'SQL'
+psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" -v app_pass="$APP_PASS" -v jobs_pass="$JOBS_PASS" -v jobsapp_pass="$JOBSAPP_PASS" <<'SQL'
 CREATE ROLE hb_app LOGIN PASSWORD :'app_pass';
+CREATE ROLE hb_jobs LOGIN PASSWORD :'jobsapp_pass';   -- servicio jobs (programador); permisos en migraciones/018_rol_jobs.sql
 CREATE ROLE hb_pase LOGIN PASSWORD :'jobs_pass';   -- pase mensual (job); permisos en migraciones/017_rol_pase.sql
 GRANT USAGE ON SCHEMA public TO hb_app;
 GRANT SELECT, INSERT, UPDATE, DELETE ON empresa, permiso_empresa, cartera_oficial, oficial_chat, credencial_api,

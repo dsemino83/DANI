@@ -113,12 +113,15 @@ services:
     command: ["node", "src/jobs/programador.js"]
     environment:
       <<: *backend-env
+      # El programador NO usa el rol del backend (hb_app): rol propio con mínimo privilegio (migraciones/018_rol_jobs.sql)
+      DB_USER: hb_jobs
+      DB_PASSWORD_FILE: /run/secrets/db_jobs_app_password
       # Pase mensual a la histórica: roles dedicados (dueños solo de las tablas del pase), NO el superusuario postgres
       DB_PASE_USER: hb_pase
       DB_PASE_PASSWORD_FILE: /run/secrets/db_jobs_password
       DBH_PASE_USER: hb_pase_h
       DBH_PASE_PASSWORD_FILE: /run/secrets/dbh_jobs_password
-    secrets: [db_app_password, db_hist_ro_password, credenciales_master_key, keycloak_admin_client_secret, db_jobs_password, dbh_jobs_password, smtp_password, smtp2_password]
+    secrets: [db_jobs_app_password, db_hist_ro_password, credenciales_master_key, keycloak_admin_client_secret, db_jobs_password, dbh_jobs_password, smtp_password, smtp2_password]
     healthcheck:   # el programador actualiza /tmp/latido cada minuto
       test: ["CMD-SHELL", "find /tmp/latido -mmin -3 | grep -q ."]
       interval: 60s
@@ -148,7 +151,7 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD_FILE: /run/secrets/db_owner_password
       TZ: UTC
-    secrets: [db_owner_password, db_app_password, db_jobs_password]
+    secrets: [db_owner_password, db_app_password, db_jobs_password, db_jobs_app_password]
     volumes:
       - pg_operativa:/var/lib/postgresql/data
     healthcheck:
@@ -229,6 +232,8 @@ secrets:
     file: ./secrets/dbh_owner_password.txt
   db_jobs_password:
     file: ./secrets/db_jobs_password.txt
+  db_jobs_app_password:
+    file: ./secrets/db_jobs_app_password.txt
   dbh_jobs_password:
     file: ./secrets/dbh_jobs_password.txt
   db_app_password:

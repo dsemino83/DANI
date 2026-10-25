@@ -24,6 +24,7 @@ Generar 'db_owner_password'
 Generar 'dbh_owner_password'
 Generar 'db_app_password'
 Generar 'db_hist_ro_password'
+Generar 'db_jobs_app_password'
 Generar 'db_jobs_password'
 Generar 'dbh_jobs_password'
 Generar 'credenciales_master_key' 32

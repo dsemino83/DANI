@@ -11,6 +11,10 @@ docker compose exec -T postgres sh -c 'psql -v ON_ERROR_STOP=1 -q -U postgres -d
 SELECT format('CREATE ROLE hb_pase LOGIN PASSWORD %L', :'p') WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'hb_pase') \gexec
 SELECT format('ALTER ROLE hb_pase PASSWORD %L', :'p') \gexec
 SQL
+docker compose exec -T postgres sh -c 'psql -v ON_ERROR_STOP=1 -q -U postgres -d homebanking -v p="$(cat /run/secrets/db_jobs_app_password)" -f -' <<'SQL'
+SELECT format('CREATE ROLE hb_jobs LOGIN PASSWORD %L', :'p') WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'hb_jobs') \gexec
+SELECT format('ALTER ROLE hb_jobs PASSWORD %L', :'p') \gexec
+SQL
 docker compose exec -T postgres sh -c '
   for f in /migraciones/*.sql; do
     [ -f "$f" ] || continue

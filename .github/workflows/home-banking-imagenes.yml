@@ -173,6 +173,16 @@ jobs:
           sh scripts/configurar-dominio.sh
           test "$(curl -sk -o /dev/null -w '%{http_code}' "$AUTH&redirect_uri=https%3A%2F%2Flocalhost%2F")" = 200 && echo 'dominio restaurado'
           docker compose ps
+      # DR: resguardo cifrado real de las dos bases del stack levantado y restauración de prueba en bases temporales
+      # (nunca --restaurar). Evidencia de que resguardo.sh / restaurar-resguardo.sh / probar-dr.sh funcionan sobre Postgres real.
+      - name: Resguardo y simulacro de restauración (DR)
+        run: |
+          export HB_RESGUARDO_DIR="$RUNNER_TEMP/resguardos" HB_DR_STATUS_FILE="$RUNNER_TEMP/ultimo-simulacro-dr.env"
+          mkdir -p "$HB_RESGUARDO_DIR"
+          sh scripts/resguardo.sh
+          sh scripts/probar-dr.sh
+          cat "$HB_DR_STATUS_FILE"
+          grep -qx 'estado=OK' "$HB_DR_STATUS_FILE"
       - uses: actions/setup-node@v4
         with:
           node-version: '22'

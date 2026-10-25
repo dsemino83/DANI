@@ -18,8 +18,10 @@ umask 077
 mkdir -p "$DIR"
 
 volcar() { # servicio base nombre
-  docker compose exec -T "$1" pg_dump -U postgres -Fc --no-owner "$2" \
+  # sh no tiene pipefail: si pg_dump falla se deja una marca (.fallo) y NO queda una copia "buena" (ni COMPLETO)
+  { docker compose exec -T "$1" pg_dump -U postgres -Fc --no-owner "$2" || echo "$?" > "$DIR/.fallo.$3"; } \
     | openssl enc -aes-256-cbc -pbkdf2 -iter 200000 -salt -pass "file:$CLAVE" > "$DIR/$3.dump.enc"
+  [ ! -e "$DIR/.fallo.$3" ] || { echo "pg_dump de $2 falló: resguardo incompleto, no se marca COMPLETO" >&2; exit 3; }
   openssl dgst -sha256 -hmac "$(cat "$CLAVE")" -r "$DIR/$3.dump.enc" | cut -d' ' -f1 > "$DIR/$3.hmac"
   echo "ok $3: $(wc -c < "$DIR/$3.dump.enc") bytes cifrados"
 }

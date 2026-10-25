@@ -14,7 +14,7 @@ const j = async (t, m, r, b) => {
   return { s: x.status, b: await x.json().catch(() => null) };
 };
 const enviosAlBanco = async () => (await (await fetch(`${MOCK}/__llamadas`)).json()).filter((l) => l.ruta === '/bdv/transfers/immediates').length;
-const motor = () => execSync(`node ${join(AQUI, 'motor.mjs')}`, { stdio: 'pipe' }); // una pasada del motor de pagos
+const motor = () => execSync(`node ${join(AQUI, 'motor.mjs')}`, { stdio: 'pipe', env: { ...process.env, DB_USER: 'hb_jobs', DB_PASSWORD: 'jobspass' } }); // una pasada del motor de pagos, con el rol del servicio jobs (mínimo privilegio)
 const estadoDe = async (quien, id) => {
   const hoy = new Date().toISOString().slice(0, 10);
   const r = await j(quien, 'GET', `/transferencias?desde=${hoy}&hasta=${hoy}`);

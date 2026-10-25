@@ -9,6 +9,7 @@ gen db_owner_password
 gen dbh_owner_password
 gen db_app_password
 gen db_hist_ro_password
+gen db_jobs_app_password   # rol hb_jobs (servicio jobs)
 gen db_jobs_password     # rol hb_pase (pase mensual a la histórica)
 gen dbh_jobs_password    # rol hb_pase_h
 gen credenciales_master_key 32

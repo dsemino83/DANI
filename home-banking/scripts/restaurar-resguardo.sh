@@ -23,6 +23,9 @@ case "$MODO" in
       docker compose exec -T "$1" psql -U postgres -qc "DROP DATABASE IF EXISTS hb_prueba_restore" -c "CREATE DATABASE hb_prueba_restore"
       restaurar "$1" hb_prueba_restore "$3"
       echo "$3: $(docker compose exec -T "$1" psql -U postgres -d hb_prueba_restore -Atc "SELECT count(*) FROM pg_tables WHERE schemaname = 'public'") tablas restauradas"
+      # Una restauración "vacía" no es una prueba válida: tienen que estar las tablas centrales de la base
+      [ "$(docker compose exec -T "$1" psql -U postgres -d hb_prueba_restore -Atc "SELECT count(*) FROM pg_tables WHERE schemaname = 'public' AND tablename IN ('transferencia', 'auditoria')")" = 2 ] \
+        || { echo "$3: faltan tablas centrales (transferencia, auditoria) tras restaurar" >&2; docker compose exec -T "$1" psql -U postgres -qc "DROP DATABASE IF EXISTS hb_prueba_restore"; exit 4; }
       docker compose exec -T "$1" psql -U postgres -qc "DROP DATABASE hb_prueba_restore"
     done
     echo "prueba de restauración OK";;
