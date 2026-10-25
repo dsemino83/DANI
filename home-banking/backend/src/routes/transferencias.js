@@ -41,16 +41,28 @@ export default async function rutasTransferencias(app) {
     const { desde, hasta } = req.query;
     if (!fechaOk(desde) || !fechaOk(hasta) || desde > hasta) throw invalido('Indicá desde y hasta (AAAA-MM-DD)');
     if (hasta >= corte) throw invalido(`La base histórica tiene lo anterior al ${corte}. Para fechas posteriores usá /transferencias`);
-    const pagina = Math.max(0, Number(req.query.pagina ?? 0)), tam = 500;
+    const tam = Math.min(500, Math.max(1, Number(req.query.tam ?? 500)));
+    const cursorEn = req.query.cursor_en ?? null;
+    const cursorId = req.query.cursor_id ? Number(req.query.cursor_id) : null;
+    if ((cursorEn && !Number.isFinite(cursorId)) || (!cursorEn && cursorId !== null)) {
+      throw invalido('El cursor requiere cursor_en y cursor_id');
+    }
     const cuentas = [...(await cuentasHabilitadas(req.user.usuario)).keys()];
     const { rows } = await historica.query(
       `SELECT id, referencia, tipo, api, cuenta_origen, moneda, destino, titular, importe, creador, aprobador, estado, transaction_id, lote_id, creado_en, aprobado_en
          FROM transferencia
         WHERE creado_en >= $1::date AND creado_en < $2::date + 1 AND cuenta_origen = ANY($3)
-        ORDER BY creado_en DESC OFFSET $4 LIMIT $5`,
-      [desde, hasta, cuentas, pagina * tam, tam + 1]);
-    await auditar(null, req, { tipo: 'Consultas', accion: 'Consultó base histórica de transferencias', detalle: `${desde} a ${hasta} · página ${pagina}` });
-    return { base: 'historica', desde, hasta, pagina, hayMas: rows.length > tam, transferencias: rows.slice(0, tam) };
+          AND ($4::timestamptz IS NULL OR (creado_en, id) < ($4::timestamptz, $5::bigint))
+        ORDER BY creado_en DESC, id DESC
+        LIMIT $6`,
+      [desde, hasta, cuentas, cursorEn, cursorId, tam + 1]);
+    const paginaRows = rows.slice(0, tam);
+    const ultimo = paginaRows.at(-1);
+    const siguienteCursor = rows.length > tam && ultimo
+      ? { cursor_en: ultimo.creado_en, cursor_id: ultimo.id }
+      : null;
+    await auditar(null, req, { tipo: 'Consultas', accion: 'Consultó base histórica de transferencias', detalle: `${desde} a ${hasta} · cursor ${cursorEn ?? 'inicio'}` });
+    return { base: 'historica', desde, hasta, hayMas: rows.length > tam, siguienteCursor, transferencias: paginaRows };
   });
 
   // --- Auditoría de una operación (ruedita ⚙) ---
