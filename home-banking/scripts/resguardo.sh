@@ -27,6 +27,8 @@ volcar postgres homebanking operativa
 volcar postgres-historico homebanking_hist historica
 ( cd "$DIR" && sha256sum ./*.dump.enc > MANIFIESTO.sha256 )
 printf 'creado=%s\nversion=%s\n' "$SELLO" "${HB_VERSION:-local}" > "$DIR/INFO"
+# COMPLETO se crea al final de la generación local: consumidores/simulacros no deben usar copias parciales.
+printf 'ok\n' > "$DIR/COMPLETO"
 
 if [ -n "${HB_RESGUARDO_COPIAR:-}" ]; then
   sh -c "$(printf '%s' "$HB_RESGUARDO_COPIAR" | sed "s#{dir}#$DIR#g")" && echo "copiado fuera del servidor"
