@@ -23,6 +23,15 @@ const app = Fastify({
 
 await app.register(multipart, { limits: { fileSize: 10 * 1024 * 1024, files: 1 } });
 
+// Telemetría de latencia end-to-end. No registra query strings para evitar datos sensibles.
+app.addHook('onRequest', async (req) => { req.inicioMs = performance.now(); });
+app.addHook('onResponse', async (req, reply) => {
+  const duracionMs = Math.round((performance.now() - req.inicioMs) * 10) / 10;
+  const ruta = req.routeOptions?.url ?? 'desconocida';
+  const nivel = duracionMs >= 1000 ? 'warn' : 'info';
+  req.log[nivel]({ metrica: 'http_latency', ruta, metodo: req.method, status: reply.statusCode, duracionMs }, 'latencia HTTP');
+});
+
 app.setErrorHandler((err, req, reply) => {
   if (err instanceof ErrorHttp) return reply.code(err.status).send({ error: err.codigo, mensaje: err.message });
   if (err instanceof ErrorBanco) {
@@ -36,9 +45,16 @@ app.setErrorHandler((err, req, reply) => {
 });
 
 app.get('/api/health', async () => {
-  await operativa.query('SELECT 1');
-  await historica.query('SELECT 1');
-  return { ok: true };
+  const inicio = performance.now();
+  await Promise.all([operativa.query('SELECT 1'), historica.query('SELECT 1')]);
+  return {
+    ok: true,
+    dbMs: Math.round((performance.now() - inicio) * 10) / 10,
+    pools: {
+      operativa: { total: operativa.totalCount, idle: operativa.idleCount, esperando: operativa.waitingCount },
+      historica: { total: historica.totalCount, idle: historica.idleCount, esperando: historica.waitingCount },
+    },
+  };
 });
 
 await app.register(async (api) => {
