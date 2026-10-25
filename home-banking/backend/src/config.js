@@ -71,6 +71,9 @@ export const config = {
     sesionMinutos: Number(leer('BDV_SESION_MINUTOS', '20')), // minutos sin usar la sesión del banco antes de renovarla
     paginaMovimientos: 900, // getMovementsDetail: tamaño de página acordado
     maxPaginasMovimientos: Number(leer('BDV_MAX_PAGINAS', '200')),
+    cacheCuentasMs: Number(leer('BDV_CACHE_CUENTAS_MS', '10000')),
+    cacheSaldosMs: Number(leer('BDV_CACHE_SALDOS_MS', '3000')),
+    concurrenciaConsultas: Number(leer('BDV_CONCURRENCIA_CONSULTAS', '4')),
   },
 
   // Monto (ARS) que el banco deja operar sin su propia autorización. Solo informativo:
