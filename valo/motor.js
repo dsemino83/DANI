@@ -2284,6 +2284,25 @@
     return '';
   }
 
+  // CUIT/CUIL con dígito verificador válido (11 dígitos, módulo 11).
+  function cuitValido(c) {
+    const d = String(c || '').replace(/\D/g, '');
+    if (d.length !== 11) return false;
+    const s = [5, 4, 3, 2, 7, 6, 5, 4, 3, 2].reduce((t, k, i) => t + k * Number(d[i]), 0);
+    const v = 11 - (s % 11);
+    return (v === 11 ? 0 : v === 10 ? 9 : v) === Number(d[10]);
+  }
+  // CUIL de una persona en los documentos "Dorso de DNI" de Complif (raw_ocr_data.tax_id_number): el que contiene el DNI
+  // y tiene verificador válido; primero los documentos aprobados. Si hay dos CUIL distintos, no se elige ninguno.
+  function cuilDeDorsoDni(docs, dni) {
+    const d8 = String(dni || '').replace(/\D/g, '').padStart(8, '0');
+    const de = doc => String(((doc || {}).raw_ocr_data || {}).tax_id_number || '').replace(/\D/g, '');
+    const ok = (docs || []).filter(x => /dorso de dni/i.test(x.type || '') && cuitValido(de(x)) && de(x).slice(2, 10) === d8);
+    const aprobados = ok.filter(x => x.status === 'APPROVED');
+    const cuils = [...new Set((aprobados.length ? aprobados : ok).map(de))];
+    return cuils.length === 1 ? cuils[0] : '';
+  }
+
   // Firmante de la planilla que corresponde a una persona del PDF: por el DNI dentro del CUIT y, si no, por el nombre
   // (mismas palabras en cualquier orden, sin acentos).
   function firmanteDe(persona, firmantes) {
@@ -2806,6 +2825,8 @@
     });
     if (!(j.apoderados || []).length) errores.push('No hay apoderados.');
     (j.apoderados || []).filter(a => !a.cuitCuil).forEach(a => errores.push(`${a.apellido}, ${a.nombre}: sin CUIT/CUIL.`));
+    (j.apoderados || []).filter(a => a.cuitCuil && String(a.cuitCuil).replace(/\D/g, '').length !== 11)
+      .forEach(a => errores.push(`${a.apellido}, ${a.nombre}: tiene el DNI (${a.cuitCuil}) en lugar del CUIT/CUIL.`));
     return errores;
   }
   // Monto de una estructura de firma, leído del texto del poder ("en operaciones que no excedan la suma de U$S 500.000",
@@ -4767,7 +4788,7 @@ try {
     leerTxtMeli, bancoMeliDeTxt, bancosParaMeli,
     sqlExtraccionCartera, bookmarkletCartera, scriptPowerShellCartera, comandoTareaCartera, IMPORTES_CARTERA,
     NO_COBIS, ultimoDiaHabil, fechasNoCobis, FCIC_MELI_INICIAL, FERIADOS_AR, diaHabilAnterior, fechasFcicMeli, leerReporteCupones, armarNoCobisFcic, lineaNoCobis, txtNoCobis, loteApiNoCobis, scriptPowerShellNoCobis, scriptPowerShellProbarNoCobis, scriptPowerShellAgenteNoCobis, cmdEnvioNoCobis,
-    leerCartera, BASTANTEO_CATALOGO, BASTANTEO_CLAVES, BASTANTEO_EXTRA, leerPoderesOcr, leerAutoridadesOcr, COMPLIF_TIPOS, poderDesdeComplif, actaDesdeComplif, complifDeEmpresa, controlResumen, usoDelResumen, aplicarRevocatorias, claveRevocatoria, poderesFirmantesD, presidentesDeActas, gruposDelUso, usoCompleto, tokensDe, combosDeClausula, poderDelPresidente, leerClienteBastanteo, cuitPorDni, formatoCuit, firmanteDe, firmantesSinPoder, jsonPoder, jsonBastanteoUnico, jsonBastanteoV1, optimizarReglas, montoDeTexto, tcDePlanilla, modeloBastanteo, analizarBastanteo, vistaAgrupada, chatContextBastanteo, condicionDeFirma, compararBastanteos, firmasMinimasDe, TIPOS_DE_ERROR_BASTANTEO, validarJsonBastanteo, separarNombre, leerInventarioGarantias, leerUsoAcuerdos, leerCuentasPowerBI, clienteDeCuenta, leerPadronDesdeLineasPdf, INVENTARIOS_CONTABLES, INVENTARIO_DENOMINACION, INVENTARIO_FIRMAS, fechaReporteIso, fechaInventarioDesdeReporte, leerPadronDesdeInventarios, leerBaseEntes, unirPadron, armarInventariosContables, leerCom3500, leerTcApiBcra, elegirTipoCambio, numeroEnLetras, daxCarteraPowerBI, daxDiagnosticoPowerBI, daxSaldoDeuda, armarSaldoDeuda, daxSaldoDeudaDetalle, armarDeudaDetalle, leerFilasPowerBI, sugerirColumnaCartera, columnasNumericasCartera, agruparCartera, valoresDistintos, sqlCartera,
+    leerCartera, BASTANTEO_CATALOGO, BASTANTEO_CLAVES, BASTANTEO_EXTRA, leerPoderesOcr, leerAutoridadesOcr, COMPLIF_TIPOS, poderDesdeComplif, actaDesdeComplif, complifDeEmpresa, controlResumen, usoDelResumen, aplicarRevocatorias, claveRevocatoria, poderesFirmantesD, presidentesDeActas, gruposDelUso, usoCompleto, tokensDe, combosDeClausula, poderDelPresidente, leerClienteBastanteo, cuitPorDni, cuitValido, cuilDeDorsoDni, formatoCuit, firmanteDe, firmantesSinPoder, jsonPoder, jsonBastanteoUnico, jsonBastanteoV1, optimizarReglas, montoDeTexto, tcDePlanilla, modeloBastanteo, analizarBastanteo, vistaAgrupada, chatContextBastanteo, condicionDeFirma, compararBastanteos, firmasMinimasDe, TIPOS_DE_ERROR_BASTANTEO, validarJsonBastanteo, separarNombre, leerInventarioGarantias, leerUsoAcuerdos, leerCuentasPowerBI, clienteDeCuenta, leerPadronDesdeLineasPdf, INVENTARIOS_CONTABLES, INVENTARIO_DENOMINACION, INVENTARIO_FIRMAS, fechaReporteIso, fechaInventarioDesdeReporte, leerPadronDesdeInventarios, leerBaseEntes, unirPadron, armarInventariosContables, leerCom3500, leerTcApiBcra, elegirTipoCambio, numeroEnLetras, daxCarteraPowerBI, daxDiagnosticoPowerBI, daxSaldoDeuda, armarSaldoDeuda, daxSaldoDeudaDetalle, armarDeudaDetalle, leerFilasPowerBI, sugerirColumnaCartera, columnasNumericasCartera, agruparCartera, valoresDistintos, sqlCartera,
     leerCsv, encabezadosEjemplo, leerDefinicionInterfaz, sugerirColumna, detectarHojaInterfaz,
     normalizar, provinciaPorNombre, crearBuscadorBancoPorNombre, round2, aNumero, aFechaSerial, aCodigoBanco,
     fechaDDMMYY, fechaYYYYMMDD, fechaLegible, hoyDDMMYY,
