@@ -31,7 +31,7 @@ export async function leerCredencial(ambiente = config.ambiente, uso = 'principa
   return {
     ambiente, uso, version: `${uso}@${r.actualizado_en.toISOString()}`, url: urlBase(ambiente), // siempre la del ambiente, nunca una cargada a mano
     usuario: r.usuario, identification: r.identification, terminal: r.terminal, channel: r.channel,
-    rsaPublicKey: r.rsa_public_key, claveYaCifrada: r.clave_ya_cifrada,
+    rsaPublicKey: r.rsa_public_key, claveYaCifrada: r.clave_ya_cifrada, activa: r.activa,
     clave: descifrar({ cifrado: r.clave_cifrada, iv: r.clave_iv, tag: r.clave_tag }),
   };
 }
@@ -49,14 +49,14 @@ export async function estadoCredencial(ambiente, uso = 'principal') {
   const { rows } = await operativa.query(
     `SELECT ambiente, url, usuario, identification, terminal, channel,
             clave_cargada_por, clave_cargada_en, actualizado_por, actualizado_en,
-            (rsa_public_key <> '') AS rsa_cargada, clave_ya_cifrada
+            (rsa_public_key <> '') AS rsa_cargada, clave_ya_cifrada, activa
        FROM credencial_api WHERE ambiente = $1 AND uso = $2`, [ambiente, uso]);
   const r = rows[0];
   if (!r) return { ambiente, uso, configurada: false, url: urlBase(ambiente) };
   return {
     ambiente, uso, configurada: true, url: urlBase(ambiente), usuario: r.usuario,
     identification: r.identification.replace(/^(\d{2})\d+(\d{2})$/, '$1•••••$2'),
-    terminal: r.terminal, channel: r.channel, rsaCargada: r.rsa_cargada, claveYaCifrada: r.clave_ya_cifrada,
+    terminal: r.terminal, channel: r.channel, rsaCargada: r.rsa_cargada, claveYaCifrada: r.clave_ya_cifrada, activa: r.activa,
     claveCargadaPor: r.clave_cargada_por, claveCargadaEn: r.clave_cargada_en,
     actualizadoPor: r.actualizado_por, actualizadoEn: r.actualizado_en,
   };

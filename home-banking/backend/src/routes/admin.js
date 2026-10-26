@@ -396,6 +396,24 @@ export default async function rutasAdmin(app) {
     return estadoCredencial(amb, uso);
   });
 
+  // Interruptor de la credencial: desactivarla corta el acceso al banco sin borrar la clave (reactivar no la vuelve a pedir).
+  app.put('/credenciales/:ambiente/estado', async (req) => {
+    const amb = req.params.ambiente;
+    if (!esAmbiente(amb)) throw invalido('Ambiente inválido');
+    const uso = usoDe(req);
+    if (typeof req.body?.activa !== 'boolean') throw invalido('Indicá si la credencial queda activa (true) o desactivada (false)');
+    const activa = req.body.activa;
+    await tx(operativa, async (c) => {
+      const prev = (await c.query('SELECT activa FROM credencial_api WHERE ambiente = $1 AND uso = $2 FOR UPDATE', [amb, uso])).rows[0];
+      if (!prev) throw noEncontrado('No hay credencial cargada para ese ambiente');
+      if (prev.activa === activa) return; // ya estaba así: nada que cambiar ni auditar
+      await c.query('UPDATE credencial_api SET activa = $3, actualizado_por = $4, actualizado_en = now() WHERE ambiente = $1 AND uso = $2', [amb, uso, activa, req.user.usuario]);
+      await auditar(c, req, { tipo: 'Administración', accion: `${activa ? 'Activó' : 'Desactivó'} credencial API Banking`, api: 'Gestor de secretos', detalle: `${amb} · ${USOS[uso]}` });
+    });
+    bdv.olvidar(); bdvEnvios.olvidar(); // la sesión abierta con esa credencial se descarta ya; el proceso jobs lo detecta solo (como mucho en 1 minuto)
+    return estadoCredencial(amb, uso);
+  });
+
   app.post('/credenciales/:ambiente/probar', async (req) => {
     if (!esAmbiente(req.params.ambiente)) throw invalido('Ambiente inválido');
     const uso = usoDe(req);

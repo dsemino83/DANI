@@ -120,3 +120,13 @@ test('feriados: una fuente responde pero falla la base => error de base de datos
   simular({ fetchImpl: async () => ({ ok: true, status: 200, json: async () => [{ fecha: `${anio}-01-01`, nombre: 'Año Nuevo', tipo: 'inamovible' }] }), falloDb: true });
   await assert.rejects(sincronizarFeriados(anio), /error de base de datos al guardar \(42501\)/);
 });
+
+test('credencial desactivada: el login no llama al banco y no cae a la principal', async () => {
+  const { ClienteBdv, ErrorBanco } = await import('../src/bdv/cliente.js');
+  const c = new ClienteBdv('envios');
+  let llamadas = 0;
+  c.fetch = async () => { llamadas++; throw new Error('no debería llamarse'); };
+  await assert.rejects(() => c.login({ ambiente: 'homo', uso: 'envios', activa: false, url: 'https://apihomo.bancodevalores.com/x' }),
+    (e) => e instanceof ErrorBanco && e.codigo === 'CREDENCIAL_DESACTIVADA');
+  assert.equal(llamadas, 0);
+});

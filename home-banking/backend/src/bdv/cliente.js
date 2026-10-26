@@ -144,6 +144,8 @@ export class ClienteBdv {
     const c = cred ?? (await leerCredencial(config.ambiente, this.uso))
       ?? (this.uso !== 'principal' ? await leerCredencial(config.ambiente, 'principal') : null);
     if (!c) throw new ErrorBanco('No hay credencial API cargada para este ambiente');
+    // Desactivada por el administrador de seguridad: no se llama al banco (tampoco con la principal como reemplazo)
+    if (c.activa === false) throw new ErrorBanco('La credencial API Banking está desactivada por el administrador de seguridad', { codigo: 'CREDENCIAL_DESACTIVADA' });
     const amb = c.ambiente ?? config.ambiente;
     const base = c.url.replace(/\/+$/, '');
     if (!urlDelAmbiente(amb, base)) throw new ErrorBanco(`La URL ${base} no corresponde al ambiente ${amb}`);

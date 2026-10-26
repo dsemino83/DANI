@@ -115,7 +115,7 @@ Los correos salen de **alyc@valo.ar**, con el logo de VALO.
 
 **Usuarios y permisos:** alta y edición de usuarios, perfil, roles **Crear / Aprobar** y permisos **Ver / Operar** por empresa.
 
-**Credenciales API:** por ambiente, la **principal** (Home Banking) y la de **Envíos programados** (exclusiva de los correos, usuario API distinto, channel editable). La clave es de solo escritura; **Probar conexión** la verifica.
+**Credenciales API:** por ambiente, la **principal** (Home Banking) y la de **Envíos programados** (exclusiva de los correos, usuario API distinto, channel editable). La clave es de solo escritura; **Probar conexión** la verifica. **Desactivar credencial** corta ya el acceso al banco con esa credencial (consultas, transferencias y envíos fallan con "credencial desactivada") sin borrar la clave; **Activar credencial** lo restablece sin volver a cargarla. Queda registrado en auditoría. El servicio de envíos (jobs) toma el cambio en hasta 1 minuto.
 
 **Estado del sistema:** tablero del estado de cada parte del sistema —backend, base operativa e histórica, sesión con el banco (principal y de envíos), cola de envíos, feriados, cadena de auditoría y último pase histórico— con **↻ Actualizar estado**. Incluye reinicios seguros de cada subsistema, que **no** reinician los contenedores (eso se hace en la herramienta de operaciones) y quedan auditados:
 

@@ -85,5 +85,27 @@ ok(r.s === 200, 'solo-ver: consultar sigue permitido', r.s);
 r = await j('mgomez', 'POST', '/transferencias', { referencia: 'BOLA-2', tipo: 'INMEDIATA', cuentaOrigen: PROPIA, destino: 'PAGOS.PROVEEDOR', importe: 1, concepto: 'VARIOS' });
 ok(r.s === 403 && /operar/i.test(r.b?.mensaje ?? ''), 'solo-ver: transferir → 403 (no podés operar)', r.b);
 
+// ---- Interruptor de la credencial API: solo el administrador; desactivada corta el acceso al banco; reactivada vuelve.
+r = await j('mgomez', 'PUT', '/admin/credenciales/homo/estado', { activa: false });
+ok(r.s === 403, 'operador: 403 al desactivar la credencial (admin)', r);
+r = await j('admin', 'PUT', '/admin/credenciales/homo/estado', { activa: 'no' });
+ok(r.s === 400, 'admin: estado inválido → 400', r);
+r = await j('admin', 'PUT', '/admin/credenciales/homo/estado?uso=envios', { activa: false });
+ok(r.s === 404, 'admin: desactivar una credencial no cargada → 404', r);
+r = await j('admin', 'PUT', '/admin/credenciales/homo/estado', { activa: false });
+ok(r.s === 200 && r.b?.activa === false, 'admin: desactiva la credencial', r.b);
+r = await j('admin', 'GET', '/admin/credenciales/homo');
+ok(r.b?.activa === false && r.b?.configurada === true && !JSON.stringify(r.b).includes('clave-api-valo'), 'la credencial figura desactivada y no devuelve la clave', r.b);
+r = await j('admin', 'POST', '/admin/credenciales/homo/probar');
+ok(r.b?.ok === false && /desactivada/i.test(r.b?.error ?? ''), 'desactivada: probar conexión falla sin llamar al banco', r.b);
+r = await j('mgomez', 'GET', `/cuentas/${PROPIA}/detalle`);
+ok(r.s === 502 && r.b?.codigo === 'CREDENCIAL_DESACTIVADA', 'desactivada: el Home Banking no accede al banco (502 CREDENCIAL_DESACTIVADA)', r);
+r = await j('admin', 'PUT', '/admin/credenciales/homo/estado', { activa: true });
+ok(r.s === 200 && r.b?.activa === true, 'admin: reactiva la credencial (sin volver a cargar la clave)', r.b);
+r = await j('admin', 'POST', '/admin/credenciales/homo/probar');
+ok(r.b?.ok === true, 'reactivada: el acceso al banco vuelve (probar conexión OK)', r.b);
+r = await j('mgomez', 'GET', `/cuentas/${PROPIA}/movimientos`);
+ok(r.s === 200, 'reactivada: el Home Banking vuelve a consultar al banco', r);
+
 console.log(fallas ? `\n${fallas} FALLAS` : '\nTODO OK');
 process.exit(fallas ? 1 : 0);
