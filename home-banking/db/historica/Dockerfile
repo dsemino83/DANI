@@ -6,5 +6,7 @@ FROM postgres:16.4-alpine
 COPY --chmod=755 01_esquema.sql 02_roles.sh /docker-entrypoint-initdb.d/
 COPY --chmod=644 rol-pase.sql /docker-entrypoint-initdb.d/rol-pase.sql
 COPY --chmod=644 rol-pase.sql /migraciones/rol-pase.sql
+# el directorio queda creado con --chmod=644 (sin permiso de entrada): dbh-init corre como postgres y lo necesita
+RUN chmod 755 /migraciones
 # aplicar.sh lo corre el servicio dbh-init en cada arranque
 COPY --chmod=755 aplicar.sh /migraciones/aplicar.sh
