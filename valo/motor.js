@@ -2507,7 +2507,9 @@
         // Si el uso es de un grupo y el poder asigna grupos, el uso vale solo para los apoderados de ese grupo.
         const comb = expandirComodines(u.combinaciones && u.combinaciones.length ? u.combinaciones : combinacionesPorGrupos(u, poder.apoderados), poder.apoderados);
         const conComodin = (u.combinaciones || []).some(c => /[*?]/.test(c));
-        const gruposUso = conComodin ? [] : u.grupos && u.grupos.length ? u.grupos : u.grupo ? [u.grupo] : [];
+        // Grupos del uso: los que nombra y también los de sus combinaciones ("A+A, A+B" con grupo A también es del B).
+        const gruposUso = conComodin ? [] : [...new Set((u.grupos && u.grupos.length ? u.grupos : u.grupo ? [u.grupo] : [])
+          .concat((u.combinaciones || []).flatMap(c => String(c).split('+'))).filter(Boolean))];
         // Si ningún apoderado del poder tiene una letra (grupos escritos como descripción), el uso vale para todos.
         const mapea = gruposUso.length && poder.apoderados.some(a => letraGrupo(a.grupo));
         const delUso = mapea ? apoderados.filter(a => gruposUso.includes(letraGrupo(a.grupo))) : apoderados;
@@ -2870,6 +2872,17 @@
   //     "dos cualesquiera de A y/o B" con esos circuitos) sobra: se saca. Mismo vencimiento y mismo monto (la regla con
   //     tope y la sin tope quedan las dos).
   // Devuelve { lista, notas } (notas: qué se unificó, para la pantalla).
+  // Datos internos de una regla del JSON 1.0 (no se exportan): _vto (vencimiento del poder), _participantes (CUIT/CUIL de
+  // los firmantes que, según los poderes, participan de la regla) y _gemelaDe (regla de la que es el equivalente en la
+  // otra moneda). copiaRegla arma una regla nueva desde otras: mismo _vto y _gemelaDe, y la unión de los participantes.
+  function ocultarEnRegla(r, datos) {
+    Object.entries(datos).forEach(([k, v]) => Object.defineProperty(r, k, { value: v, writable: true, enumerable: false, configurable: true }));
+    return r;
+  }
+  const unirParticipantes = (...rs) => [...new Set(rs.flatMap(r => (r && r._participantes) || []))].sort();
+  function copiaRegla(base, cambios, ...otras) {
+    return ocultarEnRegla(Object.assign({}, base, cambios), { _vto: base._vto || '', _participantes: unirParticipantes(base, ...otras), _gemelaDe: base._gemelaDe || null });
+  }
   function optimizarReglas(lista, apoderados) {
     const notas = [];
     // 1. Grupos con los mismos integrantes.
@@ -2894,6 +2907,7 @@
         if (!m.has(k)) { m.set(k, r); return; }
         const x = m.get(k);
         x.circuitos = [...new Set(x.circuitos.concat(r.circuitos))].sort();
+        x._participantes = unirParticipantes(x, r);
         notas.push(`Se juntaron dos reglas ${r.tipo} [${r.grupos.join(', ')}] quorum ${r.quorum} iguales.`);
       });
       return [...m.values()];
@@ -2910,7 +2924,7 @@
       if (ind.length > 1) {
         const gs = [...new Set(ind.flatMap(r => r.grupos))].sort();
         ind.forEach(r => quitar.add(r));
-        nuevas.push(Object.defineProperty(Object.assign({}, ind[0], { grupos: gs, descripcion: `Grupo ${gs.join(' y/o ')} - firma individual` }), '_vto', { value: ind[0]._vto, writable: true, enumerable: false }));
+        nuevas.push(copiaRegla(ind[0], { grupos: gs, descripcion: `Grupo ${gs.join(' y/o ')} - firma individual` }, ...ind));
         notas.push(`Firma individual de ${ind.map(r => r.grupos.join('/')).join(', ')} con los mismos circuitos: una sola regla ConjuntaIndistinta [${gs.join(', ')}] quorum 1.`);
       }
     });
@@ -2927,7 +2941,7 @@
           todas.forEach(r => quitar.add(r));
           const circuitos = [...new Set(todas.flatMap(r => r.circuitos))].sort();
           const distintos = todas.some(r => r.circuitos.join() !== circuitos.join());
-          nuevas.push(Object.defineProperty(Object.assign({}, dobles[0], { grupos: gs, quorum: 2, circuitos, descripcion: `Firma conjunta: dos cualesquiera de ${gs.join(' y/o ')}` }), '_vto', { value: dobles[0]._vto, writable: true, enumerable: false }));
+          nuevas.push(copiaRegla(dobles[0], { grupos: gs, quorum: 2, circuitos, descripcion: `Firma conjunta: dos cualesquiera de ${gs.join(' y/o ')}` }, ...todas));
           notas.push(`${gs.map(g => g + '+' + g).join(', ')} y ${cruces.map(r => r.grupos.join('+')).join(', ')}${dobles[0].monto ? ` (hasta ${dobles[0].moneda} ${dobles[0].monto})` : ' (sin tope)'}: una sola regla ConjuntaIndistinta [${gs.join(', ')}] quorum 2` +
             (distintos ? ` con los circuitos de todas (${circuitos.length}); antes cada combinación tenía los suyos.` : '.'));
         }
@@ -2950,7 +2964,7 @@
     const sobran = new Set();
     lista.forEach(r => {
       const g = lista.find(x => !sobran.has(x) && cubre(x, r));
-      if (g) { sobran.add(r); notas.push(`${r.descripcion.split(' · ')[0]} (${r.tipo} [${r.grupos.join(', ')}] quorum ${r.quorum}) ya está cubierta por "${g.descripcion.split(' · ')[0]}", que tiene todos sus circuitos: se saca.`); }
+      if (g) { sobran.add(r); g._participantes = unirParticipantes(g, r); notas.push(`${r.descripcion.split(' · ')[0]} (${r.tipo} [${r.grupos.join(', ')}] quorum ${r.quorum}) ya está cubierta por "${g.descripcion.split(' · ')[0]}", que tiene todos sus circuitos: se saca.`); }
     });
     lista = lista.filter(r => !sobran.has(r));
     return { lista, notas };
@@ -3010,15 +3024,24 @@
         .flatMap(([k]) => [CIRCUITO_DE_CLAVE[k]].concat(CIRCUITOS_GEMELOS[CIRCUITO_DE_CLAVE[k]] || [])))].sort();
       const mt = montoDeTexto(`${e.estructura_de_firma || ''} ${e.limitaciones || ''}`);
       const delTexto = mt.monto ? { monto: mt.monto, moneda: mt.moneda } : {};
-      const agregar = (tipo, quorum, grupos, extra0 = {}, combo = '', firmantes = []) => {
+      // PARTICIPACIÓN: los firmantes a los que el uso de firma les da la regla (CUIT/CUIL como en apoderados).
+      const participantesDe = ids => [...new Set((ids || []).map(id => { const f = planillaDe.get(id), d = idTexto(id) || idTexto(f && f.cuit); return d.length === 11 ? formatoCuit(d) : d; }).filter(Boolean))].sort();
+      const agregar = (tipo, quorum, grupos, extra0 = {}, combo = '', firmantes = [], ids = e.apoderados) => {
         const extra = Object.assign({}, delTexto, extra0);
+        // Una combinación toma solo a los apoderados del uso cuyo grupo (el del poder o el de la planilla) está en ella:
+        // de "A+A, A+C, B+C" la regla A+C no lleva a los del grupo B.
+        const participantes = participantesDe(grupos.length ? (ids || []).filter(id => {
+          const a = apoderadosU.find(x => x.numero_de_identificacion === id), f = planillaDe.get(id);
+          const delPoder = a ? String(a.grupo).split(',').map(x => ren(x.trim())) : [];
+          return delPoder.some(g => grupos.includes(g)) || (fuente === 'planilla' && f && f.uso && grupos.includes(f.uso.grupo));
+        }) : ids);
         // Misma regla (tipo, quorum, grupos, firmante, monto y vencimiento del poder) desde varios usos: se juntan los circuitos.
         const vto = e.vencimiento || '';
         const k = [tipo, quorum, grupos.join(','), firmantes.join(','), extra.monto || '', extra.moneda || '', vto].join('|');
-        if (reglas.has(k)) { const r = reglas.get(k); r.circuitos = [...new Set(r.circuitos.concat(circuitos))].sort(); return; }
+        if (reglas.has(k)) { const r = reglas.get(k); r.circuitos = [...new Set(r.circuitos.concat(circuitos))].sort(); r._participantes = [...new Set(r._participantes.concat(participantes))].sort(); return; }
         const descripcion = tipo === 'Individual' ? `Firma individual - ${combo}`
           : tipo === 'ConjuntaIndistinta' ? (combo === 'individual' ? `Grupo ${grupos.join(' y/o ')} - firma individual` : grupos.length > 1 ? `Firma conjunta: ${combo}` : `Grupo ${grupos[0]} - firma conjunta ${combo}`) : `Firma conjunta ${combo}`;
-        reglas.set(k, Object.defineProperty(Object.assign({ tipo, quorum, moneda: null, monto: null, descripcion, circuitos, grupos, firmantes }, extra), '_vto', { value: vto, writable: true, enumerable: false }));
+        reglas.set(k, ocultarEnRegla(Object.assign({ tipo, quorum, moneda: null, monto: null, descripcion, circuitos, grupos, firmantes }, extra), { _vto: vto, _participantes: participantes, _gemelaDe: null }));
       };
       if (e.firma_individual && !e.firma_conjunta) {
         // Límite de la firma individual escrito en la planilla ("H/ $ 50.000.000"), si es el mismo para todo el grupo.
@@ -3029,13 +3052,13 @@
         const grupoDe = id => { const f = planillaDe.get(id), a = apoderadosU.find(x => x.numero_de_identificacion === id);
           return (fuente === 'planilla' && f && f.uso && f.uso.grupo) || (a && ren(String(a.grupo).split(',')[0].trim())) || ''; };
         const conGrupo = [...new Set((e.apoderados || []).map(grupoDe).filter(Boolean))].sort();
-        if (conGrupo.length) agregar('ConjuntaIndistinta', 1, conGrupo, extra, 'individual');
+        if (conGrupo.length) agregar('ConjuntaIndistinta', 1, conGrupo, extra, 'individual', [], (e.apoderados || []).filter(id => grupoDe(id)));
         (e.apoderados || []).filter(id => !grupoDe(id)).forEach(id => {
           const a = apoderadosU.find(x => x.numero_de_identificacion === id);
           if (!a) return;
           const f = planillaDe.get(id), d = idTexto(id) || idTexto(f && f.cuit);
           if (!d) return;
-          agregar('Individual', 1, [], extra, a.nombre_completo, [d.length === 11 ? formatoCuit(d) : d]);
+          agregar('Individual', 1, [], extra, a.nombre_completo, [d.length === 11 ? formatoCuit(d) : d], [id]);
         });
         return;
       }
@@ -3081,8 +3104,9 @@
       conTope.forEach(r => {
         const otra = r.moneda === 'USD' ? 'ARS' : 'USD';
         const monto = round2(r.moneda === 'USD' ? r.monto * tc : r.monto / tc);
-        const gemela = Object.defineProperty(Object.assign({}, r, { moneda: otra, monto,
-          descripcion: `${r.descripcion} · equivale a ${r.moneda} ${fmt(r.monto, 2)} al TC Com. A 3500${fTc ? ' del ' + fTc : ''} (${fmt(tc, 4)})` }), '_vto', { value: r._vto, writable: true, enumerable: false });
+        const gemela = copiaRegla(r, { moneda: otra, monto,
+          descripcion: `${r.descripcion} · equivale a ${r.moneda} ${fmt(r.monto, 2)} al TC Com. A 3500${fTc ? ' del ' + fTc : ''} (${fmt(tc, 4)})` });
+        gemela._gemelaDe = r;
         opt.lista.splice(opt.lista.indexOf(r) + 1, 0, gemela);
       });
     }
@@ -3095,8 +3119,10 @@
       apoderados,
       // Orden: conjuntas indistintas, conjuntas e individuales.
       reglasFirma: opt.lista.sort((a, b) => ['ConjuntaIndistinta', 'Conjunta', 'Individual'].indexOf(a.tipo) - ['ConjuntaIndistinta', 'Conjunta', 'Individual'].indexOf(b.tipo))
-        .map((r, i) => Object.assign({ referencia: `regla-${i + 1}` }, r)),
+        .map((r, i) => ocultarEnRegla(Object.assign({ referencia: `regla-${i + 1}` }, r), { _vto: r._vto || '', _participantes: r._participantes || [], _gemelaDe: r._gemelaDe || null, _origen: r })),
     };
+    // La regla equivalente en la otra moneda apunta a la regla ya numerada.
+    json.reglasFirma.forEach(r => { if (r._gemelaDe) r._gemelaDe = json.reglasFirma.find(x => x._origen === r._gemelaDe) || null; });
     // Avisos y grupos renombrados: para la pantalla, no se exportan.
     Object.defineProperty(json, 'avisos', { value: [...new Set(avisos)], enumerable: false });
     Object.defineProperty(json, 'renombre', { value: renombre, enumerable: false });
@@ -3104,6 +3130,234 @@
     return json;
   }
 
+  // ------------------------------------------------------------ MODELO RELACIONAL DEL BASTANTEO
+  // Entidades: GRUPO, FIRMANTE, AGRUPAMIENTO y REGLA. Relaciones (no son entidades): PERTENENCIA (GRUPO ↔ FIRMANTE),
+  // PARTICIPACIÓN (FIRMANTE ↔ AGRUPAMIENTO) y APLICACIÓN (AGRUPAMIENTO ↔ REGLA).
+  //   GRUPO 1:N PERTENENCIA N:1 FIRMANTE · GRUPO 1:N AGRUPAMIENTO · FIRMANTE N:N AGRUPAMIENTO (PARTICIPACIÓN)
+  //   · AGRUPAMIENTO 1:N REGLA (APLICACIÓN).
+  // Integridad: todo firmante que participa en un agrupamiento tiene una pertenencia al grupo de ese agrupamiento.
+  // La pertenencia sale solo de apoderados[].grupos; nunca se deduce de la participación.
+  // Participación: la de los poderes (_participantes de cada regla del JSON 1.0 armado por VALO); en un JSON leído de
+  // afuera, que no la trae, la que el JSON implica (todos los firmantes del grupo, o los firmantes de la regla).
+  // Una regla entre grupos (A+B) se aplica a un agrupamiento de cada grupo: una APLICACIÓN por agrupamiento.
+  const TIPOS_DE_ERROR_BASTANTEO = ['ERROR DE GRUPO', 'ERROR DE PERTENENCIA', 'ERROR DE PARTICIPACIÓN', 'ERROR DE AGRUPAMIENTO', 'ERROR DE REGLA', 'ERROR DE APLICACIÓN'];
+  const grupoNormal = g => letraGrupo(g) || String(g == null ? '' : g).trim().toUpperCase();
+  const CIRCUITO_PRINCIPAL = Object.fromEntries(Object.entries(CIRCUITOS_GEMELOS).flatMap(([p, gs]) => gs.map(g => [g, p])));
+  const NOMBRE_CIRCUITO = Object.fromEntries(BASTANTEO_CATALOGO.map(c => [c[0], c[1]]));
+  // Facultades en forma normal: el código gemelo pasa al principal y se ordenan.
+  const circuitosNormales = cs => [...new Set((cs || []).map(c => CIRCUITO_PRINCIPAL[c] || c))].sort();
+  function modeloBastanteo(json) {
+    const errores = [];
+    const err = (tipo, detalle, ref = {}, nivel = 'error') => errores.push(Object.assign({ tipo, nivel, detalle }, ref));
+    const firmantes = [], pertenencias = [];
+    const nombreDe = id => { const f = firmantes.find(x => x.id === id); return f ? f.nombre : id; };
+    (json.apoderados || []).forEach((a, i) => {
+      const id = String(a.cuitCuil || '').trim() || `sin-id-${i + 1}`;
+      if (firmantes.some(f => f.id === id)) { err('ERROR DE PERTENENCIA', `Firmante repetido: ${id}.`, { firmante_id: id }); return; }
+      const f = { id, nombre: [a.apellido, a.nombre].filter(Boolean).join(', ') || id };
+      firmantes.push(f);
+      if (!a.cuitCuil) err('ERROR DE PERTENENCIA', `${f.nombre}: sin CUIT/CUIL.`, { firmante_id: id });
+      [...new Set((a.grupos || []).map(grupoNormal).filter(Boolean))].forEach(g => pertenencias.push({ id: `P${pertenencias.length + 1}`, grupo_id: g, firmante_id: id }));
+    });
+    const miembros = g => new Set(pertenencias.filter(p => p.grupo_id === g).map(p => p.firmante_id));
+    const gruposDe = id => pertenencias.filter(p => p.firmante_id === id).map(p => p.grupo_id);
+    const reglasJson = json.reglasFirma || [];
+    const ids = new Set([...pertenencias.map(p => p.grupo_id), ...reglasJson.flatMap(r => (r.grupos || []).map(grupoNormal))]);
+    const grupos = [...ids].filter(Boolean).sort().map(g => ({ id: g, nombre: `Grupo ${g}` }));
+    grupos.filter(g => !miembros(g.id).size).forEach(g => err('ERROR DE GRUPO', `El grupo ${g.id} se usa en reglas pero ningún firmante pertenece a él.`, { grupo_id: g.id }));
+    const agrupamientos = [], participaciones = [], aplicaciones = [], reglas = [];
+    const agrupamientoDe = (g, part) => {
+      const clave = `${g}|${part.slice().sort().join(',')}`;
+      let a = agrupamientos.find(x => x._clave === clave);
+      if (!a) {
+        a = Object.defineProperty({ id: `${g}${agrupamientos.filter(x => x.grupo_id === g).length + 1}`, grupo_id: g }, '_clave', { value: clave, enumerable: false });
+        agrupamientos.push(a);
+        part.slice().sort().forEach(fid => participaciones.push({ agrupamiento_id: a.id, firmante_id: fid }));
+      }
+      return a;
+    };
+    reglasJson.forEach((r, i) => {
+      const regla = { id: r.referencia || `regla-${i + 1}`, tipo: r.tipo, quorum: r.quorum, moneda: r.moneda || null, monto: r.monto == null ? null : r.monto,
+        circuitos: circuitosNormales(r.circuitos), descripcion: r.descripcion || null, vencimiento: r._vto || null,
+        equivalente_de: r._gemelaDe ? (r._gemelaDe.referencia || `regla-${reglasJson.indexOf(r._gemelaDe) + 1}`) : null };
+      reglas.push(regla);
+      const q = `${regla.id} (${regla.tipo})`;
+      // Condiciones de la REGLA.
+      if (!['Individual', 'Conjunta', 'ConjuntaIndistinta'].includes(r.tipo)) err('ERROR DE REGLA', `${q}: tipo desconocido.`, { regla_id: regla.id });
+      if (/Conjunta/.test(r.tipo) && !(Number.isInteger(r.quorum) && r.quorum > 0)) err('ERROR DE REGLA', `${q}: el quorum tiene que ser un entero mayor a 0.`, { regla_id: regla.id });
+      if (r.tipo === 'Conjunta' && (r.grupos || []).length < 2) err('ERROR DE REGLA', `${q}: una Conjunta tiene que tener al menos 2 grupos (con un solo grupo es ConjuntaIndistinta).`, { regla_id: regla.id });
+      if (r.tipo === 'Individual' && (r.firmantes || []).length !== 1) err('ERROR DE REGLA', `${q}: tiene que tener un firmante.`, { regla_id: regla.id });
+      if ((r.monto != null) !== (r.moneda != null) || (r.moneda && !['USD', 'ARS'].includes(r.moneda))) err('ERROR DE REGLA', `${q}: monto y moneda van juntos (USD o ARS).`, { regla_id: regla.id });
+      if (!regla.circuitos.length) err('ERROR DE REGLA', `${q}: no tiene facultades (circuitos).`, { regla_id: regla.id });
+      regla.circuitos.filter(c => !NOMBRE_CIRCUITO[c]).forEach(c => err('ERROR DE REGLA', `${q}: facultad desconocida ${c}.`, { regla_id: regla.id }));
+      // PARTICIPACIÓN conocida: la de los poderes o los firmantes de la regla; si no, todo el grupo.
+      const fijos = (r.firmantes || []).map(String);
+      const conocidos = fijos.length ? fijos : Array.isArray(r._participantes) ? r._participantes : null;
+      fijos.filter(fid => !firmantes.some(f => f.id === fid)).forEach(fid => err('ERROR DE APLICACIÓN', `${q}: el firmante ${fid} no está entre los apoderados.`, { regla_id: regla.id, firmante_id: fid }));
+      let gruposRegla = [...new Set((r.grupos || []).map(grupoNormal).filter(Boolean))];
+      if (!gruposRegla.length && fijos.length) {
+        gruposRegla = [...new Set(fijos.flatMap(gruposDe))];
+        fijos.filter(fid => firmantes.some(f => f.id === fid) && !gruposDe(fid).length).forEach(fid =>
+          err('ERROR DE PERTENENCIA', `${q}: ${nombreDe(fid)} firma individualmente pero no pertenece a ningún grupo (todo agrupamiento es de un grupo).`, { regla_id: regla.id, firmante_id: fid }));
+      }
+      if (!gruposRegla.length) { err('ERROR DE APLICACIÓN', `${q}: la regla no se aplica a ningún agrupamiento.`, { regla_id: regla.id }); return; }
+      const porGrupo = {};
+      gruposRegla.sort().forEach(g => {
+        const m = miembros(g);
+        const part = conocidos ? conocidos.filter(fid => m.has(fid)) : [...m];
+        const a = agrupamientoDe(g, part);
+        aplicaciones.push({ agrupamiento_id: a.id, regla_id: regla.id });
+        porGrupo[g] = part;
+        if (!part.length) err('ERROR DE AGRUPAMIENTO', `${q}: el agrupamiento ${a.id} del grupo ${g} no tiene firmantes.`, { regla_id: regla.id, agrupamiento_id: a.id });
+        else if (conocidos && !fijos.length && part.length < m.size) err('ERROR DE AGRUPAMIENTO', `${q}: el JSON aplica la regla a todo el grupo ${g}, pero según los poderes participan solo ${part.map(nombreDe).join(', ')}; también la tomarían ${[...m].filter(fid => !part.includes(fid)).map(nombreDe).join(', ')}.`, { regla_id: regla.id, agrupamiento_id: a.id }, 'aviso');
+      });
+      // Participantes cuya pertenencia no es a ningún grupo de la regla: no entran a sus agrupamientos.
+      (conocidos || []).filter(fid => !gruposRegla.some(g => miembros(g).has(fid))).forEach(fid => {
+        const gs = gruposDe(fid);
+        err(gs.length ? 'ERROR DE PARTICIPACIÓN' : 'ERROR DE PERTENENCIA', gs.length
+          ? `${q}: según los poderes ${nombreDe(fid)} participa de la regla del grupo ${gruposRegla.join('/')}, pero pertenece al grupo ${gs.join('/')}: no se lo incluye en el agrupamiento.`
+          : `${q}: ${nombreDe(fid)} participa de la regla pero no pertenece a ningún grupo.`, { regla_id: regla.id, firmante_id: fid });
+      });
+      // ¿Alcanzan los firmantes para la combinación?
+      if (r.tipo === 'ConjuntaIndistinta' && Number.isInteger(r.quorum) && Object.values(porGrupo).reduce((t, p) => t + p.length, 0) < r.quorum)
+        err('ERROR DE AGRUPAMIENTO', `${q}: pide ${r.quorum} firmas y entre los grupos ${gruposRegla.join(', ')} hay ${Object.values(porGrupo).reduce((t, p) => t + p.length, 0)} firmante(s).`, { regla_id: regla.id });
+      if (r.tipo === 'Conjunta' && Number.isInteger(r.quorum)) Object.entries(porGrupo).filter(([, p]) => p.length && p.length < r.quorum).forEach(([g, p]) =>
+        err('ERROR DE AGRUPAMIENTO', `${q}: pide ${r.quorum} firma(s) del grupo ${g} y hay ${p.length}.`, { regla_id: regla.id }));
+    });
+    // Integridad, revisada sobre el modelo armado: participación ⇒ pertenencia al grupo del agrupamiento.
+    participaciones.forEach(p => {
+      const a = agrupamientos.find(x => x.id === p.agrupamiento_id);
+      if (!pertenencias.some(x => x.firmante_id === p.firmante_id && x.grupo_id === a.grupo_id))
+        err('ERROR DE PARTICIPACIÓN', `${nombreDe(p.firmante_id)} participa en el agrupamiento ${a.id} sin pertenecer al grupo ${a.grupo_id}.`, { agrupamiento_id: a.id, firmante_id: p.firmante_id });
+    });
+    agrupamientos.filter(a => !grupos.some(g => g.id === a.grupo_id)).forEach(a => err('ERROR DE GRUPO', `El agrupamiento ${a.id} es de un grupo inexistente (${a.grupo_id}).`, { agrupamiento_id: a.id }));
+    reglas.filter(rg => !aplicaciones.some(x => x.regla_id === rg.id)).forEach(rg => { if (!errores.some(e => e.regla_id === rg.id && e.tipo === 'ERROR DE APLICACIÓN')) err('ERROR DE APLICACIÓN', `${rg.id}: sin agrupamiento.`, { regla_id: rg.id }); });
+    errores.sort((x, y) => TIPOS_DE_ERROR_BASTANTEO.indexOf(x.tipo) - TIPOS_DE_ERROR_BASTANTEO.indexOf(y.tipo));
+    return { grupos, firmantes, pertenencias, agrupamientos, participaciones, reglas, aplicaciones, errores };
+  }
+
+  // Condición de firma en palabras (semántica, no el código del tipo).
+  function condicionDeFirma(regla, grupos, nombres = []) {
+    const lista = gs => gs.length > 1 ? `${gs.slice(0, -1).join(', ')} y ${gs[gs.length - 1]}` : gs[0];
+    if (regla.tipo === 'Individual') return `Firma individual${nombres.length ? ' de ' + nombres.join(', ') : ''}`;
+    if (regla.tipo === 'ConjuntaIndistinta') {
+      if (regla.quorum === 1) return grupos.length > 1 ? `Una firma de cualquiera de los grupos ${lista(grupos)}` : `Una firma del grupo ${grupos[0]}`;
+      return grupos.length > 1 ? `${regla.quorum} firmas entre los grupos ${lista(grupos)} (cualquier combinación)` : `${regla.quorum} firmas del grupo ${grupos[0]}`;
+    }
+    if (regla.tipo === 'Conjunta') return `${regla.quorum === 1 ? 'Una firma' : regla.quorum + ' firmas'} de cada grupo: ${lista(grupos)}`;
+    return `${regla.tipo} (quorum ${regla.quorum})`;
+  }
+
+  // Vista agrupada: una fila por unidad lógica AGRUPAMIENTO(S) + REGLA. Una regla entre grupos es una sola fila (con
+  // el agrupamiento de cada grupo). La misma regla expresada en otra moneda (equivalente_de) va en la misma fila, y
+  // dos reglas iguales después de normalizar (grupos, firmantes, condición, facultades, límites y vencimiento)
+  // también; si difieren en algo, son filas distintas.
+  function vistaAgrupada(modelo) {
+    const fmt = n => Number(n).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const unidades = new Map();
+    modelo.reglas.forEach(rg => {
+      const u = rg.equivalente_de || rg.id;
+      if (!unidades.has(u)) unidades.set(u, []);
+      unidades.get(u).push(rg);
+    });
+    const filas = new Map();
+    unidades.forEach(rs => {
+      const rg = rs.find(x => !x.equivalente_de) || rs[0];
+      const agrs = modelo.aplicaciones.filter(a => a.regla_id === rg.id).map(a => modelo.agrupamientos.find(x => x.id === a.agrupamiento_id)).filter(Boolean)
+        .sort((a, b) => a.grupo_id.localeCompare(b.grupo_id) || a.id.localeCompare(b.id));
+      const grupos = [...new Set(agrs.map(a => a.grupo_id))];
+      const firmantesDe = a => modelo.participaciones.filter(p => p.agrupamiento_id === a.id).map(p => (modelo.firmantes.find(f => f.id === p.firmante_id) || { nombre: p.firmante_id }).nombre).sort();
+      const limites = rs.filter(x => x.monto != null).map(x => ({ moneda: x.moneda, monto: x.monto })).sort((a, b) => a.moneda.localeCompare(b.moneda));
+      const circuitos = circuitosNormales(rs.flatMap(x => x.circuitos));
+      const individuales = rg.tipo === 'Individual' ? agrs.flatMap(firmantesDe) : [];
+      const clave = [agrs.map(a => a.id).join(','), rg.tipo, rg.quorum, circuitos.join(','), rg.vencimiento || '', limites.map(l => `${l.moneda}${l.monto}`).join(',')].join('|');
+      if (filas.has(clave)) { filas.get(clave).reglas.push(...rs.map(x => x.id)); return; }
+      filas.set(clave, {
+        grupo: grupos.join(' + ') || '—',
+        agrupamiento: agrs.map(a => a.id).join(' + ') || '—',
+        firmantes: agrs.map(a => ({ agrupamiento: a.id, grupo: a.grupo_id, nombres: firmantesDe(a) })),
+        condicion: condicionDeFirma(rg, grupos, individuales),
+        monedas: limites.length ? [...new Set(limites.map(l => l.moneda))] : [],
+        limites: limites.length ? limites.map(l => `${l.moneda} ${fmt(l.monto)}`) : ['Sin tope'],
+        facultades: circuitos.map(c => NOMBRE_CIRCUITO[c] || c),
+        vencimiento: rg.vencimiento || null,
+        reglas: rs.map(x => x.id),
+      });
+    });
+    return [...filas.values()].sort((a, b) => a.grupo.localeCompare(b.grupo) || a.agrupamiento.localeCompare(b.agrupamiento) || a.condicion.localeCompare(b.condicion));
+  }
+
+  // Combinaciones mínimas de firmas (lista de grupos) que cumplen una regla: ConjuntaIndistinta [A, B] q2 = A+A, A+B,
+  // B+B; Conjunta [A, B] q1 = A+B. null si no se puede expandir (quorum o grupos de más).
+  function firmasMinimasDe(tipo, quorum, grupos) {
+    if (tipo === 'Conjunta') return [grupos.flatMap(g => Array(quorum).fill(g)).sort()];
+    if (tipo !== 'ConjuntaIndistinta' || !(quorum > 0) || quorum > 4 || grupos.length > 6) return null;
+    const gs = [...new Set(grupos)].sort(), out = [];
+    const arma = (desde, acc) => { if (acc.length === quorum) { out.push(acc); return; } gs.slice(desde).forEach((g, i) => arma(desde + i, acc.concat(g))); };
+    arma(0, []);
+    return out;
+  }
+  // Clave de una persona para cruzar dos JSON: el DNI (el CUIT/CUIL lo contiene en las posiciones 3 a 10).
+  const claveFirmante = id => { const d = String(id || '').replace(/\D/g, ''); return d.length === 11 ? d.slice(2, 10).replace(/^0+/, '') : d.replace(/^0+/, '') || String(id || ''); };
+
+  // Comparación de dos JSON 1.0 (generado contra esperado, p. ej. el de producción), en el orden GRUPO → PERTENENCIA →
+  // AGRUPAMIENTO / PARTICIPACIÓN → REGLA / APLICACIÓN. La equivalencia es semántica: cada regla se expande en las
+  // combinaciones mínimas de firmas que habilita (ConjuntaIndistinta [A,B] q2 = A+A, A+B, B+B; una Conjunta de un solo
+  // grupo es la ConjuntaIndistinta de ese grupo), y por cada combinación y límite se comparan las facultades (los
+  // códigos gemelos de una facultad son la misma) y los firmantes a los que se aplica.
+  function compararBastanteos(generado, esperado) {
+    const dif = [];
+    const d = (tipo, detalle) => dif.push({ tipo, detalle });
+    const mg = modeloBastanteo(generado), me = modeloBastanteo(esperado);
+    const gG = mg.grupos.map(g => g.id), gE = me.grupos.map(g => g.id);
+    gE.filter(g => !gG.includes(g)).forEach(g => d('ERROR DE GRUPO', `El grupo ${g} está en el esperado y no en el generado.`));
+    gG.filter(g => !gE.includes(g)).forEach(g => d('ERROR DE GRUPO', `El grupo ${g} está en el generado y no en el esperado.`));
+    const pert = m => new Map(m.firmantes.map(f => [claveFirmante(f.id), { nombre: f.nombre, grupos: m.pertenencias.filter(p => p.firmante_id === f.id).map(p => p.grupo_id).sort() }]));
+    const pG = pert(mg), pE = pert(me);
+    pE.forEach((v, k) => { if (!pG.has(k)) d('ERROR DE PERTENENCIA', `${v.nombre} está en el esperado (grupo ${v.grupos.join('/') || '—'}) y no en el generado.`); });
+    pG.forEach((v, k) => {
+      if (!pE.has(k)) { d('ERROR DE PERTENENCIA', `${v.nombre} está en el generado (grupo ${v.grupos.join('/') || '—'}) y no en el esperado.`); return; }
+      if (pE.get(k).grupos.join() !== v.grupos.join()) d('ERROR DE PERTENENCIA', `${v.nombre}: grupo ${v.grupos.join('/') || '—'} en el generado y ${pE.get(k).grupos.join('/') || '—'} en el esperado.`);
+    });
+    // Combinación mínima + límite → { circuitos, firmantes }.
+    const expandir = m => {
+      const out = new Map(), sin = [];
+      m.reglas.forEach(rg => {
+        const agrs = m.aplicaciones.filter(a => a.regla_id === rg.id).map(a => m.agrupamientos.find(x => x.id === a.agrupamiento_id)).filter(Boolean);
+        const grupos = [...new Set(agrs.map(a => a.grupo_id))].sort();
+        const partDe = gs => [...new Set(agrs.filter(a => gs.includes(a.grupo_id)).flatMap(a => m.participaciones.filter(p => p.agrupamiento_id === a.id).map(p => claveFirmante(p.firmante_id))))].sort();
+        const part = partDe(grupos);
+        const lim = rg.monto == null ? 'sin tope' : `${rg.moneda} ${rg.monto}`;
+        const combos = rg.tipo === 'Individual' ? [[`firmante ${part.join(',')}`]] : firmasMinimasDe(rg.tipo, rg.quorum, grupos);
+        if (!combos) { sin.push(rg.id); return; }
+        combos.forEach(c => {
+          const k = `${c.join('+')} | ${lim}`;
+          const x = out.get(k) || { circuitos: new Set(), firmantes: new Set(), reglas: [] };
+          rg.circuitos.forEach(z => x.circuitos.add(z)); (rg.tipo === 'Individual' ? part : partDe(c)).forEach(z => x.firmantes.add(z)); x.reglas.push(rg.id);
+          out.set(k, x);
+        });
+      });
+      return { out, sin };
+    };
+    const xG = expandir(mg), xE = expandir(me);
+    [...xG.sin, ...xE.sin].forEach(id => d('ERROR DE REGLA', `${id}: no se puede comparar (quorum o grupos fuera de rango).`));
+    const nombre = c => NOMBRE_CIRCUITO[c] || c;
+    xE.out.forEach((v, k) => { if (!xG.out.has(k)) d('ERROR DE AGRUPAMIENTO', `La combinación ${k} está en el esperado (${v.reglas.join(', ')}) y no en el generado.`); });
+    xG.out.forEach((v, k) => { if (!xE.out.has(k)) d('ERROR DE AGRUPAMIENTO', `La combinación ${k} está en el generado (${v.reglas.join(', ')}) y no en el esperado.`); });
+    xE.out.forEach((ve, k) => {
+      const vg = xG.out.get(k);
+      if (!vg) return;
+      const ce = circuitosNormales([...ve.circuitos]), cg = circuitosNormales([...vg.circuitos]);
+      const falta = ce.filter(x => !cg.includes(x)), sobra = cg.filter(x => !ce.includes(x));
+      if (falta.length || sobra.length) d('ERROR DE REGLA', `${k}: facultades distintas.` + (falta.length ? ` Solo en el esperado: ${falta.map(nombre).join(', ')}.` : '') + (sobra.length ? ` Solo en el generado: ${sobra.map(nombre).join(', ')}.` : ''));
+      const fe = [...ve.firmantes].sort(), fg = [...vg.firmantes].sort();
+      const fFalta = fe.filter(x => !fg.includes(x)), fSobra = fg.filter(x => !fe.includes(x));
+      const nom = (m, k2) => (m.firmantes.find(f => claveFirmante(f.id) === k2) || { nombre: k2 }).nombre;
+      if (fFalta.length || fSobra.length) d('ERROR DE APLICACIÓN', `${k}: se aplica a firmantes distintos.` + (fFalta.length ? ` Solo en el esperado: ${fFalta.map(x => nom(me, x)).join(', ')}.` : '') + (fSobra.length ? ` Solo en el generado: ${fSobra.map(x => nom(mg, x)).join(', ')}.` : ''));
+    });
+    dif.sort((x, y) => TIPOS_DE_ERROR_BASTANTEO.indexOf(x.tipo) - TIPOS_DE_ERROR_BASTANTEO.indexOf(y.tipo));
+    return { diferencias: dif, generado: mg.errores, esperado: me.errores };
+  }
   // ------------------------------------------------------------ TXT NO COBIS
   // Diseño (hoja "NO COBIS" del archivo de inventario Payway), 156 caracteres por línea, una por ente (MIS):
   // código cliente = MIS (10, ceros a la izq.) · tipo de crédito CCASR (10, espacios a la der.) · tasa 0100000000 (10)
@@ -4479,7 +4733,7 @@ try {
     leerTxtMeli, bancoMeliDeTxt, bancosParaMeli,
     sqlExtraccionCartera, bookmarkletCartera, scriptPowerShellCartera, comandoTareaCartera, IMPORTES_CARTERA,
     NO_COBIS, ultimoDiaHabil, fechasNoCobis, FCIC_MELI_INICIAL, FERIADOS_AR, diaHabilAnterior, fechasFcicMeli, leerReporteCupones, armarNoCobisFcic, lineaNoCobis, txtNoCobis, loteApiNoCobis, scriptPowerShellNoCobis, scriptPowerShellProbarNoCobis, scriptPowerShellAgenteNoCobis, cmdEnvioNoCobis,
-    leerCartera, BASTANTEO_CATALOGO, BASTANTEO_CLAVES, BASTANTEO_EXTRA, leerPoderesOcr, leerAutoridadesOcr, COMPLIF_TIPOS, poderDesdeComplif, actaDesdeComplif, complifDeEmpresa, controlResumen, usoDelResumen, aplicarRevocatorias, claveRevocatoria, poderesFirmantesD, presidentesDeActas, gruposDelUso, usoCompleto, tokensDe, combosDeClausula, poderDelPresidente, leerClienteBastanteo, cuitPorDni, formatoCuit, firmanteDe, firmantesSinPoder, jsonPoder, jsonBastanteoUnico, jsonBastanteoV1, optimizarReglas, montoDeTexto, tcDePlanilla, validarJsonBastanteo, separarNombre, leerInventarioGarantias, leerUsoAcuerdos, leerCuentasPowerBI, clienteDeCuenta, leerPadronDesdeLineasPdf, INVENTARIOS_CONTABLES, INVENTARIO_DENOMINACION, INVENTARIO_FIRMAS, fechaReporteIso, fechaInventarioDesdeReporte, leerPadronDesdeInventarios, leerBaseEntes, unirPadron, armarInventariosContables, leerCom3500, leerTcApiBcra, elegirTipoCambio, numeroEnLetras, daxCarteraPowerBI, daxDiagnosticoPowerBI, daxSaldoDeuda, armarSaldoDeuda, daxSaldoDeudaDetalle, armarDeudaDetalle, leerFilasPowerBI, sugerirColumnaCartera, columnasNumericasCartera, agruparCartera, valoresDistintos, sqlCartera,
+    leerCartera, BASTANTEO_CATALOGO, BASTANTEO_CLAVES, BASTANTEO_EXTRA, leerPoderesOcr, leerAutoridadesOcr, COMPLIF_TIPOS, poderDesdeComplif, actaDesdeComplif, complifDeEmpresa, controlResumen, usoDelResumen, aplicarRevocatorias, claveRevocatoria, poderesFirmantesD, presidentesDeActas, gruposDelUso, usoCompleto, tokensDe, combosDeClausula, poderDelPresidente, leerClienteBastanteo, cuitPorDni, formatoCuit, firmanteDe, firmantesSinPoder, jsonPoder, jsonBastanteoUnico, jsonBastanteoV1, optimizarReglas, montoDeTexto, tcDePlanilla, modeloBastanteo, vistaAgrupada, condicionDeFirma, compararBastanteos, firmasMinimasDe, TIPOS_DE_ERROR_BASTANTEO, validarJsonBastanteo, separarNombre, leerInventarioGarantias, leerUsoAcuerdos, leerCuentasPowerBI, clienteDeCuenta, leerPadronDesdeLineasPdf, INVENTARIOS_CONTABLES, INVENTARIO_DENOMINACION, INVENTARIO_FIRMAS, fechaReporteIso, fechaInventarioDesdeReporte, leerPadronDesdeInventarios, leerBaseEntes, unirPadron, armarInventariosContables, leerCom3500, leerTcApiBcra, elegirTipoCambio, numeroEnLetras, daxCarteraPowerBI, daxDiagnosticoPowerBI, daxSaldoDeuda, armarSaldoDeuda, daxSaldoDeudaDetalle, armarDeudaDetalle, leerFilasPowerBI, sugerirColumnaCartera, columnasNumericasCartera, agruparCartera, valoresDistintos, sqlCartera,
     leerCsv, encabezadosEjemplo, leerDefinicionInterfaz, sugerirColumna, detectarHojaInterfaz,
     normalizar, provinciaPorNombre, crearBuscadorBancoPorNombre, round2, aNumero, aFechaSerial, aCodigoBanco,
     fechaDDMMYY, fechaYYYYMMDD, fechaLegible, hoyDDMMYY,
