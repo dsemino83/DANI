@@ -4,3 +4,4 @@
 FROM postgres:16.4-alpine
 COPY --chmod=755 01_esquema.sql 02_roles.sh 03_migraciones.sh /docker-entrypoint-initdb.d/
 COPY --chmod=644 migraciones/ /migraciones/
+COPY --chmod=755 aplicar.sh /migraciones/aplicar.sh   # lo corre el servicio db-init en cada arranque

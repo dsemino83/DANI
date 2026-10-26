@@ -26,6 +26,10 @@ x-backend-env: &backend-env
   DBH_PASSWORD_FILE: /run/secrets/db_hist_ro_password
   CREDENCIALES_MASTER_KEY_FILE: /run/secrets/credenciales_master_key
   BDV_SESION_MINUTOS: ${BDV_SESION_MINUTOS:-20}
+  BDV_CONCURRENCIA: ${BDV_CONCURRENCIA:-3}   # cuentas distintas consultadas a la vez (solo lectura); la paginación de una cuenta es secuencial
+  BDV_CIRCUIT_BREAKER_ENABLED: ${BDV_CIRCUIT_BREAKER_ENABLED:-true}
+  BDV_CIRCUIT_BREAKER_FAILURES: ${BDV_CIRCUIT_BREAKER_FAILURES:-5}
+  BDV_CIRCUIT_BREAKER_RESET_MS: ${BDV_CIRCUIT_BREAKER_RESET_MS:-30000}
   # Correo saliente (envíos programados): vacío = buzón de prueba Mailpit; clave en secrets/smtp_password.txt
   # Meses completos que conserva la base operativa además del mes en curso; lo anterior pasa a la histórica el día 1
   HB_RETENCION_MESES: ${HB_RETENCION_MESES:-1}
@@ -98,6 +102,10 @@ services:
         condition: service_healthy
       postgres-historico:
         condition: service_healthy
+      db-init:
+        condition: service_completed_successfully
+      dbh-init:
+        condition: service_completed_successfully
     restart: unless-stopped
     <<: *endurecido
     read_only: true            # sistema de archivos inmutable; solo /tmp en memoria
@@ -134,6 +142,10 @@ services:
         condition: service_healthy
       postgres-historico:
         condition: service_healthy
+      db-init:
+        condition: service_completed_successfully
+      dbh-init:
+        condition: service_completed_successfully
     restart: unless-stopped
     <<: *endurecido
     read_only: true
@@ -142,6 +154,44 @@ services:
     mem_limit: 1g
     pids_limit: 512
     networks: [app, datos, salida]   # app: correo (Mailpit) · datos: bases · salida: banco y SMTP real
+
+  # Provisión idempotente de roles y migraciones en cada arranque (ver db/*/aplicar.sh): sincroniza la clave de
+  # hb_jobs / hb_pase / hb_pase_h con sus secretos, también en volúmenes ya existentes. backend y jobs esperan.
+  db-init:
+    build: ./db/operativa
+    image: ${HB_IMAGEN:-home-banking-valo}:db-operativa-${HB_VERSION:-local}
+    entrypoint: ["sh", "/migraciones/aplicar.sh"]
+    user: postgres
+    secrets: [db_owner_password, db_jobs_app_password, db_jobs_password]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+    <<: *endurecido
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    mem_limit: 128m
+    pids_limit: 64
+    networks: [datos]
+
+  dbh-init:
+    build: ./db/historica
+    image: ${HB_IMAGEN:-home-banking-valo}:db-historica-${HB_VERSION:-local}
+    entrypoint: ["sh", "/migraciones/aplicar.sh"]
+    user: postgres
+    secrets: [dbh_owner_password, dbh_jobs_password]
+    depends_on:
+      postgres-historico:
+        condition: service_healthy
+    restart: "no"
+    <<: *endurecido
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    mem_limit: 128m
+    pids_limit: 64
+    networks: [datos]
 
   postgres:
     build: ./db/operativa          # postgres:16.4-alpine + esquema y roles

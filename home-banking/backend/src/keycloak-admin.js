@@ -4,6 +4,7 @@
 import { config } from './config.js';
 import { ErrorHttp, invalido } from './errores.js';
 import { ROL_APROBAR, ROL_CREAR } from './auth.js';
+import { medirLlamada } from './telemetria.js';
 
 const [base, realm] = (() => {
   const m = config.oidc.urlInterna.match(/^(.*)\/realms\/([^/]+)$/);
@@ -12,19 +13,20 @@ const [base, realm] = (() => {
 
 async function token() {
   if (!config.oidc.adminClientId) throw new ErrorHttp(501, 'sin_configurar', 'Falta la service account de Keycloak para administrar roles');
-  const res = await fetch(`${config.oidc.urlInterna}/protocol/openid-connect/token`, {
+  const res = await medirLlamada({ op: 'keycloak/token', destino: 'keycloak' }, () => fetch(`${config.oidc.urlInterna}/protocol/openid-connect/token`, {
     method: 'POST',
     headers: { 'content-type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({ grant_type: 'client_credentials', client_id: config.oidc.adminClientId, client_secret: config.oidc.adminClientSecret }),
-  });
+  }), { estado: (r) => r.status });
   if (!res.ok) throw new ErrorHttp(502, 'sso', 'No se pudo obtener token de administración del SSO');
   return (await res.json()).access_token;
 }
 
 async function api(t, ruta, opciones = {}) {
-  const res = await fetch(`${base}/admin/realms/${realm}${ruta}`, {
+  // La etiqueta lleva solo el método y el primer tramo (users, clients…): sin ids ni nombres de usuario.
+  const res = await medirLlamada({ op: `keycloak/${(opciones.method ?? 'GET')} ${String(ruta).split('?')[0].split('/')[1] ?? ''}`.trim(), destino: 'keycloak' }, () => fetch(`${base}/admin/realms/${realm}${ruta}`, {
     ...opciones, headers: { authorization: `Bearer ${t}`, 'content-type': 'application/json', ...(opciones.headers ?? {}) },
-  });
+  }), { estado: (r) => r.status });
   if (res.status === 409) throw new ErrorHttp(409, 'conflicto', 'Ya existe un usuario con ese nombre o email en el SSO');
   if (!res.ok) throw new ErrorHttp(502, 'sso', `SSO respondió ${res.status} en ${ruta}`);
   return res.status === 204 || res.status === 201 ? null : res.json();

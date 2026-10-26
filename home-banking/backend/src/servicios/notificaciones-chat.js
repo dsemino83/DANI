@@ -3,6 +3,7 @@
 // Los oficiales de la cartera del cliente que tengan activado el chat (tabla oficial_chat) reciben el mismo
 // contenido que el correo. El destinatario de Teams se arma con el usuario: si no contiene "@valo" se le
 // agrega el dominio (HB_CHAT_DOMINIO, por defecto @valo.ar).
+import { medirLlamada } from '../telemetria.js';
 import { operativa } from '../db.js';
 import { config } from './../config.js';
 
@@ -17,9 +18,9 @@ async function postFlow(payload) {
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), 10_000);
   try {
-    const r = await fetch(config.powerAutomateUrl, {
+    const r = await medirLlamada({ op: 'powerautomate/alerta', destino: 'powerautomate', timeoutMs: 10_000 }, () => fetch(config.powerAutomateUrl, {
       method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload), signal: ctrl.signal,
-    });
+    }), { estado: (x) => x.status });
     if (!r.ok) throw new Error(`Power Automate respondió ${r.status}`);
     return true;
   } finally { clearTimeout(t); }

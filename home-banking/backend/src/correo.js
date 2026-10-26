@@ -7,6 +7,7 @@
 // una salida aprobada: estos correos llevan movimientos de cuentas de clientes.
 import nodemailer from 'nodemailer';
 import { readFileSync } from 'node:fs';
+import { medirLlamada } from './telemetria.js';
 
 const env = (k, d = '') => process.env[k] || d;
 
@@ -25,6 +26,8 @@ function crear(prefijo, hostPorDefecto = '') {
     host, port: Number(env(`${prefijo}PORT`, prueba ? '1025' : '587')),
     secure: false, requireTLS: !prueba && env(`${prefijo}STARTTLS`, 'true') === 'true', ignoreTLS: prueba,
     ...(user ? { auth: { user, pass } } : {}),
+    // Sin esto nodemailer espera hasta 2 minutos a un SMTP caído y traba al trabajador de la cola de envíos.
+    connectionTimeout: 15_000, greetingTimeout: 15_000, socketTimeout: 60_000,
   });
 }
 
@@ -36,11 +39,11 @@ export async function enviarCorreo({ para, asunto, html, texto, adjuntos = [] })
   const mensaje = { to: para.join(', '), subject: asunto, html, text: texto, attachments: adjuntos };
   const remitente = (p) => `Home Banking VALO <${env(`${p}FROM`) || env('HB_SMTP_FROM', 'alyc@valo.ar')}>`;
   try {
-    return { ...(await principal.sendMail({ ...mensaje, from: remitente('HB_SMTP_') })), via: 'principal' };
+    return { ...(await medirLlamada({ op: 'smtp/enviar', destino: 'principal', timeoutMs: 60_000 }, () => principal.sendMail({ ...mensaje, from: remitente('HB_SMTP_') }))), via: 'principal' };
   } catch (e) {
     if (!respaldo) throw e;
     // El principal falló: se intenta por el de respaldo. Si este también falla, el error sube como siempre.
-    const r = await respaldo.sendMail({ ...mensaje, from: remitente('HB_SMTP2_') });
+    const r = await medirLlamada({ op: 'smtp/enviar', destino: 'respaldo', timeoutMs: 60_000 }, () => respaldo.sendMail({ ...mensaje, from: remitente('HB_SMTP2_') }));
     return { ...r, via: 'respaldo', errorPrincipal: e.message };
   }
 }

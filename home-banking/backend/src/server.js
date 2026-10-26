@@ -9,6 +9,7 @@ import { ErrorHttp } from './errores.js';
 import { ErrorBanco } from './bdv/cliente.js';
 import { operativa, historica } from './db.js';
 import { instalarMetricas, metricsPrometheus } from './observabilidad.js';
+import { contextoPedido } from './telemetria.js';
 import rutasConsultas from './routes/consultas.js';
 import rutasTransferencias from './routes/transferencias.js';
 import rutasAdmin from './routes/admin.js';
@@ -39,6 +40,8 @@ const app = Fastify({
   },
 });
 app.addHook('onSend', async (req, reply) => { reply.header('x-request-id', req.id); });
+// El reqId viaja en el contexto asíncrono: la telemetría de llamadas externas lo toma sin pasarlo por cada función.
+app.addHook('onRequest', (req, reply, done) => contextoPedido.run({ reqId: req.id }, done));
 
 // Observabilidad: cuenta requests, errores 5xx y tiempos por ruta (sin datos sensibles). Apagada por defecto.
 instalarMetricas(app);

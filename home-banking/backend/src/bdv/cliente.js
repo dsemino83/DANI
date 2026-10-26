@@ -6,6 +6,11 @@ import { constants, publicEncrypt } from 'node:crypto';
 import { config } from '../config.js';
 import { urlDelAmbiente } from './ambientes.js';
 import { leerCredencial, versionCredencial } from '../secretos.js';
+import { medirLlamada, registrarLlamada } from '../telemetria.js';
+
+// Etiqueta de la operación para la telemetría: los dos últimos tramos de la ruta (sin host, query ni ids).
+const opDeRuta = (ruta) => String(ruta).split('?')[0].split('/').filter(Boolean).slice(-2).join('/');
+const opDeUrl = (url) => opDeRuta(String(url).replace(/^https?:\/\/[^/]+/, ''));
 
 export class ErrorBanco extends Error {
   // sinRespuesta = el pedido salió y no hubo respuesta (timeout/corte): el resultado es incierto.
@@ -105,6 +110,7 @@ export class ClienteBdv {
   olvidar() {
     this.invalidar();
     this.cookieAnterior = null;
+    limpiarMeta(this.uso);
   }
 
   // Estado de la sesión, sin forzar un login (para el panel de estado del sistema).
@@ -152,7 +158,7 @@ export class ClienteBdv {
         terminal: c.terminal,
         channel: c.channel,
         identification: c.identification,
-      });
+      }, undefined, { intento });
       json = await res.json().catch(() => null);
       if (!res.ok || !json?.success) {
         throw new ErrorBanco('El banco rechazó el login', { http: res.status, codigo: json?.message?.code, respuesta: json?.message });
@@ -192,15 +198,18 @@ export class ClienteBdv {
   }
 
   // cookie: el texto de la cookie de sesión, o un objeto con los encabezados de sesión que acepta el banco
-  async fetch(url, body, cookie = this.cookie, { sinRespuesta = false } = {}) {
+  async fetch(url, body, cookie = this.cookie, { sinRespuesta = false, intento = 1 } = {}) {
     const sesion = !cookie ? {} : typeof cookie === 'object' ? cookie : { cookie };
     try {
-      return await fetch(url, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json', ...sesion },
-        body: JSON.stringify(body),
-        signal: AbortSignal.timeout(config.bdv.timeoutMs),
-      });
+      // Telemetría técnica de la llamada: op (ruta sin host ni ids), duración, status/resultado, intento, timeout y
+      // circuito. Sin cuerpos, cookies ni datos bancarios.
+      return await medirLlamada({ op: opDeUrl(url), destino: 'bdv', uso: this.uso, intento, timeoutMs: config.bdv.timeoutMs, circuito: this.circuito.estado },
+        () => fetch(url, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', ...sesion },
+          body: JSON.stringify(body),
+          signal: AbortSignal.timeout(config.bdv.timeoutMs),
+        }), { estado: (r) => r.status });
     } catch (e) {
       const conecto = !['ECONNREFUSED', 'ENOTFOUND', 'EAI_AGAIN'].includes(e.cause?.code);
       throw new ErrorBanco(conecto && sinRespuesta ? `Sin respuesta del banco (${e.name})` : 'No se pudo conectar con el Banco de Valores',
@@ -212,7 +221,11 @@ export class ClienteBdv {
   // En envíos de dinero (envio: true) NUNCA se reintenta, y todo lo que no sea un rechazo
   // claro del banco (HTTP 5xx, respuesta ilegible) se marca sinRespuesta: resultado incierto.
   async llamar(ruta, body, { reintentar = true, envio = false } = {}) {
-    const { prueba } = this.permitirPorCircuito({ envio });
+    let prueba;
+    try { ({ prueba } = this.permitirPorCircuito({ envio })); } catch (e) {
+      registrarLlamada({ op: opDeRuta(ruta), destino: 'bdv', uso: this.uso, intento: 1, resultado: 'bloqueada_circuito', circuito: this.circuito.estado, duracion_ms: 0, envio }, 40);
+      throw e;
+    }
     try {
       await this.sesion();
       const res = await this.fetch(`${this.base}/${ruta.replace(/^\//, '')}`, body, this.cookie, { sinRespuesta: true });
@@ -220,7 +233,7 @@ export class ClienteBdv {
         this.invalidar();
         // El reintento por sesión expirada pertenece a la misma llamada lógica y no vuelve a pasar por el breaker.
         await this.sesion();
-        const segundo = await this.fetch(`${this.base}/${ruta.replace(/^\//, '')}`, body, this.cookie, { sinRespuesta: true });
+        const segundo = await this.fetch(`${this.base}/${ruta.replace(/^\//, '')}`, body, this.cookie, { sinRespuesta: true, intento: 2 });
         if (segundo.status === 401 || segundo.status === 403) this.invalidar();
         else if (segundo.ok && this.cookie) this.vence = Date.now() + config.bdv.sesionMinutos * 60_000;
         const json2 = await segundo.json().catch(() => null);
@@ -258,8 +271,44 @@ const exigirExito = (json, ruta) => {
   return json;
 };
 
-export async function cuentasPropias(cliente = bdv) {
-  return exigirExito(await cliente.llamar('accounts/getOwnAccounts', {}), 'getOwnAccounts').accountsArray ?? [];
+// getOwnAccounts: pedidos CONCURRENTES comparten una sola consulta al banco (single-flight). No hay caché de saldos:
+// cada pedido nuevo vuelve a consultar; solo se evita pagar N veces la misma consulta en vuelo.
+const enVuelo = new Map(); // uso del cliente -> promesa de la consulta en curso
+export function cuentasPropias(cliente = bdv) {
+  if (enVuelo.has(cliente.uso)) return enVuelo.get(cliente.uso);
+  const p = (async () => {
+    const lista = exigirExito(await cliente.llamar('accounts/getOwnAccounts', {}), 'getOwnAccounts').accountsArray ?? [];
+    guardarMeta(cliente.uso, lista);
+    return lista;
+  })().finally(() => enVuelo.delete(cliente.uso));
+  enVuelo.set(cliente.uso, p);
+  return p;
+}
+
+// Identificadores de cada cuenta (NO saldos) para consultar detalle y movimientos sin volver a pedir getOwnAccounts
+// en cada pedido: productId/currencyId/productNumber/alias no cambian. TTL corto; se descarta al cambiar la credencial.
+const META_TTL_MS = 10 * 60_000;
+const meta = new Map(); // `${uso}|${numero}` -> { c, t }
+function guardarMeta(uso, lista) {
+  const t = Date.now();
+  for (const c of lista) meta.set(`${uso}|${c.productNumber}`, { t, c: { productId: c.productId, currencyId: c.currencyId, productNumber: c.productNumber, productAlias: c.productAlias } });
+}
+function limpiarMeta(uso) { for (const k of meta.keys()) if (k.startsWith(`${uso}|`)) meta.delete(k); }
+export async function cuentaDelBanco(numero, cliente = bdv) {
+  const h = meta.get(`${cliente.uso}|${numero}`);
+  if (h && Date.now() - h.t < META_TTL_MS) return h.c;
+  await cuentasPropias(cliente); // refresca la meta de todas las cuentas
+  return meta.get(`${cliente.uso}|${numero}`)?.c;
+}
+
+// Ejecuta fn sobre cada elemento con a lo sumo `limite` en paralelo y devuelve los resultados EN EL MISMO ORDEN.
+// Para consultas de solo lectura al banco de cuentas distintas (la paginación de una misma cuenta sigue siendo secuencial).
+export async function enParalelo(items, limite, fn) {
+  const out = new Array(items.length);
+  let i = 0;
+  const trabajador = async () => { for (let k = i++; k < items.length; k = i++) out[k] = await fn(items[k], k); };
+  await Promise.all(Array.from({ length: Math.max(1, Math.min(limite, items.length)) }, trabajador));
+  return out;
 }
 
 export async function detalleSaldos(cuenta) {

@@ -3,7 +3,7 @@ import { auditar } from '../auditoria.js';
 import { exigirRol, ROLES_OPERATIVOS } from '../auth.js';
 import { invalido, noEncontrado } from '../errores.js';
 import { cuentasHabilitadas, exigirCuenta } from '../permisos.js';
-import { consultarCbu, cuentasPropias, detalleSaldos, movimientos } from '../bdv/cliente.js';
+import { consultarCbu, cuentaDelBanco, cuentasPropias, detalleSaldos, enParalelo, movimientos } from '../bdv/cliente.js';
 import { filaMovimiento, xlsxMovimientos } from '../excel.js';
 import { fechaCorte, operativa } from '../db.js';
 import { config } from '../config.js';
@@ -19,6 +19,7 @@ const monedaDe = (c) => (Number(c.currencyId) === 80 ? 'ARS' : 'USD');
 // Cuentas del banco filtradas por las empresas habilitadas del usuario
 async function cuentasVisibles(usuario, empresaId = null) {
   const habilitadas = await cuentasHabilitadas(usuario);
+  if (!habilitadas.size) return []; // sin cuentas habilitadas no hace falta consultar al banco
   return (await cuentasPropias())
     .filter((c) => habilitadas.has(String(c.productNumber)))
     .map((c) => ({ ...c, empresa: habilitadas.get(String(c.productNumber)) }))
@@ -59,7 +60,8 @@ export default async function rutasConsultas(app) {
 
   app.get('/cuentas/:numero/detalle', soloOperativos, async (req) => {
     await exigirCuenta(req.user.usuario, req.params.numero);
-    const c = (await cuentasPropias()).find((x) => String(x.productNumber) === req.params.numero);
+    const c = await cuentaDelBanco(req.params.numero); // identificadores en caché: no vuelve a pedir getOwnAccounts
+    if (!c) throw noEncontrado('La cuenta no existe en el banco');
     const d = await detalleSaldos(c);
     await auditar(null, req, { tipo: 'Consultas', accion: 'Consultó detalle de cuenta', api: 'getBalancesDetail', detalle: req.params.numero });
     return d;
@@ -69,7 +71,8 @@ export default async function rutasConsultas(app) {
   app.get('/cuentas/:numero/movimientos', soloOperativos, async (req, reply) => {
     const { desde, hasta } = rango(req.query);
     const hab = await exigirCuenta(req.user.usuario, req.params.numero);
-    const c = (await cuentasPropias()).find((x) => String(x.productNumber) === req.params.numero);
+    const c = await cuentaDelBanco(req.params.numero); // identificadores en caché: no vuelve a pedir getOwnAccounts
+    if (!c) throw noEncontrado('La cuenta no existe en el banco');
     const r = await movimientos(c, desde, hasta);
     if (req.query.formato === 'xlsx') {
       const filas = r.movimientos.map((m) => filaMovimiento(m, { cuenta: c.productNumber, cliente: hab.razon_social, moneda: monedaDe(c) }));
@@ -86,13 +89,14 @@ export default async function rutasConsultas(app) {
   app.get('/debitos', soloOperativos, async (req, reply) => {
     const { desde, hasta } = rango(req.query);
     const cuentas = await cuentasVisibles(req.user.usuario, req.query.empresa);
+    // Cuentas distintas en paralelo (acotado, solo lectura); el resultado conserva el orden de las cuentas.
+    const porCuenta = await enParalelo(cuentas, config.bdv.concurrencia, (c) => movimientos(c, desde, hasta));
     const filas = [];
-    for (const c of cuentas) {
-      const r = await movimientos(c, desde, hasta);
-      for (const m of r.movimientos) {
+    cuentas.forEach((c, i) => {
+      for (const m of porCuenta[i].movimientos) {
         if (m.signDC === 'D') filas.push(filaMovimiento(m, { cuenta: c.productNumber, cliente: c.empresa.razon_social, moneda: monedaDe(c) }));
       }
-    }
+    });
     if (req.query.formato === 'xlsx') {
       await auditar(null, req, { tipo: 'Consultas', accion: 'Exportó a Excel', api: 'getMovementsDetail', detalle: `Débitos ${desde} a ${hasta} · ${filas.length} filas` });
       return reply.header('content-type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')

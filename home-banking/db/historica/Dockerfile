@@ -6,3 +6,4 @@ FROM postgres:16.4-alpine
 COPY --chmod=755 01_esquema.sql 02_roles.sh /docker-entrypoint-initdb.d/
 COPY --chmod=644 rol-pase.sql /docker-entrypoint-initdb.d/rol-pase.sql
 COPY --chmod=644 rol-pase.sql /migraciones/rol-pase.sql
+COPY --chmod=755 aplicar.sh /migraciones/aplicar.sh   # lo corre el servicio dbh-init en cada arranque

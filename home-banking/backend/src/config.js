@@ -79,6 +79,8 @@ export const config = {
     sesionMinutos: Number(leer('BDV_SESION_MINUTOS', '20')), // minutos sin usar la sesión del banco antes de renovarla
     paginaMovimientos: 900, // getMovementsDetail: tamaño de página acordado
     maxPaginasMovimientos: Number(leer('BDV_MAX_PAGINAS', '200')),
+    // Cuentas distintas que se consultan a la vez (solo lectura, p. ej. débitos de varias cuentas). La paginación de una cuenta es secuencial.
+    concurrencia: Math.max(1, Math.min(8, Number(leer('BDV_CONCURRENCIA', '3')))),
     // Circuit breaker de consultas: evita insistir contra BDV cuando hay una degradación sostenida.
     // Los envíos de dinero nunca se usan como prueba de recuperación (half-open).
     circuitBreaker: {
