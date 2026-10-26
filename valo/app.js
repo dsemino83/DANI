@@ -2725,18 +2725,28 @@
       bast.edPorPoder[p._k] = ed;
       return ed;
     });
-    // CUIT de los DNI que la planilla no trae con CUIT: base de entes y, si no está, el CUIL del dorso del DNI en Complif.
+    // CUIT de los DNI que la planilla no trae con CUIT: base de entes.
     const dnis = [...new Set(bast.poderes.flatMap(p => [p.otorgante.dni].concat(p.apoderados.map(a => a.dni))).filter(Boolean))]
       .filter(d => !M.cuitPorDni(d, bast.cliente && bast.cliente.firmantes) && !(d in bast.cuitsBase));
     if (dnis.length && almacen && typeof almacen.buscarCuitPorDni === 'function') {
       try { Object.assign(bast.cuitsBase, await almacen.buscarCuitPorDni(dnis)); } catch (e) { /* sin base: queda el DNI */ }
     }
-    const faltan = dnis.filter(d => !bast.cuitsBase[d]);
-    if (faltan.length && hayComplif()) await cuilesDeComplif(faltan);
     dnis.forEach(d => { if (!(d in bast.cuitsBase)) bast.cuitsBase[d] = ''; });
     renderBastanteo();
+    buscarCuilesFaltantes();
   }
 
+  // Búsqueda selectiva en Complif: solo los apoderados que quedan en el JSON sin CUIT/CUIL (con el DNI), un pedido por
+  // DNI con el tipo "Dorso de DNI" y el CUIL que contiene ese DNI. Cada DNI se busca una sola vez.
+  const cuilBuscado = new Set();
+  async function buscarCuilesFaltantes() {
+    if (!bast.poderes.length || !hayComplif()) return;
+    const faltan = [...new Set(jsonV1().apoderados.map(a => String(a.cuitCuil || '').replace(/\D/g, '')).filter(d => d && d.length <= 8 && !cuilBuscado.has(d)))];
+    if (!faltan.length) return;
+    faltan.forEach(d => cuilBuscado.add(d));
+    await cuilesDeComplif(faltan);
+    if (faltan.some(d => bast.cuitsBase[d])) renderBastanteo();
+  }
   // Un pedido a Complif por DNI (de a 4): documentos "Dorso de DNI" cuyo CUIL contiene el DNI.
   async function cuilesDeComplif(dnis) {
     for (let i = 0; i < dnis.length; i += 4) await Promise.all(dnis.slice(i, i + 4).map(async d => {
@@ -3206,7 +3216,7 @@
     catch (err) { $('bastTcEstado').innerHTML = aviso('bad', esc(err.message || err)); }
   });
   ['bastTc', 'bastTcFecha'].forEach(id => $(id).addEventListener('change', refrescarV1));
-  $('bastTodosApod').addEventListener('change', () => { renderV1Avisos(); if (!$('bastUnicoJson').classList.contains('oculto')) $('bastUnicoJson').textContent = JSON.stringify(jsonV1(), null, 2); });
+  $('bastTodosApod').addEventListener('change', () => { buscarCuilesFaltantes(); renderV1Avisos(); if (!$('bastUnicoJson').classList.contains('oculto')) $('bastUnicoJson').textContent = JSON.stringify(jsonV1(), null, 2); });
   $('bastFuenteGrupos').addEventListener('change', () => { renderV1Avisos(); if (!$('bastUnicoJson').classList.contains('oculto')) $('bastUnicoJson').textContent = JSON.stringify(jsonV1(), null, 2); });
   $('btnBastUnico').addEventListener('click', () => {
     const j = jsonV1(), err = M.validarJsonBastanteo(j);
@@ -3266,7 +3276,7 @@
     $('bastXlsNombre').textContent = 'Arrastrá el Excel o hacé clic';
     $('bastUnicoJson').classList.add('oculto');
     $('bastCorreccion').classList.add('oculto');
-    bastAnRef = null; bastChat = null; bastChats.clear();
+    bastAnRef = null; bastChat = null; bastChats.clear(); cuilBuscado.clear();
     renderBastanteo();
     toast('Bastanteo limpio: cargá los archivos del próximo cliente');
   });
