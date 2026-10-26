@@ -212,7 +212,7 @@ const normalizar = (s: string): string => s.trim().replace(/\s+/g, ' ');
 
 // Hechos que el ChatContext contiene explícitamente, en forma canónica. Un FACT está respaldado solo si su texto es
 // exactamente uno de ellos (sin inferir ni interpretar); si coincide con más de uno, es ambiguo.
-function hechosDelContexto(c: ChatContext): string[] {
+export function contextFacts(c: ChatContext): string[] {
   return [
     `Grupo ${c.grupo.id}: ${c.grupo.nombre}`,
     ...c.firmantes.map(f => `Firmante ${f.id}: ${f.nombre}`),
@@ -227,7 +227,7 @@ export function isDirectlyBackedByContext(text: string, context: ChatContext): b
   const r = parseChatContext(context);
   if (!r.ok) return false;
   const t = normalizar(text);
-  return t !== '' && hechosDelContexto(r.context).filter(h => h === t).length === 1;
+  return t !== '' && contextFacts(r.context).filter(h => h === t).length === 1;
 }
 
 function estadoInicial(type: VerifiableItem['type'], source: ReasoningSource, text: string, context: ChatContext): VerificationStatus {

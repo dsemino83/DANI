@@ -3287,6 +3287,24 @@
     return [...filas.values()].sort((a, b) => a.grupo.localeCompare(b.grupo) || a.agrupamiento.localeCompare(b.agrupamiento) || a.condicion.localeCompare(b.condicion));
   }
 
+  // ChatContext (bastanteo/razonamiento.mts) de un agrupamiento de una fila de la Vista agrupada: su grupo, los firmantes
+  // que pertenecen a ese grupo, el agrupamiento con sus participaciones y la regla de la fila. Solo copia datos del
+  // modelo; la validación la hace parseChatContext.
+  function chatContextBastanteo(modelo, fila, agrupamientoId, { bastanteoId, version }) {
+    const a = modelo.agrupamientos.find(x => x.id === agrupamientoId);
+    if (!a) return null;
+    const grupo = modelo.grupos.find(g => g.id === a.grupo_id) || { id: a.grupo_id, nombre: `Grupo ${a.grupo_id}` };
+    const pertenencias = modelo.pertenencias.filter(p => p.grupo_id === a.grupo_id).map(p => ({ id: p.id, grupoId: p.grupo_id, firmanteId: p.firmante_id }));
+    const ids = new Set(pertenencias.map(p => p.firmanteId));
+    const participaciones = modelo.participaciones.filter(p => p.agrupamiento_id === a.id).map(p => ({ agrupamientoId: p.agrupamiento_id, firmanteId: p.firmante_id }));
+    participaciones.forEach(p => ids.add(p.firmanteId));
+    const c = { bastanteoId, grupoId: a.grupo_id, agrupamientoId: a.id, version, grupo: { id: grupo.id, nombre: grupo.nombre },
+      firmantes: modelo.firmantes.filter(f => ids.has(f.id)).map(f => ({ id: f.id, nombre: f.nombre })), pertenencias,
+      agrupamiento: { id: a.id, grupoId: a.grupo_id, nombre: fila.agrupamiento }, participaciones };
+    if (fila.reglas.length) c.regla = { id: fila.reglas[0], agrupamientoId: a.id, descripcion: [fila.condicion, fila.limites.join(' / ')].join(' · ') };
+    return c;
+  }
+
   // Combinaciones mínimas de firmas (lista de grupos) que cumplen una regla: ConjuntaIndistinta [A, B] q2 = A+A, A+B,
   // B+B; Conjunta [A, B] q1 = A+B. null si no se puede expandir (quorum o grupos de más).
   function firmasMinimasDe(tipo, quorum, grupos) {
@@ -4749,7 +4767,7 @@ try {
     leerTxtMeli, bancoMeliDeTxt, bancosParaMeli,
     sqlExtraccionCartera, bookmarkletCartera, scriptPowerShellCartera, comandoTareaCartera, IMPORTES_CARTERA,
     NO_COBIS, ultimoDiaHabil, fechasNoCobis, FCIC_MELI_INICIAL, FERIADOS_AR, diaHabilAnterior, fechasFcicMeli, leerReporteCupones, armarNoCobisFcic, lineaNoCobis, txtNoCobis, loteApiNoCobis, scriptPowerShellNoCobis, scriptPowerShellProbarNoCobis, scriptPowerShellAgenteNoCobis, cmdEnvioNoCobis,
-    leerCartera, BASTANTEO_CATALOGO, BASTANTEO_CLAVES, BASTANTEO_EXTRA, leerPoderesOcr, leerAutoridadesOcr, COMPLIF_TIPOS, poderDesdeComplif, actaDesdeComplif, complifDeEmpresa, controlResumen, usoDelResumen, aplicarRevocatorias, claveRevocatoria, poderesFirmantesD, presidentesDeActas, gruposDelUso, usoCompleto, tokensDe, combosDeClausula, poderDelPresidente, leerClienteBastanteo, cuitPorDni, formatoCuit, firmanteDe, firmantesSinPoder, jsonPoder, jsonBastanteoUnico, jsonBastanteoV1, optimizarReglas, montoDeTexto, tcDePlanilla, modeloBastanteo, analizarBastanteo, vistaAgrupada, condicionDeFirma, compararBastanteos, firmasMinimasDe, TIPOS_DE_ERROR_BASTANTEO, validarJsonBastanteo, separarNombre, leerInventarioGarantias, leerUsoAcuerdos, leerCuentasPowerBI, clienteDeCuenta, leerPadronDesdeLineasPdf, INVENTARIOS_CONTABLES, INVENTARIO_DENOMINACION, INVENTARIO_FIRMAS, fechaReporteIso, fechaInventarioDesdeReporte, leerPadronDesdeInventarios, leerBaseEntes, unirPadron, armarInventariosContables, leerCom3500, leerTcApiBcra, elegirTipoCambio, numeroEnLetras, daxCarteraPowerBI, daxDiagnosticoPowerBI, daxSaldoDeuda, armarSaldoDeuda, daxSaldoDeudaDetalle, armarDeudaDetalle, leerFilasPowerBI, sugerirColumnaCartera, columnasNumericasCartera, agruparCartera, valoresDistintos, sqlCartera,
+    leerCartera, BASTANTEO_CATALOGO, BASTANTEO_CLAVES, BASTANTEO_EXTRA, leerPoderesOcr, leerAutoridadesOcr, COMPLIF_TIPOS, poderDesdeComplif, actaDesdeComplif, complifDeEmpresa, controlResumen, usoDelResumen, aplicarRevocatorias, claveRevocatoria, poderesFirmantesD, presidentesDeActas, gruposDelUso, usoCompleto, tokensDe, combosDeClausula, poderDelPresidente, leerClienteBastanteo, cuitPorDni, formatoCuit, firmanteDe, firmantesSinPoder, jsonPoder, jsonBastanteoUnico, jsonBastanteoV1, optimizarReglas, montoDeTexto, tcDePlanilla, modeloBastanteo, analizarBastanteo, vistaAgrupada, chatContextBastanteo, condicionDeFirma, compararBastanteos, firmasMinimasDe, TIPOS_DE_ERROR_BASTANTEO, validarJsonBastanteo, separarNombre, leerInventarioGarantias, leerUsoAcuerdos, leerCuentasPowerBI, clienteDeCuenta, leerPadronDesdeLineasPdf, INVENTARIOS_CONTABLES, INVENTARIO_DENOMINACION, INVENTARIO_FIRMAS, fechaReporteIso, fechaInventarioDesdeReporte, leerPadronDesdeInventarios, leerBaseEntes, unirPadron, armarInventariosContables, leerCom3500, leerTcApiBcra, elegirTipoCambio, numeroEnLetras, daxCarteraPowerBI, daxDiagnosticoPowerBI, daxSaldoDeuda, armarSaldoDeuda, daxSaldoDeudaDetalle, armarDeudaDetalle, leerFilasPowerBI, sugerirColumnaCartera, columnasNumericasCartera, agruparCartera, valoresDistintos, sqlCartera,
     leerCsv, encabezadosEjemplo, leerDefinicionInterfaz, sugerirColumna, detectarHojaInterfaz,
     normalizar, provinciaPorNombre, crearBuscadorBancoPorNombre, round2, aNumero, aFechaSerial, aCodigoBanco,
     fechaDDMMYY, fechaYYYYMMDD, fechaLegible, hoyDDMMYY,

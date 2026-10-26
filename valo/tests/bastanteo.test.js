@@ -223,11 +223,26 @@ test('análisis: sin observaciones, con la referencia igual, y con diferencias c
   assert.ok(dif.findings.some(f => f.startsWith('ERROR DE AGRUPAMIENTO (contra la referencia)')));
 });
 
-test('el estado.js que usa la página está generado desde estado.mts', async () => {
+test('los .js que usa la página están generados desde los .mts', async () => {
   const fs = require('node:fs'), path = require('node:path');
-  const { generarEstado } = await import('../bastanteo/generar-estado.mjs');
-  assert.equal(fs.readFileSync(path.join(__dirname, '../bastanteo/estado.js'), 'utf8'), generarEstado(), 'correr npm run build:estado');
+  const { generar, MODULOS } = await import('../bastanteo/generar-estado.mjs');
+  for (const m of MODULOS) assert.equal(fs.readFileSync(path.join(__dirname, `../bastanteo/${m.nombre}.js`), 'utf8'), generar(m), 'correr npm run build:estado');
   const E = require('../bastanteo/estado.js');
   const l = E.transition(E.initialState, { type: 'LOAD_CONTEXT', grouping: 'G' }).state;
   assert.equal(E.receive(l, { type: 'CONTEXT_LOADED', contextVersion: l.contextVersion, data: {} }).state.status, 'READY');
+});
+
+test('chat: el ChatContext de cada agrupamiento de la Vista agrupada es válido y respalda sus hechos', () => {
+  const R = require('../bastanteo/razonamiento.js');
+  const ap = [persona(1, 'A'), persona(2, 'A'), persona(3, 'B')];
+  const j = armar([poder(ap, [uso('CONJUNTA', ['A+A', 'A+B'], ['firmar_cheques'])])]);
+  const m = M.modeloBastanteo(j);
+  const filas = M.vistaAgrupada(m);
+  assert.ok(filas.length);
+  for (const f of filas) for (const a of f.firmantes) {
+    const c = M.chatContextBastanteo(m, f, a.agrupamiento, { bastanteoId: '30000000007', version: 'v1' });
+    assert.deepEqual(R.validateChatContext(c), { valid: true }, `${f.agrupamiento} ${a.agrupamiento}`);
+    assert.equal(c.participaciones.length, a.nombres.length);
+    for (const t of R.contextFacts(c)) assert.equal(R.initialVerification({ source: 'BASTANTEO', type: 'FACT', text: t }, c), 'VERIFIED', t);
+  }
 });
