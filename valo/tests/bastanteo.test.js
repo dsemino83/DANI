@@ -205,3 +205,29 @@ test('regresión: los grupos de un uso incluyen los de sus combinaciones', () =>
   assert.ok(ab._participantes.includes(M.formatoCuit(CUIT(3))));
   assert.equal(M.modeloBastanteo(j).errores.filter(e => e.tipo === 'ERROR DE AGRUPAMIENTO').length, 0);
 });
+
+// ---------------------------------------------------------------- análisis de la pantalla (máquina de estados)
+test('análisis: sin observaciones, con la referencia igual, y con diferencias contra la referencia', () => {
+  const ap = [persona(1, 'A'), persona(2, 'A'), persona(3, 'B')];
+  const j = armar([poder(ap, [uso('CONJUNTA', ['A+A', 'A+B'], ['firmar_cheques'])])]);
+  const ok = M.analizarBastanteo(j);
+  assert.equal(ok.status, 'OK');
+  assert.ok(ok.findings.every(f => f.startsWith('AVISO') || !/^ERROR/.test(f)));
+  const igual = M.analizarBastanteo(j, M.modeloBastanteo(j), JSON.parse(JSON.stringify(j)));
+  assert.equal(igual.status, 'OK');
+  assert.match(igual.summary, /coincide con la referencia/);
+  // La referencia no tiene la combinación A+B: es una observación (status ERROR), no una falla técnica.
+  const sinAB = armar([poder(ap, [uso('CONJUNTA', ['A+A'], ['firmar_cheques'])])]);
+  const dif = M.analizarBastanteo(j, M.modeloBastanteo(j), sinAB);
+  assert.equal(dif.status, 'ERROR');
+  assert.ok(dif.findings.some(f => f.startsWith('ERROR DE AGRUPAMIENTO (contra la referencia)')));
+});
+
+test('el estado.js que usa la página está generado desde estado.mts', async () => {
+  const fs = require('node:fs'), path = require('node:path');
+  const { generarEstado } = await import('../bastanteo/generar-estado.mjs');
+  assert.equal(fs.readFileSync(path.join(__dirname, '../bastanteo/estado.js'), 'utf8'), generarEstado(), 'correr npm run build:estado');
+  const E = require('../bastanteo/estado.js');
+  const l = E.transition(E.initialState, { type: 'LOAD_CONTEXT', grouping: 'G' }).state;
+  assert.equal(E.receive(l, { type: 'CONTEXT_LOADED', contextVersion: l.contextVersion, data: {} }).state.status, 'READY');
+});

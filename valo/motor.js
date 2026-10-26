@@ -3358,6 +3358,22 @@
     dif.sort((x, y) => TIPOS_DE_ERROR_BASTANTEO.indexOf(x.tipo) - TIPOS_DE_ERROR_BASTANTEO.indexOf(y.tipo));
     return { diferencias: dif, generado: mg.errores, esperado: me.errores };
   }
+  // Análisis del bastanteo para la pantalla (máquina de estados de bastanteo/estado.mts): junta los errores del modelo, las
+  // reglas del sistema (validarJsonBastanteo) y, si hay un JSON de referencia (p. ej. el de producción), las diferencias con
+  // él. status 'ERROR' = hay observaciones que bloquean (no es un error técnico); los avisos van como hallazgos sin bloquear.
+  function analizarBastanteo(json, modelo = modeloBastanteo(json), referencia = null) {
+    const bloquean = [], avisan = [];
+    modelo.errores.forEach(e => (e.nivel === 'error' ? bloquean : avisan).push(`${e.tipo} · ${e.detalle}`));
+    validarJsonBastanteo(json).forEach(e => bloquean.push(`REGLA DEL SISTEMA · ${e}`));
+    const dif = referencia ? compararBastanteos(json, referencia).diferencias : [];
+    dif.forEach(x => bloquean.push(`${x.tipo} (contra la referencia) · ${x.detalle}`));
+    (json.avisos || []).forEach(a => avisan.push(`AVISO · ${a}`));
+    const cuenta = (n, uno, varios) => `${n} ${n === 1 ? uno : varios}`;
+    const summary = (bloquean.length ? `${cuenta(bloquean.length, 'observación', 'observaciones')} a revisar` : 'Sin observaciones') +
+      (referencia ? (dif.length ? ` (${cuenta(dif.length, 'diferencia', 'diferencias')} con la referencia)` : ' · coincide con la referencia') : '') +
+      (avisan.length ? ` · ${cuenta(avisan.length, 'aviso', 'avisos')}` : '') + '.';
+    return { status: bloquean.length ? 'ERROR' : 'OK', summary, findings: [...bloquean, ...avisan] };
+  }
   // ------------------------------------------------------------ TXT NO COBIS
   // Diseño (hoja "NO COBIS" del archivo de inventario Payway), 156 caracteres por línea, una por ente (MIS):
   // código cliente = MIS (10, ceros a la izq.) · tipo de crédito CCASR (10, espacios a la der.) · tasa 0100000000 (10)
@@ -4733,7 +4749,7 @@ try {
     leerTxtMeli, bancoMeliDeTxt, bancosParaMeli,
     sqlExtraccionCartera, bookmarkletCartera, scriptPowerShellCartera, comandoTareaCartera, IMPORTES_CARTERA,
     NO_COBIS, ultimoDiaHabil, fechasNoCobis, FCIC_MELI_INICIAL, FERIADOS_AR, diaHabilAnterior, fechasFcicMeli, leerReporteCupones, armarNoCobisFcic, lineaNoCobis, txtNoCobis, loteApiNoCobis, scriptPowerShellNoCobis, scriptPowerShellProbarNoCobis, scriptPowerShellAgenteNoCobis, cmdEnvioNoCobis,
-    leerCartera, BASTANTEO_CATALOGO, BASTANTEO_CLAVES, BASTANTEO_EXTRA, leerPoderesOcr, leerAutoridadesOcr, COMPLIF_TIPOS, poderDesdeComplif, actaDesdeComplif, complifDeEmpresa, controlResumen, usoDelResumen, aplicarRevocatorias, claveRevocatoria, poderesFirmantesD, presidentesDeActas, gruposDelUso, usoCompleto, tokensDe, combosDeClausula, poderDelPresidente, leerClienteBastanteo, cuitPorDni, formatoCuit, firmanteDe, firmantesSinPoder, jsonPoder, jsonBastanteoUnico, jsonBastanteoV1, optimizarReglas, montoDeTexto, tcDePlanilla, modeloBastanteo, vistaAgrupada, condicionDeFirma, compararBastanteos, firmasMinimasDe, TIPOS_DE_ERROR_BASTANTEO, validarJsonBastanteo, separarNombre, leerInventarioGarantias, leerUsoAcuerdos, leerCuentasPowerBI, clienteDeCuenta, leerPadronDesdeLineasPdf, INVENTARIOS_CONTABLES, INVENTARIO_DENOMINACION, INVENTARIO_FIRMAS, fechaReporteIso, fechaInventarioDesdeReporte, leerPadronDesdeInventarios, leerBaseEntes, unirPadron, armarInventariosContables, leerCom3500, leerTcApiBcra, elegirTipoCambio, numeroEnLetras, daxCarteraPowerBI, daxDiagnosticoPowerBI, daxSaldoDeuda, armarSaldoDeuda, daxSaldoDeudaDetalle, armarDeudaDetalle, leerFilasPowerBI, sugerirColumnaCartera, columnasNumericasCartera, agruparCartera, valoresDistintos, sqlCartera,
+    leerCartera, BASTANTEO_CATALOGO, BASTANTEO_CLAVES, BASTANTEO_EXTRA, leerPoderesOcr, leerAutoridadesOcr, COMPLIF_TIPOS, poderDesdeComplif, actaDesdeComplif, complifDeEmpresa, controlResumen, usoDelResumen, aplicarRevocatorias, claveRevocatoria, poderesFirmantesD, presidentesDeActas, gruposDelUso, usoCompleto, tokensDe, combosDeClausula, poderDelPresidente, leerClienteBastanteo, cuitPorDni, formatoCuit, firmanteDe, firmantesSinPoder, jsonPoder, jsonBastanteoUnico, jsonBastanteoV1, optimizarReglas, montoDeTexto, tcDePlanilla, modeloBastanteo, analizarBastanteo, vistaAgrupada, condicionDeFirma, compararBastanteos, firmasMinimasDe, TIPOS_DE_ERROR_BASTANTEO, validarJsonBastanteo, separarNombre, leerInventarioGarantias, leerUsoAcuerdos, leerCuentasPowerBI, clienteDeCuenta, leerPadronDesdeLineasPdf, INVENTARIOS_CONTABLES, INVENTARIO_DENOMINACION, INVENTARIO_FIRMAS, fechaReporteIso, fechaInventarioDesdeReporte, leerPadronDesdeInventarios, leerBaseEntes, unirPadron, armarInventariosContables, leerCom3500, leerTcApiBcra, elegirTipoCambio, numeroEnLetras, daxCarteraPowerBI, daxDiagnosticoPowerBI, daxSaldoDeuda, armarSaldoDeuda, daxSaldoDeudaDetalle, armarDeudaDetalle, leerFilasPowerBI, sugerirColumnaCartera, columnasNumericasCartera, agruparCartera, valoresDistintos, sqlCartera,
     leerCsv, encabezadosEjemplo, leerDefinicionInterfaz, sugerirColumna, detectarHojaInterfaz,
     normalizar, provinciaPorNombre, crearBuscadorBancoPorNombre, round2, aNumero, aFechaSerial, aCodigoBanco,
     fechaDDMMYY, fechaYYYYMMDD, fechaLegible, hoyDDMMYY,
