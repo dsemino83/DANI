@@ -2938,10 +2938,90 @@
     $('bastVistaAgrupada').classList.toggle('oculto', bastVista !== 'agrupada');
     renderVistaAgrupada();
   });
+  // Análisis del bastanteo con la máquina de estados (bastanteo/estado.js, generado desde estado.mts). El contexto es el JSON
+  // 1.0 y su modelo para el agrupamiento elegido (grupos según la planilla o los poderes, con o sin los apoderados que no
+  // están en el Excel). Cualquier cambio de datos (poderes, planilla, TC) o de agrupamiento carga un contexto nuevo; lo que
+  // llegue del contexto o del pedido anterior la máquina lo ignora.
+  const EST = window.VALO_BASTANTEO_ESTADO;
+  let bastAn = EST.initialState, bastAnFirma = '', bastAnRef = null, bastAnPedidos = 0;
+  function agrupamientoBast() {
+    const conLetras = bast.cliente && bast.cliente.firmantes.some(f => f.uso && f.uso.grupo);
+    return (conLetras && $('bastFuenteGrupos').value === 'planilla' ? 'Grupos de la planilla' : 'Grupos de los poderes') +
+      ($('bastTodosApod').checked ? ' + apoderados fuera del Excel' : '');
+  }
+  function aplicarAn(r) {
+    if (r.outcome !== 'APPLIED') { renderAnalisis(); return r; }
+    const antes = bastAn;
+    bastAn = r.state;
+    if (bastAn.status === 'LOADING_CONTEXT' && bastAn.contextVersion !== antes.contextVersion) cargarContextoAn(bastAn.contextVersion);
+    if (bastAn.status === 'SENDING' && bastAn.requestId !== antes.requestId) pedirAnalisis(bastAn);
+    renderAnalisis();
+    return r;
+  }
+  // Se llama en cada render del bastanteo con el JSON vigente.
+  function sincronizarAnalisis(j) {
+    if (!j) { bastAn = EST.initialState; bastAnFirma = ''; renderAnalisis(); return; }
+    const grouping = agrupamientoBast(), firma = grouping + '\n' + JSON.stringify(j);
+    if (firma === bastAnFirma && bastAn.status !== 'IDLE') return;
+    bastAnFirma = firma;
+    aplicarAn(bastAn.status === 'IDLE' ? EST.transition(bastAn, { type: 'LOAD_CONTEXT', grouping }) : EST.transition(bastAn, { type: 'SELECT_GROUPING', grouping }));
+  }
+  function cargarContextoAn(contextVersion) {
+    setTimeout(() => {
+      let msg;
+      try { const json = jsonV1(); msg = { type: 'CONTEXT_LOADED', contextVersion, data: { json, modelo: M.modeloBastanteo(json) } }; }
+      catch (e) { msg = { type: 'CONTEXT_FAILED', contextVersion, error: { message: String(e.message || e) } }; }
+      aplicarAn(EST.receive(bastAn, msg));
+    }, 0);
+  }
+  function pedirAnalisis(s) {
+    const { requestId, contextVersion } = s, { json, modelo } = s.context.data, ref = bastAnRef && bastAnRef.json;
+    setTimeout(() => {
+      let msg;
+      try { msg = { type: 'RESPONSE', requestId, contextVersion, analysis: M.analizarBastanteo(json, modelo, ref) }; }
+      catch (e) { msg = { type: 'FAILURE', requestId, contextVersion, error: { message: String(e.message || e) } }; }
+      aplicarAn(EST.receive(bastAn, msg));
+    }, 0);
+  }
+  const nuevoPedidoAn = () => `an-${Date.now()}-${++bastAnPedidos}`;
+  function renderAnalisis() {
+    const s = bastAn, chip = $('bastAnEstado');
+    const [clase, texto] = s.status === 'IDLE' ? ['gris', 'Sin contexto'] : s.status === 'LOADING_CONTEXT' ? ['gris', 'Cargando contexto…'] :
+      s.status === 'SENDING' ? ['warn', 'Analizando…'] : s.status === 'ERROR' ? ['bad', s.stage === 'CONTEXT' ? 'Falló la carga del contexto' : 'Falló el análisis'] :
+      !s.analysis ? ['gris', 'Listo para analizar'] : s.analysis.status === 'OK' ? ['ok', 'Sin observaciones'] : ['bad', 'Con observaciones'];
+    chip.className = 'chip ' + clase; chip.textContent = texto;
+    $('btnBastAnalizar').disabled = s.status !== 'READY';
+    $('btnBastAnReintentar').classList.toggle('oculto', !(s.status === 'ERROR' && s.stage === 'REQUEST'));
+    $('btnBastAnContexto').classList.toggle('oculto', s.status !== 'ERROR');
+    $('bastAnRefNombre').innerHTML = bastAnRef ? `contra <b>${esc(bastAnRef.nombre)}</b> <a href="#" id="bastAnRefQuitar">quitar</a>` : '';
+    const an = s.status === 'IDLE' || s.status === 'LOADING_CONTEXT' ? null : s.analysis;
+    $('bastAnResultado').innerHTML = (s.status === 'ERROR' ? aviso('bad', esc(s.error.message)) : '') +
+      (an ? aviso(an.status === 'OK' ? 'ok' : 'bad', `<b>${esc(an.summary)}</b>${s.status === 'READY' ? '' : ' <span class="sub">(análisis anterior)</span>'}` +
+        (an.findings.length ? `<details${an.status === 'OK' ? '' : ' open'}><summary>${an.findings.length} hallazgo${an.findings.length > 1 ? 's' : ''}</summary>` +
+          an.findings.map(f => `<div>${esc(f)}</div>`).join('') + '</details>' : '')) : '') +
+      (s.status === 'IDLE' ? '' : `<p class="sub" style="margin:0 0 6px">${esc(s.grouping)} · contexto v${s.contextVersion}</p>`);
+  }
+  $('btnBastAnalizar').addEventListener('click', () => { if (bastAn.status === 'READY') aplicarAn(EST.transition(bastAn, { type: 'SEND', requestId: nuevoPedidoAn() })); });
+  $('btnBastAnReintentar').addEventListener('click', () => { if (bastAn.status === 'ERROR') aplicarAn(EST.transition(bastAn, { type: 'RETRY', requestId: nuevoPedidoAn() })); });
+  $('btnBastAnContexto').addEventListener('click', () => { if (bastAn.status === 'ERROR') aplicarAn(EST.transition(bastAn, { type: 'RETRY_CONTEXT' })); });
+  $('btnBastAnRef').addEventListener('click', () => $('archivoBastRef').click());
+  $('archivoBastRef').addEventListener('change', async e => {
+    const f = e.target.files[0]; e.target.value = '';
+    if (!f) return;
+    try {
+      const json = JSON.parse(await f.text());
+      if (!json || !Array.isArray(json.reglasFirma) || !Array.isArray(json.apoderados)) throw new Error('No es un JSON de bastanteo 1.0 (falta apoderados o reglasFirma).');
+      bastAnRef = { nombre: f.name, json };
+      renderAnalisis();
+      toast('Referencia cargada: tocá Analizar para comparar');
+    } catch (err) { informar('JSON de referencia inválido', esc(err.message || err)); }
+  });
+  $('bastAnRefNombre').addEventListener('click', e => { if (e.target.id === 'bastAnRefQuitar') { e.preventDefault(); bastAnRef = null; renderAnalisis(); } });
   let bastTcAuto = false;
   function renderV1Avisos() {
-    if (!bast.poderes.length) { $('bastV1Avisos').innerHTML = ''; return; }
+    if (!bast.poderes.length) { $('bastV1Avisos').innerHTML = ''; sincronizarAnalisis(null); return; }
     const j = jsonV1();
+    sincronizarAnalisis(j);
     if (!bastTcAuto && !bastTcActual() && !(bast.cliente && bast.cliente.tc) && j.reglasFirma.some(r => r.monto)) { bastTcAuto = true; setTimeout(() => traerTcBast(false), 0); }
     const conLetras = bast.cliente && bast.cliente.firmantes.some(f => f.uso && f.uso.grupo);
     const ren = Object.entries(j.renombre).filter(([a, b]) => a !== b);
@@ -3068,6 +3148,7 @@
     $('bastXlsNombre').textContent = 'Arrastrá el Excel o hacé clic';
     $('bastUnicoJson').classList.add('oculto');
     $('bastCorreccion').classList.add('oculto');
+    bastAnRef = null;
     renderBastanteo();
     toast('Bastanteo limpio: cargá los archivos del próximo cliente');
   });
