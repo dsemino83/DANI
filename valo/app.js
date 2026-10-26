@@ -2911,23 +2911,128 @@
   let bastVista = 'actual';
   function renderVistaAgrupada() {
     const caja = $('bastVistaAgrupada');
+    renderChat();
     if (bastVista !== 'agrupada' || !bast.poderes.length) { caja.innerHTML = ''; return; }
     const modelo = M.modeloBastanteo(jsonV1());
     const filas = M.vistaAgrupada(modelo);
+    // Una columna de firmantes por grupo: cada agrupamiento de la fila va en la columna de su grupo.
+    const columnas = [...new Set(filas.flatMap(f => f.firmantes.map(a => a.grupo)))].sort();
+    bastChatFilas = filas;
     const errores = modelo.errores.filter(e => e.nivel === 'error'), avisosM = modelo.errores.filter(e => e.nivel !== 'error');
     const lista = l => l.map(e => `<div><b>${esc(e.tipo)}</b> · ${esc(e.detalle)}</div>`).join('');
     caja.innerHTML = `<p class="sub" style="margin:0 0 6px">${modelo.grupos.length} grupos · ${modelo.firmantes.length} firmantes · ${modelo.agrupamientos.length} agrupamientos · ${modelo.reglas.length} reglas. ` +
       'Cada fila es un agrupamiento (los firmantes que se combinan) con su regla; la misma regla en dólares y en pesos va en una sola fila.</p>' +
       (errores.length ? aviso('bad', `<b>${errores.length} error${errores.length > 1 ? 'es' : ''} del modelo</b>${lista(errores)}`) : aviso('ok', 'Modelo consistente: cada firmante que participa en un agrupamiento pertenece al grupo del agrupamiento.')) +
       (avisosM.length ? aviso('warn', lista(avisosM)) : '') +
-      `<div class="tabla-caja"><table><thead><tr><th>Grupo</th><th>Agrupamiento</th><th>Firmantes</th><th>Condición de firma</th><th>Monedas</th><th>Límites</th><th>Facultades</th></tr></thead><tbody>` +
-      filas.map(f => `<tr><td><b>${esc(f.grupo)}</b></td><td>${esc(f.agrupamiento)}</td>` +
-        `<td style="white-space:normal;min-width:220px">${f.firmantes.map(a => `<div><span class="chip gris">${esc(a.agrupamiento)}</span> ${esc(a.nombres.join(' · ') || '—')}</div>`).join('')}</td>` +
+      `<div class="tabla-caja"><table><thead><tr><th>Grupo</th><th>Agrupamiento</th>${columnas.map(g => `<th>Firmantes grupo ${esc(g)}</th>`).join('')}<th>Condición de firma</th><th>Monedas</th><th>Límites</th><th>Facultades</th></tr></thead><tbody>` +
+      filas.map((f, k) => `<tr><td><b>${esc(f.grupo)}</b></td><td>${esc(f.agrupamiento)}</td>` +
+        columnas.map(g => { const as = f.firmantes.filter(a => a.grupo === g);
+          return `<td style="white-space:normal;min-width:150px">${as.length ? as.map(a => `<div style="margin-bottom:4px"><span class="chip gris">${esc(a.agrupamiento)}</span> ` +
+            `<button class="btn chico" type="button" data-bast-chat="${k}|${esc(a.agrupamiento)}" title="Abrir el chat de este agrupamiento">Chat</button>` +
+            `${a.nombres.map(n => `<div>${esc(n)}</div>`).join('') || '<div>—</div>'}</div>`).join('') : '<span class="sub">—</span>'}</td>`; }).join('') +
         `<td style="white-space:normal">${esc(f.condicion)}${f.vencimiento ? `<div class="sub" style="margin:0">vence ${esc(fechaAr(f.vencimiento))}</div>` : ''}</td>` +
         `<td>${esc(f.monedas.join(', ') || '—')}</td><td style="white-space:nowrap">${f.limites.map(esc).join('<br>')}</td>` +
         `<td style="white-space:normal;min-width:260px"><details><summary>${f.facultades.length} facultades</summary>${esc(f.facultades.join(', '))}</details><div class="sub" style="margin:0">${esc(f.reglas.join(', '))}</div></td></tr>`).join('') +
       '</tbody></table></div>';
   }
+  // Chat de un agrupamiento: ítems de razonamiento (bastanteo/razonamiento.js) sobre el ChatContext del agrupamiento,
+  // armado con el contexto vigente de la máquina de análisis y validado antes de usarlo (si no es válido, no se usa).
+  // El chat no modifica el bastanteo: lo que se escribe acá es razonamiento (HUMAN), no datos.
+  const RZ = window.VALO_BASTANTEO_RAZONAMIENTO;
+  let bastChatFilas = [], bastChat = null, bastChatN = 0;
+  const bastChats = new Map();
+  const TIPOS_CHAT = { QUESTION: 'Pregunta', FACT: 'Hecho', OBSERVATION: 'Observación', HYPOTHESIS: 'Hipótesis', INFERENCE: 'Inferencia' };
+  const VERIF_CHAT = { UNVERIFIED: ['gris', 'Sin verificar'], VERIFIED: ['ok', 'Verificado'], REFUTED: ['bad', 'Refutado'], INDETERMINATE: ['warn', 'Indeterminado'] };
+  const EVID_CHAT = { SUPPORTS: 'A favor', CONTRADICTS: 'Contradice', COMPATIBLE: 'Compatible', INCONCLUSIVE: 'Inconclusa' };
+  const FUENTE_CHAT = { BASTANTEO: 'Bastanteo', HUMAN: 'Usuario', SKILL: 'Skill' };
+  function contextoChat() {
+    const s = bastAn;
+    const conContexto = s.status === 'READY' || s.status === 'SENDING' || (s.status === 'ERROR' && s.stage === 'REQUEST');
+    if (!conContexto) return { espera: true };
+    const { json, modelo } = s.context.data;
+    const fila = M.vistaAgrupada(modelo).find(f => f.reglas.join() === bastChat.reglas && f.firmantes.some(a => a.agrupamiento === bastChat.agrupamientoId));
+    if (!fila) return { errores: [{ code: 'INVALID_REFERENCE', path: '$.agrupamientoId', message: 'El agrupamiento ya no está en el contexto vigente' }] };
+    const r = RZ.parseChatContext(M.chatContextBastanteo(modelo, fila, bastChat.agrupamientoId,
+      { bastanteoId: String(json.empresa.cuit || json.empresa.razonSocial || 'bastanteo'), version: 'v' + s.contextVersion }));
+    return r.ok ? { context: r.context, fila } : { errores: r.errors };
+  }
+  const conversacion = () => { const k = bastChat.clave; if (!bastChats.has(k)) bastChats.set(k, []); return bastChats.get(k); };
+  function agregarAlChat(context, source, type, text) {
+    const r = RZ.createReasoningItem({ id: `m${++bastChatN}`, source, type, text }, context);
+    if (!r.ok) return false;
+    conversacion().push({ item: r.item, record: r.item.type === 'QUESTION' ? null : RZ.startVerification(r.item) });
+    return true;
+  }
+  function renderChat() {
+    const caja = $('bastChat');
+    if (!bastChat || bastVista !== 'agrupada' || !bast.poderes.length) { caja.classList.add('oculto'); caja.innerHTML = ''; return; }
+    caja.classList.remove('oculto');
+    const borrador = $('bastChatTexto') ? $('bastChatTexto').value : '', tipo = $('bastChatTipo') ? $('bastChatTipo').value : 'QUESTION';
+    const x = contextoChat(), conv = conversacion();
+    if (x.context) conv.forEach(e => {
+      if (e.record && e.record.item.contextVersion !== x.context.version) { const c = RZ.changeContext(e.record, x.context); if (c.ok) { e.record = c.record; e.item = c.record.item; } }
+    });
+    const cab = `<div class="fila-flex" style="align-items:center;gap:8px;flex-wrap:wrap"><b>Chat · agrupamiento ${esc(bastChat.agrupamientoId)}</b>` +
+      (x.context ? `<span class="sub" style="margin:0">grupo ${esc(x.context.grupoId)} · ${esc(x.context.regla ? x.context.regla.descripcion : 'sin regla')} · contexto ${esc(x.context.version)}</span>` : '') +
+      '<button class="btn chico" type="button" data-chat-accion="cerrar" style="margin-left:auto">Cerrar</button></div>';
+    const estado = x.espera ? aviso('warn', 'Esperando el contexto del análisis…') :
+      x.errores ? aviso('bad', '<b>Contexto inválido: el chat no lo usa.</b>' + x.errores.map(e => `<div>${esc(e.code)} ${esc(e.path)} · ${esc(e.message)}</div>`).join('')) :
+      `<details><summary class="sub">ChatContext (${x.context.firmantes.length} firmantes · ${x.context.participaciones.length} participan)</summary><pre class="codigo" style="max-height:220px;overflow:auto">${esc(JSON.stringify(x.context, null, 2))}</pre></details>`;
+    const msgs = conv.map((e, i) => {
+      const it = e.item, v = it.verification ? VERIF_CHAT[it.verification] : null;
+      return `<div style="border:1px solid var(--line);border-radius:8px;padding:6px 10px;margin:6px 0;${it.source === 'HUMAN' ? 'background:var(--panel-2)' : ''}">` +
+        `<div class="fila-flex" style="gap:6px;align-items:center;flex-wrap:wrap"><span class="chip gris">${TIPOS_CHAT[it.type]}</span><span class="sub" style="margin:0">${FUENTE_CHAT[it.source]} · ${esc(it.contextVersion)}</span>` +
+        (v ? `<span class="chip ${v[0]}">${v[1]}</span>` : '') + '</div>' +
+        `<div style="white-space:pre-wrap;margin:4px 0">${esc(it.text)}</div>` +
+        (e.record && x.context ? '<div class="fila-flex" style="gap:4px;flex-wrap:wrap"><span class="sub" style="margin:0">Evidencia:</span>' +
+          Object.entries(EVID_CHAT).map(([k, t]) => `<button class="btn chico" type="button" data-chat-ev="${i}|${k}">${t}</button>`).join('') + '</div>' : '') +
+        (e.record && e.record.history.length > 1 ? `<details><summary class="sub">Historial (${e.record.history.length})</summary>` + e.record.history.map(h =>
+          `<div class="sub" style="margin:0">${h.from ? VERIF_CHAT[h.from][1] + ' → ' : ''}${VERIF_CHAT[h.to][1]} · ${h.cause.type === 'EVIDENCE' ? 'evidencia ' + EVID_CHAT[h.cause.kind].toLowerCase() : h.cause.type === 'CONTEXT_CHANGE' ? 'contexto ' + esc(h.cause.contextVersion) : 'inicial (' + esc(h.cause.contextVersion) + ')'}</div>`).join('') + '</details>' : '') +
+        '</div>';
+    }).join('');
+    caja.innerHTML = cab + estado +
+      `<div id="bastChatMensajes" style="max-height:420px;overflow:auto">${msgs || '<p class="sub">Sin mensajes. Escribí una pregunta, un hecho, una observación, una hipótesis o una inferencia sobre este agrupamiento.</p>'}</div>` +
+      (x.context ? `<div class="fila-flex" style="gap:8px;align-items:flex-end;flex-wrap:wrap;margin-top:6px"><select id="bastChatTipo" style="width:auto">${Object.entries(TIPOS_CHAT).map(([k, t]) => `<option value="${k}"${k === tipo ? ' selected' : ''}>${t}</option>`).join('')}</select>` +
+        `<textarea id="bastChatTexto" rows="2" style="flex:1;min-width:240px" placeholder="Escribí y apretá Enter (Shift+Enter: nueva línea)">${esc(borrador)}</textarea>` +
+        '<button class="btn primario" type="button" data-chat-accion="enviar">Enviar</button>' +
+        '<button class="btn" type="button" data-chat-accion="hechos" title="Agrega como hechos del bastanteo los datos del ChatContext">Hechos del bastanteo</button></div>' +
+        '<p class="sub">Un hecho solo queda Verificado si viene del bastanteo y está tal cual en el contexto. Lo que escribe el usuario se verifica con evidencia; el chat no modifica el bastanteo.</p>' : '');
+    const lista = $('bastChatMensajes'); lista.scrollTop = lista.scrollHeight;
+  }
+  $('bastVistaAgrupada').addEventListener('click', e => {
+    const b = e.target.closest('[data-bast-chat]');
+    if (!b) return;
+    const [k, agrupamientoId] = b.dataset.bastChat.split('|'), fila = bastChatFilas[Number(k)];
+    if (!fila) return;
+    bastChat = { agrupamientoId, reglas: fila.reglas.join(), clave: `${agrupamientoId}|${fila.reglas.join()}` };
+    renderChat();
+    $('bastChat').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    if ($('bastChatTexto')) $('bastChatTexto').focus();
+  });
+  function enviarChat() {
+    const x = contextoChat(), t = $('bastChatTexto'), texto = t ? t.value.trim() : '';
+    if (!x.context || !texto) return;
+    if (agregarAlChat(x.context, 'HUMAN', $('bastChatTipo').value, texto)) { t.value = ''; renderChat(); $('bastChatTexto').focus(); }
+  }
+  $('bastChat').addEventListener('click', e => {
+    const ev = e.target.closest('[data-chat-ev]'), ac = e.target.closest('[data-chat-accion]');
+    if (ev) {
+      const [i, kind] = ev.dataset.chatEv.split('|'), entrada = conversacion()[Number(i)];
+      if (!entrada || !entrada.record) return;
+      entrada.record = RZ.applyEvidence(entrada.record, { id: `e${++bastChatN}`, contextVersion: entrada.record.item.contextVersion, source: 'HUMAN', kind });
+      entrada.item = entrada.record.item;
+      renderChat();
+    } else if (ac && ac.dataset.chatAccion === 'cerrar') { bastChat = null; renderChat(); }
+    else if (ac && ac.dataset.chatAccion === 'enviar') enviarChat();
+    else if (ac && ac.dataset.chatAccion === 'hechos') {
+      const x = contextoChat();
+      if (!x.context) return;
+      const ya = new Set(conversacion().filter(m => m.item.source === 'BASTANTEO').map(m => m.item.text));
+      RZ.contextFacts(x.context).filter(t => !ya.has(t)).forEach(t => agregarAlChat(x.context, 'BASTANTEO', 'FACT', t));
+      renderChat();
+    }
+  });
+  $('bastChat').addEventListener('keydown', e => { if (e.target.id === 'bastChatTexto' && e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); enviarChat(); } });
   $('bastPestanas').addEventListener('click', e => {
     const b = e.target.closest('[data-bast-vista]');
     if (!b) return;
@@ -2994,6 +3099,7 @@
     $('btnBastAnReintentar').classList.toggle('oculto', !(s.status === 'ERROR' && s.stage === 'REQUEST'));
     $('btnBastAnContexto').classList.toggle('oculto', s.status !== 'ERROR');
     $('bastAnRefNombre').innerHTML = bastAnRef ? `contra <b>${esc(bastAnRef.nombre)}</b> <a href="#" id="bastAnRefQuitar">quitar</a>` : '';
+    renderChat();
     const an = s.status === 'IDLE' || s.status === 'LOADING_CONTEXT' ? null : s.analysis;
     $('bastAnResultado').innerHTML = (s.status === 'ERROR' ? aviso('bad', esc(s.error.message)) : '') +
       (an ? aviso(an.status === 'OK' ? 'ok' : 'bad', `<b>${esc(an.summary)}</b>${s.status === 'READY' ? '' : ' <span class="sub">(análisis anterior)</span>'}` +
@@ -3148,7 +3254,7 @@
     $('bastXlsNombre').textContent = 'Arrastrá el Excel o hacé clic';
     $('bastUnicoJson').classList.add('oculto');
     $('bastCorreccion').classList.add('oculto');
-    bastAnRef = null;
+    bastAnRef = null; bastChat = null; bastChats.clear();
     renderBastanteo();
     toast('Bastanteo limpio: cargá los archivos del próximo cliente');
   });
