@@ -1,0 +1,15 @@
+{
+  "name": "dani-valo",
+  "private": true,
+  "description": "Herramientas de verificación de VALO (tests y chequeo de tipos). La aplicación no usa dependencias de npm.",
+  "engines": {
+    "node": ">=22.18"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "test:bastanteo": "node --test valo/tests/bastanteo.test.js valo/tests/bastanteo-estado.test.mjs"
+  },
+  "devDependencies": {
+    "typescript": "5.9.3"
+  }
+}
