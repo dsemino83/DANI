@@ -3,6 +3,7 @@
 # (postgres) y termina. Así no depende de que alguien corra scripts/migrar-bases.sh ni del orden de arranque:
 #  1) espera a la base real (el healthcheck puede pasar durante la inicialización, que solo escucha por socket);
 #  2) crea el rol hb_jobs (servicio jobs) y hb_pase (pase mensual) si faltan y SIEMPRE sincroniza su clave con el secreto;
+#     la clave de hb_app (backend) también se sincroniza, pero solo si el rol ya existe: sus permisos los da 02_roles.sh;
 #  3) aplica las migraciones (idempotentes), que dan los permisos mínimos a esos roles.
 # backend y jobs esperan a que termine bien. Las claves salen de los secretos, nunca de la línea de comandos.
 set -eu
@@ -15,6 +16,13 @@ SELECT format('ALTER ROLE %I PASSWORD %L', :'r', :'p') \gexec
 SQL
   echo "rol $1 sincronizado"
 }
+sincronizar() { # nombre secreto: solo cambia la clave de un rol que ya existe (los permisos no se tocan)
+  psql -v ON_ERROR_STOP=1 -q -d homebanking -v r="$1" -v p="$(cat "/run/secrets/$2")" -f - <<'SQL'
+SELECT format('ALTER ROLE %I PASSWORD %L', :'r', :'p') WHERE EXISTS (SELECT 1 FROM pg_roles WHERE rolname = :'r') \gexec
+SQL
+  echo "rol $1 sincronizado"
+}
+sincronizar hb_app db_app_password
 rol hb_jobs db_jobs_app_password
 rol hb_pase db_jobs_password
 for f in /migraciones/*.sql; do

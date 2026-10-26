@@ -162,7 +162,7 @@ services:
     image: ${HB_IMAGEN:-home-banking-valo}:db-operativa-${HB_VERSION:-local}
     entrypoint: ["sh", "/migraciones/aplicar.sh"]
     user: postgres
-    secrets: [db_owner_password, db_jobs_app_password, db_jobs_password]
+    secrets: [db_owner_password, db_app_password, db_jobs_app_password, db_jobs_password]
     depends_on:
       postgres:
         condition: service_healthy
@@ -180,7 +180,7 @@ services:
     image: ${HB_IMAGEN:-home-banking-valo}:db-historica-${HB_VERSION:-local}
     entrypoint: ["sh", "/migraciones/aplicar.sh"]
     user: postgres
-    secrets: [dbh_owner_password, dbh_jobs_password]
+    secrets: [dbh_owner_password, dbh_jobs_password, db_hist_ro_password]
     depends_on:
       postgres-historico:
         condition: service_healthy

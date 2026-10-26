@@ -9,5 +9,10 @@ SELECT format('CREATE ROLE %I LOGIN PASSWORD %L', :'r', :'p') WHERE NOT EXISTS (
 SELECT format('ALTER ROLE %I PASSWORD %L', :'r', :'p') \gexec
 SQL
 echo "rol hb_pase_h sincronizado"
+# hb_hist_ro (lectura de la histórica): solo se sincroniza la clave si el rol existe; sus permisos los da 02_roles.sh
+psql -v ON_ERROR_STOP=1 -q -d homebanking_hist -v r=hb_hist_ro -v p="$(cat /run/secrets/db_hist_ro_password)" -f - <<'SQL'
+SELECT format('ALTER ROLE %I PASSWORD %L', :'r', :'p') WHERE EXISTS (SELECT 1 FROM pg_roles WHERE rolname = :'r') \gexec
+SQL
+echo "rol hb_hist_ro sincronizado"
 psql -v ON_ERROR_STOP=1 -q -d homebanking_hist -f /migraciones/rol-pase.sql
 echo "rol del pase (histórica) aplicado"
