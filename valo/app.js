@@ -2906,6 +2906,38 @@
     const todos = $('bastTodosApod').checked;
     return M.jsonBastanteoV1(jsonUnico(todos), bast.cliente, { jsons: bast.poderes.map((p, i) => jsonDe(i, todos)), tc: bastTcActual(), fuente: conLetras ? $('bastFuenteGrupos').value : 'complif' });
   }
+  // Vista agrupada: GRUPO → AGRUPAMIENTO (firmantes que participan) → REGLA, una fila por agrupamiento + regla, con
+  // los errores del modelo (pertenencia, participación, agrupamiento, regla, aplicación). Usa el mismo JSON que se descarga.
+  let bastVista = 'actual';
+  function renderVistaAgrupada() {
+    const caja = $('bastVistaAgrupada');
+    if (bastVista !== 'agrupada' || !bast.poderes.length) { caja.innerHTML = ''; return; }
+    const modelo = M.modeloBastanteo(jsonV1());
+    const filas = M.vistaAgrupada(modelo);
+    const errores = modelo.errores.filter(e => e.nivel === 'error'), avisosM = modelo.errores.filter(e => e.nivel !== 'error');
+    const lista = l => l.map(e => `<div><b>${esc(e.tipo)}</b> · ${esc(e.detalle)}</div>`).join('');
+    caja.innerHTML = `<p class="sub" style="margin:0 0 6px">${modelo.grupos.length} grupos · ${modelo.firmantes.length} firmantes · ${modelo.agrupamientos.length} agrupamientos · ${modelo.reglas.length} reglas. ` +
+      'Cada fila es un agrupamiento (los firmantes que se combinan) con su regla; la misma regla en dólares y en pesos va en una sola fila.</p>' +
+      (errores.length ? aviso('bad', `<b>${errores.length} error${errores.length > 1 ? 'es' : ''} del modelo</b>${lista(errores)}`) : aviso('ok', 'Modelo consistente: cada firmante que participa en un agrupamiento pertenece al grupo del agrupamiento.')) +
+      (avisosM.length ? aviso('warn', lista(avisosM)) : '') +
+      `<div class="tabla-caja"><table><thead><tr><th>Grupo</th><th>Agrupamiento</th><th>Firmantes</th><th>Condición de firma</th><th>Monedas</th><th>Límites</th><th>Facultades</th></tr></thead><tbody>` +
+      filas.map(f => `<tr><td><b>${esc(f.grupo)}</b></td><td>${esc(f.agrupamiento)}</td>` +
+        `<td style="white-space:normal;min-width:220px">${f.firmantes.map(a => `<div><span class="chip gris">${esc(a.agrupamiento)}</span> ${esc(a.nombres.join(' · ') || '—')}</div>`).join('')}</td>` +
+        `<td style="white-space:normal">${esc(f.condicion)}${f.vencimiento ? `<div class="sub" style="margin:0">vence ${esc(fechaAr(f.vencimiento))}</div>` : ''}</td>` +
+        `<td>${esc(f.monedas.join(', ') || '—')}</td><td style="white-space:nowrap">${f.limites.map(esc).join('<br>')}</td>` +
+        `<td style="white-space:normal;min-width:260px"><details><summary>${f.facultades.length} facultades</summary>${esc(f.facultades.join(', '))}</details><div class="sub" style="margin:0">${esc(f.reglas.join(', '))}</div></td></tr>`).join('') +
+      '</tbody></table></div>';
+  }
+  $('bastPestanas').addEventListener('click', e => {
+    const b = e.target.closest('[data-bast-vista]');
+    if (!b) return;
+    bastVista = b.dataset.bastVista;
+    $('bastPestanas').querySelectorAll('[data-bast-vista]').forEach(x => x.setAttribute('aria-selected', String(x === b)));
+    $('bastVistaActual').classList.toggle('oculto', bastVista !== 'actual');
+    $('bastPoderes').classList.toggle('oculto', bastVista !== 'actual');
+    $('bastVistaAgrupada').classList.toggle('oculto', bastVista !== 'agrupada');
+    renderVistaAgrupada();
+  });
   let bastTcAuto = false;
   function renderV1Avisos() {
     if (!bast.poderes.length) { $('bastV1Avisos').innerHTML = ''; return; }
@@ -2920,6 +2952,7 @@
       (M.validarJsonBastanteo(j).length ? aviso('bad', '<b>No cumple las reglas del sistema:</b><br>' + M.validarJsonBastanteo(j).map(esc).join('<br>')) : aviso('ok', 'Cumple las reglas del sistema (quorum, grupos y firmantes).')) +
       `<p class="sub">${j.apoderados.length} apoderados · ${j.reglasFirma.length} reglas de firma</p>`;
     mostrarCorrecciones();
+    renderVistaAgrupada();
   }
   // Tipo de cambio Com. A 3500 para los topes en dólares y en pesos: el último publicado hasta hoy (API del BCRA, la base
   // o el com3500.xls).
