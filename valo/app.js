@@ -2245,7 +2245,7 @@
     return lineas;
   }
 
-  const bast = { pdf: null, xls: null, poderes: [], cliente: null, ediciones: [], cuitsBase: {} };
+  const bast = { pdf: null, xls: null, poderes: [], cliente: null, ediciones: [], cuitsBase: {}, fuenteCuit: {} };
   const nombreCatalogo = Object.fromEntries(M.BASTANTEO_CATALOGO.map(c => [c[2], c])); // clave → [código, nombre, clave]
   function zonaArchivo(zona, input, alElegir) {
     const z = $(zona);
@@ -2725,22 +2725,34 @@
       bast.edPorPoder[p._k] = ed;
       return ed;
     });
-    // CUIT de los DNI que no están en la planilla: base de entes.
-    const dnis = bast.poderes.flatMap(p => [p.otorgante.dni].concat(p.apoderados.map(a => a.dni))).filter(Boolean)
+    // CUIT de los DNI que la planilla no trae con CUIT: base de entes y, si no está, el CUIL del dorso del DNI en Complif.
+    const dnis = [...new Set(bast.poderes.flatMap(p => [p.otorgante.dni].concat(p.apoderados.map(a => a.dni))).filter(Boolean))]
       .filter(d => !M.cuitPorDni(d, bast.cliente && bast.cliente.firmantes) && !(d in bast.cuitsBase));
     if (dnis.length && almacen && typeof almacen.buscarCuitPorDni === 'function') {
       try { Object.assign(bast.cuitsBase, await almacen.buscarCuitPorDni(dnis)); } catch (e) { /* sin base: queda el DNI */ }
-      dnis.forEach(d => { if (!(d in bast.cuitsBase)) bast.cuitsBase[d] = ''; });
     }
+    const faltan = dnis.filter(d => !bast.cuitsBase[d]);
+    if (faltan.length && hayComplif()) await cuilesDeComplif(faltan);
+    dnis.forEach(d => { if (!(d in bast.cuitsBase)) bast.cuitsBase[d] = ''; });
     renderBastanteo();
   }
 
+  // Un pedido a Complif por DNI (de a 4): documentos "Dorso de DNI" cuyo CUIL contiene el DNI.
+  async function cuilesDeComplif(dnis) {
+    for (let i = 0; i < dnis.length; i += 4) await Promise.all(dnis.slice(i, i + 4).map(async d => {
+      const d8 = String(d).replace(/\D/g, '').padStart(8, '0');
+      try {
+        const c = M.cuilDeDorsoDni(listaComplif(await complifGet(`/api/documents/v1/organization?type=eq.Dorso%20de%20DNI&raw_ocr_data->>tax_id_number=like.*${d8}*`)), d);
+        if (c) { bast.cuitsBase[d] = c; bast.fuenteCuit[d] = 'Complif (dorso del DNI)'; }
+      } catch (e) { /* sin Complif: queda sin CUIT */ }
+    }));
+  }
   function cuitDe(i, dni) {
     const ed = bast.ediciones[i] || {};
     if (ed.cuits && ed.cuits[dni]) return { cuit: ed.cuits[dni], fuente: 'cargado' };
     const c = M.cuitPorDni(dni, bast.cliente && bast.cliente.firmantes);
     if (c) return { cuit: c, fuente: 'planilla' };
-    if (bast.cuitsBase[dni]) return { cuit: bast.cuitsBase[dni], fuente: 'base de entes' };
+    if (bast.cuitsBase[dni]) return { cuit: bast.cuitsBase[dni], fuente: bast.fuenteCuit[dni] || 'base de entes' };
     return { cuit: '', fuente: '' };
   }
   function jsonDe(i, todosApoderados = false) {
@@ -2752,7 +2764,7 @@
     [p.otorgante].concat(p.apoderados).forEach(x => {
       const d = x.dni;
       if ((ed.cuits || {})[d]) cuits[d] = ed.cuits[d];
-      else if (!(firmantes && M.firmanteDe(x, firmantes)) && bast.cuitsBase[d]) cuits[d] = bast.cuitsBase[d];
+      else if (!M.cuitPorDni(d, firmantes) && bast.cuitsBase[d]) cuits[d] = bast.cuitsBase[d];
     });
     return M.jsonPoder(p, bast.cliente, Object.assign({}, ed, { cuits, todosApoderados }));
   }
@@ -3249,7 +3261,7 @@
   });
   $('btnBastLimpiar').addEventListener('click', () => {
     $('cmpEstado').innerHTML = ''; $('cmpCuit').value = ''; $('cmpNombre').value = ''; cmp.crudo = null;
-    Object.assign(bast, { pdf: null, xls: null, poderes: [], poderesTodos: [], poderPresidente: null, avisoPresidente: '', actas: [], otrosPoderes: [], edPorPoder: {}, cliente: null, ediciones: [], cuitsBase: {} });
+    Object.assign(bast, { pdf: null, xls: null, poderes: [], poderesTodos: [], poderPresidente: null, avisoPresidente: '', actas: [], otrosPoderes: [], edPorPoder: {}, cliente: null, ediciones: [], cuitsBase: {}, fuenteCuit: {} });
     $('bastPdfNombre').textContent = 'Arrastrá el PDF o hacé clic';
     $('bastXlsNombre').textContent = 'Arrastrá el Excel o hacé clic';
     $('bastUnicoJson').classList.add('oculto');

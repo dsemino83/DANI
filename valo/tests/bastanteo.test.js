@@ -246,3 +246,18 @@ test('chat: el ChatContext de cada agrupamiento de la Vista agrupada es válido 
     for (const t of R.contextFacts(c)) assert.equal(R.initialVerification({ source: 'BASTANTEO', type: 'FACT', text: t }, c), 'VERIFIED', t);
   }
 });
+
+// Bug: un apoderado sin CUIT en la planilla ni en la base salía con el DNI en cuitCuil y la validación no lo marcaba.
+test('regresión: CUIL del dorso del DNI de Complif y DNI en lugar de CUIT marcado como error', () => {
+  assert.equal(M.cuitValido('20264784817'), true);
+  assert.equal(M.cuitValido('20264784818'), false);
+  const dorso = (cuil, status = 'APPROVED') => ({ type: 'Dorso de DNI', status, raw_ocr_data: { tax_id_number: cuil } });
+  assert.equal(M.cuilDeDorsoDni([dorso('20264784817'), dorso('20264784817')], '26478481'), '20264784817');
+  assert.equal(M.cuilDeDorsoDni([dorso('20264784818')], '26478481'), '', 'verificador inválido');
+  assert.equal(M.cuilDeDorsoDni([dorso('20111111112')], '26478481'), '', 'otro DNI');
+  assert.equal(M.cuilDeDorsoDni([dorso('20264784817'), dorso('23264784816')], '26478481'), '', 'dos CUIL distintos');
+  assert.equal(M.cuilDeDorsoDni([dorso('20264784817'), dorso('23264784816', 'REJECTED')], '26478481'), '20264784817', 'primero los aprobados');
+  const j = armar([poder([persona(1, 'A'), persona(2, 'A')], [uso('CONJUNTA', ['A+A'], ['firmar_cheques'])])]);
+  j.apoderados[0].cuitCuil = '26478481';
+  assert.ok(M.validarJsonBastanteo(j).some(e => /tiene el DNI \(26478481\) en lugar del CUIT\/CUIL/.test(e)));
+});
