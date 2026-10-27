@@ -5,13 +5,15 @@ set -eu
 cd "$(dirname "$0")/.."
 mkdir -p secrets frontend/certs
 gen() { [ -f "secrets/$1.txt" ] || { openssl rand -base64 "${2:-24}" | tr -d '\n' > "secrets/$1.txt"; echo "creado secrets/$1.txt"; }; }
-gen db_owner_password
-gen dbh_owner_password
-gen db_app_password
-gen db_hist_ro_password
-gen db_jobs_app_password   # rol hb_jobs (servicio jobs)
-gen db_jobs_password     # rol hb_pase (pase mensual a la histórica)
-gen dbh_jobs_password    # rol hb_pase_h
+# Claves de SQL Server: la de sa (db_owner_password) tiene que cumplir la política de complejidad de SQL Server
+# (mayúsculas, minúsculas, números y símbolos, 8+ caracteres): se agrega un sufijo fijo a la parte aleatoria.
+genbd() { [ -f "secrets/$1.txt" ] || { { openssl rand -base64 24 | tr -d '\n='; printf 'Aa1_'; } > "secrets/$1.txt"; echo "creado secrets/$1.txt"; }; }
+genbd db_owner_password   # login sa (solo lo usa db-init)
+genbd db_app_password
+genbd db_hist_ro_password
+genbd db_jobs_app_password   # login hb_jobs (servicio jobs)
+genbd db_jobs_password       # login hb_pase (pase mensual a la histórica)
+genbd dbh_jobs_password      # login hb_pase_h
 gen credenciales_master_key 32
 # Keycloak: secret de la service account home-banking-admin (el Keycloak propio lo toma de acá;
 # con el SSO de VALO, reemplazarlo por el que entregue Identidad) y clave inicial de la consola maestra.
@@ -26,7 +28,7 @@ gen resguardo_clave 32
 [ -f secrets/smtp2_password.txt ] || : > secrets/smtp2_password.txt
 # Permisos: la carpeta solo la abre el dueño (700). Los archivos quedan legibles (644) porque
 # docker compose los monta tal cual dentro de los contenedores, que corren con otros usuarios
-# (node, postgres); con 600 el backend y la inicialización de las bases no pueden leerlos.
+# (node, mssql); con 600 el backend y la inicialización de las bases no pueden leerlos.
 chmod 700 secrets
 chmod 644 secrets/*.txt
 chmod 600 secrets/resguardo_clave.txt   # solo el dueño: no la usa ningún contenedor

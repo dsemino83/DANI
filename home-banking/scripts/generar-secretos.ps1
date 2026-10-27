@@ -20,13 +20,21 @@ function Generar([string]$nombre, [int]$bytes = 24) {
   Write-Host "creado $ruta"
 }
 
-Generar 'db_owner_password'
-Generar 'dbh_owner_password'
-Generar 'db_app_password'
-Generar 'db_hist_ro_password'
-Generar 'db_jobs_app_password'
-Generar 'db_jobs_password'
-Generar 'dbh_jobs_password'
+# Claves de SQL Server: la de sa tiene que cumplir su política de complejidad (mayúsculas, minúsculas, números y símbolos)
+function GenerarBd([string]$nombre) {
+  $ruta = "secrets\$nombre.txt"
+  if (Test-Path $ruta) { return }
+  $buffer = New-Object byte[] 24
+  [System.Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($buffer)
+  Guardar $ruta (([Convert]::ToBase64String($buffer)).TrimEnd('=') + 'Aa1_')
+  Write-Host "creado $ruta"
+}
+GenerarBd 'db_owner_password'   # login sa (solo lo usa db-init)
+GenerarBd 'db_app_password'
+GenerarBd 'db_hist_ro_password'
+GenerarBd 'db_jobs_app_password'
+GenerarBd 'db_jobs_password'
+GenerarBd 'dbh_jobs_password'
 Generar 'credenciales_master_key' 32
 Generar 'resguardo_clave' 32   # cifrado de los resguardos (no se monta en contenedores)
 # Keycloak: secret de la service account home-banking-admin (el Keycloak propio lo toma de acá;

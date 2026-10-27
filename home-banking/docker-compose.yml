@@ -16,11 +16,12 @@ x-backend-env: &backend-env
   OIDC_ROLES_CLIENT: ${OIDC_ROLES_CLIENT:-home-banking-api}
   KEYCLOAK_ADMIN_CLIENT_ID: ${KEYCLOAK_ADMIN_CLIENT_ID:-home-banking-admin}
   KEYCLOAK_ADMIN_CLIENT_SECRET_FILE: /run/secrets/keycloak_admin_client_secret
-  DB_HOST: postgres
+  DB_HOST: sqlserver          # SQL Server 2025: una instancia con dos bases (homebanking y homebanking_hist)
+  DB_TRUST_SERVER_CERT: ${DB_TRUST_SERVER_CERT:-true}   # certificado propio de la instancia; el tráfico va cifrado por la red interna "datos"
   DB_NAME: homebanking
   DB_USER: hb_app
   DB_PASSWORD_FILE: /run/secrets/db_app_password
-  DBH_HOST: postgres-historico
+  DBH_HOST: sqlserver
   DBH_NAME: homebanking_hist
   DBH_USER: hb_hist_ro
   DBH_PASSWORD_FILE: /run/secrets/db_hist_ro_password
@@ -98,13 +99,9 @@ services:
     environment: *backend-env
     secrets: [db_app_password, db_hist_ro_password, credenciales_master_key, keycloak_admin_client_secret, smtp_password, smtp2_password]
     depends_on:
-      postgres:
-        condition: service_healthy
-      postgres-historico:
+      sqlserver:
         condition: service_healthy
       db-init:
-        condition: service_completed_successfully
-      dbh-init:
         condition: service_completed_successfully
     restart: unless-stopped
     <<: *endurecido
@@ -121,10 +118,10 @@ services:
     command: ["node", "src/jobs/programador.js"]
     environment:
       <<: *backend-env
-      # El programador NO usa el rol del backend (hb_app): rol propio con mínimo privilegio (migraciones/018_rol_jobs.sql)
+      # El programador NO usa el rol del backend (hb_app): rol propio con mínimo privilegio (db/esquema/operativa/permisos.sql)
       DB_USER: hb_jobs
       DB_PASSWORD_FILE: /run/secrets/db_jobs_app_password
-      # Pase mensual a la histórica: roles dedicados (dueños solo de las tablas del pase), NO el superusuario postgres
+      # Pase mensual a la histórica: logins dedicados (solo leen y borran lo que pasan), NO sa
       DB_PASE_USER: hb_pase
       DB_PASE_PASSWORD_FILE: /run/secrets/db_jobs_password
       DBH_PASE_USER: hb_pase_h
@@ -138,13 +135,9 @@ services:
       start_period: 20s
       start_interval: 5s
     depends_on:
-      postgres:
-        condition: service_healthy
-      postgres-historico:
+      sqlserver:
         condition: service_healthy
       db-init:
-        condition: service_completed_successfully
-      dbh-init:
         condition: service_completed_successfully
     restart: unless-stopped
     <<: *endurecido
@@ -155,16 +148,15 @@ services:
     pids_limit: 512
     networks: [app, datos, salida]   # app: correo (Mailpit) · datos: bases · salida: banco y SMTP real
 
-  # Provisión idempotente de roles y migraciones en cada arranque (ver db/*/aplicar.sh): sincroniza la clave de
-  # hb_jobs / hb_pase / hb_pase_h con sus secretos, también en volúmenes ya existentes. backend y jobs esperan.
+  # Provisión idempotente en cada arranque (ver db/aplicar.sh): crea las bases si faltan, aplica las migraciones pendientes
+  # (db/esquema) y sincroniza logins y permisos con los secretos, también en volúmenes ya existentes. backend y jobs esperan.
   db-init:
-    build: ./db/operativa
-    image: ${HB_IMAGEN:-home-banking-valo}:db-operativa-${HB_VERSION:-local}
-    entrypoint: ["sh", "/migraciones/aplicar.sh"]
-    user: postgres
-    secrets: [db_owner_password, db_app_password, db_jobs_app_password, db_jobs_password]
+    build: ./db
+    image: ${HB_IMAGEN:-home-banking-valo}:db-${HB_VERSION:-local}   # misma imagen que sqlserver
+    entrypoint: ["/opt/hb/aplicar.sh"]
+    secrets: [db_owner_password, db_app_password, db_jobs_app_password, db_jobs_password, db_hist_ro_password, dbh_jobs_password]
     depends_on:
-      postgres:
+      sqlserver:
         condition: service_healthy
     restart: "no"
     <<: *endurecido
@@ -175,71 +167,35 @@ services:
     pids_limit: 64
     networks: [datos]
 
-  dbh-init:
-    build: ./db/historica
-    image: ${HB_IMAGEN:-home-banking-valo}:db-historica-${HB_VERSION:-local}
-    entrypoint: ["sh", "/migraciones/aplicar.sh"]
-    user: postgres
-    secrets: [dbh_owner_password, dbh_jobs_password, db_hist_ro_password]
-    depends_on:
-      postgres-historico:
-        condition: service_healthy
-    restart: "no"
-    <<: *endurecido
-    read_only: true
-    tmpfs: [/tmp]
-    cap_drop: [ALL]
-    mem_limit: 128m
-    pids_limit: 64
-    networks: [datos]
-
-  postgres:
-    build: ./db/operativa          # postgres:16.4-alpine + esquema y roles
-    image: ${HB_IMAGEN:-home-banking-valo}:db-operativa-${HB_VERSION:-local}
+  # SQL Server 2025 (Developer en pruebas; en producción corre con la licencia de VALO: MSSQL_PID). Una instancia,
+  # dos bases: homebanking (operativa) y homebanking_hist (histórica). sa solo lo usa db-init; la aplicación entra con
+  # logins de mínimo privilegio. La clave de sa sale del Docker secret db_owner_password (db/arranque.sh).
+  sqlserver:
+    build: ./db
+    image: ${HB_IMAGEN:-home-banking-valo}:db-${HB_VERSION:-local}
     environment:
-      POSTGRES_DB: homebanking
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD_FILE: /run/secrets/db_owner_password
+      ACCEPT_EULA: ${ACCEPT_EULA:-Y}           # términos de uso de Microsoft SQL Server (obligatorio para arrancar)
+      MSSQL_PID: ${MSSQL_PID:-Developer}       # edición: Developer (pruebas), Standard, Enterprise o la clave de producto de VALO
+      MSSQL_MEMORY_LIMIT_MB: ${MSSQL_MEMORY_LIMIT_MB:-3072}
+      MSSQL_AGENT_ENABLED: "false"
+      MSSQL_TELEMETRY_ENABLED: "false"         # sin telemetría hacia Microsoft
       TZ: UTC
-    secrets: [db_owner_password, db_app_password, db_jobs_password, db_jobs_app_password]
+    secrets: [db_owner_password]
     volumes:
-      - pg_operativa:/var/lib/postgresql/data
+      - mssql_datos:/var/opt/mssql
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d homebanking"]
+      test: ["CMD-SHELL", "SQLCMDPASSWORD=$$(cat /run/secrets/db_owner_password) /opt/mssql-tools18/bin/sqlcmd -C -S localhost -U sa -h -1 -b -Q 'SELECT 1' >/dev/null"]
       interval: 10s
       timeout: 5s
-      retries: 10
+      retries: 12
+      start_period: 30s
     restart: unless-stopped
     <<: *endurecido
     cap_drop: [ALL]
-    cap_add: [CHOWN, DAC_OVERRIDE, FOWNER, SETGID, SETUID]   # el entrypoint ajusta permisos y baja al usuario postgres
-    mem_limit: 2g
-    pids_limit: 512
-    networks: [datos]   # solo la ven el backend y jobs
-
-  postgres-historico:
-    build: ./db/historica          # postgres:16.4-alpine + esquema y rol de solo lectura
-    image: ${HB_IMAGEN:-home-banking-valo}:db-historica-${HB_VERSION:-local}
-    environment:
-      POSTGRES_DB: homebanking_hist
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD_FILE: /run/secrets/dbh_owner_password
-      TZ: UTC
-    secrets: [dbh_owner_password, db_hist_ro_password, dbh_jobs_password]
-    volumes:
-      - pg_historica:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d homebanking_hist"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-    restart: unless-stopped
-    <<: *endurecido
-    cap_drop: [ALL]
-    cap_add: [CHOWN, DAC_OVERRIDE, FOWNER, SETGID, SETUID]   # el entrypoint ajusta permisos y baja al usuario postgres
-    mem_limit: 2g
-    pids_limit: 512
-    networks: [datos]   # solo la ven el backend y jobs
+    cap_add: [NET_BIND_SERVICE]   # sqlservr trae esa capacidad en el binario: sin ella en el conjunto permitido no arranca
+    mem_limit: 4g
+    pids_limit: 1024
+    networks: [datos]   # solo la ven el backend, jobs y db-init
 
   # Keycloak propio (perfil "sso-local"): usuarios, perfiles y roles manejados desde Docker, para pruebas o
   # mientras no esté el SSO de VALO. Se publica por el frontend en https://<servidor>/auth (sin puerto propio).
@@ -278,8 +234,6 @@ services:
 secrets:
   db_owner_password:
     file: ./secrets/db_owner_password.txt
-  dbh_owner_password:
-    file: ./secrets/dbh_owner_password.txt
   db_jobs_password:
     file: ./secrets/db_jobs_password.txt
   db_jobs_app_password:
@@ -302,8 +256,7 @@ secrets:
     file: ./secrets/smtp2_password.txt
 
 volumes:
-  pg_operativa:
-  pg_historica:
+  mssql_datos:
   keycloak_datos:
 
 # Microsegmentación: cada servicio ve solo las redes que necesita
@@ -312,5 +265,5 @@ networks:
   app:
     internal: true   # frontend ↔ backend/jobs ↔ Keycloak/Mailpit, sin salida a internet
   datos:
-    internal: true   # backend/jobs ↔ bases; el frontend no llega a las bases
+    internal: true   # backend/jobs ↔ base; el frontend no llega a las bases
   salida:            # backend, jobs y Keycloak hacia el SSO, el banco y el SMTP

@@ -18,6 +18,11 @@ IF USER_ID(N'hb_app')  IS NULL CREATE USER hb_app  FOR LOGIN hb_app  WITH DEFAUL
 IF USER_ID(N'hb_jobs') IS NULL CREATE USER hb_jobs FOR LOGIN hb_jobs WITH DEFAULT_SCHEMA = dbo;
 IF USER_ID(N'hb_pase') IS NULL CREATE USER hb_pase FOR LOGIN hb_pase WITH DEFAULT_SCHEMA = dbo;
 GO
+-- Si la base se restauró desde un resguardo en otra instancia, los usuarios quedan huérfanos (el login se creó con otro SID): se vuelven a vincular
+ALTER USER hb_app WITH LOGIN = hb_app;
+ALTER USER hb_jobs WITH LOGIN = hb_jobs;
+ALTER USER hb_pase WITH LOGIN = hb_pase;
+GO
 
 -- ---- hb_app: el backend. Sin DELETE en transferencias, sin UPDATE/DELETE en lo que es de solo inserción.
 GRANT SELECT, INSERT, UPDATE, DELETE ON dbo.empresa            TO hb_app;

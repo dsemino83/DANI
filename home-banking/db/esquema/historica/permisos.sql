@@ -13,6 +13,10 @@ GO
 IF USER_ID(N'hb_hist_ro') IS NULL CREATE USER hb_hist_ro FOR LOGIN hb_hist_ro WITH DEFAULT_SCHEMA = dbo;
 IF USER_ID(N'hb_pase_h')  IS NULL CREATE USER hb_pase_h  FOR LOGIN hb_pase_h  WITH DEFAULT_SCHEMA = dbo;
 GO
+-- Si la base se restauró desde un resguardo en otra instancia, los usuarios quedan huérfanos (el login se creó con otro SID): se vuelven a vincular
+ALTER USER hb_hist_ro WITH LOGIN = hb_hist_ro;
+ALTER USER hb_pase_h WITH LOGIN = hb_pase_h;
+GO
 -- hb_hist_ro: la aplicación solo lee la base histórica
 GRANT SELECT ON SCHEMA::dbo TO hb_hist_ro;
 -- hb_pase_h: el pase solo inserta (y acumula su comprobante); no modifica ni borra lo ya pasado
