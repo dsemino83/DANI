@@ -8,7 +8,7 @@ AQUI=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)   # .../backend/test/e2e
 BACKEND=$(CDPATH= cd -- "$AQUI/../.." && pwd)        # .../backend
 export MSSQL_HOST=${MSSQL_HOST:-localhost} MSSQL_PORT=${MSSQL_PORT:-1433}
 : "${MSSQL_SA_PASSWORD:?Falta MSSQL_SA_PASSWORD (clave de sa de la instancia de prueba)}"
-export HB_APP_PASS=apppass-Aa1 HB_JOBS_PASS=jobspass-Aa1 HB_HIST_RO_PASS=ropass-Aa1
+export HB_APP_PASS=apppass-Aa1 HB_JOBS_PASS=jobspass-Aa1 HB_HIST_RO_PASS=ropass-Aa1 HB_PASE_PASS=pasepass-Aa1 HB_PASE_H_PASS=pasehpass-Aa1
 TOKENS=$(mktemp)
 MOCK_PORT=18080; PORT=18090
 export MOCK_PORT PORT
@@ -41,3 +41,9 @@ for suite in autorizacion envio-unico limites; do
   PORT=$PORT MOCK_PORT=$MOCK_PORT node "$AQUI/$suite.mjs" "$TOKENS" || { CODE=$?; kill "$SRV_PID" 2>/dev/null || true; exit $CODE; }
   kill "$SRV_PID" 2>/dev/null || true; SRV_PID=; sleep 1   # liberar el puerto antes del próximo servidor
 done
+
+# Pase a la base histórica y cadena de la auditoría (sin servidor: usa los servicios del backend directamente)
+echo "== pase: preparar bases"
+bases
+echo "== pase: correr"
+node "$AQUI/pase.mjs"

@@ -19,7 +19,8 @@ const LOTE = 5000;
 // Qué se pasa: la columna de fecha de cada tabla y cuándo una fila se considera terminada (lo pendiente o no leído sigue en la operativa).
 export const TABLAS = [
   { tabla: 'transferencia', columna: 'creado_en', terminadas: '1 = 1' },
-  { tabla: 'transferencia_estado', columna: 'en', terminadas: '1 = 1' },
+  // el historial de estados pasa cuando su transferencia ya pasó (las abiertas conservan su historial en la operativa)
+  { tabla: 'transferencia_estado', columna: 'en', terminadas: 'NOT EXISTS (SELECT 1 FROM dbo.transferencia tr WHERE tr.id = transferencia_estado.transferencia_id)' },
   { tabla: 'auditoria', columna: 'en', terminadas: '1 = 1' },
   { tabla: 'cola_envio', columna: 'encolada_en', terminadas: "estado IN (N'enviado', N'error', N'omitido')" },
   { tabla: 'ejecucion_envio', columna: 'creada_en', terminadas: "estado = N'terminada'" },

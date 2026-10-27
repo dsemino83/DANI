@@ -123,6 +123,7 @@ test('pase histórico: tablas que pasan, con su fecha y la condición de "termin
   assert.deepEqual(Object.keys(por).sort(), ['auditoria', 'cola_envio', 'ejecucion_envio', 'envio_mail_log', 'mensaje', 'transferencia', 'transferencia_estado']);
   assert.ok(TABLAS.every((t) => /^[a-z_]+$/.test(t.tabla) && /^[a-z_]+$/.test(t.columna) && t.terminadas), 'nombres seguros para armar el SQL');
   assert.equal(por.transferencia.columna, 'creado_en');
+  assert.match(por.transferencia_estado.terminadas, /NOT EXISTS/, 'el historial de estados de una transferencia abierta no pasa');
   assert.match(por.cola_envio.terminadas, /enviado/, 'lo pendiente de la cola no pasa');
   assert.match(por.mensaje.terminadas, /visto_en IS NOT NULL/, 'un mensaje no leído no pasa');
 });
