@@ -1,6 +1,6 @@
 # VALO - EPORTFOLIO en sitio propio (GitHub Pages + Supabase)
 
-Sitio: **https://dsemino83.github.io/DANI/valo/web/**. Se entra con correo y contraseña; los datos (clientes,
+Sitio: **https://dsemino83.github.io/DANI/web/**. Se entra con correo y contraseña; los datos (clientes,
 secuencias, historial, bancos, configuración de Cartera) se comparten entre todos y las descargas son directas.
 
 ## 1. Crear el proyecto (una sola vez)

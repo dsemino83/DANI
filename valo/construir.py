@@ -1,7 +1,7 @@
 """Genera las dos versiones de un solo archivo a partir de pagina.html y los .js:
 
 - Conversor-VALO.html: para abrir localmente (datos en el navegador). Trae todo adentro.
-- web/index.html: el sitio propio (GitHub Pages) con la base compartida en Supabase (usuario y contraseña).
+- ../web/index.html (raíz del repo): el sitio propio (GitHub Pages) con la base compartida en Supabase (usuario y contraseña).
   Trae todo adentro, más la librería de Supabase y supabase-config.js.
 - compartido/conversor-valo-compartido.html: la página que se publica en claude.ai con la base
   compartida. Sin <html>/<head>/<body> (los agrega la publicación), SheetJS desde cdnjs y sin la
@@ -69,4 +69,13 @@ def script_web(m):
 
 
 web = re.sub(r'<script src="([^"?]+)(?:\?[^"]*)?"></script>', script_web, fuente)
-escribir(os.path.join("web", "index.html"), web)
+# El sitio vive en /web/ de la raíz del repositorio (https://dsemino83.github.io/DANI/web/): la dirección no lleva "valo".
+# La dirección vieja (/valo/web/) queda como una página que redirige a la nueva.
+escribir(os.path.join("..", "web", "index.html"), web)
+REDIRECCION = """<!doctype html>
+<html lang="es"><head><meta charset="utf-8"><title>VALO</title>
+<meta http-equiv="refresh" content="0; url=../../web/">
+<script>location.replace('../../web/' + location.search + location.hash);</script></head>
+<body><p>El sitio cambió de dirección: <a href="../../web/">https://dsemino83.github.io/DANI/web/</a></p></body></html>
+"""
+escribir(os.path.join("web", "index.html"), REDIRECCION)

@@ -5,7 +5,7 @@ Página web que reemplaza el flujo manual del libro **Conversor GetNet.xlsx** + 
 
 **En internet:** https://dsemino83.github.io/DANI/valo/ redirige al sitio con la base compartida en Supabase (`web/`). La versión de claude.ai quedó en desuso (muestra un aviso).
 
-**Sitio propio (en preparación):** https://dsemino83.github.io/DANI/valo/web/ — misma página con la base compartida en
+**Sitio propio (en preparación):** https://dsemino83.github.io/DANI/web/ — misma página con la base compartida en
 Supabase (usuario y contraseña, descargas directas para todos). Configuración: `supabase/INSTRUCCIONES.md` y
 `supabase/esquema.sql`; conexión en `supabase-config.js`; se genera con `construir.py` (`web/index.html`).
 
