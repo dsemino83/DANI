@@ -12,7 +12,7 @@ const iso = (d) => new Date(d).toISOString().slice(0, 10);
 export async function sincronizarEstados(log = console) {
   const { rows: abiertas } = await operativa.query(
     `SELECT id, creado_en, tipo, api, estado, transaction_id, aprobado_en FROM transferencia
-      WHERE estado IN ('ENVIADA', 'PEND_AUTORIZACION') AND creado_en >= now() - interval '3 months'`);
+      WHERE estado IN (N'ENVIADA', N'PEND_AUTORIZACION') AND creado_en >= DATEADD(month, -3, SYSDATETIMEOFFSET())`);
   const sinId = abiertas.filter((t) => !t.transaction_id);
   if (sinId.length) log.warn?.(`${sinId.length} transferencias ENVIADA sin transactionId: requieren conciliación manual con el banco`);
   const conId = abiertas.filter((t) => t.transaction_id);
@@ -30,7 +30,7 @@ export async function sincronizarEstados(log = console) {
     const nuevo = b && estadoDesdeBanco(b);
     if (!nuevo || nuevo === t.estado) continue;
     await tx(operativa, async (c) => {
-      const u = await c.query('UPDATE transferencia SET estado = $2, actualizado_en = now() WHERE id = $1 AND estado = $3', [t.id, nuevo, t.estado]);
+      const u = await c.query('UPDATE transferencia SET estado = $2, actualizado_en = SYSDATETIMEOFFSET() WHERE id = $1 AND estado = $3', [t.id, nuevo, t.estado]);
       if (u.rowCount !== 1) return; // cambió mientras tanto: se revisa en la próxima corrida
       await c.query('INSERT INTO transferencia_estado (transferencia_id, estado, usuario, detalle) VALUES ($1, $2, $3, $4)',
         [t.id, nuevo, 'Banco de Valores', `getTransfersStatus: status ${b.status}${b.executionMessage ? ` · ${b.executionMessage}` : ''}`]);
@@ -49,18 +49,18 @@ export async function sincronizarEstados(log = console) {
 // no cruzarse con un envío en curso.
 export async function recuperarEnviando(minutos = 10) {
   const { rows } = await operativa.query(
-    `SELECT id FROM transferencia WHERE estado = 'ENVIANDO' AND aprobado_en < now() - make_interval(mins => $1)`, [minutos]);
+    `SELECT id FROM transferencia WHERE estado = N'ENVIANDO' AND aprobado_en < DATEADD(minute, -$1, SYSDATETIMEOFFSET())`, [minutos]);
   let n = 0;
   for (const { id } of rows) {
     await tx(operativa, async (c) => {
-      const t = (await c.query('SELECT id, estado FROM transferencia WHERE id = $1 FOR UPDATE', [id])).rows[0];
+      const t = (await c.query('SELECT id, estado FROM transferencia WITH (UPDLOCK, ROWLOCK) WHERE id = $1', [id])).rows[0];
       if (t?.estado !== 'ENVIANDO') return;
       const salio = (await c.query('SELECT 1 FROM envio_banco WHERE transferencia_id = $1', [id])).rowCount === 1;
       const nuevo = salio ? 'ENVIADA' : 'ERROR_API';
       const detalle = salio
         ? 'Sin respuesta registrada del banco: resultado incierto, conciliar con getTransfersStatus. No se reenvía.'
         : 'Aprobada pero nunca se llamó al banco: no se ejecutó. No se reenvía; si corresponde, cargar una nueva.';
-      await c.query('UPDATE transferencia SET estado = $2, actualizado_en = now() WHERE id = $1 AND estado = \'ENVIANDO\'', [id, nuevo]);
+      await c.query("UPDATE transferencia SET estado = $2, actualizado_en = SYSDATETIMEOFFSET() WHERE id = $1 AND estado = N'ENVIANDO'", [id, nuevo]);
       await c.query('INSERT INTO transferencia_estado (transferencia_id, estado, usuario, detalle) VALUES ($1, $2, $3, $4)', [id, nuevo, 'Sistema', detalle]);
       await auditarSistema(c, { tipo: 'Transferencias', accion: 'Recuperó transferencia interrumpida', detalle: `OP-${id} · ENVIANDO → ${nuevo}`, ref: { tipo: 'transferencia', id } });
       n++;
@@ -108,7 +108,7 @@ export async function conciliarDebitos() {
   const { rows } = await operativa.query(
     `SELECT t.id, t.cuenta_origen, t.importe, t.aprobado_en, t.transaction_id, t.nro_control, t.referencia FROM transferencia t
       LEFT JOIN debito_transferencia d ON d.transferencia_id = t.id
-     WHERE t.estado = 'DEBITADA' AND d.transferencia_id IS NULL AND t.creado_en >= now() - interval '7 days'`);
+     WHERE t.estado = N'DEBITADA' AND d.transferencia_id IS NULL AND t.creado_en >= DATEADD(day, -7, SYSDATETIMEOFFSET())`);
   if (!rows.length) return 0;
   const cuentas = new Map((await cuentasPropias()).map((c) => [String(c.productNumber), c]));
   const usados = new Set((await operativa.query('SELECT movimiento_id FROM debito_transferencia')).rows.map((r) => r.movimiento_id));
@@ -124,7 +124,8 @@ export async function conciliarDebitos() {
     if (!r.movimiento) continue;
     const m = r.movimiento;
     usados.add(String(m.transactionId));
-    await operativa.query('INSERT INTO debito_transferencia (movimiento_id, cuenta, transferencia_id) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING',
+    await operativa.query(`INSERT INTO debito_transferencia (movimiento_id, cuenta, transferencia_id)
+                            SELECT $1, $2, $3 WHERE NOT EXISTS (SELECT 1 FROM debito_transferencia WITH (UPDLOCK, HOLDLOCK) WHERE movimiento_id = $1)`,
       [String(m.transactionId), t.cuenta_origen, t.id]);
     n++;
   }
@@ -133,7 +134,7 @@ export async function conciliarDebitos() {
 
 // Deja constancia (una sola vez por operación) de que no se pudo vincular sin ambigüedad. No toca el estado.
 async function avisarAmbigua(t, r) {
-  const ya = await operativa.query(`SELECT 1 FROM auditoria WHERE ref_tipo = 'transferencia' AND ref_id = $1 AND accion = $2 LIMIT 1`, [t.id, CONCILIACION_AMBIGUA]);
+  const ya = await operativa.query(`SELECT TOP (1) 1 AS ya FROM auditoria WHERE ref_tipo = N'transferencia' AND ref_id = $1 AND accion = $2`, [t.id, CONCILIACION_AMBIGUA]);
   if (ya.rowCount) return;
   await tx(operativa, (c) => auditarSistema(c, { tipo: 'Transferencias', accion: CONCILIACION_AMBIGUA, api: 'getMovementsDetail', resultado: 'Error',
     detalle: `OP-${t.id} · ${r.candidatos} débito(s) equivalente(s) y ${r.competidoras ?? 0} operación(es) equivalente(s): no se vincula automáticamente, conciliar a mano`,

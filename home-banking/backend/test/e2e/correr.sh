@@ -2,13 +2,13 @@
 # Pruebas de autorización y de doble control / envío único de punta a punta. Para cada suite prepara
 # las bases desde cero, (re)levanta el servidor real y corre la prueba contra él, con el mock de SSO y
 # banco. Sale != 0 si alguna falla.
-# Postgres: se toma de PGHOST/PGPORT/PGUSER/PGPASSWORD (por defecto localhost:5432, usuario postgres).
+# SQL Server: se toma de MSSQL_HOST/MSSQL_PORT/MSSQL_SA_PASSWORD (por defecto localhost:1433; la clave de sa es obligatoria).
 set -eu
 AQUI=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)   # .../backend/test/e2e
 BACKEND=$(CDPATH= cd -- "$AQUI/../.." && pwd)        # .../backend
-DB=$(CDPATH= cd -- "$BACKEND/../db" && pwd)          # .../db
-export PGHOST=${PGHOST:-localhost} PGPORT=${PGPORT:-5432} PGUSER=${PGUSER:-postgres} PGPASSWORD=${PGPASSWORD:-postgres}
-PSQL="psql -v ON_ERROR_STOP=1 -q"
+export MSSQL_HOST=${MSSQL_HOST:-localhost} MSSQL_PORT=${MSSQL_PORT:-1433}
+: "${MSSQL_SA_PASSWORD:?Falta MSSQL_SA_PASSWORD (clave de sa de la instancia de prueba)}"
+export HB_APP_PASS=apppass-Aa1 HB_JOBS_PASS=jobspass-Aa1 HB_HIST_RO_PASS=ropass-Aa1
 TOKENS=$(mktemp)
 MOCK_PORT=18080; PORT=18090
 export MOCK_PORT PORT
@@ -17,19 +17,7 @@ MASTER=$(openssl rand -base64 32)
 limpiar() { kill "${SRV_PID:-}" "${MOCK_PID:-}" 2>/dev/null || true; rm -f "$TOKENS"; }
 trap limpiar EXIT
 
-grant() { sed -n "/<<'SQL'/,/^SQL/p" "$1" | sed '1d;$d' | grep -v 'CREATE ROLE'; }
-bases() {
-  $PSQL -d postgres -c "DROP DATABASE IF EXISTS homebanking WITH (FORCE)" -c "DROP DATABASE IF EXISTS homebanking_hist WITH (FORCE)"
-  $PSQL -d postgres -c "DROP ROLE IF EXISTS hb_app" -c "DROP ROLE IF EXISTS hb_hist_ro" -c "DROP ROLE IF EXISTS hb_jobs"
-  $PSQL -d postgres -c "CREATE ROLE hb_app LOGIN PASSWORD 'apppass'" -c "CREATE ROLE hb_hist_ro LOGIN PASSWORD 'ropass'" -c "CREATE ROLE hb_jobs LOGIN PASSWORD 'jobspass'"
-  $PSQL -d postgres -c "CREATE DATABASE homebanking" -c "CREATE DATABASE homebanking_hist"
-  # Los GRANT salen del mismo script de init del repo (sin el CREATE ROLE, que ya hicimos arriba).
-  $PSQL -d homebanking -f "$DB/operativa/01_esquema.sql" >/dev/null
-  grant "$DB/operativa/02_roles.sh" | $PSQL -d homebanking
-  for m in "$DB"/operativa/migraciones/*.sql; do $PSQL -d homebanking -f "$m" >/dev/null; done
-  $PSQL -d homebanking_hist -f "$DB/historica/01_esquema.sql" >/dev/null
-  grant "$DB/historica/02_roles.sh" | $PSQL -d homebanking_hist
-}
+bases() { node "$AQUI/preparar-bases.mjs"; }
 
 echo "== Levantar mock (SSO + banco)"
 node "$AQUI/mock.mjs" "$TOKENS" & MOCK_PID=$!
@@ -39,8 +27,8 @@ for i in $(seq 1 30); do curl -fs "http://127.0.0.1:$MOCK_PORT/realms/staff/prot
 # (test/e2e/motor.mjs importa los servicios del backend y necesita las mismas variables).
 export OIDC_ISSUER="http://127.0.0.1:$MOCK_PORT/realms/staff"
 export BDV_AMBIENTE=homo BDV_URL_HOMO="http://127.0.0.1:$MOCK_PORT/bdv" BDV_SOLO_CONSULTAS=false BDV_TIMEOUT_MS=5000
-export DB_HOST="$PGHOST" DB_PORT="$PGPORT" DB_NAME=homebanking DB_USER=hb_app DB_PASSWORD=apppass
-export DBH_HOST="$PGHOST" DBH_PORT="$PGPORT" DBH_NAME=homebanking_hist DBH_USER=hb_hist_ro DBH_PASSWORD=ropass
+export DB_HOST="$MSSQL_HOST" DB_PORT="$MSSQL_PORT" DB_NAME=homebanking DB_USER=hb_app DB_PASSWORD="$HB_APP_PASS" DB_TRUST_SERVER_CERT=true
+export DBH_HOST="$MSSQL_HOST" DBH_PORT="$MSSQL_PORT" DBH_NAME=homebanking_hist DBH_USER=hb_hist_ro DBH_PASSWORD="$HB_HIST_RO_PASS"
 export CREDENCIALES_MASTER_KEY="$MASTER" BACKEND="$BACKEND"
 
 # Cada suite: bases limpias + servidor nuevo (así una no contamina a la otra). El mock queda igual.

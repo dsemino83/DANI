@@ -82,7 +82,7 @@ function simular({ fetchImpl, count = 0, falloDb = false }) {
   consultas.length = 0;
   operativa.query = async (sql, params) => {
     consultas.push({ sql, params });
-    if (/count\(\*\)/.test(sql)) return { rows: [{ n: count }] };
+    if (/COUNT\(\*\)/i.test(sql)) return { rows: [{ n: count }] };
     if (/INSERT INTO feriado/.test(sql) && falloDb) throw Object.assign(new Error('permission denied'), { code: '42501' });
     return { rows: [] };
   };

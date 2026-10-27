@@ -28,22 +28,22 @@ export default async function rutasSistema(app) {
       chequear(async () => { await operativa.query('SELECT 1'); }),
       chequear(async () => { await historica.query('SELECT 1'); }),
       chequear(async () => {
-        const { rows } = await operativa.query(`SELECT estado, count(*)::int AS n FROM cola_envio GROUP BY estado`);
+        const { rows } = await operativa.query(`SELECT estado, COUNT(*) AS n FROM cola_envio GROUP BY estado`);
         const por = Object.fromEntries(rows.map((r) => [r.estado, r.n]));
         return { pendientes: por.pendiente ?? 0, procesando: por.procesando ?? 0, enviadas: por.enviado ?? 0, errores: por.error ?? 0 };
       }),
       chequear(async () => {
         const anio = new Date().getFullYear();
-        const r = (await operativa.query(`SELECT count(*)::int AS n, max(actualizado_en) AS al FROM feriado WHERE extract(year FROM fecha) = $1`, [anio])).rows[0];
+        const r = (await operativa.query(`SELECT COUNT(*) AS n, MAX(actualizado_en) AS al FROM feriado WHERE YEAR(fecha) = $1`, [anio])).rows[0];
         return { anio, cargados: r.n, actualizadoEn: r.al };
       }),
       chequear(async () => {
-        const r = (await operativa.query(`SELECT tabla, periodo, estado, ejecutado_en FROM pase_historico ORDER BY ejecutado_en DESC LIMIT 1`)).rows[0];
+        const r = (await operativa.query(`SELECT TOP (1) tabla, periodo, estado, ejecutado_en FROM pase_historico ORDER BY ejecutado_en DESC`)).rows[0];
         return r ? { ultimo: r } : { ultimo: null };
       }),
       // Solo un resumen liviano: cantidad de registros y la cabeza de la cadena (la verificación completa es una acción).
       chequear(async () => {
-        const r = (await operativa.query(`SELECT ultimo_orden::int AS orden, ultimo_hash FROM auditoria_cadena WHERE id = 1`)).rows[0];
+        const r = (await operativa.query(`SELECT CAST(ultimo_orden AS int) AS orden, ultimo_hash FROM auditoria_cadena WHERE id = 1`)).rows[0];
         return { registros: r?.orden ?? 0, cabeza: r?.ultimo_hash ? `${r.ultimo_hash.slice(0, 12)}…` : null };
       }),
     ]);

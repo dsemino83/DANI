@@ -40,11 +40,11 @@ export default async function rutasTransferencias(app) {
     if (desde < corte) throw invalido(`La base operativa guarda desde el ${corte}. Para fechas anteriores usá /historico/transferencias`);
     const cuentas = [...(await cuentasHabilitadas(req.user.usuario)).keys()];
     const { rows } = await operativa.query(
-      `SELECT id, referencia, tipo, api, cuenta_origen, moneda, destino, titular, importe, creador, aprobador, estado, transaction_id, lote_id, creado_en, aprobado_en
+      `SELECT TOP (5000) id, referencia, tipo, api, cuenta_origen, moneda, destino, titular, importe, creador, aprobador, estado, transaction_id, lote_id, creado_en, aprobado_en
          FROM transferencia
-        WHERE creado_en >= $1::date AND creado_en < $2::date + 1 AND cuenta_origen = ANY($3)
-          AND ($4::text IS NULL OR estado = $4)
-        ORDER BY creado_en DESC LIMIT 5000`,
+        WHERE creado_en >= CAST($1 AS date) AND creado_en < DATEADD(day, 1, CAST($2 AS date)) AND cuenta_origen IN (SELECT value FROM OPENJSON($3))
+          AND ($4 IS NULL OR estado = $4)
+        ORDER BY creado_en DESC`,
       [desde, hasta, cuentas, req.query.estado ?? null]);
     return { base: 'operativa', desde, hasta, transferencias: rows };
   });
@@ -61,12 +61,12 @@ export default async function rutasTransferencias(app) {
     if (!cur && Number(req.query.pagina ?? 0) > 0) throw invalido('Paginá con "cursor" (el valor "siguiente" de la respuesta anterior)');
     const cuentas = [...(await cuentasHabilitadas(req.user.usuario)).keys()];
     const { rows } = await historica.query(
-      `SELECT id, referencia, tipo, api, cuenta_origen, moneda, destino, titular, importe, creador, aprobador, estado, transaction_id, lote_id, creado_en, aprobado_en,
-              to_char(creado_en AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS cursor_ts
+      `SELECT TOP ($6) id, referencia, tipo, api, cuenta_origen, moneda, destino, titular, importe, creador, aprobador, estado, transaction_id, lote_id, creado_en, aprobado_en,
+              CONVERT(varchar(30), CAST(SWITCHOFFSET(creado_en, '+00:00') AS datetime2(3)), 126) + 'Z' AS cursor_ts
          FROM transferencia
-        WHERE creado_en >= $1::date AND creado_en < $2::date + 1 AND cuenta_origen = ANY($3)
-          AND ($4::timestamptz IS NULL OR (creado_en, id) < ($4::timestamptz, $5::bigint))
-        ORDER BY creado_en DESC, id DESC LIMIT $6`,
+        WHERE creado_en >= CAST($1 AS date) AND creado_en < DATEADD(day, 1, CAST($2 AS date)) AND cuenta_origen IN (SELECT value FROM OPENJSON($3))
+          AND ($4 IS NULL OR creado_en < CAST($4 AS datetimeoffset(3)) OR (creado_en = CAST($4 AS datetimeoffset(3)) AND id < CAST($5 AS bigint)))
+        ORDER BY creado_en DESC, id DESC`,
       [desde, hasta, cuentas, cur?.ts ?? null, cur?.id ?? null, tam + 1]);
     const hayMas = rows.length > tam;
     const pagina = rows.slice(0, tam);
@@ -81,11 +81,11 @@ export default async function rutasTransferencias(app) {
     const cuentas = [...(await cuentasHabilitadas(req.user.usuario)).keys()];
     const cols = `id, referencia, tipo, api, cuenta_origen, moneda, destino, titular, importe, creador, aprobador, estado, transaction_id, creado_en, aprobado_en, actualizado_en`;
     const [enCola, enviando, recientes] = await Promise.all([
-      operativa.query(`SELECT ${cols} FROM transferencia WHERE estado = 'EN_COLA' AND cuenta_origen = ANY($1) ORDER BY creado_en, id`, [cuentas]),
-      operativa.query(`SELECT ${cols} FROM transferencia WHERE estado = 'ENVIANDO' AND cuenta_origen = ANY($1) ORDER BY creado_en, id`, [cuentas]),
-      operativa.query(`SELECT ${cols} FROM transferencia WHERE estado IN ('DEBITADA', 'PEND_AUTORIZACION', 'RECHAZADA_BANCO', 'ERROR_API')
-                         AND cuenta_origen = ANY($1) AND actualizado_en >= now() - interval '24 hours'
-                       ORDER BY actualizado_en DESC LIMIT 50`, [cuentas]),
+      operativa.query(`SELECT ${cols} FROM transferencia WHERE estado = N'EN_COLA' AND cuenta_origen IN (SELECT value FROM OPENJSON($1)) ORDER BY creado_en, id`, [cuentas]),
+      operativa.query(`SELECT ${cols} FROM transferencia WHERE estado = N'ENVIANDO' AND cuenta_origen IN (SELECT value FROM OPENJSON($1)) ORDER BY creado_en, id`, [cuentas]),
+      operativa.query(`SELECT TOP (50) ${cols} FROM transferencia WHERE estado IN (N'DEBITADA', N'PEND_AUTORIZACION', N'RECHAZADA_BANCO', N'ERROR_API')
+                         AND cuenta_origen IN (SELECT value FROM OPENJSON($1)) AND actualizado_en >= DATEADD(hour, -24, SYSDATETIMEOFFSET())
+                       ORDER BY actualizado_en DESC`, [cuentas]),
     ]);
     // Resumen por endpoint: cuántas esperan y cuántas se están enviando.
     const porEndpoint = {};
@@ -112,13 +112,13 @@ export default async function rutasTransferencias(app) {
     const cuentas = [...(await cuentasHabilitadas(req.user.usuario)).keys()];
     const individuales = (await operativa.query(
       `SELECT id, referencia, tipo, api, cuenta_origen, moneda, destino, titular, importe, creador, creado_en, request
-         FROM transferencia WHERE estado = 'PENDIENTE_APROBACION' AND lote_id IS NULL AND cuenta_origen = ANY($1)
+         FROM transferencia WHERE estado = N'PENDIENTE_APROBACION' AND lote_id IS NULL AND cuenta_origen IN (SELECT value FROM OPENJSON($1))
         ORDER BY creado_en`, [cuentas])).rows;
     const lotesPend = (await operativa.query(
-      `SELECT id, archivo, formato, validas, importe, creador, creado_en FROM lote WHERE estado = 'PENDIENTE_APROBACION' ORDER BY creado_en`)).rows;
+      `SELECT id, archivo, formato, validas, importe, creador, creado_en FROM lote WHERE estado = N'PENDIENTE_APROBACION' ORDER BY creado_en`)).rows;
     const marca = (x) => ({ ...x, propia: x.creador === req.user.usuario }); // la UI muestra "La cargaste vos"
     // Señales de fraude: por transferencia; el lote toma el peor riesgo de sus transferencias
-    const delLote = lotesPend.length ? (await operativa.query(`SELECT id, lote_id FROM transferencia WHERE estado = 'PENDIENTE_APROBACION' AND lote_id = ANY($1)`,
+    const delLote = lotesPend.length ? (await operativa.query(`SELECT id, lote_id FROM transferencia WHERE estado = N'PENDIENTE_APROBACION' AND lote_id IN (SELECT CAST(value AS bigint) FROM OPENJSON($1))`,
       [lotesPend.map((l) => l.id)])).rows : [];
     const riesgos = await evaluarRiesgo([...individuales.map((t) => t.id), ...delLote.map((t) => t.id)]);
     const peor = (lista) => lista.reduce((a, r) => (!a || r.puntos > a.puntos ? r : a), null);

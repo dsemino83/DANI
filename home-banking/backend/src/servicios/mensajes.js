@@ -6,10 +6,10 @@ const pesos = (v, mon) => `${mon === 'USD' ? 'US$' : '$'} ${Number(v ?? 0).toLoc
 export async function avisarPendiente(c, req, { refTipo, refId, cuentas, titulo, texto }) {
   const { rows: empresas } = await c.query(
     `SELECT DISTINCT e.id, e.razon_social FROM empresa_cbu ec JOIN empresa e ON e.id = ec.empresa_id
-      WHERE ec.estado = 'activa' AND ec.product_number = ANY($1)`, [[...new Set(cuentas.map(String))]]);
+      WHERE ec.estado = N'activa' AND ec.product_number IN (SELECT value FROM OPENJSON($1))`, [[...new Set(cuentas.map(String))]]);
   if (!empresas.length) return 0;
   const { rows: destinatarios } = await c.query(
-    `SELECT DISTINCT usuario FROM permiso_empresa WHERE ver AND empresa_id = ANY($1) AND usuario <> $2 ORDER BY usuario`,
+    `SELECT DISTINCT usuario FROM permiso_empresa WHERE ver = 1 AND empresa_id IN (SELECT CAST(value AS bigint) FROM OPENJSON($1)) AND usuario <> $2 ORDER BY usuario`,
     [empresas.map((e) => e.id), req.user.usuario]);
   for (const { usuario } of destinatarios) {
     await c.query(`INSERT INTO mensaje (usuario, titulo, texto, empresas, ref_tipo, ref_id, creado_por) VALUES ($1, $2, $3, $4, $5, $6, $7)`,

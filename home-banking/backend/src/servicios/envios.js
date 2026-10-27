@@ -118,8 +118,8 @@ const COLGADA_MIN = 10;         // una tarea "procesando" hace más de esto (pro
 
 // Clientes que el aprobador responsable ve hoy (permiso Ver del administrador, empresa activa)
 async function clientesVisibles(usuario) {
-  return (await operativa.query(`SELECT e.* FROM empresa e JOIN permiso_empresa pe ON pe.empresa_id = e.id AND pe.usuario = $1 AND pe.ver
-    WHERE e.activa ORDER BY e.razon_social`, [usuario])).rows;
+  return (await operativa.query(`SELECT e.* FROM empresa e JOIN permiso_empresa pe ON pe.empresa_id = e.id AND pe.usuario = $1 AND pe.ver = 1
+    WHERE e.activa = 1 ORDER BY e.razon_social`, [usuario])).rows;
 }
 
 // Id transaccional de cada ejecución (un turno de una programación o un "Ejecutar ahora"): agrupa sus tareas de la cola
@@ -134,19 +134,22 @@ export async function encolarTurno(p, turno, { manual = false } = {}) {
   // Las alertas por hora / cada 30 minutos respetan el interruptor por cliente: un cliente apagado nunca
   // se encola (ni por "todas las empresas", ni por lista, ni por "Ejecutar ahora"). El extracto diario no.
   if (p.frecuencia !== 'diaria' && destinos.length) {
-    const apagadas = new Set((await operativa.query('SELECT id FROM empresa WHERE id = ANY($1) AND NOT alertas_horarias',
+    const apagadas = new Set((await operativa.query('SELECT id FROM empresa WHERE id IN (SELECT CAST(value AS bigint) FROM OPENJSON($1)) AND alertas_horarias = 0',
       [destinos.map((d) => Number(d.empresaId))])).rows.map((r) => Number(r.id)));
     destinos = destinos.filter((d) => !apagadas.has(Number(d.empresaId)));
   }
   return tx(operativa, async (c) => {
-    const { rows: [ej] } = await c.query(`INSERT INTO ejecucion_envio (programacion_id, programacion, turno, frecuencia, manual, responsable)
-      VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (programacion_id, turno) DO UPDATE SET programacion = EXCLUDED.programacion RETURNING id`,
+    // Una sola ejecución por (programación, turno): si ya existe se retoma
+    const { rows: [ej] } = await c.query(`UPDATE ejecucion_envio WITH (UPDLOCK, SERIALIZABLE) SET programacion = $2 WHERE programacion_id = $1 AND turno = $3;
+      IF @@ROWCOUNT = 0 INSERT INTO ejecucion_envio (programacion_id, programacion, turno, frecuencia, manual, responsable) VALUES ($1, $2, $3, $4, $5, $6);
+      SELECT id FROM ejecucion_envio WHERE programacion_id = $1 AND turno = $3;`,
     [p.id, p.nombre, turno, p.frecuencia, manual, responsable]);
     let encoladas = 0;
     for (const d of destinos) {
       const e = visibles.find((x) => Number(x.id) === Number(d.empresaId));
       const q = await c.query(`INSERT INTO cola_envio (programacion_id, programacion, turno, empresa_id, empresa, cuentas, contenido, responsable, manual, formato, frecuencia, ejecucion_id)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) ON CONFLICT (programacion_id, turno, empresa_id) DO NOTHING`,
+        SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12
+         WHERE NOT EXISTS (SELECT 1 FROM cola_envio WITH (UPDLOCK, HOLDLOCK) WHERE programacion_id = $1 AND turno = $3 AND empresa_id = $4)`,
       [p.id, p.nombre, turno, d.empresaId, e?.razon_social ?? `Empresa ${d.empresaId}`, d.cuentas ?? [], p.contenido, responsable, manual, p.formato ?? 'cuerpo', p.frecuencia, ej.id]);
       encoladas += q.rowCount;
     }
@@ -158,28 +161,32 @@ export async function encolarTurno(p, turno, { manual = false } = {}) {
 // Totales de la ejecución a partir de sus tareas; queda terminada cuando no le queda nada en cola ni en proceso
 async function actualizarEjecucion(c, id) {
   if (id == null) return;
-  await c.query(`UPDATE ejecucion_envio e SET tareas = x.tareas, enviadas = x.enviadas, omitidas = x.omitidas, errores = x.errores,
-      estado = CASE WHEN x.abiertas = 0 THEN 'terminada' ELSE 'en_curso' END,
-      terminada_en = CASE WHEN x.abiertas = 0 THEN coalesce(e.terminada_en, now()) ELSE NULL END
-    FROM (SELECT count(*)::int AS tareas, count(*) FILTER (WHERE estado = 'enviado')::int AS enviadas,
-                 count(*) FILTER (WHERE estado = 'omitido')::int AS omitidas, count(*) FILTER (WHERE estado = 'error')::int AS errores,
-                 count(*) FILTER (WHERE estado IN ('pendiente', 'procesando'))::int AS abiertas
+  await c.query(`UPDATE e SET tareas = x.tareas, enviadas = x.enviadas, omitidas = x.omitidas, errores = x.errores,
+      estado = CASE WHEN x.abiertas = 0 THEN N'terminada' ELSE N'en_curso' END,
+      terminada_en = CASE WHEN x.abiertas = 0 THEN COALESCE(e.terminada_en, SYSDATETIMEOFFSET()) ELSE NULL END
+    FROM ejecucion_envio e
+    CROSS JOIN (SELECT COUNT(*) AS tareas,
+                 COALESCE(SUM(CASE WHEN estado = N'enviado' THEN 1 ELSE 0 END), 0) AS enviadas,
+                 COALESCE(SUM(CASE WHEN estado = N'omitido' THEN 1 ELSE 0 END), 0) AS omitidas,
+                 COALESCE(SUM(CASE WHEN estado = N'error' THEN 1 ELSE 0 END), 0) AS errores,
+                 COALESCE(SUM(CASE WHEN estado IN (N'pendiente', N'procesando') THEN 1 ELSE 0 END), 0) AS abiertas
             FROM cola_envio WHERE ejecucion_id = $1) x
    WHERE e.id = $1`, [id]);
 }
 
 // Toma la próxima tarea disponible (SKIP LOCKED: si hubiera otro proceso, nunca toman la misma)
 async function tomarTarea() {
-  const { rows } = await operativa.query(`UPDATE cola_envio SET estado = 'procesando', tomada_en = now(), intentos = intentos + 1
-    WHERE id = (SELECT id FROM cola_envio WHERE estado = 'pendiente' AND disponible_en <= now() ORDER BY disponible_en, id FOR UPDATE SKIP LOCKED LIMIT 1)
-    RETURNING *`);
+  // UPDLOCK + READPAST: salta las tareas que otro proceso ya tiene tomadas (equivale a FOR UPDATE SKIP LOCKED)
+  const { rows } = await operativa.query(`UPDATE cola_envio SET estado = N'procesando', tomada_en = SYSDATETIMEOFFSET(), intentos = intentos + 1
+    OUTPUT inserted.*
+    WHERE id = (SELECT TOP (1) id FROM cola_envio WITH (UPDLOCK, READPAST, ROWLOCK) WHERE estado = N'pendiente' AND disponible_en <= SYSDATETIMEOFFSET() ORDER BY disponible_en, id)`);
   return rows[0] ?? null;
 }
 
 // Cierra la tarea, suma sus consultas al banco a la tarea y a su ejecución, y actualiza los totales de la ejecución
 async function terminar(t, estado, detalle, destinatarios = [], banco = { consultas: 0 }) {
   await tx(operativa, async (c) => {
-    await c.query(`UPDATE cola_envio SET estado = $2, detalle = $3, destinatarios = $4, terminada_en = now(), consultas_banco = consultas_banco + $5 WHERE id = $1`,
+    await c.query(`UPDATE cola_envio SET estado = $2, detalle = $3, destinatarios = $4, terminada_en = SYSDATETIMEOFFSET(), consultas_banco = consultas_banco + $5 WHERE id = $1`,
       [t.id, estado, String(detalle ?? '').slice(0, 1000), destinatarios, banco.consultas]);
     if (t.ejecucion_id != null) await c.query('UPDATE ejecucion_envio SET consultas_banco = consultas_banco + $2 WHERE id = $1', [t.ejecucion_id, banco.consultas]);
     await actualizarEjecucion(c, t.ejecucion_id);
@@ -217,7 +224,7 @@ export async function procesarTarea(t) {
   const e = (await clientesVisibles(t.responsable)).find((x) => Number(x.id) === Number(t.empresa_id));
   if (!e) return terminar(t, 'omitido', `El aprobador ${t.responsable} ya no ve este cliente (o está inactivo)`);
   if (!e.emails?.length) return terminar(t, 'omitido', 'El cliente no tiene emails');
-  const activas = (await operativa.query(`SELECT product_number FROM empresa_cbu WHERE empresa_id = $1 AND estado = 'activa'`, [e.id])).rows.map((r) => r.product_number);
+  const activas = (await operativa.query(`SELECT product_number FROM empresa_cbu WHERE empresa_id = $1 AND estado = N'activa'`, [e.id])).rows.map((r) => r.product_number);
   const nums = new Set(t.cuentas?.length ? t.cuentas.filter((c) => activas.includes(c)) : activas);
   if (!nums.size) return terminar(t, 'omitido', 'El cliente no tiene (o ya no tiene) las cuentas elegidas');
   const banco = { consultas: 0 }; // consultas reales al banco de esta tarea
@@ -264,7 +271,7 @@ export async function procesarTarea(t) {
   } catch (x) {
     if (t.intentos < t.max_intentos) { // vuelve a la cola con espera creciente
       const espera = ESPERAS_MIN[Math.min(t.intentos - 1, ESPERAS_MIN.length - 1)];
-      await operativa.query(`UPDATE cola_envio SET estado = 'pendiente', detalle = $2, disponible_en = now() + make_interval(mins => $3), consultas_banco = consultas_banco + $4 WHERE id = $1`,
+      await operativa.query(`UPDATE cola_envio SET estado = N'pendiente', detalle = $2, disponible_en = DATEADD(minute, $3, SYSDATETIMEOFFSET()), consultas_banco = consultas_banco + $4 WHERE id = $1`,
         [t.id, `Intento ${t.intentos} falló: ${x.message}. Se reintenta en ${espera} min`, espera, banco.consultas]);
       if (t.ejecucion_id != null) await operativa.query('UPDATE ejecucion_envio SET consultas_banco = consultas_banco + $2 WHERE id = $1', [t.ejecucion_id, banco.consultas]);
       return;
@@ -279,8 +286,8 @@ export async function procesarCola({ maximo = 200 } = {}) {
   if (trabajando) return { enCurso: true };
   trabajando = true;
   try {
-    await operativa.query(`UPDATE cola_envio SET estado = 'pendiente', detalle = 'Retomada: el proceso anterior se interrumpió'
-      WHERE estado = 'procesando' AND tomada_en < now() - make_interval(mins => $1)`, [COLGADA_MIN]);
+    await operativa.query(`UPDATE cola_envio SET estado = N'pendiente', detalle = N'Retomada: el proceso anterior se interrumpió'
+      WHERE estado = N'procesando' AND tomada_en < DATEADD(minute, -$1, SYSDATETIMEOFFSET())`, [COLGADA_MIN]);
     let hechas = 0;
     for (let t = await tomarTarea(); t && hechas < maximo; t = await tomarTarea()) { await procesarTarea(t); hechas++; }
     return { procesadas: hechas };
@@ -291,12 +298,12 @@ export async function procesarCola({ maximo = 200 } = {}) {
 // antes de encolar, así un turno nunca se encola dos veces aunque haya dos procesos.
 export async function ejecutarEnviosPendientes(ahora = new Date()) {
   const esFeriado = await feriadosCargados();
-  const { rows } = await operativa.query('SELECT * FROM programacion_envio WHERE activa');
+  const { rows } = await operativa.query('SELECT * FROM programacion_envio WHERE activa = 1');
   const hechos = [];
   for (const p of rows) {
     const turno = turnoVencido(p, ahora, esFeriado);
     if (!turno) continue;
-    const r = await operativa.query('UPDATE programacion_envio SET ultimo_turno = $2 WHERE id = $1 AND (ultimo_turno IS NULL OR ultimo_turno < $2) RETURNING id', [p.id, turno]);
+    const r = await operativa.query('UPDATE programacion_envio SET ultimo_turno = $2 OUTPUT inserted.id WHERE id = $1 AND (ultimo_turno IS NULL OR ultimo_turno < $2)', [p.id, turno]);
     if (!r.rowCount) continue;
     hechos.push({ programacion: p.nombre, turno, ...(await encolarTurno(p, turno)) });
   }

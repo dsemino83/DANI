@@ -2,7 +2,7 @@
 // El administrador NO accede a saldos ni opera; todo cambio queda auditado en la misma transacción.
 import { exigirRol, ROL_APROBAR, ROL_CREAR } from '../auth.js';
 import { auditar } from '../auditoria.js';
-import { operativa, tx } from '../db.js';
+import { esDuplicado, operativa, tx } from '../db.js';
 import { conflicto, ErrorHttp, invalido, noEncontrado } from '../errores.js';
 import { esAmbiente, urlBase } from '../bdv/ambientes.js';
 import { cifrar, esUso, estadoCredencial, leerCredencial, USOS } from '../secretos.js';
@@ -26,7 +26,7 @@ export default async function rutasAdmin(app) {
 
   // ---------------- Empresas ----------------
   app.get('/empresas', async () => (await operativa.query(
-    `SELECT e.*, count(ce.id)::int AS cuentas
+    `SELECT e.*, COUNT(ce.id) AS cuentas
        FROM empresa e LEFT JOIN empresa_cbu ce ON ce.empresa_id = e.id AND ce.estado = 'activa'
       GROUP BY e.id ORDER BY e.razon_social`)).rows);
 
@@ -41,7 +41,7 @@ export default async function rutasAdmin(app) {
     return tx(operativa, async (c) => {
       const dup = await c.query('SELECT 1 FROM empresa WHERE cuit = $1', [cuit]);
       if (dup.rowCount) throw conflicto('Ya existe una empresa con ese CUIT');
-      const { rows } = await c.query('INSERT INTO empresa (razon_social, cuit, creada_por, emails) VALUES ($1, $2, $3, $4) RETURNING *', [razon, cuit, req.user.usuario, emails]);
+      const { rows } = await c.query('INSERT INTO empresa (razon_social, cuit, creada_por, emails) OUTPUT inserted.* VALUES ($1, $2, $3, $4)', [razon, cuit, req.user.usuario, emails]);
       await auditar(c, req, { tipo: 'Administración', accion: 'Alta de empresa', detalle: `${razon} · CUIT ${cuit} · emails: ${emails.join(', ')}`, ref: { tipo: 'empresa', id: rows[0].id } });
       return rows[0];
     });
@@ -50,7 +50,7 @@ export default async function rutasAdmin(app) {
   // Activar / desactivar: suspende o restablece todos los permisos de la empresa (los permisos se conservan).
   app.patch('/empresas/:id', async (req) => tx(operativa, async (c) => {
     const activa = Boolean(req.body?.activa);
-    const { rows } = await c.query('UPDATE empresa SET activa = $2 WHERE id = $1 RETURNING *', [req.params.id, activa]);
+    const { rows } = await c.query('UPDATE empresa SET activa = $2 OUTPUT inserted.* WHERE id = $1', [req.params.id, activa]);
     if (!rows[0]) throw noEncontrado('Empresa inexistente');
     const us = (await c.query('SELECT usuario FROM permiso_empresa WHERE empresa_id = $1 AND ver', [req.params.id])).rows.map((r) => r.usuario);
     await auditar(c, req, {
@@ -62,10 +62,10 @@ export default async function rutasAdmin(app) {
 
   // Eliminar: da de baja sus cuentas (quedan en el historial con el CUIT) y borra los permisos sobre ella.
   app.delete('/empresas/:id', async (req) => tx(operativa, async (c) => {
-    const { rows } = await c.query('SELECT * FROM empresa WHERE id = $1 FOR UPDATE', [req.params.id]);
+    const { rows } = await c.query('SELECT * FROM empresa WITH (UPDLOCK, ROWLOCK) WHERE id = $1', [req.params.id]);
     if (!rows[0]) throw noEncontrado('Empresa inexistente');
-    const cuentas = (await c.query(`UPDATE empresa_cbu SET estado = 'baja', baja_por = $2, baja_en = now() WHERE empresa_id = $1 AND estado = 'activa' RETURNING product_number`, [req.params.id, req.user.usuario])).rows.map((r) => r.product_number);
-    const us = (await c.query('DELETE FROM permiso_empresa WHERE empresa_id = $1 RETURNING usuario', [req.params.id])).rows.map((r) => r.usuario);
+    const cuentas = (await c.query(`UPDATE empresa_cbu SET estado = N'baja', baja_por = $2, baja_en = SYSDATETIMEOFFSET() OUTPUT inserted.product_number WHERE empresa_id = $1 AND estado = N'activa'`, [req.params.id, req.user.usuario])).rows.map((r) => r.product_number);
+    const us = (await c.query('DELETE FROM permiso_empresa OUTPUT deleted.usuario WHERE empresa_id = $1', [req.params.id])).rows.map((r) => r.usuario);
     await c.query('DELETE FROM empresa WHERE id = $1', [req.params.id]);
     await auditar(c, req, {
       tipo: 'Administración', accion: 'Eliminó empresa', ref: { tipo: 'empresa', id: req.params.id },
@@ -79,9 +79,9 @@ export default async function rutasAdmin(app) {
     const emails = normalizarEmails(req.body?.emails);
     if (!emails.length) throw invalido('La empresa tiene que tener al menos un email');
     return tx(operativa, async (c) => {
-      const antes = (await c.query('SELECT * FROM empresa WHERE id = $1 FOR UPDATE', [req.params.id])).rows[0];
+      const antes = (await c.query('SELECT * FROM empresa WITH (UPDLOCK, ROWLOCK) WHERE id = $1', [req.params.id])).rows[0];
       if (!antes) throw noEncontrado('Empresa inexistente');
-      const { rows } = await c.query('UPDATE empresa SET emails = $2 WHERE id = $1 RETURNING *', [req.params.id, emails]);
+      const { rows } = await c.query('UPDATE empresa SET emails = $2 OUTPUT inserted.* WHERE id = $1', [req.params.id, emails]);
       const altas = emails.filter((e) => !antes.emails.includes(e)), bajas = antes.emails.filter((e) => !emails.includes(e));
       await auditar(c, req, { tipo: 'Administración', accion: 'Modificó emails de empresa', ref: { tipo: 'empresa', id: req.params.id },
         detalle: altas.length === 1 && bajas.length === 1 ? `${antes.razon_social} · cambió ${bajas[0]} por ${altas[0]}` // edición de un email
@@ -138,21 +138,21 @@ export default async function rutasAdmin(app) {
       return { agregadas: [], rechazadas };
     }
     return tx(operativa, async (c) => {
-      const emp = (await c.query('SELECT * FROM empresa WHERE id = $1 FOR UPDATE', [req.params.id])).rows[0];
+      const emp = (await c.query('SELECT * FROM empresa WITH (UPDLOCK, ROWLOCK) WHERE id = $1', [req.params.id])).rows[0];
       if (!emp) throw noEncontrado('Empresa inexistente');
-      const ocupadas = (await c.query(`SELECT product_number, cbu FROM empresa_cbu WHERE estado = 'activa' AND (product_number = ANY($1) OR cbu = ANY($2))`,
+      const ocupadas = (await c.query(`SELECT product_number, cbu FROM empresa_cbu WHERE estado = N'activa' AND (product_number IN (SELECT value FROM OPENJSON($1)) OR cbu IN (SELECT value FROM OPENJSON($2)))`,
         [resueltas.map((r) => r.n), resueltas.map((r) => r.cbu)])).rows;
       if (ocupadas.length) throw conflicto(`Ya tienen una relación activa con una empresa: ${ocupadas.map((r) => `${r.product_number} (CBU ${r.cbu ?? 'pendiente'})`).join(', ')}`);
       for (const r of resueltas) {
         await c.query(`INSERT INTO empresa_cbu (empresa_id, empresa_cuit, product_number, cbu, alias, titular, cuit_titular, moneda, coelsa_en, asignada_por)
-                       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now(), $9)`,
+                       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, SYSDATETIMEOFFSET(), $9)`,
           [emp.id, emp.cuit, r.n, r.cbu, r.alias, r.titular, r.cuitTitular, r.moneda, req.user.usuario]);
       }
       await auditar(c, req, { tipo: 'Administración', accion: 'Agregó cuentas a empresa', api: 'getCustomerInformationCbu', ref: { tipo: 'empresa', id: req.params.id },
         detalle: `${emp.razon_social} (CUIT ${emp.cuit}) · ${resueltas.map((r) => `${r.n} CBU ${r.cbu} alias ${r.alias ?? '—'}`).join(' | ')}`
           + (rechazadas.length ? ` · no agregadas: ${rechazadas.map((r) => `${r.cuenta} (${r.motivo})`).join(', ')}` : '') });
       return { agregadas: resueltas.map((r) => ({ cuenta: r.n, cbu: r.cbu, alias: r.alias })), rechazadas };
-    }).catch((e) => { if (e.code === '23505') throw conflicto('El CBU o la cuenta ya tiene una relación activa con una empresa'); throw e; });
+    }).catch((e) => { if (esDuplicado(e)) throw conflicto('El CBU o la cuenta ya tiene una relación activa con una empresa'); throw e; });
   });
 
   // Volver a consultar COELSA para una cuenta activa (completa el CBU de asignaciones anteriores o actualiza el alias)
@@ -162,21 +162,21 @@ export default async function rutasAdmin(app) {
     let d;
     try { d = await consultarCoelsa(cuenta); } catch (e) { throw new ErrorHttp(502, 'coelsa', `COELSA: ${e.message}`); }
     return tx(operativa, async (c) => {
-      const f = (await c.query(`SELECT * FROM empresa_cbu WHERE empresa_id = $1 AND product_number = $2 AND estado = 'activa' FOR UPDATE`, [req.params.id, req.params.cuenta])).rows[0];
+      const f = (await c.query(`SELECT * FROM empresa_cbu WITH (UPDLOCK, ROWLOCK) WHERE empresa_id = $1 AND product_number = $2 AND estado = N'activa'`, [req.params.id, req.params.cuenta])).rows[0];
       if (!f) throw noEncontrado('La cuenta no tiene una relación activa con esta empresa');
-      await c.query('UPDATE empresa_cbu SET cbu = $2, alias = $3, titular = $4, cuit_titular = $5, coelsa_en = now() WHERE id = $1', [f.id, d.cbu, d.alias, d.titular, d.cuitTitular]);
+      await c.query('UPDATE empresa_cbu SET cbu = $2, alias = $3, titular = $4, cuit_titular = $5, coelsa_en = SYSDATETIMEOFFSET() WHERE id = $1', [f.id, d.cbu, d.alias, d.titular, d.cuitTitular]);
       await auditar(c, req, { tipo: 'Administración', accion: 'Actualizó datos COELSA de cuenta', api: 'getCustomerInformationCbu', ref: { tipo: 'empresa', id: req.params.id },
         detalle: `cuenta ${f.product_number} · CBU ${f.cbu ?? 'pendiente'} → ${d.cbu} · alias ${f.alias ?? '—'} → ${d.alias ?? '—'}` });
       return { cuenta: f.product_number, ...d };
-    }).catch((e) => { if (e.code === '23505') throw conflicto('Ese CBU ya tiene una relación activa con otra empresa'); throw e; });
+    }).catch((e) => { if (esDuplicado(e)) throw conflicto('Ese CBU ya tiene una relación activa con otra empresa'); throw e; });
   });
 
   // Quitar una cuenta: no se borra, pasa a estado "baja" (queda en el historial) y la cuenta vuelve a estar disponible
   app.delete('/empresas/:id/cuentas/:cuenta', async (req) => tx(operativa, async (c) => {
     const emp = (await c.query('SELECT * FROM empresa WHERE id = $1', [req.params.id])).rows[0];
     if (!emp) throw noEncontrado('Empresa inexistente');
-    const r = await c.query(`UPDATE empresa_cbu SET estado = 'baja', baja_por = $3, baja_en = now()
-                              WHERE product_number = $1 AND empresa_id = $2 AND estado = 'activa' RETURNING cbu, alias`, [req.params.cuenta, req.params.id, req.user.usuario]);
+    const r = await c.query(`UPDATE empresa_cbu SET estado = N'baja', baja_por = $3, baja_en = SYSDATETIMEOFFSET() OUTPUT inserted.cbu, inserted.alias
+                              WHERE product_number = $1 AND empresa_id = $2 AND estado = N'activa'`, [req.params.cuenta, req.params.id, req.user.usuario]);
     if (!r.rowCount) throw noEncontrado('La cuenta no tiene una relación activa con esta empresa');
     await auditar(c, req, { tipo: 'Administración', accion: 'Dio de baja cuenta de empresa', ref: { tipo: 'empresa', id: req.params.id },
       detalle: `${emp.razon_social} (CUIT ${emp.cuit}) · cuenta ${req.params.cuenta} · CBU ${r.rows[0].cbu ?? 'pendiente'} · alias ${r.rows[0].alias ?? '—'} · estado activa → baja` });
@@ -185,7 +185,7 @@ export default async function rutasAdmin(app) {
 
   // ---------------- Permisos por empresa ----------------
   app.get('/permisos/:usuario', async (req) => (await operativa.query(
-    `SELECT e.id AS empresa_id, e.razon_social, e.cuit, e.activa, coalesce(p.ver, false) AS ver, coalesce(p.operar, false) AS operar
+    `SELECT e.id AS empresa_id, e.razon_social, e.cuit, e.activa, COALESCE(p.ver, CAST(0 AS bit)) AS ver, COALESCE(p.operar, CAST(0 AS bit)) AS operar
        FROM empresa e LEFT JOIN permiso_empresa p ON p.empresa_id = e.id AND p.usuario = $1 ORDER BY e.razon_social`, [req.params.usuario])).rows);
 
   app.put('/permisos/:usuario', async (req) => {
@@ -205,8 +205,8 @@ export default async function rutasAdmin(app) {
         const e = (await c.query('SELECT razon_social FROM empresa WHERE id = $1', [p.empresaId])).rows[0];
         if (!e) throw invalido(`Empresa inexistente: ${p.empresaId}`);
         if (!ver) await c.query('DELETE FROM permiso_empresa WHERE usuario = $1 AND empresa_id = $2', [usuario, p.empresaId]);
-        else await c.query(`INSERT INTO permiso_empresa (usuario, empresa_id, ver, operar) VALUES ($1, $2, $3, $4)
-                            ON CONFLICT (usuario, empresa_id) DO UPDATE SET ver = $3, operar = $4`, [usuario, p.empresaId, ver, operar]);
+        else await c.query(`UPDATE permiso_empresa SET ver = $3, operar = $4 WHERE usuario = $1 AND empresa_id = $2;
+                            IF @@ROWCOUNT = 0 INSERT INTO permiso_empresa (usuario, empresa_id, ver, operar) VALUES ($1, $2, $3, $4);`, [usuario, p.empresaId, ver, operar]);
         cambios.push(`${e.razon_social}: ${nivel(a)} → ${nivel({ ver, operar })}`);
       }
       if (cambios.length) await auditar(c, req, { tipo: 'Administración', accion: 'Modificó permisos por empresa', api: 'Permisos por empresa', detalle: `${usuario} · ${cambios.join(' | ')}` });
@@ -360,7 +360,7 @@ export default async function rutasAdmin(app) {
     if (b.clave && yaCifrada && !/^[A-Za-z0-9+/]{100,}={0,2}$/.test(String(b.clave).replace(/\s+/g, ''))) throw invalido('La clave cifrada tiene que ser el texto base64 que entrega el banco');
     if (b.rsaPublicKey) { try { createPublicKey(pemDesdeBase64(b.rsaPublicKey)); } catch { throw invalido('La llave pública RSA no es válida'); } }
     await tx(operativa, async (c) => {
-      const prev = (await c.query('SELECT * FROM credencial_api WHERE ambiente = $1 AND uso = $2 FOR UPDATE', [amb, uso])).rows[0];
+      const prev = (await c.query('SELECT * FROM credencial_api WITH (UPDLOCK, HOLDLOCK) WHERE ambiente = $1 AND uso = $2', [amb, uso])).rows[0];
       // Exclusiva: la de envíos tiene que ser otro usuario del banco (si no, compartiría la sesión con el Home Banking)
       const otra = (await c.query('SELECT usuario FROM credencial_api WHERE ambiente = $1 AND uso <> $2', [amb, uso])).rows[0];
       if (otra && otra.usuario.toLowerCase() === String(b.usuario).trim().toLowerCase()) {
@@ -376,11 +376,13 @@ export default async function rutasAdmin(app) {
       const channel = uso === 'envios' ? (String(b.channel ?? '').trim() || prev?.channel || '3') : '3';
       const clave = b.clave ? cifrar(yaCifrada ? String(b.clave).replace(/\s+/g, '') : String(b.clave)) : { cifrado: prev.clave_cifrada, iv: prev.clave_iv, tag: prev.clave_tag };
       await c.query(
-        `INSERT INTO credencial_api (ambiente, url, usuario, identification, terminal, channel, rsa_public_key, clave_cifrada, clave_iv, clave_tag,
-                                     clave_cargada_por, clave_cargada_en, actualizado_por, actualizado_en, clave_ya_cifrada, uso)
-         VALUES ($1, $2, $3, $4, $5, $15, $6, $7, $8, $9, $10, $11, $12, now(), $13, $14)
-         ON CONFLICT (ambiente, uso) DO UPDATE SET url = $2, usuario = $3, identification = $4, terminal = $5, channel = $15, rsa_public_key = $6,
-           clave_cifrada = $7, clave_iv = $8, clave_tag = $9, clave_cargada_por = $10, clave_cargada_en = $11, actualizado_por = $12, actualizado_en = now(), clave_ya_cifrada = $13`,
+        `UPDATE credencial_api SET url = $2, usuario = $3, identification = $4, terminal = $5, channel = $15, rsa_public_key = $6,
+           clave_cifrada = $7, clave_iv = $8, clave_tag = $9, clave_cargada_por = $10, clave_cargada_en = $11, actualizado_por = $12, actualizado_en = SYSDATETIMEOFFSET(), clave_ya_cifrada = $13
+          WHERE ambiente = $1 AND uso = $14;
+         IF @@ROWCOUNT = 0
+           INSERT INTO credencial_api (ambiente, url, usuario, identification, terminal, channel, rsa_public_key, clave_cifrada, clave_iv, clave_tag,
+                                       clave_cargada_por, clave_cargada_en, actualizado_por, actualizado_en, clave_ya_cifrada, uso)
+           VALUES ($1, $2, $3, $4, $5, $15, $6, $7, $8, $9, $10, $11, $12, SYSDATETIMEOFFSET(), $13, $14);`,
         [amb, url, b.usuario, String(b.identification), b.terminal, b.rsaPublicKey || prev?.rsa_public_key || '', clave.cifrado, clave.iv, clave.tag,
           b.clave ? req.user.usuario : prev.clave_cargada_por, b.clave ? new Date() : prev.clave_cargada_en, req.user.usuario, modo, uso, channel]);
       const cambios = [
@@ -404,10 +406,10 @@ export default async function rutasAdmin(app) {
     if (typeof req.body?.activa !== 'boolean') throw invalido('Indicá si la credencial queda activa (true) o desactivada (false)');
     const activa = req.body.activa;
     await tx(operativa, async (c) => {
-      const prev = (await c.query('SELECT activa FROM credencial_api WHERE ambiente = $1 AND uso = $2 FOR UPDATE', [amb, uso])).rows[0];
+      const prev = (await c.query('SELECT activa FROM credencial_api WITH (UPDLOCK, HOLDLOCK) WHERE ambiente = $1 AND uso = $2', [amb, uso])).rows[0];
       if (!prev) throw noEncontrado('No hay credencial cargada para ese ambiente');
       if (prev.activa === activa) return; // ya estaba así: nada que cambiar ni auditar
-      await c.query('UPDATE credencial_api SET activa = $3, actualizado_por = $4, actualizado_en = now() WHERE ambiente = $1 AND uso = $2', [amb, uso, activa, req.user.usuario]);
+      await c.query('UPDATE credencial_api SET activa = $3, actualizado_por = $4, actualizado_en = SYSDATETIMEOFFSET() WHERE ambiente = $1 AND uso = $2', [amb, uso, activa, req.user.usuario]);
       await auditar(c, req, { tipo: 'Administración', accion: `${activa ? 'Activó' : 'Desactivó'} credencial API Banking`, api: 'Gestor de secretos', detalle: `${amb} · ${USOS[uso]}` });
     });
     bdv.olvidar(); bdvEnvios.olvidar(); // la sesión abierta con esa credencial se descarta ya; el proceso jobs lo detecta solo (como mucho en 1 minuto)

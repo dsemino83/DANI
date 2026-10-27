@@ -10,10 +10,10 @@ export async function cuentasHabilitadas(usuario, { operar = false, cuenta = nul
   const { rows } = await operativa.query(
     `SELECT ce.product_number, e.id AS empresa_id, e.razon_social, e.cuit, p.ver, p.operar
        FROM empresa_cbu ce
-       JOIN empresa e         ON e.id = ce.empresa_id AND e.activa AND ce.estado = 'activa'
+       JOIN empresa e         ON e.id = ce.empresa_id AND e.activa = 1 AND ce.estado = N'activa'
        JOIN permiso_empresa p ON p.empresa_id = e.id AND p.usuario = $1
-      WHERE p.ver AND ($2::boolean = false OR p.operar)
-        AND ($3::text IS NULL OR ce.product_number = $3)
+      WHERE p.ver = 1 AND ($2 = 0 OR p.operar = 1)
+        AND ($3 IS NULL OR ce.product_number = $3)
         AND (NOT EXISTS (SELECT 1 FROM cartera_oficial co WHERE co.oficial = $1)
              OR EXISTS (SELECT 1 FROM cartera_oficial co WHERE co.oficial = $1 AND co.empresa_id = e.id))`,
     [usuario, operar, cuenta],

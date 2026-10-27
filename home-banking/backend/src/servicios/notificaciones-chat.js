@@ -33,7 +33,7 @@ export async function notificarChatAlerta(empresa, correo) {
   let oficiales;
   try {
     oficiales = (await operativa.query(
-      `SELECT co.oficial FROM cartera_oficial co JOIN oficial_chat oc ON oc.oficial = co.oficial AND oc.notificar
+      `SELECT co.oficial FROM cartera_oficial co JOIN oficial_chat oc ON oc.oficial = co.oficial AND oc.notificar = 1
         WHERE co.empresa_id = $1 ORDER BY co.oficial`, [empresa.id])).rows.map((r) => r.oficial);
   } catch (e) { return { estado: 'error', detalle: `consulta oficiales: ${e.message}` }; }
   if (!oficiales.length) return { estado: 'sin_destinatarios' };

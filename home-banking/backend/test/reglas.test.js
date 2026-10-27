@@ -14,7 +14,7 @@ const { cifrar, descifrar } = await import('../src/secretos.js');
 const { usuarioDesdeToken } = await import('../src/auth.js');
 const { leerTxt, formatoDe } = await import('../src/servicios/lotes.js');
 const { normalizarId } = await import('../src/servicios/transferencias.js');
-const { particionesAPasar, mesCorte } = await import('../src/jobs/pase-historico.js');
+const { TABLAS, mesCorte } = await import('../src/jobs/pase-historico.js');
 const { retencionMeses } = await import('../src/corte.js');
 const { destinatarioChat } = await import('../src/servicios/notificaciones-chat.js');
 const { urlBase, urlDelAmbiente, esAmbiente } = await import('../src/bdv/ambientes.js');
@@ -118,9 +118,13 @@ test('pase histórico: corte por meses de retención (1 por defecto)', () => {
   assert.equal(mesCorte(new Date('2026-10-21T12:00:00Z'), 3), '2026-07-01');
 });
 
-test('pase histórico: solo particiones anteriores al corte', () => {
-  const p = particionesAPasar(['auditoria_2026_05', 'auditoria_2026_06', 'auditoria_2026_07', 'auditoria_2026_10', 'auditoria_default'], 'auditoria', '2026-07-01');
-  assert.deepEqual(p.map((x) => x.particion), ['auditoria_2026_05', 'auditoria_2026_06']);
+test('pase histórico: tablas que pasan, con su fecha y la condición de "terminada"', () => {
+  const por = Object.fromEntries(TABLAS.map((t) => [t.tabla, t]));
+  assert.deepEqual(Object.keys(por).sort(), ['auditoria', 'cola_envio', 'ejecucion_envio', 'envio_mail_log', 'mensaje', 'transferencia', 'transferencia_estado']);
+  assert.ok(TABLAS.every((t) => /^[a-z_]+$/.test(t.tabla) && /^[a-z_]+$/.test(t.columna) && t.terminadas), 'nombres seguros para armar el SQL');
+  assert.equal(por.transferencia.columna, 'creado_en');
+  assert.match(por.cola_envio.terminadas, /enviado/, 'lo pendiente de la cola no pasa');
+  assert.match(por.mensaje.terminadas, /visto_en IS NOT NULL/, 'un mensaje no leído no pasa');
 });
 
 test('URL del banco según el ambiente: producción en api.bancodevalores.com', () => {

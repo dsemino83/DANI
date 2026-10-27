@@ -110,7 +110,8 @@ export async function previa(req, { nombre, buffer }) {
   return tx(operativa, async (c) => {
     const { rows } = await c.query(
       `INSERT INTO lote (archivo, formato, filas, validas, con_error, importe, estado, creador)
-       VALUES ($1, $2, $3, $4, $5, $6, 'PREVIA', $7) RETURNING id`,
+       OUTPUT inserted.id
+       VALUES ($1, $2, $3, $4, $5, $6, N'PREVIA', $7)`,
       [nombre, formato, resultado.length, validas.length, resultado.length - validas.length, importe, req.user.usuario]);
     const loteId = rows[0].id;
     for (const r of resultado) {
@@ -128,18 +129,18 @@ export async function previa(req, { nombre, buffer }) {
 export async function confirmar(req, loteId) {
   const cuentasBanco = new Map((await cuentasPropias()).map((c) => [String(c.productNumber), c]));
   return tx(operativa, async (c) => {
-    const { rows } = await c.query('SELECT * FROM lote WHERE id = $1 FOR UPDATE', [loteId]);
+    const { rows } = await c.query('SELECT * FROM lote WITH (UPDLOCK, ROWLOCK) WHERE id = $1', [loteId]);
     const lote = rows[0];
     if (!lote) throw noEncontrado('Lote inexistente');
     if (lote.creador !== req.user.usuario) throw prohibido('Solo quien subió el lote puede confirmarlo');
     if (lote.estado !== 'PREVIA') throw conflicto(`El lote está en estado ${lote.estado}`);
-    const filas = (await c.query(`SELECT * FROM lote_fila WHERE lote_id = $1 AND validacion = 'OK' ORDER BY fila`, [loteId])).rows;
+    const filas = (await c.query(`SELECT * FROM lote_fila WHERE lote_id = $1 AND validacion = N'OK' ORDER BY fila`, [loteId])).rows;
     if (!filas.length) throw invalido('El lote no tiene filas válidas');
     for (const f of filas) {
       await exigirCuenta(req.user.usuario, f.datos.cuenta_origen, { operar: true });
       await crearPendiente(c, req, { tipo: f.datos.tipo, origen: cuentasBanco.get(f.datos.cuenta_origen), datos: f.datos, loteId });
     }
-    await c.query(`UPDATE lote SET estado = 'PENDIENTE_APROBACION' WHERE id = $1`, [loteId]);
+    await c.query(`UPDATE lote SET estado = N'PENDIENTE_APROBACION' WHERE id = $1`, [loteId]);
     await auditar(c, req, {
       tipo: 'Transferencias', accion: 'Cargó lote masivo de transferencias', ref: { tipo: 'lote', id: loteId },
       detalle: `Lote ${loteId} · ${lote.archivo} · ${filas.length} transferencias · ${lote.importe} · queda pendiente de aprobación`,
@@ -152,12 +153,12 @@ export async function confirmar(req, loteId) {
 export async function decidir(req, loteId, aprobarLote) {
   if (aprobarLote) exigirEnviosHabilitados();
   const items = await tx(operativa, async (c) => {
-    const { rows } = await c.query('SELECT * FROM lote WHERE id = $1 FOR UPDATE', [loteId]);
+    const { rows } = await c.query('SELECT * FROM lote WITH (UPDLOCK, ROWLOCK) WHERE id = $1', [loteId]);
     const lote = rows[0];
     if (!lote) throw noEncontrado('Lote inexistente');
     if (lote.estado !== 'PENDIENTE_APROBACION') throw conflicto(`El lote está en estado ${lote.estado}`);
     if (lote.creador === req.user.usuario) throw prohibido('No podés aprobar ni rechazar un lote que cargaste vos');
-    const ts = (await c.query(`SELECT * FROM transferencia WHERE lote_id = $1 AND estado = 'PENDIENTE_APROBACION' FOR UPDATE`, [loteId])).rows;
+    const ts = (await c.query(`SELECT * FROM transferencia WITH (UPDLOCK, ROWLOCK) WHERE lote_id = $1 AND estado = N'PENDIENTE_APROBACION'`, [loteId])).rows;
     for (const t of ts) await exigirCuenta(req.user.usuario, t.cuenta_origen);
     // Señales de fraude por transferencia del lote: con alguna de riesgo ALTO, aprobar exige confirmación explícita
     const riesgos = await evaluarRiesgo(ts.map((t) => t.id), c);
@@ -167,13 +168,13 @@ export async function decidir(req, loteId, aprobarLote) {
     }
     const estado = aprobarLote ? 'EN_COLA' : 'RECHAZADA';
     for (const t of ts) {
-      const u = await c.query(`UPDATE transferencia SET estado = $2, aprobador = $3, aprobado_en = now(), actualizado_en = now()
-                                WHERE id = $1 AND estado = 'PENDIENTE_APROBACION'`, [t.id, estado, req.user.usuario]);
+      const u = await c.query(`UPDATE transferencia SET estado = $2, aprobador = $3, aprobado_en = SYSDATETIMEOFFSET(), actualizado_en = SYSDATETIMEOFFSET()
+                                WHERE id = $1 AND estado = N'PENDIENTE_APROBACION'`, [t.id, estado, req.user.usuario]);
       if (u.rowCount !== 1) throw conflicto(`La transferencia OP-${t.id} del lote ya fue autorizada`);
       await c.query('INSERT INTO transferencia_estado (transferencia_id, estado, usuario, detalle) VALUES ($1, $2, $3, $4)',
         [t.id, estado, req.user.usuario, `${aprobarLote ? 'Autorizada; en cola de pago' : 'Rechazada'} con el lote ${loteId}`]);
     }
-    await c.query('UPDATE lote SET estado = $2, aprobador = $3, aprobado_en = now() WHERE id = $1',
+    await c.query('UPDATE lote SET estado = $2, aprobador = $3, aprobado_en = SYSDATETIMEOFFSET() WHERE id = $1',
       [loteId, aprobarLote ? 'PROCESADO' : 'RECHAZADO', req.user.usuario]);
     await auditar(c, req, {
       tipo: 'Transferencias', accion: aprobarLote ? 'Aprobó lote masivo' : 'Rechazó lote masivo', ref: { tipo: 'lote', id: loteId },
@@ -189,11 +190,11 @@ export async function decidir(req, loteId, aprobarLote) {
 
 export async function descartar(req, loteId) {
   return tx(operativa, async (c) => {
-    const lote = (await c.query('SELECT * FROM lote WHERE id = $1 FOR UPDATE', [loteId])).rows[0];
+    const lote = (await c.query('SELECT * FROM lote WITH (UPDLOCK, ROWLOCK) WHERE id = $1', [loteId])).rows[0];
     if (!lote) throw noEncontrado('Lote inexistente');
     if (lote.creador !== req.user.usuario) throw prohibido('Solo quien subió el lote puede descartarlo');
     if (lote.estado !== 'PREVIA') throw conflicto(`El lote está en estado ${lote.estado}`);
-    await c.query(`UPDATE lote SET estado = 'DESCARTADO' WHERE id = $1`, [loteId]);
+    await c.query(`UPDATE lote SET estado = N'DESCARTADO' WHERE id = $1`, [loteId]);
     await auditar(c, req, { tipo: 'Transferencias', accion: 'Descartó archivo masivo', ref: { tipo: 'lote', id: loteId }, detalle: `Lote ${loteId} · ${lote.archivo}` });
     return { loteId, estado: 'DESCARTADO' };
   });

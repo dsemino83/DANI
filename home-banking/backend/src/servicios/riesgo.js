@@ -35,18 +35,18 @@ export function senales(d, u = UMBRALES) {
 export async function evaluarRiesgo(ids, cliente = operativa) {
   if (!ids.length) return new Map();
   const { rows } = await cliente.query(`
-    SELECT t.id::text, t.importe, t.moneda,
-      (SELECT count(*) FROM transferencia p WHERE p.cuenta_origen = t.cuenta_origen AND p.destino = t.destino AND p.id <> t.id
-          AND p.creado_en < t.creado_en AND p.estado = ANY($2))::int AS "previasDestino",
-      h.n::int AS historia, h.prom AS promedio, h.max AS maximo,
-      (SELECT count(*) FROM transferencia r WHERE r.destino = t.destino AND r.estado <> 'RECHAZADA'
-          AND r.creado_en BETWEEN t.creado_en - interval '60 minutes' AND t.creado_en + interval '60 minutes')::int AS rafaga,
-      extract(hour FROM t.creado_en AT TIME ZONE 'America/Argentina/Buenos_Aires')::int AS hora,
-      extract(isodow FROM t.creado_en AT TIME ZONE 'America/Argentina/Buenos_Aires')::int AS dow
+    SELECT CAST(t.id AS varchar(30)) AS id, t.importe, t.moneda,
+      (SELECT COUNT(*) FROM transferencia p WHERE p.cuenta_origen = t.cuenta_origen AND p.destino = t.destino AND p.id <> t.id
+          AND p.creado_en < t.creado_en AND p.estado IN (SELECT value FROM OPENJSON($2))) AS previasDestino,
+      h.n AS historia, h.prom AS promedio, h.maximo AS maximo,
+      (SELECT COUNT(*) FROM transferencia r WHERE r.destino = t.destino AND r.estado <> N'RECHAZADA'
+          AND r.creado_en BETWEEN DATEADD(minute, -60, t.creado_en) AND DATEADD(minute, 60, t.creado_en)) AS rafaga,
+      DATEPART(hour, t.creado_en AT TIME ZONE 'Argentina Standard Time') AS hora,
+      ((DATEPART(weekday, t.creado_en AT TIME ZONE 'Argentina Standard Time') + @@DATEFIRST - 2) % 7) + 1 AS dow   -- 1 = lunes … 7 = domingo
     FROM transferencia t
-    LEFT JOIN LATERAL (SELECT count(*) AS n, avg(importe) AS prom, max(importe) AS max FROM transferencia p
-       WHERE p.cuenta_origen = t.cuenta_origen AND p.id <> t.id AND p.creado_en < t.creado_en AND p.estado = ANY($2) AND p.moneda = t.moneda) h ON true
-    WHERE t.id = ANY($1::bigint[])`, [ids.map(String), HECHAS]);
+    OUTER APPLY (SELECT COUNT(*) AS n, AVG(p.importe) AS prom, MAX(p.importe) AS maximo FROM transferencia p
+       WHERE p.cuenta_origen = t.cuenta_origen AND p.id <> t.id AND p.creado_en < t.creado_en AND p.estado IN (SELECT value FROM OPENJSON($2)) AND p.moneda = t.moneda) h
+    WHERE t.id IN (SELECT CAST(value AS bigint) FROM OPENJSON($1))`, [ids.map(String), HECHAS]);
   return new Map(rows.map((d) => [Number(d.id), senales(d)]));
 }
 

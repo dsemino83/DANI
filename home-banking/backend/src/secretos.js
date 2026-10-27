@@ -40,8 +40,8 @@ export async function leerCredencial(ambiente = config.ambiente, uso = 'principa
 // Qué credencial usaría hoy un cliente del banco de ese uso: la propia o, si no está cargada, la principal.
 export async function versionCredencial(ambiente, uso) {
   const { rows } = await operativa.query(
-    `SELECT uso, actualizado_en FROM credencial_api WHERE ambiente = $1 AND uso = ANY($2) ORDER BY uso = $3 DESC LIMIT 1`,
-    [ambiente, [uso, 'principal'], uso]);
+    `SELECT TOP (1) uso, actualizado_en FROM credencial_api WHERE ambiente = $1 AND uso IN ($2, N'principal') ORDER BY CASE WHEN uso = $2 THEN 0 ELSE 1 END`,
+    [ambiente, uso]);
   return rows[0] ? `${rows[0].uso}@${rows[0].actualizado_en.toISOString()}` : null;
 }
 
@@ -49,7 +49,7 @@ export async function estadoCredencial(ambiente, uso = 'principal') {
   const { rows } = await operativa.query(
     `SELECT ambiente, url, usuario, identification, terminal, channel,
             clave_cargada_por, clave_cargada_en, actualizado_por, actualizado_en,
-            (rsa_public_key <> '') AS rsa_cargada, clave_ya_cifrada, activa
+            CAST(CASE WHEN rsa_public_key <> N'' THEN 1 ELSE 0 END AS bit) AS rsa_cargada, clave_ya_cifrada, activa
        FROM credencial_api WHERE ambiente = $1 AND uso = $2`, [ambiente, uso]);
   const r = rows[0];
   if (!r) return { ambiente, uso, configurada: false, url: urlBase(ambiente) };

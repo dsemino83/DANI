@@ -4,17 +4,18 @@
 import { historica, operativa } from '../db.js';
 
 const LOTE = 5000, MAX_PROBLEMAS = 50;
-const RECALCULO = `encode(sha256(convert_to(hb_auditoria_canonico(orden, id, en, usuario, rol, tipo, accion, api, detalle, resultado,
-  ip, ref_tipo, ref_id, hash_anterior), 'UTF8')), 'hex')`;
+const RECALCULO = `dbo.hb_sha256(dbo.hb_auditoria_canonico(orden, id, en, usuario, rol, tipo, accion, api, detalle, resultado,
+  ip, ref_tipo, ref_id, hash_anterior))`;
 
 export async function verificarAuditoria() {
-  const cab = (await operativa.query('SELECT ultimo_orden::text, ultimo_hash FROM auditoria_cadena WHERE id = 1')).rows[0];
+  const cab = (await operativa.query('SELECT CAST(ultimo_orden AS varchar(20)) AS ultimo_orden, ultimo_hash FROM auditoria_cadena WHERE id = 1')).rows[0];
   const problemas = [];
   const anotar = (orden, problema) => { if (problemas.length < MAX_PROBLEMAS) problemas.push({ orden: Number(orden), problema }); };
   let previo = null, primero = null, filas = 0;
   for (let desde = 0; ;) {
     const { rows } = await operativa.query(
-      `SELECT orden::text, id::text, hash, hash_anterior, ${RECALCULO} AS recalculado FROM auditoria a WHERE a.orden > $1 ORDER BY a.orden LIMIT ${LOTE}`, [desde]);
+      `SELECT TOP (${LOTE}) CAST(orden AS varchar(20)) AS orden, CAST(id AS varchar(20)) AS id, hash, hash_anterior, ${RECALCULO} AS recalculado
+       FROM auditoria a WHERE a.orden > CAST($1 AS bigint) ORDER BY a.orden`, [desde]);
     if (!rows.length) break;
     for (const r of rows) {
       filas++;

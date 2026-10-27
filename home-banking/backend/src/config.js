@@ -12,6 +12,8 @@ const leer = (nombre, porDefecto) => {
   throw new Error(`Falta la variable de configuración ${nombre} (o ${nombre}_FILE)`);
 };
 
+const esVerdadero = (v) => ['true', '1', 'si', 'sí'].includes(String(v).toLowerCase());
+
 export const config = {
   puerto: Number(leer('PORT', '8080')),
   ambiente: leer('BDV_AMBIENTE', 'homo'), // 'homo' | 'prod': qué credencial API usa este backend
@@ -52,22 +54,31 @@ export const config = {
       ? leer('KEYCLOAK_ADMIN_CLIENT_SECRET') : '',
   },
 
+  // SQL Server 2025: una instancia con dos bases (operativa e histórica) y un login de mínimo privilegio por función.
+  // La conexión va cifrada (TLS). Con el certificado autofirmado del contenedor hace falta DB_TRUST_SERVER_CERT=true (red interna
+  // de Docker); con un servidor de VALO y certificado de una CA propia, ponerlo en false.
   db: {
     operativa: {
-      host: leer('DB_HOST', 'postgres'),
-      port: Number(leer('DB_PORT', '5432')),
+      host: leer('DB_HOST', 'sqlserver'),
+      port: Number(leer('DB_PORT', '1433')),
       database: leer('DB_NAME', 'homebanking'),
       user: leer('DB_USER', 'hb_app'),
       password: leer('DB_PASSWORD'),
       max: Number(leer('DB_POOL_MAX', '20')),
+      encrypt: esVerdadero(leer('DB_ENCRYPT', 'true')),
+      trustServerCertificate: esVerdadero(leer('DB_TRUST_SERVER_CERT', 'true')),
+      requestTimeoutMs: Number(leer('DB_REQUEST_TIMEOUT_MS', '60000')),
     },
     historica: {
-      host: leer('DBH_HOST', 'postgres-historico'),
-      port: Number(leer('DBH_PORT', '5432')),
+      host: leer('DBH_HOST', leer('DB_HOST', 'sqlserver')),
+      port: Number(leer('DBH_PORT', leer('DB_PORT', '1433'))),
       database: leer('DBH_NAME', 'homebanking_hist'),
       user: leer('DBH_USER', 'hb_hist_ro'),
       password: leer('DBH_PASSWORD'),
       max: Number(leer('DBH_POOL_MAX', '5')),
+      encrypt: esVerdadero(leer('DB_ENCRYPT', 'true')),
+      trustServerCertificate: esVerdadero(leer('DB_TRUST_SERVER_CERT', 'true')),
+      requestTimeoutMs: Number(leer('DB_REQUEST_TIMEOUT_MS', '60000')),
     },
   },
 

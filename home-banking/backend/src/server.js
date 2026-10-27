@@ -7,7 +7,7 @@ import { config } from './config.js';
 import { autenticar } from './auth.js';
 import { ErrorHttp } from './errores.js';
 import { ErrorBanco } from './bdv/cliente.js';
-import { operativa, historica } from './db.js';
+import { operativa, historica, esDuplicado, esRestriccion } from './db.js';
 import { instalarMetricas, metricsPrometheus } from './observabilidad.js';
 import { contextoPedido } from './telemetria.js';
 import rutasConsultas from './routes/consultas.js';
@@ -55,7 +55,7 @@ app.setErrorHandler((err, req, reply) => {
     return reply.code(502).send({ error: 'banco', mensaje: err.message, codigo: err.codigo });
   }
   if (err.validation) return reply.code(400).send({ error: 'invalido', mensaje: err.message });
-  if (err.code === '23514' || err.code === '23505') return reply.code(409).send({ error: 'conflicto', mensaje: err.detail ?? err.message });
+  if (esRestriccion(err) || esDuplicado(err)) return reply.code(409).send({ error: 'conflicto', mensaje: err.detail ?? err.message });
   req.log.error(err);
   return reply.code(500).send({ error: 'interno', mensaje: 'Error interno' });
 });

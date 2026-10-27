@@ -2,7 +2,7 @@
 // banco pasando por el MISMO camino único de siempre (enviarUnaVez → envio_banco con PK = id, así nunca
 // sale dos veces). Ordena por hora de creación y paraleliza SOLO entre endpoints (api) distintos: hay un
 // drenador por endpoint, cada uno procesa de a una y en orden; los distintos endpoints corren a la vez.
-import { operativa } from '../db.js';
+import { operativa, tx } from '../db.js';
 import { config } from '../config.js';
 import { enviarUnaVez, registrarResultado } from './transferencias.js';
 
@@ -11,13 +11,14 @@ let trabajando = false;
 // Toma la transferencia EN_COLA más vieja de un endpoint y la pasa a ENVIANDO (atómico, sin pisarse con
 // otro proceso). Devuelve la fila tomada, o null si no hay nada encolado para ese endpoint.
 async function tomarDeEndpoint(api) {
-  const { rows } = await operativa.query(
-    `UPDATE transferencia SET estado = 'ENVIANDO', actualizado_en = now()
-      WHERE id = (SELECT id FROM transferencia WHERE estado = 'EN_COLA' AND api = $1
-                   ORDER BY creado_en, id LIMIT 1 FOR UPDATE SKIP LOCKED)
-        AND estado = 'EN_COLA'
-      RETURNING *`, [api]);
-  return rows[0] ?? null;
+  return tx(operativa, async (c) => {
+    // UPDLOCK + READPAST: salta las filas que otro proceso ya tiene tomadas (equivale a FOR UPDATE SKIP LOCKED)
+    const sig = (await c.query(
+      `SELECT TOP (1) id FROM transferencia WITH (UPDLOCK, READPAST, ROWLOCK) WHERE estado = N'EN_COLA' AND api = $1 ORDER BY creado_en, id`, [api])).rows[0];
+    if (!sig) return null;
+    await c.query(`UPDATE transferencia SET estado = N'ENVIANDO', actualizado_en = SYSDATETIMEOFFSET() WHERE id = $1 AND estado = N'EN_COLA'`, [sig.id]);
+    return (await c.query('SELECT * FROM transferencia WHERE id = $1', [sig.id])).rows[0];
+  });
 }
 
 async function enviarUna(t, log) {
@@ -48,7 +49,7 @@ export async function procesarPagos(log) {
   if (trabajando) return { enCurso: true };
   trabajando = true;
   try {
-    const { rows } = await operativa.query(`SELECT DISTINCT api FROM transferencia WHERE estado = 'EN_COLA'`);
+    const { rows } = await operativa.query(`SELECT DISTINCT api FROM transferencia WHERE estado = N'EN_COLA'`);
     await Promise.all(rows.map((r) => drenarEndpoint(r.api, log)));
     return { endpoints: rows.map((r) => r.api) };
   } finally { trabajando = false; }

@@ -7,17 +7,19 @@ import { invalido } from '../errores.js';
 import { verificarAuditoria } from '../servicios/integridad.js';
 
 const fechaOk = (f) => /^\d{4}-\d{2}-\d{2}$/.test(f ?? '');
+// El texto buscado es literal: los comodines de LIKE ([ % _) se escapan
+const escaparLike = (q) => (q == null || q === '' ? null : String(q).replace(/[[%_]/g, '[$&]'));
 
 async function consultar(pool, req, { desde, hasta }) {
   const pagina = Math.max(0, Number(req.query.pagina ?? 0)), tam = 1000;
   const { rows } = await pool.query(
     `SELECT id, en, usuario, rol, tipo, accion, api, detalle, resultado
        FROM auditoria
-      WHERE en >= $1::date AND en < $2::date + 1
-        AND ($3::text IS NULL OR usuario = $3) AND ($4::text IS NULL OR tipo = $4)
-        AND ($5::text IS NULL OR (accion || ' ' || coalesce(detalle, '') || ' ' || coalesce(api, '')) ILIKE '%' || $5 || '%')
-      ORDER BY en DESC, id DESC OFFSET $6 LIMIT $7`,
-    [desde, hasta, req.query.usuario ?? null, req.query.tipo ?? null, req.query.q ?? null, pagina * tam, tam + 1]);
+      WHERE en >= CAST($1 AS date) AND en < DATEADD(day, 1, CAST($2 AS date))
+        AND ($3 IS NULL OR usuario = $3) AND ($4 IS NULL OR tipo = $4)
+        AND ($5 IS NULL OR CONCAT(accion, N' ', COALESCE(detalle, N''), N' ', COALESCE(api, N'')) LIKE N'%' + $5 + N'%')
+      ORDER BY en DESC, id DESC OFFSET $6 ROWS FETCH NEXT $7 ROWS ONLY`,
+    [desde, hasta, req.query.usuario ?? null, req.query.tipo ?? null, escaparLike(req.query.q), pagina * tam, tam + 1]);
   return { pagina, hayMas: rows.length > tam, registros: rows.slice(0, tam) };
 }
 

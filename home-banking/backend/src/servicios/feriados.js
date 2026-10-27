@@ -38,8 +38,11 @@ async function traer(f, anio) {
   return lista;
 }
 
-const guardar = (lista, fuente) => Promise.all(lista.map((x) => operativa.query(`INSERT INTO feriado (fecha, nombre, tipo, fuente) VALUES ($1, $2, $3, $4)
-  ON CONFLICT (fecha) DO UPDATE SET nombre = $2, tipo = $3, fuente = $4, actualizado_en = now() WHERE feriado.fuente <> 'manual'`,
+const guardar = (lista, fuente) => Promise.all(lista.map((x) => operativa.query(`SET XACT_ABORT ON; BEGIN TRANSACTION;
+  UPDATE feriado WITH (UPDLOCK, SERIALIZABLE) SET nombre = $2, tipo = $3, fuente = $4, actualizado_en = SYSDATETIMEOFFSET() WHERE fecha = $1 AND fuente <> N'manual';
+  IF @@ROWCOUNT = 0 AND NOT EXISTS (SELECT 1 FROM feriado WITH (UPDLOCK, SERIALIZABLE) WHERE fecha = $1)
+    INSERT INTO feriado (fecha, nombre, tipo, fuente) VALUES ($1, $2, $3, $4);
+  COMMIT TRANSACTION;`,
 [x.fecha, x.nombre, x.tipo ?? null, fuente])));
 
 export async function sincronizarFeriados(anio = new Date().getFullYear()) {
@@ -54,7 +57,7 @@ export async function sincronizarFeriados(anio = new Date().getFullYear()) {
   // Ninguna fuente respondió. Si el año ya tiene feriados cargados, se siguen usando; si no (y es el año en curso o
   // uno pasado), se cargan los de fecha fija como respaldo. Un año futuro todavía no publicado no es un error grave.
   let n;
-  try { n = (await operativa.query('SELECT count(*)::int AS n FROM feriado WHERE extract(year FROM fecha) = $1', [anio])).rows[0].n; }
+  try { n = (await operativa.query('SELECT COUNT(*) AS n FROM feriado WHERE YEAR(fecha) = $1', [anio])).rows[0].n; }
   catch (e) { throw new Error(`Feriados ${anio}: error de base de datos (${e.code ?? e.message}); fuentes: ${errores.join(' · ')}`); }
   if (n > 0) return { anio, fuente: 'base', feriados: n, aviso: `sin fuente pública (${errores.join(' · ')}); se usan los ${n} ya cargados` };
   if (anio <= new Date().getFullYear()) {
@@ -67,7 +70,7 @@ export async function sincronizarFeriados(anio = new Date().getFullYear()) {
 
 // Conjunto de fechas feriadas (para el motor de programación)
 export async function feriadosCargados() {
-  const { rows } = await operativa.query(`SELECT to_char(fecha, 'YYYY-MM-DD') AS f FROM feriado`);
+  const { rows } = await operativa.query(`SELECT CONVERT(varchar(10), fecha, 23) AS f FROM feriado`);
   const s = new Set(rows.map((r) => r.f));
   return (fecha) => s.has(fecha);
 }

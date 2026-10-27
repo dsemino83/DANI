@@ -1,5 +1,5 @@
 // Circuito de transferencias: CREAR (interno, sin banco) -> APROBAR (otro usuario) -> ENVIAR (API del banco).
-import { operativa, historica, tx } from '../db.js';
+import { operativa, historica, tx, esDuplicado } from '../db.js';
 import { auditar } from '../auditoria.js';
 import { conflicto, noEncontrado, prohibido, invalido, riesgoAlto } from '../errores.js';
 import { evaluarRiesgo, resumenRiesgo } from './riesgo.js';
@@ -33,7 +33,7 @@ export function normalizarId(valor) {
 // IDs ya usados (para avisar en el detalle previo): Map ID -> OP-n
 export async function idsUsados(cliente, ids) {
   if (!ids.length) return new Map();
-  const { rows } = await cliente.query('SELECT referencia, transferencia_id FROM referencia_usada WHERE referencia = ANY($1)', [ids]);
+  const { rows } = await cliente.query('SELECT referencia, transferencia_id FROM referencia_usada WHERE referencia IN (SELECT value FROM OPENJSON($1))', [ids]);
   return new Map(rows.map((r) => [r.referencia, r.transferencia_id]));
 }
 
@@ -44,19 +44,17 @@ export async function crearPendiente(cliente, req, { tipo, origen, datos, loteId
   const request = armarRequest(tipo, origen, datos);
   const { rows } = await cliente.query(
     `INSERT INTO transferencia (tipo, api, cuenta_origen, moneda, destino, titular, cuit_destino, importe, concepto, request, creador, estado, lote_id, referencia)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'PENDIENTE_APROBACION', $12, $13)
-     RETURNING id, creado_en`,
+     OUTPUT inserted.id, inserted.creado_en
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, N'PENDIENTE_APROBACION', $12, $13)`,
     [tipo, apiCorta(tipo), origen.productNumber, Number(origen.currencyId) === 80 ? 'ARS' : 'USD', String(datos.destino ?? ''),
       datos.titular ?? null, datos.cuitDestino ?? null, Number(datos.importe), datos.concepto ?? datos.conceptoLibre ?? null,
       request, req.user.usuario, loteId, referencia],
   );
   const t = rows[0];
-  await cliente.query('SAVEPOINT referencia');
   try {
     await cliente.query('INSERT INTO referencia_usada (referencia, transferencia_id, creador) VALUES ($1, $2, $3)', [referencia, t.id, req.user.usuario]);
   } catch (e) {
-    if (e.code !== '23505') throw e;
-    await cliente.query('ROLLBACK TO SAVEPOINT referencia');
+    if (!esDuplicado(e)) throw e; // la sentencia fallida no aborta la transacción: se sigue en ella para informar el OP previo
     const previa = (await cliente.query('SELECT transferencia_id FROM referencia_usada WHERE referencia = $1', [referencia])).rows[0];
     throw conflicto(`El ID ${referencia} ya fue cargado${previa ? ` (OP-${previa.transferencia_id})` : ''}: no se puede cargar dos veces la misma transferencia`);
   }
@@ -86,7 +84,7 @@ export async function crear(req, { tipo, cuentaOrigen, ...datos }) {
 // Bloquea la fila, valida doble control y la pasa a ENVIANDO (o RECHAZADA) en una transacción.
 async function tomarParaDecision(req, id, aprobar) {
   return tx(operativa, async (c) => {
-    const { rows } = await c.query('SELECT * FROM transferencia WHERE id = $1 FOR UPDATE', [id]);
+    const { rows } = await c.query('SELECT * FROM transferencia WITH (UPDLOCK, ROWLOCK) WHERE id = $1', [id]);
     const t = rows[0];
     if (!t) throw noEncontrado('Transferencia inexistente');
     if (t.lote_id) throw conflicto('Pertenece a un lote: se aprueba o rechaza el lote completo');
@@ -104,8 +102,8 @@ async function tomarParaDecision(req, id, aprobar) {
     }
     const estado = aprobar ? 'EN_COLA' : 'RECHAZADA';
     // Condicional sobre el estado: si otra autorización ganó la carrera, no cambia nada y se aborta.
-    const u = await c.query(`UPDATE transferencia SET estado = $2, aprobador = $3, aprobado_en = now(), actualizado_en = now()
-                              WHERE id = $1 AND estado = 'PENDIENTE_APROBACION'`, [id, estado, req.user.usuario]);
+    const u = await c.query(`UPDATE transferencia SET estado = $2, aprobador = $3, aprobado_en = SYSDATETIMEOFFSET(), actualizado_en = SYSDATETIMEOFFSET()
+                              WHERE id = $1 AND estado = N'PENDIENTE_APROBACION'`, [id, estado, req.user.usuario]);
     if (u.rowCount !== 1) throw conflicto(aprobar ? 'La transferencia ya fue autorizada por otro usuario' : 'La transferencia ya fue procesada por otro usuario');
     await c.query('INSERT INTO transferencia_estado (transferencia_id, estado, usuario, detalle) VALUES ($1, $2, $3, $4)',
       [id, estado, req.user.usuario, aprobar ? `Autorizada; en cola de pago (${t.api})` : 'Rechazada; no se envía al banco']);
@@ -123,12 +121,12 @@ async function tomarParaDecision(req, id, aprobar) {
 export async function enviarUnaVez(req, t) {
   exigirEnviosHabilitados(); // segunda barrera: nunca se registra ni se envía nada en este modo
   await tx(operativa, async (c) => {
-    const actual = (await c.query('SELECT estado FROM transferencia WHERE id = $1 FOR UPDATE', [t.id])).rows[0];
+    const actual = (await c.query('SELECT estado FROM transferencia WITH (UPDLOCK, ROWLOCK) WHERE id = $1', [t.id])).rows[0];
     if (actual?.estado !== 'ENVIANDO') throw conflicto(`OP-${t.id} está en estado ${actual?.estado ?? 'inexistente'}: no se envía`);
     try {
       await c.query('INSERT INTO envio_banco (transferencia_id, api, aprobador) VALUES ($1, $2, $3)', [t.id, t.api, req.user.usuario]);
     } catch (e) {
-      if (e.code === '23505') throw conflicto(`OP-${t.id} ya tiene un envío registrado: nunca se envía dos veces`);
+      if (esDuplicado(e)) throw conflicto(`OP-${t.id} ya tiene un envío registrado: nunca se envía dos veces`);
       throw e;
     }
   });
@@ -140,8 +138,8 @@ export async function enviarUnaVez(req, t) {
 export async function registrarResultado(req, t, r) {
   await tx(operativa, async (c) => {
     const u = await c.query(
-      `UPDATE transferencia SET estado = $2, transaction_id = $3, nro_control = $4, respuesta = $5, actualizado_en = now()
-        WHERE id = $1 AND estado IN ('ENVIANDO', 'ENVIADA')`,
+      `UPDATE transferencia SET estado = $2, transaction_id = $3, nro_control = $4, respuesta = $5, actualizado_en = SYSDATETIMEOFFSET()
+        WHERE id = $1 AND estado IN (N'ENVIANDO', N'ENVIADA')`,
       [t.id, r.estado, r.transactionId, r.nroControl, r.respuesta ?? null]);
     if (u.rowCount !== 1) throw new Error(`OP-${t.id}: no estaba en ENVIANDO/ENVIADA al registrar la respuesta del banco`);
     await c.query('INSERT INTO transferencia_estado (transferencia_id, estado, usuario, detalle) VALUES ($1, $2, $3, $4)',
@@ -177,7 +175,7 @@ export async function auditoriaDeOperacion(req, id) {
     const estados = (await pool.query('SELECT estado, usuario, detalle, en FROM transferencia_estado WHERE transferencia_id = $1 ORDER BY en, id', [id])).rows;
     const audit = (await pool.query(
       `SELECT en, usuario, rol, accion, api, detalle, resultado FROM auditoria
-        WHERE ref_tipo = 'transferencia' AND ref_id = $1 ORDER BY en, id`, [String(id)])).rows;
+        WHERE ref_tipo = N'transferencia' AND ref_id = $1 ORDER BY en, id`, [String(id)])).rows;
     const debito = (await operativa.query('SELECT * FROM debito_transferencia WHERE transferencia_id = $1', [id])).rows[0] ?? null;
     await auditar(null, req, { tipo: 'Consultas', accion: 'Consultó auditoría de la operación', detalle: `OP-${id} (${base})` });
     const { request, respuesta, ...resumen } = t;
