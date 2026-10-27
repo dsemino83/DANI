@@ -1,11 +1,11 @@
 # Home Banking VALO — frontend, backend y despliegue
 
-Backend (BFF) en Node.js 22 + Fastify, dos Postgres (base operativa: mes en curso + `HB_RETENCION_MESES`, 1 por defecto; y base histórica) y Nginx, todo con Docker Compose. Los usuarios se autentican en el SSO de VALO (`https://ssohomo.valo.ar/valo/realms/staff`) y solo el backend se conecta con las APIs del Banco de Valores, con la credencial de VALO (más una adicional, exclusiva de los envíos programados de correo).
+Backend (BFF) en Node.js 22 + Fastify, SQL Server 2025 (una instancia con dos bases: la operativa —mes en curso + `HB_RETENCION_MESES`, 1 por defecto— y la histórica) y Nginx, todo con Docker Compose. Los usuarios se autentican en el SSO de VALO (`https://ssohomo.valo.ar/valo/realms/staff`) y solo el backend se conecta con las APIs del Banco de Valores, con la credencial de VALO (más una adicional, exclusiva de los envíos programados de correo).
 
 ```
 navegador ──HTTPS──> frontend (Nginx) ──/api──> backend ──> APIs Banco de Valores
-     │                                             │ ├──> postgres (operativa, mes en curso + N, particionada por mes)
-     └── login OIDC + PKCE ──> SSO VALO <── JWKS ───┘ └──> postgres-historico (solo lectura)
+     │                                             │ ├──> sqlserver: homebanking (operativa, mes en curso + N)
+     └── login OIDC + PKCE ──> SSO VALO <── JWKS ───┘ └──> sqlserver: homebanking_hist (solo lectura)
                                          jobs: estado de transferencias (cada 5 min), envíos programados de correo (cola),
                                                feriados (diario) y pase a la base histórica (día 1)
 ```
@@ -96,7 +96,7 @@ Las imágenes no contienen secretos: claves, certificado y credencial del banco 
 
 | Archivo en `./secrets` | Uso |
 |---|---|
-| `db_owner_password.txt` / `dbh_owner_password.txt` | Dueño (postgres) de cada base: solo inicialización y migraciones; ya no lo usa ningún servicio de la app |
+| `db_owner_password.txt` | Clave del login `sa` de SQL Server: solo la usa la inicialización (`db-init`); ninguna parte de la app entra con `sa`. Cumple la política de complejidad de SQL Server |
 | `db_jobs_password.txt` / `dbh_jobs_password.txt` | Roles `hb_pase` / `hb_pase_h` del pase mensual a la histórica (job): dueños solo de las tablas que mueve |
 | `db_app_password.txt` | Usuario `hb_app` de la operativa: sin DELETE en transferencias ni UPDATE/DELETE en auditoría |
 | `db_hist_ro_password.txt` | Usuario `hb_hist_ro`: solo lectura de la histórica |
@@ -170,10 +170,10 @@ SPA en JavaScript (módulos ES, sin paso de build) servida por Nginx, con las pa
 cd backend && npm install && npm test     # reglas: requests según el PDF, estados, RSA, cifrado, roles, TXT, pase histórico
 ```
 
-**Pruebas de autorización de punta a punta** (contra el servidor real, con un SSO y un banco simulados). Necesitan Postgres; en el CI corren con un contenedor de servicio. Localmente, con `PGHOST/PGPORT/PGUSER/PGPASSWORD` apuntando a un Postgres:
+**Pruebas de autorización de punta a punta** (contra el servidor real, con un SSO y un banco simulados). Necesitan SQL Server 2025; en el CI corren con un contenedor de servicio. Localmente, con `MSSQL_HOST/MSSQL_PORT/MSSQL_SA_PASSWORD` apuntando a una instancia de prueba (las suites crean y borran las bases `homebanking` y `homebanking_hist`: nunca usar una instancia real):
 
 ```sh
-cd backend && PGHOST=localhost PGPORT=5432 PGUSER=postgres PGPASSWORD=postgres sh test/e2e/correr.sh
+cd backend && MSSQL_HOST=localhost MSSQL_PORT=1433 MSSQL_SA_PASSWORD='<clave de sa de la instancia de prueba>' sh test/e2e/correr.sh
 ```
 
 Verifican acceso por empresa (BOLA), operación por id (IDOR), doble control y envío único, y límites de pedidos por usuario.

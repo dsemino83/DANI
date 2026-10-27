@@ -6,5 +6,5 @@
 sql_exec() {
   docker compose exec -T sqlserver sh -c 'SQLCMDPASSWORD=$(cat /run/secrets/db_owner_password) exec /opt/mssql-tools18/bin/sqlcmd -C -S localhost -U sa -b -I -h -1 -W -Q "$1"' sqlcmd "$1"
 }
-sql_valor() { sql_exec "SET NOCOUNT ON; $1" | head -1 | tr -d '\r '; }
+sql_valor() { sql_exec "SET NOCOUNT ON; $1" | grep -v '^Changed database context' | head -1 | tr -d '\r '; }
 sql_contenedor() { docker compose exec -T sqlserver sh -c "$1"; }

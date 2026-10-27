@@ -10,7 +10,7 @@ Objetivo: tolerar la caída de una instancia sin corte del servicio.
 - **Backend**: es stateless (la sesión del banco se re-login sola; no hay estado local crítico). Escala a N
   réplicas detrás de un balanceador. **PREPARADO** (el diseño lo permite). **REQUIERE INFRAESTRUCTURA**
   (balanceador, orquestador).
-- **PostgreSQL**: operativa + histórica. HA con réplica primaria/standby (Patroni o el HA del proveedor) y
+- **SQL Server**: operativa + histórica. HA con Always On (grupo de disponibilidad) o el HA del proveedor y
   failover. **REQUIERE INFRAESTRUCTURA.**
 - **Keycloak**: cluster con Infinispan para sesiones. **REQUIERE INFRAESTRUCTURA** (ver
   `docs/seguridad-iam-keycloak.md`).
@@ -37,11 +37,11 @@ backend corre en Compose.
 | Pieza | Región A (activa) | Región B |
 |---|---|---|
 | Backend | réplicas activas | réplicas en espera / activas |
-| PostgreSQL | primaria | réplica (replicación asíncrona) |
+| SQL Server | primaria | réplica (grupo de disponibilidad, asíncrono) |
 | Keycloak | cluster | cluster (o federación) |
 | Failover | — | promover B, repuntar DNS |
 
-- **Replicación**: asíncrona de PostgreSQL (operativa e histórica) hacia la región B.
+- **Replicación**: asíncrona de SQL Server (operativa e histórica) hacia la región B.
 - **DNS / failover**: cambio de DNS o balanceador global ante caída de A.
 - **RPO/RTO**: ver `docs/DISASTER-RECOVERY.md` (RPO ≤ 24 h, RTO inicial ≤ 2 h como objetivo).
 
@@ -54,6 +54,6 @@ Todo multi-región es **REQUIERE INFRAESTRUCTURA**. No se afirma que exista una 
 | Backend stateless escalable | PREPARADO |
 | Health checks para probes | IMPLEMENTADO (`/api/health`) |
 | Manifests K8s | PENDIENTE / REQUIERE INFRAESTRUCTURA |
-| PostgreSQL HA | REQUIERE INFRAESTRUCTURA |
+| SQL Server HA | REQUIERE INFRAESTRUCTURA |
 | Keycloak HA | REQUIERE INFRAESTRUCTURA |
 | Multi-región | REQUIERE INFRAESTRUCTURA |

@@ -76,13 +76,15 @@ jobs:
     name: Autorización de punta a punta (BOLA y roles)
     runs-on: ubuntu-latest
     services:
-      postgres:
-        image: postgres:16
+      sqlserver:
+        image: mcr.microsoft.com/mssql/server:2025-latest
         env:
-          POSTGRES_PASSWORD: postgres
-        ports: ['5432:5432']
+          ACCEPT_EULA: 'Y'
+          MSSQL_PID: Developer
+          MSSQL_SA_PASSWORD: Hb-Prueba-Sa-1_ci   # solo la instancia efímera del CI
+        ports: ['1433:1433']
         options: >-
-          --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 10
+          --health-cmd "/opt/mssql-tools18/bin/sqlcmd -C -S localhost -U sa -P Hb-Prueba-Sa-1_ci -Q 'SELECT 1'" --health-interval 5s --health-timeout 5s --health-retries 20 --health-start-period 20s
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -96,10 +98,9 @@ jobs:
         run: sh test/e2e/correr.sh
         working-directory: home-banking/backend
         env:
-          PGHOST: localhost
-          PGPORT: '5432'
-          PGUSER: postgres
-          PGPASSWORD: postgres
+          MSSQL_HOST: localhost
+          MSSQL_PORT: '1433'
+          MSSQL_SA_PASSWORD: Hb-Prueba-Sa-1_ci
 
   humo:
     name: Prueba de humo (stack completo en Docker)
@@ -154,18 +155,18 @@ jobs:
           test "$(curl -sk -o /dev/null -w '%{http_code}' "$AUTH&redirect_uri=https%3A%2F%2Flocalhost%2F")" = 200 && echo 'redirect URI de la app aceptada'
           test "$(curl -sk -o /dev/null -w '%{http_code}' "$AUTH&redirect_uri=https%3A%2F%2Fotro.example%2F")" = 400 && echo 'redirect URI ajena rechazada'
           curl -fsk https://localhost/auth/realms/staff/protocol/openid-connect/token -d grant_type=client_credentials -d client_id=home-banking-admin --data-urlencode "client_secret=$(cat secrets/keycloak_admin_client_secret.txt)" | grep -q access_token && echo 'service account OK'
-          docker compose exec -T postgres psql -U postgres -d homebanking -Atc "SELECT count(*) FROM pg_tables WHERE tablename IN ('envio_banco','referencia_usada','credencial_api')" | grep -qx 3 && echo 'esquema OK'
+          sh scripts/verificar-bd.sh esquema
           sh scripts/configurar-correo.sh
           sh scripts/migrar-bases.sh && sh scripts/migrar-bases.sh   # idempotente sobre una base nueva
-          docker compose exec -T postgres psql -U postgres -d homebanking -Atc "SELECT count(*) FROM pg_tables WHERE tablename IN ('programacion_envio','cola_envio','feriado')" | grep -qx 3 && echo 'tablas de envíos programados y cola OK'
+          sh scripts/verificar-bd.sh envios
           # Correo saliente del backend (envíos programados) por el buzón de prueba
           docker compose exec -T backend node -e "import('./src/correo.js').then((m) => m.enviarCorreo({ para: ['ci@valo.test'], asunto: 'CI envio programado', html: '<b>ok</b>', texto: 'ok' })).then(() => console.log('correo enviado'))"
           for i in $(seq 1 10); do curl -fs 'http://localhost:8025/api/v1/search?query=subject:%22CI%20envio%20programado%22' | grep -q '"total":1' && break; sleep 1; done
           curl -fs 'http://localhost:8025/api/v1/search?query=subject:%22CI%20envio%20programado%22' | grep -q '"total":1' && echo 'correo del backend recibido en Mailpit'
           # Feriados desde fuentes públicas (informativo: depende de servicios externos)
           docker compose logs jobs | grep -m1 -E 'feriados' || true
-          docker compose exec -T postgres psql -U postgres -d homebanking -Atc "SELECT count(*) FROM pg_constraint WHERE conname = 'empresa_emails_max'" | grep -qx 1 && echo 'migraciones OK'
-          docker compose exec -T postgres psql -U postgres -d homebanking -Atc "SELECT to_regclass('empresa_cbu') IS NOT NULL AND to_regclass('cartera_oficial') IS NOT NULL AND to_regclass('cuenta_empresa') IS NULL AND has_table_privilege('hb_app', 'empresa_cbu', 'UPDATE') AND NOT has_table_privilege('hb_app', 'empresa_cbu', 'DELETE')" | grep -qx t && echo 'empresa_cbu OK (hb_app sin DELETE)'
+          sh scripts/verificar-bd.sh migraciones
+          sh scripts/verificar-bd.sh permisos
           # Cambio de dirección pública (p. ej. ealyc.valo.ar) sobre un realm ya importado, y vuelta atrás
           HB_URL_PUBLICA=https://ealyc.valo.ar sh scripts/configurar-dominio.sh
           test "$(curl -sk -o /dev/null -w '%{http_code}' "$AUTH&redirect_uri=https%3A%2F%2Fealyc.valo.ar%2F")" = 200 && echo 'dominio nuevo aceptado'
@@ -174,7 +175,7 @@ jobs:
           test "$(curl -sk -o /dev/null -w '%{http_code}' "$AUTH&redirect_uri=https%3A%2F%2Flocalhost%2F")" = 200 && echo 'dominio restaurado'
           docker compose ps
       # DR: resguardo cifrado real de las dos bases del stack levantado y restauración de prueba en bases temporales
-      # (nunca --restaurar). Evidencia de que resguardo.sh / restaurar-resguardo.sh / probar-dr.sh funcionan sobre Postgres real.
+      # (nunca --restaurar). Evidencia de que resguardo.sh / restaurar-resguardo.sh / probar-dr.sh funcionan sobre SQL Server real.
       - name: Resguardo y simulacro de restauración (DR)
         run: |
           export HB_RESGUARDO_DIR="$RUNNER_TEMP/resguardos" HB_DR_STATUS_FILE="$RUNNER_TEMP/ultimo-simulacro-dr.env"
@@ -246,22 +247,14 @@ jobs:
           tags: |
             ${{ steps.img.outputs.nombre }}:frontend-${{ steps.img.outputs.rama }}
             ${{ steps.img.outputs.nombre }}:frontend-${{ steps.img.outputs.corto }}
-      - name: Base operativa
+      - name: Base de datos (SQL Server 2025 con el esquema)
         uses: docker/build-push-action@v6
         with:
-          context: home-banking/db/operativa
+          context: home-banking/db
           push: true
           tags: |
-            ${{ steps.img.outputs.nombre }}:db-operativa-${{ steps.img.outputs.rama }}
-            ${{ steps.img.outputs.nombre }}:db-operativa-${{ steps.img.outputs.corto }}
-      - name: Base histórica
-        uses: docker/build-push-action@v6
-        with:
-          context: home-banking/db/historica
-          push: true
-          tags: |
-            ${{ steps.img.outputs.nombre }}:db-historica-${{ steps.img.outputs.rama }}
-            ${{ steps.img.outputs.nombre }}:db-historica-${{ steps.img.outputs.corto }}
+            ${{ steps.img.outputs.nombre }}:db-${{ steps.img.outputs.rama }}
+            ${{ steps.img.outputs.nombre }}:db-${{ steps.img.outputs.corto }}
       - name: Keycloak de prueba
         uses: docker/build-push-action@v6
         with:
@@ -276,7 +269,7 @@ jobs:
             echo "### Imágenes publicadas"
             echo "- \`${{ steps.img.outputs.nombre }}:backend-${{ steps.img.outputs.rama }}\` y \`backend-${{ steps.img.outputs.corto }}\`"
             echo "- \`${{ steps.img.outputs.nombre }}:frontend-${{ steps.img.outputs.rama }}\` y \`frontend-${{ steps.img.outputs.corto }}\`"
-            echo "- \`db-operativa\`, \`db-historica\` y \`keycloak-dev\` con los mismos tags"
+            echo "- \`db\` (SQL Server 2025 con el esquema) y \`keycloak-dev\` con los mismos tags"
             echo ""
             echo "En el servidor: \`HB_IMAGEN=${{ steps.img.outputs.nombre }}\` y \`HB_VERSION=${{ steps.img.outputs.rama }}\` en .env, después \`docker compose pull && docker compose up -d\`."
           } >> "$GITHUB_STEP_SUMMARY"
@@ -340,9 +333,8 @@ jobs:
           test "$(curl -sk -o /dev/null -w '%{http_code}' "$AUTH&redirect_uri=https%3A%2F%2Flocalhost%2F")" = 200 && echo 'redirect URI de la app aceptada'
           test "$(curl -sk -o /dev/null -w '%{http_code}' "$AUTH&redirect_uri=https%3A%2F%2Fotro.example%2F")" = 400 && echo 'redirect URI ajena rechazada'
           curl -fsk https://localhost/auth/realms/staff/protocol/openid-connect/token -d grant_type=client_credentials -d client_id=home-banking-admin --data-urlencode "client_secret=$(cat secrets/keycloak_admin_client_secret.txt)" | grep -q access_token && echo 'service account OK'
-          docker compose exec -T postgres psql -U postgres -d homebanking -Atc "SELECT count(*) FROM pg_tables WHERE tablename IN ('envio_banco','referencia_usada','credencial_api')" | grep -qx 3 && echo 'base operativa OK'
-          docker compose exec -T postgres psql -U postgres -d homebanking -Atc "SELECT count(*) FROM pg_roles WHERE rolname = 'hb_app'" | grep -qx 1 && echo 'usuario hb_app OK'
-          docker compose exec -T postgres-historico psql -U postgres -d homebanking_hist -Atc "SELECT count(*) FROM pg_roles WHERE rolname = 'hb_hist_ro'" | grep -qx 1 && echo 'base histórica OK'
+          sh scripts/verificar-bd.sh esquema
+          sh scripts/verificar-bd.sh roles
           docker compose ps
       - name: Logs si falla
         if: failure()

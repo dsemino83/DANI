@@ -17,8 +17,7 @@ Todo lo ejecutable está en Docker Hub, en el repositorio `home-banking-valo`:
 |---|---|
 | `backend-<versión>` | API y tareas programadas (jobs) |
 | `frontend-<versión>` | Nginx con la aplicación web |
-| `db-operativa-<versión>` | Postgres 16 con el esquema y los usuarios de la base operativa |
-| `db-historica-<versión>` | Postgres 16 con el esquema y el usuario de solo lectura de la base histórica |
+| `db-<versión>` | SQL Server 2025 (`mcr.microsoft.com/mssql/server:2025-latest`) con el esquema, las migraciones y los permisos de las dos bases (operativa e histórica); el mismo contenedor sirve para el servidor y para `db-init` |
 | `keycloak-dev-<versión>` | Keycloak con usuarios de prueba (solo para pruebas locales) |
 
 El servidor solo necesita el **kit**: `docker-compose.yml`, `.env.example`, `scripts/` (para generar los secretos) y la carpeta `frontend/certs/`. Dos formas de obtenerlo:
@@ -89,7 +88,7 @@ Y en los comandos del paso 6 agregá `--profile sso-local` (`docker compose --pr
 docker login -u <usuario-docker-hub>     # repositorio privado: usar un token de solo lectura (Read-only)
 docker compose pull
 docker compose up -d --no-build           # --no-build: usa solo las imágenes descargadas
-docker compose ps                         # postgres, postgres-historico, backend, jobs y frontend en "healthy"
+docker compose ps                         # sqlserver, backend, jobs y frontend en "healthy" (db-init termina solo)
 ```
 
 Después: `https://<dominio-del-servidor>` → entrar con un usuario del SSO que tenga el rol **administrador** → **Credenciales API** → cargar la credencial del banco → **Probar conexión**. Luego seguir con Empresas y Permisos, como en `PRUEBA-INTEGRADA.md`.
@@ -207,11 +206,21 @@ sh scripts/migrar-bases.sh                # cambios de esquema de la versión nu
 
 **Volver atrás:** poner el `HB_VERSION` anterior y repetir los dos comandos. Si una versión nueva cambió el esquema de la base, consultar antes de volver atrás.
 
+## 7 bis. Base de datos: SQL Server 2025
+
+- La base es **Microsoft SQL Server 2025** (`mcr.microsoft.com/mssql/server:2025-latest`), una instancia con dos bases: `homebanking` (operativa) y `homebanking_hist` (histórica). Reemplaza a PostgreSQL: no conviven.
+- **Licencia:** en pruebas corre la edición Developer (`MSSQL_PID=Developer`). En producción hay que usar la licencia de VALO: poner la edición (`Standard`/`Enterprise`) o la clave de producto en `MSSQL_PID`. `ACCEPT_EULA=Y` significa que VALO acepta los términos de Microsoft.
+- **Memoria:** `MSSQL_MEMORY_LIMIT_MB` (3072 por defecto; el contenedor tiene un tope de 4 GB). SQL Server necesita al menos 2 GB.
+- **Inicialización (`db-init`, en cada arranque):** crea las bases si faltan, aplica las migraciones de `db/esquema/<base>/NNN_*.sql` (una sola vez cada una, dentro de una transacción, registradas en `dbo.hb_migracion`) y sincroniza los logins con los secretos. `sa` solo lo usa `db-init`; la aplicación entra con `hb_app`, `hb_jobs`, `hb_hist_ro` y el pase con `hb_pase`/`hb_pase_h`.
+- **Cifrado en tránsito:** la conexión va cifrada. Con `DB_TRUST_SERVER_CERT=true` se acepta el certificado propio de la instancia; para exigir un certificado firmado por una CA, poner `false` y montar la CA en el backend.
+- **No hay migración automática de datos desde PostgreSQL:** la versión con PostgreSQL no estuvo en producción. Para una instalación con datos de prueba que se quieran conservar, consultar antes de actualizar.
+- **Datos inmutables:** la auditoría (con su cadena de hashes) y el historial de estados no se pueden modificar ni borrar con el login de la aplicación (sin permiso y con triggers). Una alteración hecha con acceso total se detecta con la verificación de la cadena (`/api/auditoria/integridad`).
+
 ## 8. Resguardo de las bases
 
 ### Base operativa e histórica
 
-Todas las tablas con movimiento tienen su parte activa (base operativa, `postgres`) y su parte histórica (`postgres-historico`, solo lectura para la aplicación). La operativa conserva el **mes en curso y el mes anterior completo** (`HB_RETENCION_MESES=1`). El **día 1 de cada mes a las 02:10** el servicio `jobs` pasa a la histórica todo mes anterior:
+Todas las tablas con movimiento tienen su parte activa (base `homebanking`) y su parte histórica (base `homebanking_hist` de la misma instancia, solo lectura para la aplicación). La operativa conserva el **mes en curso y el mes anterior completo** (`HB_RETENCION_MESES=1`). El **día 1 de cada mes a las 02:10** el servicio `jobs` pasa a la histórica todo mes anterior:
 
 | Tabla | Cómo pasa |
 |---|---|
@@ -224,7 +233,7 @@ Para correr el pase a mano (por ejemplo para probarlo):
 
 ```sh
 docker compose exec jobs node src/jobs/pase-historico.js
-docker compose exec postgres psql -U postgres -d homebanking -c "SELECT tabla, periodo, filas, estado, detalle, ejecutado_en FROM pase_historico ORDER BY id DESC LIMIT 20"
+docker compose exec sqlserver sh -c 'SQLCMDPASSWORD=$(cat /run/secrets/db_owner_password) /opt/mssql-tools18/bin/sqlcmd -C -S localhost -U sa -d homebanking -W -Q "SELECT TOP (20) tabla, periodo, filas, estado, detalle, ejecutado_en FROM pase_historico ORDER BY id DESC"'
 ```
 
 La configuración (empresas, permisos, credenciales, programaciones, feriados) no pasa: vive solo en la operativa. Cuánto se guarda la histórica lo define Cumplimiento.
@@ -237,7 +246,7 @@ Los datos viven en los volúmenes `pg_operativa` y `pg_historica`. Resguardo **c
 0 3 * * * cd /opt/home-banking && HB_RESGUARDO_COPIAR='rclone copy {dir} remoto:hb-resguardos' sh scripts/resguardo.sh >> /var/log/hb-resguardo.log 2>&1
 ```
 
-- Cada copia: `pg_dump` de las dos bases → AES-256 con la clave `secrets/resguardo_clave.txt` (la crea `generar-secretos.sh`; no se monta en ningún contenedor) → HMAC-SHA256 y manifiesto SHA-256. Se guardan en `/var/backups/home-banking` (`HB_RESGUARDO_DIR`) y se borran a los 30 días (`HB_RESGUARDO_DIAS`).
+- Cada copia: `BACKUP DATABASE` de las dos bases (comprimido, con CHECKSUM y verificado con `RESTORE VERIFYONLY`) → AES-256 con la clave `secrets/resguardo_clave.txt` (la crea `generar-secretos.sh`; no se monta en ningún contenedor) → HMAC-SHA256 y manifiesto SHA-256. Se guardan en `/var/backups/home-banking` (`HB_RESGUARDO_DIR`) y se borran a los 30 días (`HB_RESGUARDO_DIAS`).
 - **Fuera del servidor:** `HB_RESGUARDO_COPIAR` copia cada resguardo a otro lugar (idealmente almacenamiento inmutable / WORM, en otra cuenta o sitio): replicar no protege de un borrado o un ransomware, una copia inmutable sí.
 - **Probar la restauración** (mensual): `sh scripts/restaurar-resguardo.sh /var/backups/home-banking/<carpeta> --probar` verifica la integridad, restaura en bases temporales y cuenta las tablas, sin tocar los datos. Para restaurar de verdad: `--restaurar` (pide confirmación).
 - **La clave del resguardo se guarda también fuera del servidor** (en el resguardo de secretos de VALO): sin ella los resguardos no se pueden descifrar.
@@ -270,8 +279,8 @@ Antes de cambiar `BDV_SOLO_CONSULTAS=false`:
 
 ### Recuperación ante desastres
 
-El CI ejecuta un simulacro real de resguardo y restauración sobre bases temporales. `resguardo.sh` no marca un respaldo como completo si falla `pg_dump`, y la prueba de restauración exige las tablas centrales de la base operativa. Esto valida el mecanismo; en producción siguen siendo responsabilidad operativa la frecuencia, la copia fuera del servidor, la retención, el cifrado/custodia y los simulacros periódicos.
+El CI ejecuta un simulacro real de resguardo y restauración sobre bases temporales. `resguardo.sh` no marca un respaldo como completo si falla el `BACKUP`, y la prueba de restauración exige las tablas centrales de la base operativa. Esto valida el mecanismo; en producción siguen siendo responsabilidad operativa la frecuencia, la copia fuera del servidor, la retención, el cifrado/custodia y los simulacros periódicos.
 
 ### Separación de credenciales de base
 
-La aplicación usa roles distintos por función: `hb_app` para el backend, `hb_jobs` para las tareas programadas, `hb_pase`/`hb_pase_h` para el pase histórico y `hb_hist_ro` para lectura histórica. `hb_jobs` tiene permisos mínimos sobre las tablas necesarias y no debe sustituirse por el usuario del backend ni por `postgres`.
+La aplicación usa roles distintos por función: `hb_app` para el backend, `hb_jobs` para las tareas programadas, `hb_pase`/`hb_pase_h` para el pase histórico y `hb_hist_ro` para lectura histórica. `hb_jobs` tiene permisos mínimos sobre las tablas necesarias y no debe sustituirse por el usuario del backend ni por `sa`.

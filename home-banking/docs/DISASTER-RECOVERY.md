@@ -2,7 +2,7 @@
 
 ## Objetivo
 
-Proteger las bases PostgreSQL **operativa** e **histórica** sin alterar la lógica de transferencias.
+Proteger las bases SQL Server **operativa** (`homebanking`) e **histórica** (`homebanking_hist`) sin alterar la lógica de transferencias.
 
 ### Objetivos iniciales
 
@@ -12,7 +12,7 @@ Proteger las bases PostgreSQL **operativa** e **histórica** sin alterar la lóg
 
 ## Resguardo
 
-`scripts/resguardo.sh` genera un `pg_dump` custom de ambas bases, lo cifra con AES-256/PBKDF2, genera HMAC-SHA256 y manifiesto SHA-256 y aplica retención. La clave vive fuera de Git en `secrets/resguardo_clave.txt`.
+`scripts/resguardo.sh` genera un `BACKUP DATABASE` comprimido y con CHECKSUM de ambas bases (verificado con `RESTORE VERIFYONLY`), lo cifra con AES-256/PBKDF2, genera HMAC-SHA256 y manifiesto SHA-256 y aplica retención. La clave vive fuera de Git en `secrets/resguardo_clave.txt`.
 
 Para cumplir DR real, `HB_RESGUARDO_COPIAR` debe copiar cada resguardo a almacenamiento **externo al servidor** y preferentemente inmutable/WORM. Una copia que queda únicamente en el host de producción no constituye DR.
 

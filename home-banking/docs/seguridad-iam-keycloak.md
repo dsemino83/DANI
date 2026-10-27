@@ -269,7 +269,7 @@ paso posterior.
 - **Infinispan** para caché distribuida de sesiones; para multi-región, Infinispan en
   modo *cross-site* (clusters replicados entre regiones) para que una caída de región
   no tire sesiones.
-- Base de datos en HA (Postgres con réplica/Patroni). Keycloak *stateless* salvo la
+- Base de datos en HA (SQL Server con Always On o clúster). Keycloak *stateless* salvo la
   caché; las sesiones se pueden externalizar a Infinispan remoto.
 - Hoy el repo corre en **Docker Compose single-node**: el salto a K8s/Infinispan es la
   ruta de HA, no un cambio de la app.

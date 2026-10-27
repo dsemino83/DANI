@@ -9,8 +9,7 @@ Contenedores Docker Compose (imágenes publicadas por GitHub Actions en Docker H
 | `frontend` | Nginx 1.27 + SPA (JavaScript, módulos ES) | Sirve la aplicación en 443 y reenvía `/api/` al backend; CSP estricta |
 | `backend` | Node 22 + Fastify | API para el navegador; único que habla con el SSO y con el banco |
 | `jobs` | Misma imagen que el backend | Tareas programadas: estado de transferencias, envíos de correo, feriados, pase a la base histórica |
-| `postgres` | Postgres 16.4 | Base operativa (mes en curso + `HB_RETENCION_MESES`) |
-| `postgres-historico` | Postgres 16.4 | Base histórica, solo lectura para la aplicación |
+| `sqlserver` | SQL Server 2025 | Una instancia con dos bases: `homebanking` (operativa, mes en curso + `HB_RETENCION_MESES`) y `homebanking_hist` (histórica, solo lectura para la aplicación) |
 | `keycloak` (perfil `sso-local`) | Keycloak 26 en `/auth` | SSO propio para pruebas; en VALO se usa el SSO corporativo |
 | `mailpit` (perfil `correo-prueba`) | Mailpit | Buzón de prueba en el puerto 8025 |
 
@@ -35,7 +34,7 @@ El **panel de estado del sistema** (pestaña del administrador) reinicia subsist
 | Audiencia / roles | `home-banking-api` |
 | Administración de usuarios | Service account `home-banking-admin` (secreto `keycloak_admin_client_secret`) |
 
-Roles: `operador`, `autorizante`, `auditor`, `administrador`, `transferencias:crear`, `transferencias:aprobar`. Permisos por empresa (Ver / Operar) y cartera de oficiales en Postgres. El backend valida token, rol y permiso en cada pedido.
+Roles: `operador`, `autorizante`, `auditor`, `administrador`, `transferencias:crear`, `transferencias:aprobar`. Permisos por empresa (Ver / Operar) y cartera de oficiales en SQL Server. El backend valida token, rol y permiso en cada pedido.
 
 ## Integración con el Banco de Valores
 
@@ -53,13 +52,13 @@ Roles: `operador`, `autorizante`, `auditor`, `administrador`, `transferencias:cr
 | `empresa`, `empresa_cbu` | Clientes (CUIT, emails) y sus cuentas / CBU |
 | `permiso_empresa`, `cartera_oficial`, `oficial_chat` | Ver / Operar por usuario; cartera de cada oficial; oficiales que reciben alertas por chat |
 | `credencial_api` | Por ambiente y uso (`principal` / `envios`), clave cifrada AES-256-GCM, channel |
-| `transferencia`, `transferencia_estado`, `auditoria` | Particionadas por mes |
+| `transferencia`, `transferencia_estado`, `auditoria` | Se pasan a la histórica por filas, mes a mes |
 | `lote`, `lote_fila`, `envio_banco`, `referencia_usada`, `debito_transferencia` | Carga masiva, envío único, ID único, vínculo débito ↔ transferencia |
 | `programacion_envio`, `ejecucion_envio`, `cola_envio`, `envio_mail_log`, `feriado` | Envíos programados de correo (programación → ejecución EJ-… → tareas) |
 | `mensaje` | Buzón: destinatario, operación, leído (`visto_en`, `visto_motivo`) |
 | `pase_historico` | Registro de cada pase a la histórica |
 
-Migraciones idempotentes en `db/operativa/migraciones` (001 a 015): una base nueva las aplica al crearse; `scripts/migrar-bases.sh` (y `hb-actualizar`) en una existente. La tabla `oficial_chat` (migración 015) marca qué oficiales reciben las alertas por chat de Teams.
+Esquema en `db/esquema/<base>/NNN_*.sql` (T-SQL), aplicado una sola vez cada archivo y dentro de una transacción por `db-init` (queda registrado en `dbo.hb_migracion`); `scripts/migrar-bases.sh` (y `hb-actualizar`) lo repite sobre una instalación existente. La tabla `oficial_chat` marca qué oficiales reciben las alertas por chat de Teams.
 
 ## Motor de pagos
 
@@ -86,7 +85,7 @@ La autorización no envía al banco en el acto. **Aprobar** valida (doble contro
 ## Base operativa e histórica
 
 - `HB_RETENCION_MESES` (1): la operativa conserva el mes en curso y ese número de meses completos.
-- Pase el día 1 a las 02:10 (`src/jobs/pase-historico.js`): particiones de transferencias, estados y auditoría; filas terminadas de `cola_envio`, `envio_mail_log` y mensajes leídos. Copia en lotes JSON, verifica filas + hash, borra el origen.
+- Pase el día 1 a las 02:10 (`src/jobs/pase-historico.js`): filas de transferencias, estados y auditoría anteriores al corte; de `cola_envio`, `ejecucion_envio`, `envio_mail_log` y mensajes, solo las terminadas. Un mes con transferencias abiertas se omite. Copia en lotes JSON, verifica filas + SHA-256 y recién entonces borra el origen.
 - El corte de las consultas (`fechaCorte`) se corre al mes más viejo que todavía esté en la operativa, para que nada quede invisible.
 - Manual: `docker compose exec jobs node src/jobs/pase-historico.js`.
 
@@ -108,7 +107,7 @@ Secretos en `secrets/*.txt` (fuera del repositorio): claves de las bases, `crede
 ## Operación
 
 - **Actualizar** (máquina de prueba): `hb-actualizar` (cambia a la rama ALYC, baja imágenes, levanta y migra). Servidor: `docker compose pull && docker compose up -d && sh scripts/migrar-bases.sh`.
-- **Resguardo:** `pg_dump` diario de ambas bases; nunca `docker compose down -v` en el servidor.
+- **Resguardo:** `BACKUP DATABASE` diario de ambas bases; nunca `docker compose down -v` en el servidor.
 - **CI:** GitHub Actions corre, antes de publicar las imágenes y como compuerta (si algo falla no se publica):
   - **pruebas** unitarias del backend (incluye la separación de funciones por rol);
   - **seguridad:** `npm audit` de producción (bloquea en crítica), gitleaks (secretos en el repo e historial) y Trivy (vulnerabilidades e IaC, informativo);
@@ -125,7 +124,7 @@ Secretos en `secrets/*.txt` (fuera del repositorio): claves de las bases, `crede
 | Fraude | Señales de riesgo por transferencia (destino nuevo, monto atípico o alto, ráfagas, fuera de horario); riesgo ALTO exige confirmación explícita y queda auditado | Motor de fraude en tiempo real con modelos; biometría comportamental |
 | Privacidad | Datos del banco no se almacenan (solo lo propio de la app); CBU/CUIT/cuentas enmascarados en los logs; datos de prueba sintéticos | Tokenización de CBU/CUIT en una bóveda; base analítica separada con datos seudonimizados |
 | Auditoría | Solo inserción, **cadena de hashes SHA-256** verificable (pantalla y diaria), id de pedido de punta a punta, base histórica de solo lectura | Envío al **SIEM** (Sentinel / Splunk / Wazuh) y almacenamiento WORM de logs |
-| Resiliencia | Healthchecks, reinicio automático, cola con reintentos, una sola consulta al banco por clave; resguardo cifrado con prueba de restauración | Alta disponibilidad (Postgres con réplica, 2+ nodos), segunda región, RPO/RTO cercanos a cero |
+| Resiliencia | Healthchecks, reinicio automático, cola con reintentos, una sola consulta al banco por clave; resguardo cifrado con prueba de restauración | Alta disponibilidad (SQL Server con Always On o clúster, 2+ nodos), segunda región, RPO/RTO cercanos a cero |
 | Verificación | Pruebas de seguridad automatizadas como compuerta del CI: separación de roles, acceso por empresa (BOLA), operación por id (IDOR), doble control y envío único, límites de pedidos, cabeceras y CSP, dependencias y secretos | Prueba de penetración contra el banco y el SSO reales; escaneo dinámico (ZAP) periódico contra staging |
 
 ## API del backend (principales rutas)
@@ -157,13 +156,13 @@ Los procesos no comparten un usuario privilegiado:
 - pase histórico: `hb_pase` y `hb_pase_h`;
 - lectura histórica: `hb_hist_ro`.
 
-Los usuarios `postgres` quedan reservados para inicialización/migración y no son credenciales de ejecución de la aplicación.
+El login `sa` queda reservado para inicialización/migración y no son credenciales de ejecución de la aplicación.
 
 ## Observabilidad y DR
 
 `METRICS_ENABLED` habilita métricas para Prometheus y `SYNTHETIC_MONITOR_ENABLED` ejecuta comprobaciones sintéticas de solo lectura del banco. OpenTelemetry se habilita con `OTEL_ENABLED` y exporta por OTLP; la configuración de referencia está en `ops/docker-compose.otel.yml`. La persistencia/retención de trazas depende de la plataforma de observabilidad elegida.
 
-El CI ejecuta `resguardo.sh` y un simulacro de restauración mediante `probar-dr.sh`. Un fallo de `pg_dump` impide marcar el resguardo como completo y la restauración de prueba valida tablas centrales. Para producción se requiere además copia externa al host, retención y simulacros periódicos.
+El CI ejecuta `resguardo.sh` y un simulacro de restauración mediante `probar-dr.sh`. Un fallo del `BACKUP` impide marcar el resguardo como completo y la restauración de prueba valida tablas centrales. Para producción se requiere además copia externa al host, retención y simulacros periódicos.
 
 ## Versionado de despliegue
 

@@ -72,7 +72,7 @@ docker compose --profile sso-local up -d --build
 docker compose ps
 ```
 
-La primera vez tarda unos minutos (descarga imágenes y compila). Esperá a que `postgres`, `postgres-historico` y `backend` figuren como **healthy**. Si algo no arranca: `docker compose logs backend` (o el servicio que falle).
+La primera vez tarda unos minutos (descarga imágenes y compila). Esperá a que `sqlserver` y `backend` figuren como **healthy** (SQL Server tarda unos 30 segundos en arrancar). Si algo no arranca: `docker compose logs backend` (o el servicio que falle).
 
 ## 6. Cargar la credencial de producción
 

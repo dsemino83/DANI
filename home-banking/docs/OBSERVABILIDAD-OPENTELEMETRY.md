@@ -1,6 +1,6 @@
 # OpenTelemetry (trazas distribuidas)
 
-Instrumentación OTEL del backend: trazas HTTP → Fastify → PostgreSQL → BDV. **Apagado por defecto**
+Instrumentación OTEL del backend: trazas HTTP → Fastify → SQL Server → BDV. **Apagado por defecto**
 (`OTEL_ENABLED=false`): con OTEL apagado no se carga nada. La observabilidad **nunca bloquea** una operación:
 si faltan dependencias o el collector está caído, el Home Banking sigue funcionando.
 
@@ -9,7 +9,7 @@ si faltan dependencias o el collector está caído, el Home Banking sigue funcio
 - **HTTP** entrante (`@opentelemetry/instrumentation-http`), ignorando `/api/health` y `/api/metrics`.
 - **Fastify** (`@opentelemetry/instrumentation-fastify`): la ruta queda como **patrón** (p. ej.
   `/api/transferencias/:id/aprobar`), no la URL concreta.
-- **PostgreSQL** (`@opentelemetry/instrumentation-pg`) con `enhancedDatabaseReporting: false`: **no** captura
+- **SQL Server** (`@opentelemetry/instrumentation-tedious`) con `enhancedDatabaseReporting: false`: **no** captura
   los valores de los parámetros.
 
 ## Qué se registra / qué NO
@@ -61,7 +61,7 @@ Para encenderlo sin el overlay, basta `OTEL_ENABLED=true` en `.env` apuntando a 
 - **Versiones:** se fijó un único set de la línea `0.213` (`sdk-node`, `exporter`, `instrumentation-http` 0.213.0,
   `instrumentation-fastify` 0.57.0, `instrumentation-pg` 0.65.0, `api` 1.9.1, `resources` 2.6.0) para tener una sola
   copia de `@opentelemetry/instrumentation`. Con versiones mezcladas (fastify 0.56 sobre 0.212 y el resto sobre 0.300) no se generaban spans.
-- **No verificado:** los spans de PostgreSQL (`instrumentation-pg`) no se comprobaron de punta a punta, ni el
+- **No verificado:** los spans de SQL Server (`instrumentation-tedious`) no se comprobaron de punta a punta, ni el
   Collector real en Docker.
 - **Sin persistencia de trazas:** el Collector incluido exporta con `debug` (imprime un resumen): **no hay
   almacenamiento ni visualización persistente de trazas** hasta que se configure un exporter a Tempo/Jaeger.

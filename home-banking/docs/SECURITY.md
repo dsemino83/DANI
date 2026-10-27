@@ -6,7 +6,7 @@ infraestructura externa está marcado como tal (ver `docs/ESTADO-CONTROLES.md`).
 ## Principios
 
 - **La autorización es siempre server-side.** Nunca se confía en datos del frontend para decidir acceso.
-- **El frontend nunca habla con PostgreSQL.** Solo con el backend (BFF) vía `/api`, detrás de Nginx.
+- **El frontend nunca habla con la base de datos.** Solo con el backend (BFF) vía `/api`, detrás de Nginx.
 - **Mínimo privilegio** en roles de base de datos, capacidades de contenedor y redes.
 - **Secretos fuera de la imagen y del repo**: por archivo (`*_FILE` / Docker secrets).
 
@@ -59,6 +59,6 @@ infraestructura externa está marcado como tal (ver `docs/ESTADO-CONTROLES.md`).
 
 ## Qué requiere infraestructura (no afirmado como "producción")
 
-Vault/HSM reales, SIEM real, WAF, PostgreSQL HA, Keycloak HA, multi-región y DR con copia externa inmutable
+Vault/HSM reales, SIEM real, WAF, SQL Server HA, Keycloak HA, multi-región y DR con copia externa inmutable
 **no** están desplegados: están documentados/preparados. Ver `docs/ESTADO-CONTROLES.md`,
 `docs/VAULT-HSM.md`, `docs/SIEM.md`, `docs/HA-MULTIRREGION.md`, `docs/DISASTER-RECOVERY.md`.
