@@ -8,4 +8,6 @@ description = "Falsos positivos conocidos"
 # protege con Row Level Security, no con secreto. No la confundir con la service_role, que sí es secreta.
 regexes = [
   '''sb_publishable_[A-Za-z0-9_-]+''',
+  # Clave de sa de la instancia SQL Server efímera del CI (contenedor de servicio que se destruye al terminar el job): no protege nada real.
+  '''Hb-Prueba-Sa-1_ci''',
 ]
