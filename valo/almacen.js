@@ -63,6 +63,9 @@
       async guardarCorreccionBastanteo(c) { datos.bastCorrecciones = (datos.bastCorrecciones || []).concat([Object.assign({ id: nuevoId(), creado: new Date().toISOString() }, clonar(c))]).slice(-200); cambiar(); },
       async correccionesBastanteo(cuit) { return clonar((datos.bastCorrecciones || []).filter(c => !cuit || c.cuit === cuit)).reverse(); },
       async excepcionesBastanteo() { return clonar(datos.bastExcepciones || {}); },
+      async criteriosControl() { return clonar(datos.ctrlCriterios || []); },
+      async guardarCriterioControl(c) { const id = nuevoId(); datos.ctrlCriterios = (datos.ctrlCriterios || []).concat([Object.assign({ id, creado: new Date().toISOString() }, clonar(c))]).slice(-500); cambiar(); return id; },
+      async quitarCriterioControl(id) { datos.ctrlCriterios = (datos.ctrlCriterios || []).filter(c => c.id !== id); cambiar(); },
       async guardarExcepcionesBastanteo(porCuit) { datos.bastExcepciones = clonar(porCuit); cambiar(); },
       async contarEntes() { return Object.keys(datos.entesBase || {}).length; },
       async buscarCuitPorDni(dnis) { const r = {}; const v = Object.values(datos.entesBase || {}).map(x => x[0]); dnis.forEach(d => { const d8 = String(d).padStart(8, '0'); const c = v.find(x => String(x).slice(2, 10) === d8); if (c) r[d] = c; }); return r; },
@@ -258,6 +261,18 @@
         const s = await db.collection('bastanteoCorrecciones').get();
         return s.docs.map(d => Object.assign({ id: d.id }, d.data())).filter(c => !cuit || c.cuit === cuit).sort((a, b) => String(b.creado || '').localeCompare(String(a.creado || '')));
       },
+      // Criterios del control de resúmenes aceptados a mano (punto, textos del resumen y del poder, comentario, empresa y firmante).
+      // El skill control-resumenes-review los lee para generalizar la regla.
+      async criteriosControl() {
+        const s = await db.collection('controlCriterios').get();
+        return s.docs.map(d => Object.assign({ id: d.id }, d.data())).sort((a, b) => String(b.creado || '').localeCompare(String(a.creado || '')));
+      },
+      async guardarCriterioControl(c) {
+        const id = nuevoId();
+        await escribir(() => db.doc('controlCriterios/' + id).set(Object.assign(clonar(c), { creado: new Date().toISOString(), usuarioId, estado: 'pendiente' })));
+        return id;
+      },
+      async quitarCriterioControl(id) { await escribir(() => db.doc('controlCriterios/' + id).delete()); },
       // Excepciones de revocatorias por CUIT de empresa: { cuit: [claves de poderes cuya revocatoria no se aplica] }.
       async excepcionesBastanteo() {
         const s = await db.doc('maestros/bastanteoExcepciones').get();

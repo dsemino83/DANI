@@ -2463,7 +2463,7 @@
       power_attorney_type: p.power_attorney_type || 'Poder Especial para Operaciones Bancarias' }));
     const sinPoder = M.firmantesSinPoder(poderes, cliente.firmantes).filter(f => !f.revocado);
     const unico = M.jsonBastanteoUnico(jsons, Object.assign({}, cliente, { sinPoder }));
-    fila.control = M.controlResumen(unico, cliente, r.actas, rv);
+    fila.control = M.controlResumen(unico, cliente, r.actas, rv, criteriosCtrl.lista);
     fila.diferencias = fila.control.flatMap(f => f.puntos.filter(p => p.ok === false).map(p => Object.assign({ firmante: f.nombre, ident: f.ident, resumenTexto: f.resumen }, p)));
     fila.sinPoder = sinPoder.map(f => f.nombre);
     fila.noIncluidos = [...new Set(poderes.flatMap(p => p.apoderados).filter(a => !M.firmanteDe(a, cliente.firmantes)).map(a => a.nombre_completo))];
@@ -2492,7 +2492,7 @@
     mas.cerradas = fuentes.filter(f => /\.xlsx?$/i.test(f.nombre) && esCerrada(f.nombre)).length;
     if (!lista.length) { $('masEstado').innerHTML = aviso('warn', 'No hay archivos Excel para controlar.'); return; }
     Object.assign(mas, { filas: [], cancelar: false, corriendo: true });
-    await cargarExcepcionesBast();
+    await cargarExcepcionesBast(); await cargarCriteriosCtrl();
     $('btnMasCancelar').disabled = false; $('btnMasExcel').disabled = true;
     const estado = t => { $('masEstado').innerHTML = `<p class="sub">${t}</p>`; };
     try {
@@ -2661,6 +2661,14 @@
     try { excepBast.porCuit = (almacen && typeof almacen.excepcionesBastanteo === 'function') ? await almacen.excepcionesBastanteo() : {}; }
     catch (e) { excepBast.porCuit = {}; }
   }
+  // Criterios del control aceptados a mano ("esta diferencia está bien"): se guardan en la base (controlCriterios) y el skill
+  // control-resumenes-review los lee para generalizar la regla.
+  const criteriosCtrl = { lista: [], cargado: false };
+  async function cargarCriteriosCtrl() {
+    if (criteriosCtrl.cargado) return;
+    try { criteriosCtrl.lista = (almacen && typeof almacen.criteriosControl === 'function') ? await almacen.criteriosControl() : []; criteriosCtrl.cargado = true; }
+    catch (e) { criteriosCtrl.lista = []; }
+  }
   const cuitEmpresaBast = poderes => String((bast.cliente && bast.cliente.cuit) || ((poderes || []).find(p => /\d{11}/.test(String(p.cuit_empresa || '').replace(/\D/g, ''))) || {}).cuit_empresa || '').replace(/\D/g, '');
   async function cambiarExcepcionRev(clave, ignorar) {
     const cuit = cuitEmpresaBast(bast.poderesTodos);
@@ -2685,7 +2693,7 @@
 
   async function prepararBastanteo() {
     // Primero las excepciones (puede tardar): el estado del bastanteo se lee después, ya actualizado.
-    await cargarExcepcionesBast();
+    await cargarExcepcionesBast(); await cargarCriteriosCtrl();
     // Se toman todos los poderes del PDF (sin filtrar por la empresa de la planilla).
     let todos = bast.poderesTodos || [];
     bast.avisoPresidente = '';
@@ -2889,20 +2897,46 @@
   const sinPoder = () => (bast.cliente ? M.firmantesSinPoder(bast.poderes, bast.cliente.firmantes).filter(f => !f.revocado) : []);
   function jsonUnico(todosApoderados = false) { return M.jsonBastanteoUnico(bast.poderes.map((p, i) => jsonDe(i, todosApoderados)), bast.cliente && Object.assign({}, bast.cliente, { sinPoder: sinPoder() })); }
   // Control del resumen (Excel) contra los poderes, firmante por firmante: uso de firma, grupo, conjuntas y límite.
+  let ctrlPuntos = [];
   function renderControlResumen() {
     if (!bast.poderes.length || !bast.cliente || !bast.cliente.firmantes.length) { $('bastControl').innerHTML = ''; return; }
-    const filas = M.controlResumen(jsonUnico(), bast.cliente, bast.actas, { anulados: bast.anulados, quitados: bast.quitados });
+    const filas = M.controlResumen(jsonUnico(), bast.cliente, bast.actas, { anulados: bast.anulados, quitados: bast.quitados }, criteriosCtrl.lista);
+    ctrlPuntos = [];
     const marca = ok => (ok === true ? '<b style="color:var(--ok)">✓</b>' : ok === false ? '<b style="color:var(--bad)">✗</b>' : '<span class="sub">—</span>');
     const conDif = filas.filter(f => f.puntos.some(p => p.ok === false));
     const orden = conDif.concat(filas.filter(f => !conDif.includes(f)));
     $('bastControl').innerHTML = `<h3>Control del resumen contra los poderes</h3>` +
       aviso(conDif.length ? 'warn' : 'ok', conDif.length ? `<b>${conDif.length} de ${filas.length} firmantes con diferencias.</b> ✓ = el resumen y el poder coinciden · ✗ = difieren.` : `Los ${filas.length} firmantes del resumen coinciden con los poderes.`) +
       `<div class="tabla-caja"><table><thead><tr><th>Firmante</th><th>Resumen (Excel)</th><th>Punto</th><th></th><th>Dice el resumen</th><th>Dice el poder</th></tr></thead><tbody>` +
-      orden.map(f => f.puntos.map((p, i) => `<tr>${i ? '' : `<td rowspan="${f.puntos.length}"><b>${esc(f.nombre)}</b><div class="sub" style="margin:0">${esc(M.formatoCuit(f.ident) || '')}</div></td><td rowspan="${f.puntos.length}">${esc(f.resumen || '—')}</td>`}` +
-        `<td>${esc(p.punto)}</td><td>${marca(p.ok)}</td><td>${esc(p.resumen)}</td><td style="white-space:normal;max-width:420px">${esc(p.poder)}${p.detalle ? `<div style="color:var(--bad);font-size:12px">${esc(p.detalle)}</div>` : ''}</td></tr>`).join('')).join('') +
-      '</tbody></table></div>';
+      orden.map(f => f.puntos.map((p, i) => { const k = ctrlPuntos.push({ f, p }) - 1; return `<tr>${i ? '' : `<td rowspan="${f.puntos.length}"><b>${esc(f.nombre)}</b><div class="sub" style="margin:0">${esc(M.formatoCuit(f.ident) || '')}</div></td><td rowspan="${f.puntos.length}">${esc(f.resumen || '—')}</td>`}` +
+        `<td>${esc(p.punto)}</td><td>${marca(p.ok)}</td><td>${esc(p.resumen)}</td><td style="white-space:normal;max-width:420px">${esc(p.poder)}${p.detalle ? `<div style="color:${p.criterio ? 'var(--muted)' : 'var(--bad)'};font-size:12px">${esc(p.detalle)}</div>` : ''}` +
+        (p.ok === false ? `<div><a href="#" data-ctrl-aceptar="${k}" title="Esta diferencia en realidad está bien: queda guardada como criterio para el skill">Aceptar este criterio</a></div>` : '') +
+        (p.criterio ? `<div><a href="#" data-ctrl-quitar="${esc(String(p.criterio))}">Quitar el criterio</a></div>` : '') + '</td></tr>'; }).join('')).join('') +
+      '</tbody></table></div>' +
+      `<label class="campo" style="margin:8px 0 0">Comentario para el criterio que aceptes (opcional: por qué está bien) <input id="ctrlCriterioComentario" placeholder="ej. no hay firma individual en el poder: vale la conjunta"></label>`;
   }
 
+  $('bastControl').addEventListener('click', async e => {
+    const a = e.target.closest('[data-ctrl-aceptar]'), q = e.target.closest('[data-ctrl-quitar]');
+    if (!a && !q) return;
+    e.preventDefault();
+    try {
+      if (a) {
+        const x = ctrlPuntos[Number(a.dataset.ctrlAceptar)];
+        if (!x) return;
+        const c = { cuit: String((bast.cliente && bast.cliente.cuit) || '').replace(/\D/g, ''), razonSocial: (bast.cliente && bast.cliente.cliente) || '', firmante: x.f.nombre, resumenFirmante: x.f.resumen || '',
+          punto: x.p.punto, resumen: x.p.resumen, poder: x.p.poder, detalle: x.p.detalle || '', comentario: ($('ctrlCriterioComentario') || {}).value ? $('ctrlCriterioComentario').value.trim() : '' };
+        c.id = await almacen.guardarCriterioControl(c);
+        criteriosCtrl.lista = [c].concat(criteriosCtrl.lista);
+        toast('Criterio guardado');
+      } else {
+        await almacen.quitarCriterioControl(q.dataset.ctrlQuitar);
+        criteriosCtrl.lista = criteriosCtrl.lista.filter(c => c.id !== q.dataset.ctrlQuitar);
+        toast('Criterio quitado');
+      }
+      renderControlResumen();
+    } catch (err) { informar('No se pudo guardar el criterio', esc(err.message || err)); }
+  });
   function renderBastUnico() {
     if (!bast.poderes.length) { $('bastUnico').innerHTML = ''; return; }
     const u = jsonUnico();
