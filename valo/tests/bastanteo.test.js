@@ -305,7 +305,7 @@ test('regresión: el control toma la firma de un grupo armado por la página con
   const cliente = { firmantes: [fila(1, 'A', ['A+B']), fila(2, 'B', ['A+B', 'B+B']), fila(3, 'B', ['A+B', 'B+B'])] };
   const dif = M.controlResumen(unico, cliente, [], {}).flatMap(c => c.puntos.filter(x => x.ok === false).map(x => `${c.nombre}: ${x.punto} (${x.detalle || x.poder})`));
   assert.deepEqual(dif, []);
-  // Y si el resumen pide una combinación que el poder no da (A+A, con una sola persona en A), sigue siendo diferencia.
-  const mal = { firmantes: [fila(1, 'A', ['A+A']), fila(2, 'B', ['A+B', 'B+B']), fila(3, 'B', ['A+B', 'B+B'])] };
-  assert.ok(M.controlResumen(unico, mal, [], {}).some(c => c.puntos.some(x => x.punto === 'Firmas conjuntas' && x.ok === false)));
+  // Para esa persona "dos cualesquiera" también vale como dos del mismo grupo (A+A): no es una diferencia nueva.
+  const igual = { firmantes: [fila(1, 'A', ['A+A']), fila(2, 'B', ['A+B', 'B+B']), fila(3, 'B', ['A+B', 'B+B'])] };
+  assert.deepEqual(M.controlResumen(unico, igual, [], {}).flatMap(c => c.puntos.filter(x => x.punto === 'Firmas conjuntas' && x.ok === false)), []);
 });

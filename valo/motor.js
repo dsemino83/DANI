@@ -1928,7 +1928,7 @@
     });
     const trad = g => equiv[g] || autoLetra[g] || grupoComparable(g);
     // Grupo armado por la página con una sola persona y firma conjunta ("dos cualesquiera apoderados"): la segunda firma es
-    // la de otro apoderado del poder, no otra persona del mismo grupo. Su "L+L" vale para L con cualquier otro grupo.
+    // la de otro apoderado del poder. Su "L+L" vale también para L con cada otro grupo (y los otros firman con ella).
     const grupoSolo = new Set(unico.estructuras_de_firma.filter(e => e.grupoAutomatico && e.firma_conjunta && new Set(e.apoderados).size === 1).map(e => e.grupo));
     const tradCombo = c => c.split('+').map(trad).sort().join('+');
     // Grupos propios (de una sola persona) que el resumen pone en otro grupo: Bartolucci es el grupo B del poder y el
@@ -1970,7 +1970,7 @@
       const otrosGrupos = g => { const suyos = new Set(unico.estructuras_de_firma.filter(e => e.grupo === g).flatMap(e => e.apoderados));
         return [...new Set(unico.estructuras_de_firma.filter(e => e.grupo !== g && e.apoderados.some(id => !suyos.has(id))).map(e => e.grupo).filter(Boolean))]; };
       const combos = [...new Set(est.filter(e => e.firma_conjunta).flatMap(e => (e.combinaciones || []).filter(c => c.includes('+')))
-        .flatMap(c => delSolo.length && new Set(c.split('+')).size === 1 && grupoSolo.has(c.split('+')[0]) ? otrosGrupos(c.split('+')[0]).map(o => [c.split('+')[0], o].sort().join('+')) : [c])
+        .flatMap(c => delSolo.length && new Set(c.split('+')).size === 1 && grupoSolo.has(c.split('+')[0]) ? [c].concat(otrosGrupos(c.split('+')[0]).map(o => [c.split('+')[0], o].sort().join('+'))) : [c])
         .concat([...grupoSolo].filter(L => !est.some(e => e.grupo === L)).flatMap(L => [...new Set(est.map(e => e.grupo))].filter(g => g && g !== L && otrosGrupos(L).includes(g)).map(g => [L, g].sort().join('+')))))].sort();
       const combosSinFirmantes = [...new Set(est.filter(e => e.firma_conjunta).flatMap(e => (e.combinaciones_sin_firmantes || []).filter(c => c.includes('+'))))];
       // El límite se controla sobre la firma individual (en la conjunta no aplica).
