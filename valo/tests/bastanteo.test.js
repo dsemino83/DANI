@@ -331,3 +331,18 @@ test('control: un criterio aceptado convierte la diferencia igual en "a revisar"
   // Otro criterio (otro texto del poder) no aplica.
   assert.deepEqual(dif(M.controlResumen(unico, cliente, [], {}, [{ id: 'c2', punto: x.punto, resumen: x.resumen, poder: 'otro texto', comentario: '' }])), ['Nombre1 APELLIDO1|Uso de firma']);
 });
+
+// Bug: el JSON incluía reglas que el modelo marca como error y no se pueden usar: una regla sin facultades (ERROR DE REGLA) y
+// "una firma de cualquiera de los grupos A y B" con nadie del grupo B entre los que participan (agrupamiento sin firmantes).
+test('regresión: no va una regla sin facultades; un grupo sin firmantes se saca de la regla indistinta (se avisa)', () => {
+  const ap = [persona(1, 'A'), persona(2, 'A'), persona(3, 'B')];
+  // Uso sin ninguna facultad: no va.
+  const sin = armar([poder(ap, [uso('CONJUNTA', ['A+A'], ['firmar_cheques']), uso('CONJUNTA', ['A+B'], [])])]);
+  assert.deepEqual(sin.reglasFirma.map(r => `${r.tipo} [${r.grupos}]`), ['ConjuntaIndistinta [A]']);
+  assert.ok(sin.avisos.some(a => /No va la regla .*no le da facultades/.test(a)), sin.avisos.join(' | '));
+  assert.deepEqual(M.modeloBastanteo(sin).errores.filter(e => e.nivel === 'error'), []);
+  // Firma individual indistinta de los grupos A y B, pero el del grupo B no participa (el poder lo da solo al A): queda el A.
+  const j = armar([poder(ap, [uso('INDIVIDUAL', [], ['firmar_cheques'], { grupo: 'A' }), uso('INDIVIDUAL', [], ['endosar_cheques'], { grupo: 'B' })])]);
+  j.reglasFirma.forEach(r => assert.ok(r.circuitos.length));
+  assert.deepEqual(M.modeloBastanteo(j).errores.filter(e => e.nivel === 'error' && e.tipo === 'ERROR DE AGRUPAMIENTO'), []);
+});
