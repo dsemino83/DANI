@@ -1885,7 +1885,24 @@
   const GRUPO_EQUIV = { 1: 'A', I: 'A', 2: 'B', II: 'B', 3: 'C', III: 'C', 4: 'D', IV: 'D', 5: 'E', V: 'E', 6: 'F', VI: 'F' };
   const grupoComparable = g => GRUPO_EQUIV[g] || g;
   const comboComparable = c => c.split('+').map(grupoComparable).sort().join('+');
-  function controlResumen(unico, cliente, actas, revocados) {
+  // Criterios que la persona acepta desde la pantalla ("esta diferencia en realidad está bien"): se guardan con el punto y los
+  // textos del resumen y del poder, y una diferencia igual pasa a "a revisar" (ok = null) con el criterio a la vista.
+  // No cambian la lógica del control: sirven de casos para que el skill control-resumenes-review los generalice con su test.
+  const claveCriterio = (punto, resumen, poder) => [punto, resumen, poder].map(x => normalizar(String(x == null ? '' : x))).join(' | ');
+  function controlResumen(unico, cliente, actas, revocados, criterios) {
+    const filas = controlResumenBase(unico, cliente, actas, revocados);
+    if (criterios && criterios.length) {
+      const porClave = new Map(criterios.map(c => [claveCriterio(c.punto, c.resumen, c.poder), c]));
+      filas.forEach(f => f.puntos.forEach(p => {
+        const c = p.ok === false && porClave.get(claveCriterio(p.punto, p.resumen, p.poder));
+        if (!c) return;
+        p.detalle = ['criterio aceptado' + (c.comentario ? ': ' + c.comentario : ''), p.detalle].filter(Boolean).join(' · ');
+        p.ok = null; p.criterio = c.id || true;
+      }));
+    }
+    return filas;
+  }
+  function controlResumenBase(unico, cliente, actas, revocados) {
     const firmantes = (cliente && cliente.firmantes) || [];
     const presidentes = (actas ? presidentesDeActas(actas) : []).concat(((cliente && cliente.presidentes) || []).map(n => ({ nombre_completo: n })));
     const textoDe = (f, res) => `${res.texto || ''} ${f.observacion || ''}`;
@@ -4830,7 +4847,7 @@ try {
     leerTxtMeli, bancoMeliDeTxt, bancosParaMeli,
     sqlExtraccionCartera, bookmarkletCartera, scriptPowerShellCartera, comandoTareaCartera, IMPORTES_CARTERA,
     NO_COBIS, ultimoDiaHabil, fechasNoCobis, FCIC_MELI_INICIAL, FERIADOS_AR, diaHabilAnterior, fechasFcicMeli, leerReporteCupones, armarNoCobisFcic, lineaNoCobis, txtNoCobis, loteApiNoCobis, scriptPowerShellNoCobis, scriptPowerShellProbarNoCobis, scriptPowerShellAgenteNoCobis, cmdEnvioNoCobis,
-    leerCartera, BASTANTEO_CATALOGO, BASTANTEO_CLAVES, BASTANTEO_EXTRA, leerPoderesOcr, leerAutoridadesOcr, COMPLIF_TIPOS, poderDesdeComplif, actaDesdeComplif, complifDeEmpresa, controlResumen, usoDelResumen, aplicarRevocatorias, claveRevocatoria, poderesFirmantesD, presidentesDeActas, gruposDelUso, usoCompleto, tokensDe, combosDeClausula, poderDelPresidente, leerClienteBastanteo, cuitPorDni, cuitValido, cuilDeDorsoDni, formatoCuit, firmanteDe, firmantesSinPoder, jsonPoder, jsonBastanteoUnico, jsonBastanteoV1, optimizarReglas, montoDeTexto, tcDePlanilla, modeloBastanteo, analizarBastanteo, vistaAgrupada, chatContextBastanteo, condicionDeFirma, compararBastanteos, firmasMinimasDe, TIPOS_DE_ERROR_BASTANTEO, validarJsonBastanteo, separarNombre, leerInventarioGarantias, leerUsoAcuerdos, leerCuentasPowerBI, clienteDeCuenta, leerPadronDesdeLineasPdf, INVENTARIOS_CONTABLES, INVENTARIO_DENOMINACION, INVENTARIO_FIRMAS, fechaReporteIso, fechaInventarioDesdeReporte, leerPadronDesdeInventarios, leerBaseEntes, unirPadron, armarInventariosContables, leerCom3500, leerTcApiBcra, elegirTipoCambio, numeroEnLetras, daxCarteraPowerBI, daxDiagnosticoPowerBI, daxSaldoDeuda, armarSaldoDeuda, daxSaldoDeudaDetalle, armarDeudaDetalle, leerFilasPowerBI, sugerirColumnaCartera, columnasNumericasCartera, agruparCartera, valoresDistintos, sqlCartera,
+    leerCartera, BASTANTEO_CATALOGO, BASTANTEO_CLAVES, BASTANTEO_EXTRA, leerPoderesOcr, leerAutoridadesOcr, COMPLIF_TIPOS, poderDesdeComplif, actaDesdeComplif, complifDeEmpresa, controlResumen, claveCriterio, usoDelResumen, aplicarRevocatorias, claveRevocatoria, poderesFirmantesD, presidentesDeActas, gruposDelUso, usoCompleto, tokensDe, combosDeClausula, poderDelPresidente, leerClienteBastanteo, cuitPorDni, cuitValido, cuilDeDorsoDni, formatoCuit, firmanteDe, firmantesSinPoder, jsonPoder, jsonBastanteoUnico, jsonBastanteoV1, optimizarReglas, montoDeTexto, tcDePlanilla, modeloBastanteo, analizarBastanteo, vistaAgrupada, chatContextBastanteo, condicionDeFirma, compararBastanteos, firmasMinimasDe, TIPOS_DE_ERROR_BASTANTEO, validarJsonBastanteo, separarNombre, leerInventarioGarantias, leerUsoAcuerdos, leerCuentasPowerBI, clienteDeCuenta, leerPadronDesdeLineasPdf, INVENTARIOS_CONTABLES, INVENTARIO_DENOMINACION, INVENTARIO_FIRMAS, fechaReporteIso, fechaInventarioDesdeReporte, leerPadronDesdeInventarios, leerBaseEntes, unirPadron, armarInventariosContables, leerCom3500, leerTcApiBcra, elegirTipoCambio, numeroEnLetras, daxCarteraPowerBI, daxDiagnosticoPowerBI, daxSaldoDeuda, armarSaldoDeuda, daxSaldoDeudaDetalle, armarDeudaDetalle, leerFilasPowerBI, sugerirColumnaCartera, columnasNumericasCartera, agruparCartera, valoresDistintos, sqlCartera,
     leerCsv, encabezadosEjemplo, leerDefinicionInterfaz, sugerirColumna, detectarHojaInterfaz,
     normalizar, provinciaPorNombre, crearBuscadorBancoPorNombre, round2, aNumero, aFechaSerial, aCodigoBanco,
     fechaDDMMYY, fechaYYYYMMDD, fechaLegible, hoyDDMMYY,

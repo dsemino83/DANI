@@ -46,6 +46,30 @@ node .claude/skills/control-resumenes-review/controlar.js poderes_complif.json r
 3. Si es del motor, la corrección tiene que ser **general**: nada de `if (empresa === …)`, `if (firmante === …)` ni letras fijas. Cada bug corregido lleva su test en `valo/tests/` y se corre `npm run test:bastanteo`.
 4. **No suavices el control para que dé OK**: un REV (null) solo corresponde cuando el poder y el resumen no se contradicen pero tampoco coinciden (más restrictivo, sin grupos). Una contradicción es DIF.
 
+## Criterios aceptados desde la pantalla (cómo entrenar el skill sin pasar los casos)
+
+Cuando una diferencia del control "en realidad está bien", la persona la acepta **en la misma pantalla**: en cada ✗ aparece el enlace *Aceptar este criterio* (con un comentario opcional de por qué está bien, abajo de la tabla). Eso guarda un registro en la colección `controlCriterios` de la base (punto, texto del resumen, texto del poder, detalle, comentario, empresa, firmante, `estado: 'pendiente'`) y esa diferencia, y las que tengan exactamente los mismos textos, pasan a **"a revisar" (—)** con el criterio a la vista (*Quitar el criterio* lo deshace). Funciona en el control de un cliente y en el chequeo masivo.
+
+Un criterio aceptado **no cambia la lógica del control**: es un caso de entrenamiento. Para generalizarlo, al empezar a trabajar en el control:
+
+1. Leé los pendientes (Supabase, tabla `docs`):
+
+```sql
+select path, data->>'creado' creado, data->>'razonSocial' empresa, data->>'firmante' firmante, data->>'punto' punto,
+       data->>'resumen' resumen, data->>'poder' poder, data->>'detalle' detalle, data->>'comentario' comentario
+from docs where coleccion = 'controlCriterios' and data->>'estado' = 'pendiente' order by 2;
+```
+
+2. Agrupá por punto y por el patrón (por ejemplo "el resumen da INDIVIDUAL y CONJUNTA, el poder solo CONJUNTA"), no por empresa. Si hay varios con el mismo patrón y comentario, es una regla; si es uno solo, preguntá antes de generalizar.
+3. Reproducí un caso con `controlar.js` (documentos de Complif frescos; ver "Datos de Complif desactualizados").
+4. Decidí con la persona si el patrón pasa a **OK** (el resumen y el poder dicen lo mismo, mal comparado) o a **a revisar** (no se contradicen pero tampoco coinciden). Una contradicción real sigue siendo diferencia.
+5. Implementá la regla general en `controlResumen`, con su test, y medí todas las empresas con `medir.js` (sección siguiente) antes de publicar.
+6. Marcá los criterios resueltos (`estado: 'resuelto'`, con el commit) y quitá los que la regla ya cubre:
+
+```sql
+update docs set data = jsonb_set(data, '{estado}', '"resuelto"') where path in ('controlCriterios/<id>', …);
+```
+
 ## Inconsistencias conocidas (ya resueltas: no volver a romperlas)
 
 Cada una salió de un caso real. Si aparece otra parecida, sumá acá el patrón (sin nombres de clientes) y su test.

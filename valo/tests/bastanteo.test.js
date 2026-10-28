@@ -309,3 +309,25 @@ test('regresión: el control toma la firma de un grupo armado por la página con
   const igual = { firmantes: [fila(1, 'A', ['A+A']), fila(2, 'B', ['A+B', 'B+B']), fila(3, 'B', ['A+B', 'B+B'])] };
   assert.deepEqual(M.controlResumen(unico, igual, [], {}).flatMap(c => c.puntos.filter(x => x.punto === 'Firmas conjuntas' && x.ok === false)), []);
 });
+
+// Criterios aceptados a mano desde la pantalla: una diferencia igual (mismo punto, mismo texto del resumen y del poder) pasa
+// a "a revisar" con el criterio a la vista; no cambia nada más.
+test('control: un criterio aceptado convierte la diferencia igual en "a revisar" y no toca las demás', () => {
+  const p = poder([persona(1, 'A'), persona(2, 'A')], [uso('CONJUNTA', ['A+A'], ['firmar_cheques'])]);
+  const unico = M.jsonBastanteoUnico([M.jsonPoder(p, null, { todosApoderados: true })], { cuit: '30000000007', cliente: 'EMPRESA DE PRUEBA SA' });
+  const fila = (n, tipo) => ({ nombre: `Nombre${n} APELLIDO${n}`, cuit: CUIT(n), dni: String(n), ente: '', observacion: '', monto_hasta: null, revocado: false,
+    uso: { grupo: 'A', tipo, tipos: [tipo], combinaciones: [], texto: `A ${tipo}`, limite: null } });
+  const cliente = { firmantes: [fila(1, 'INDIVIDUAL'), fila(2, 'CONJUNTA')] };
+  const dif = ctl => ctl.flatMap(c => c.puntos.filter(x => x.ok === false).map(x => `${c.nombre}|${x.punto}`));
+  const sin = M.controlResumen(unico, cliente, [], {});
+  assert.deepEqual(dif(sin), ['Nombre1 APELLIDO1|Uso de firma']);
+  const x = sin[0].puntos.find(q => q.punto === 'Uso de firma');
+  const con = M.controlResumen(unico, cliente, [], {}, [{ id: 'c1', punto: x.punto, resumen: x.resumen, poder: x.poder, comentario: 'vale la conjunta' }]);
+  assert.deepEqual(dif(con), []);
+  const q = con[0].puntos.find(y => y.punto === 'Uso de firma');
+  assert.equal(q.ok, null);
+  assert.equal(q.criterio, 'c1');
+  assert.match(q.detalle, /criterio aceptado: vale la conjunta/);
+  // Otro criterio (otro texto del poder) no aplica.
+  assert.deepEqual(dif(M.controlResumen(unico, cliente, [], {}, [{ id: 'c2', punto: x.punto, resumen: x.resumen, poder: 'otro texto', comentario: '' }])), ['Nombre1 APELLIDO1|Uso de firma']);
+});
