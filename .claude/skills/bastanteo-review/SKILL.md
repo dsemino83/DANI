@@ -59,6 +59,8 @@ Validar siempre en este orden y no pasar al siguiente nivel sin entender los err
 | ERROR DE REGLA | tipo o quorum inválido (Conjunta con un solo grupo; Individual sin un firmante), monto sin moneda, facultad desconocida, o misma combinación con distintos límites o facultades |
 | ERROR DE APLICACIÓN | regla sin agrupamiento; firmante de la regla que no está entre los apoderados; misma combinación aplicada a distintos firmantes |
 
+Una regla que no se puede cumplir con los firmantes que quedaron (ConjuntaIndistinta A+A con una sola persona en A, una Conjunta con un grupo vacío) **no se incluye en el JSON generado**: `jsonBastanteoV1` la saca y deja un aviso ("No va la regla …: pide 2 firmas y entre los grupos A hay 1 firmante"). Si el modelo la marca como ERROR DE AGRUPAMIENTO es porque viene de un JSON de afuera (por ejemplo, el de producción) o de una corrección a mano; ahí no se cambia el JSON, se informa.
+
 Reglas del sistema de destino:
 - **ConjuntaIndistinta:** quorum = total de firmas.
 - **Conjunta:** quorum = firmas de cada grupo, y al menos 2 grupos.
