@@ -3169,6 +3169,18 @@
       return { ok: r.tipo === 'ConjuntaIndistinta' ? n.reduce((t, x) => t + x, 0) >= r.quorum : n.every(x => x >= r.quorum), n };
     };
     const cumplibles = [...reglas.values()].filter(r => {
+      // Sin facultades (circuitos) la regla no otorga nada: el sistema de destino la rechaza (ERROR DE REGLA).
+      if (!r.circuitos.length) { avisos.push(`No va la regla "${r.descripcion}": el poder no le da facultades.`); return false; }
+      // Un grupo de la regla sin ningún firmante entre los que participan (ConjuntaIndistinta: "una firma de cualquiera de los
+      // grupos A y B" con nadie del B en la planilla) no es un agrupamiento: se saca de la regla y se avisa.
+      if (r.tipo === 'ConjuntaIndistinta' && r.grupos.length > 1) {
+        const part = new Set(r._participantes), vacios = r.grupos.filter(g => ![...miembrosDe(g)].some(c => part.has(c)));
+        if (vacios.length && vacios.length < r.grupos.length) {
+          const antes = r.grupos.join(' y/o '), quedan = r.grupos.filter(g => !vacios.includes(g));
+          r.grupos = quedan; r.descripcion = r.descripcion.split(antes).join(quedan.join(' y/o '));
+          avisos.push(`La regla "${r.descripcion}" queda sin el grupo ${vacios.join(', ')}: no tiene firmantes entre los que participan.`);
+        }
+      }
       const c = cumplible(r);
       if (!c.ok) avisos.push(`No va la regla "${r.descripcion}": pide ${r.quorum} firma${r.quorum > 1 ? 's' : ''}${r.tipo === 'Conjunta' ? ' de cada grupo' : ''} y entre los grupos ${r.grupos.join(', ')} hay ${r.tipo === 'Conjunta' ? c.n.join(' y ') : c.n.reduce((t, x) => t + x, 0)} firmante${c.n.reduce((t, x) => t + x, 0) === 1 ? '' : 's'} (planilla y poderes).`);
       return c.ok;
