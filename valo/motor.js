@@ -3114,7 +3114,20 @@
       return { cuitCuil: id.length === 11 ? formatoCuit(id) : id, nombre: n.nombre, apellido: n.apellido, estado: 'Activa',
         grupos: propia ? [propia] : [...new Set(String(a.grupo).split(',').map(x => ren(x.trim())).filter(Boolean))].sort() };
     });
-    const opt = optimizarReglas([...reglas.values()], apoderados);
+    // Una regla que no se puede cumplir con los firmantes que quedaron (A+A con una sola persona en A; una combinación
+    // con un grupo vacío) no se informa: el modelo la marcaría como ERROR DE AGRUPAMIENTO. Se avisa cuál y por qué.
+    const miembrosDe = g => new Set(apoderados.filter(x => x.grupos.includes(g)).map(x => x.cuitCuil));
+    const cumplible = r => {
+      if (r.tipo === 'Individual' || !r.grupos.length) return { ok: true };
+      const part = new Set(r._participantes), n = r.grupos.map(g => [...miembrosDe(g)].filter(c => part.has(c)).length);
+      return { ok: r.tipo === 'ConjuntaIndistinta' ? n.reduce((t, x) => t + x, 0) >= r.quorum : n.every(x => x >= r.quorum), n };
+    };
+    const cumplibles = [...reglas.values()].filter(r => {
+      const c = cumplible(r);
+      if (!c.ok) avisos.push(`No va la regla "${r.descripcion}": pide ${r.quorum} firma${r.quorum > 1 ? 's' : ''}${r.tipo === 'Conjunta' ? ' de cada grupo' : ''} y entre los grupos ${r.grupos.join(', ')} hay ${r.tipo === 'Conjunta' ? c.n.join(' y ') : c.n.reduce((t, x) => t + x, 0)} firmante${c.n.reduce((t, x) => t + x, 0) === 1 ? '' : 's'} (planilla y poderes).`);
+      return c.ok;
+    });
+    const opt = optimizarReglas(cumplibles, apoderados);
     // Tope en las dos monedas: cada regla con monto va también en la otra moneda al tipo de cambio Com. A 3500
     // (opciones.tc = { tc, fecha }). Sin tipo de cambio, solo la del poder (y se avisa).
     const conTope = opt.lista.filter(r => r.monto && (r.moneda === 'USD' || r.moneda === 'ARS'));

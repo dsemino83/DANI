@@ -261,3 +261,19 @@ test('regresión: CUIL del dorso del DNI de Complif y DNI en lugar de CUIT marca
   j.apoderados[0].cuitCuil = '26478481';
   assert.ok(M.validarJsonBastanteo(j).some(e => /tiene el DNI \(26478481\) en lugar del CUIT\/CUIL/.test(e)));
 });
+
+// Bug: el modelo marcaba ERROR DE AGRUPAMIENTO ("pide 2 firmas y entre los grupos A hay 1 firmante") pero el JSON
+// seguía incluyendo la regla A+A que no se puede cumplir con una sola persona en A.
+test('regresión: una regla que no se puede cumplir con los firmantes del grupo no va en el JSON (se avisa)', () => {
+  const ap = [persona(1, 'A'), persona(2, 'B'), persona(3, 'B'), persona(4, 'C')];
+  const j = armar([poder(ap, [uso('CONJUNTA', ['A+A', 'A+C', 'B+B', 'B+C'], ['firmar_cheques'])])]);
+  assert.deepEqual(j.reglasFirma.map(r => `${r.tipo} q${r.quorum} [${r.grupos}]`).sort(), ['Conjunta q1 [A,C]', 'Conjunta q1 [B,C]', 'ConjuntaIndistinta q2 [B]']);
+  assert.ok(j.avisos.some(a => /No va la regla .*A\+A.*pide 2 firmas .* hay 1 firmante/.test(a)), j.avisos.join(' | '));
+  assert.deepEqual(M.modeloBastanteo(j).errores.filter(e => e.nivel === 'error'), []);
+  // Con dos personas en A, la regla A+A sí va.
+  const j2 = armar([poder([persona(1, 'A'), persona(5, 'A'), persona(2, 'B')], [uso('CONJUNTA', ['A+A', 'A+B'], ['firmar_cheques'])])]);
+  assert.deepEqual(j2.reglasFirma.map(r => `${r.tipo} q${r.quorum} [${r.grupos}]`).sort(), ['Conjunta q1 [A,B]', 'ConjuntaIndistinta q2 [A]']);
+  // Y las reglas con tope también salen sin la imposible (y sin su gemela en la otra moneda).
+  const j3 = armar([poder([persona(1, 'A'), persona(2, 'B')], [uso('CONJUNTA', ['A+A', 'A+B'], ['firmar_cheques'], { limitaciones: 'En operaciones que no excedan U$S 500.000' })])], { tc: { tc: 1000, fecha: '2026-10-20' } });
+  assert.deepEqual(j3.reglasFirma.map(r => `${r.moneda} ${r.tipo} [${r.grupos}]`).sort(), ['ARS Conjunta [A,B]', 'USD Conjunta [A,B]']);
+});
