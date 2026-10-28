@@ -292,3 +292,20 @@ test('regresión: grupo armado por la página con una sola persona va combinado 
   const ab = j.reglasFirma.find(r => r.tipo === 'Conjunta');
   assert.equal(ab._participantes.length, 3);
 });
+
+// Bug: el bastanteo toma "dos cualesquiera apoderados" de un grupo de una sola persona (letra puesta por la página) como
+// esa persona con cada otro grupo (A+B), pero el control del resumen lo comparaba como "dos del mismo grupo" y daba diferencia.
+test('regresión: el control toma la firma de un grupo armado por la página con una sola persona como A+B (igual que el bastanteo)', () => {
+  const p = poder([persona(1, 'Firmantes Alfa'), persona(2, 'Firmantes Beta'), persona(3, 'Firmantes Beta')],
+    [{ tipo: 'CONJUNTA', descripcion: 'dos cualesquiera', combinaciones: [], grupo: null, facultades: FAC(['firmar_cheques']), limitaciones: null }]);
+  const unico = M.jsonBastanteoUnico([M.jsonPoder(p, null, { todosApoderados: true })], { cuit: '30000000007', cliente: 'EMPRESA DE PRUEBA SA' });
+  const fila = (n, grupo, combinaciones) => ({ nombre: `Nombre${n} APELLIDO${n}`, cuit: CUIT(n), dni: String(n), ente: '', observacion: '', monto_hasta: null, revocado: false,
+    uso: { grupo, tipo: 'CONJUNTA', tipos: ['CONJUNTA'], combinaciones, texto: `${grupo} CONJUNTA ${combinaciones.join('; ')}`, limite: null } });
+  // En el resumen: Nombre1 es el grupo A y firma A+B con alguien del B; los otros dos son B (A+B y B+B).
+  const cliente = { firmantes: [fila(1, 'A', ['A+B']), fila(2, 'B', ['A+B', 'B+B']), fila(3, 'B', ['A+B', 'B+B'])] };
+  const dif = M.controlResumen(unico, cliente, [], {}).flatMap(c => c.puntos.filter(x => x.ok === false).map(x => `${c.nombre}: ${x.punto} (${x.detalle || x.poder})`));
+  assert.deepEqual(dif, []);
+  // Y si el resumen pide una combinación que el poder no da (A+A, con una sola persona en A), sigue siendo diferencia.
+  const mal = { firmantes: [fila(1, 'A', ['A+A']), fila(2, 'B', ['A+B', 'B+B']), fila(3, 'B', ['A+B', 'B+B'])] };
+  assert.ok(M.controlResumen(unico, mal, [], {}).some(c => c.puntos.some(x => x.punto === 'Firmas conjuntas' && x.ok === false)));
+});

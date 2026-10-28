@@ -1919,7 +1919,17 @@
     // No se traduce a una letra que ya es un grupo propio del poder (sería mezclar dos grupos distintos).
     const gruposPoder = new Set(base.flatMap(x => x.est.map(e => e.grupo)).filter(Boolean));
     Object.keys(equiv).forEach(g => { if (gruposPoder.has(equiv[g])) delete equiv[g]; });
-    const trad = g => equiv[g] || grupoComparable(g);
+    // Grupos que armó la página (el poder no asigna grupos): su letra es arbitraria. Si todos sus integrantes que están en el
+    // resumen tienen la misma letra, esa es la del grupo (igual que el bastanteo, que lo renombra con la letra de la planilla).
+    const autoLetra = {};
+    unico.estructuras_de_firma.filter(e => e.grupoAutomatico).forEach(e => {
+      const ls = [...new Set(e.apoderados.map(id => { const x = base.find(b => b.apo && b.apo.numero_de_identificacion === id); return x && x.res.grupo ? grupoComparable(x.res.grupo) : ''; }))];
+      if (ls.length === 1 && ls[0] && ls[0] !== grupoComparable(e.grupo)) autoLetra[e.grupo] = ls[0];
+    });
+    const trad = g => equiv[g] || autoLetra[g] || grupoComparable(g);
+    // Grupo armado por la página con una sola persona y firma conjunta ("dos cualesquiera apoderados"): la segunda firma es
+    // la de otro apoderado del poder, no otra persona del mismo grupo. Su "L+L" vale para L con cualquier otro grupo.
+    const grupoSolo = new Set(unico.estructuras_de_firma.filter(e => e.grupoAutomatico && e.firma_conjunta && new Set(e.apoderados).size === 1).map(e => e.grupo));
     const tradCombo = c => c.split('+').map(trad).sort().join('+');
     // Grupos propios (de una sola persona) que el resumen pone en otro grupo: Bartolucci es el grupo B del poder y el
     // resumen lo pone en el A, así que para todos el B+A del poder es A+A.
@@ -1954,7 +1964,14 @@
       const tipos = [...new Set(est.map(e => e.tipo_de_firma).filter(Boolean))];
       const grupos = [...new Set(est.map(e => e.grupo))];
       // Combinaciones que da el poder, también las que hoy no tienen firmantes en la planilla (B+C sin nadie del grupo C).
-      const combos = [...new Set(est.filter(e => e.firma_conjunta).flatMap(e => (e.combinaciones || []).filter(c => c.includes('+'))))].sort();
+      // (Un grupo de una sola persona con "dos cualesquiera" firma con cada otro grupo; y los otros firman con él.)
+      const delSolo = est.filter(e => e.firma_conjunta && grupoSolo.has(e.grupo));
+      // (Otro grupo = tiene alguna persona que no es la del grupo de una sola persona.)
+      const otrosGrupos = g => { const suyos = new Set(unico.estructuras_de_firma.filter(e => e.grupo === g).flatMap(e => e.apoderados));
+        return [...new Set(unico.estructuras_de_firma.filter(e => e.grupo !== g && e.apoderados.some(id => !suyos.has(id))).map(e => e.grupo).filter(Boolean))]; };
+      const combos = [...new Set(est.filter(e => e.firma_conjunta).flatMap(e => (e.combinaciones || []).filter(c => c.includes('+')))
+        .flatMap(c => delSolo.length && new Set(c.split('+')).size === 1 && grupoSolo.has(c.split('+')[0]) ? otrosGrupos(c.split('+')[0]).map(o => [c.split('+')[0], o].sort().join('+')) : [c])
+        .concat([...grupoSolo].filter(L => !est.some(e => e.grupo === L)).flatMap(L => [...new Set(est.map(e => e.grupo))].filter(g => g && g !== L && otrosGrupos(L).includes(g)).map(g => [L, g].sort().join('+')))))].sort();
       const combosSinFirmantes = [...new Set(est.filter(e => e.firma_conjunta).flatMap(e => (e.combinaciones_sin_firmantes || []).filter(c => c.includes('+'))))];
       // El límite se controla sobre la firma individual (en la conjunta no aplica).
       const estLim = est.some(e => !e.firma_conjunta) ? est.filter(e => !e.firma_conjunta) : est;
@@ -1998,7 +2015,7 @@
         // El resumen puede listar todas las combinaciones de la empresa: se miran las que incluyen el grupo del firmante.
         const propios = new Set([grupoComparable(res.grupo), ...grupos.map(trad)].filter(Boolean));
         const delFirmante = res.combinaciones.filter(c => comboComparable(c).split('+').some(x => propios.has(x)));
-        const resLista = grupoAuto || !delFirmante.length ? res.combinaciones : delFirmante;
+        const resLista = (grupoAuto && !(delSolo.length && est.every(e => grupoSolo.has(e.grupo) || !e.firma_conjunta))) || !delFirmante.length ? res.combinaciones : delFirmante;
         const resC = grupoAuto ? [...new Set(resLista.map(forma))] : [...new Set(resLista.map(comboComparable))];
         // Se compara con y sin la equivalencia de letras, y vale la lectura que menos diferencias da.
         const podT = grupoAuto ? [...new Set(combos.map(forma))] : [...new Set(combos.map(tradCombo))];

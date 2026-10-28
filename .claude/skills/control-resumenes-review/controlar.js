@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Control de un resumen de poder (Excel del cliente) contra los poderes de Complif, igual que el chequeo masivo de VALO.
-// Uso: node controlar.js poderes_complif.json resumen.xlsx
+// Uso: node controlar.js poderes_complif.json resumen.xlsx [--ignorar-revocatorias]
 //   poderes_complif.json: lista de documentos de Complif (Poder, Poder Complejo, Acta de designación, Estatuto), tal como los
 //   baja la página (/api/documents/v1/organization). No se guardan en el repositorio: traen datos de clientes.
 'use strict';
@@ -10,8 +10,9 @@ const raiz = path.join(__dirname, '..', '..', '..', 'valo');
 const M = require(path.join(raiz, 'motor.js'));
 const XLSX = require(path.join(raiz, 'vendor', 'xlsx.full.min.js'));
 
-const [docsPath, xlsPath] = process.argv.slice(2);
-if (!docsPath || !xlsPath) { console.error('Uso: node controlar.js poderes_complif.json resumen.xlsx'); process.exit(2); }
+const sinRevocatorias = process.argv.includes('--ignorar-revocatorias');
+const [docsPath, xlsPath] = process.argv.slice(2).filter(a => !a.startsWith('--'));
+if (!docsPath || !xlsPath) { console.error('Uso: node controlar.js poderes_complif.json resumen.xlsx [--ignorar-revocatorias]'); process.exit(2); }
 const docs = JSON.parse(fs.readFileSync(docsPath, 'utf8'));
 const wb = XLSX.read(fs.readFileSync(xlsPath), { type: 'buffer', cellDates: true });
 const hojas = wb.SheetNames.map(n => ({ hoja: n, filas: XLSX.utils.sheet_to_json(wb.Sheets[n], { header: 1, raw: true, defval: null, blankrows: false }) }));
@@ -22,7 +23,8 @@ if (!cliente.firmantes.length) { console.log('El Excel no tiene firmantes (no se
 
 // Mismo recorrido que controlarResumen0 de valo/app.js.
 const r = M.complifDeEmpresa(docs, cliente.cuit, cliente.cliente);
-const rv = M.aplicarRevocatorias(r.poderes);
+// --ignorar-revocatorias: igual que la excepción de la página (Complif marcó como revocatorio un poder que no lo es).
+const rv = M.aplicarRevocatorias(r.poderes, { ignorar: sinRevocatorias ? r.poderes.map(M.claveRevocatoria) : [] });
 console.log(`Complif: ${r.poderes.length} poderes y ${r.actas.length} actas; vigentes ${rv.vigentes.length}, anulados ${rv.anulados.length}` +
   (rv.anulados.length ? ` (${rv.anulados.map(a => a.motivo).join(' · ')})` : ''));
 let poderes = rv.vigentes.concat(M.poderesFirmantesD(cliente, rv.vigentes, r.actas));
