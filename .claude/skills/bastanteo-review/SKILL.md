@@ -87,6 +87,8 @@ node .claude/skills/bastanteo-review/revisar.js generado.json esperado.json  # c
 
 Muestra los errores del modelo de cada JSON, la Vista agrupada y, si hay dos, las diferencias clasificadas.
 
+Para el control de un resumen de poder contra Complif (Poder, Uso de firma, Grupo, Firmas conjuntas, Límite) usar el skill `control-resumenes-review`.
+
 ## Cómo razonar un caso
 
 1. Corré el script y leé los errores **en orden** (grupo → pertenencia → agrupamiento → regla).
