@@ -277,3 +277,18 @@ test('regresión: una regla que no se puede cumplir con los firmantes del grupo 
   const j3 = armar([poder([persona(1, 'A'), persona(2, 'B')], [uso('CONJUNTA', ['A+A', 'A+B'], ['firmar_cheques'], { limitaciones: 'En operaciones que no excedan U$S 500.000' })])], { tc: { tc: 1000, fecha: '2026-10-20' } });
   assert.deepEqual(j3.reglasFirma.map(r => `${r.moneda} ${r.tipo} [${r.grupos}]`).sort(), ['ARS Conjunta [A,B]', 'USD Conjunta [A,B]']);
 });
+
+// Poder sin grupos con letra ("dos cualesquiera apoderados"): la página arma los grupos. Un grupo con una sola persona
+// no es "B+B": la segunda firma es la de otro apoderado, o sea B con cada otro grupo (A+B).
+test('regresión: grupo armado por la página con una sola persona va combinado con los otros grupos (A+B)', () => {
+  const p = poder([persona(1, 'Firmantes Alfa'), persona(2, 'Firmantes Beta'), persona(3, 'Firmantes Beta')],
+    [{ tipo: 'CONJUNTA', descripcion: 'dos cualesquiera', combinaciones: [], grupo: null, facultades: FAC(['firmar_cheques']), limitaciones: null }]);
+  const j = armar([p]);
+  assert.deepEqual(j.reglasFirma.map(r => `${r.tipo} q${r.quorum} [${r.grupos}]`).sort(), ['Conjunta q1 [A,B]', 'ConjuntaIndistinta q2 [A]']);
+  assert.ok(j.avisos.some(a => /grupo B tiene una sola persona.*A\+B/.test(a)), j.avisos.join(' | '));
+  const m = M.modeloBastanteo(j);
+  assert.deepEqual(m.errores.filter(e => e.nivel === 'error'), []);
+  // El A+B lo firman la persona del grupo B y cualquiera de A.
+  const ab = j.reglasFirma.find(r => r.tipo === 'Conjunta');
+  assert.equal(ab._participantes.length, 3);
+});

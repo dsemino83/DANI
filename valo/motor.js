@@ -3095,7 +3095,19 @@
       }
       combos.forEach(ls => {
         const unicos = [...new Set(ls)].sort();
-        if (unicos.length === 1) { agregar('ConjuntaIndistinta', ls.length, unicos, {}, ls.join('+')); return; }
+        if (unicos.length === 1) {
+          // Grupo armado por la página (el poder no asigna grupos: "dos cualesquiera apoderados") con una sola persona: la
+          // segunda firma es la de otro apoderado del poder. Va como Conjunta con cada otro grupo (A+B, A+C…), no como A+A.
+          const letrasDe = x => String(x.grupo).split(',').map(l => ren(l.trim())).filter(Boolean);
+          const otros = [...new Set(apoderadosU.flatMap(letrasDe).filter(g => g !== unicos[0]))].sort();
+          if (e.grupoAutomatico && ls.length === 2 && new Set(e.apoderados || []).size < 2 && otros.length) {
+            otros.forEach(o => { const gs2 = [unicos[0], o].sort(); agregar('Conjunta', 1, gs2, {}, gs2.join('+'), [], (e.apoderados || []).concat(apoderadosU.filter(x => letrasDe(x).includes(o)).map(x => x.numero_de_identificacion))); });
+            avisos.push(`El poder no asigna grupos y el grupo ${unicos[0]} tiene una sola persona: "dos cualesquiera" va con otro apoderado (${otros.map(o => [unicos[0], o].sort().join('+')).join(', ')}).`);
+            return;
+          }
+          agregar('ConjuntaIndistinta', ls.length, unicos, {}, ls.join('+'));
+          return;
+        }
         // Uno (o n) de cada grupo: quorum = firmas por grupo.
         const cuenta = unicos.map(g => ls.filter(x => x === g).length);
         if (new Set(cuenta).size > 1) avisos.push(`La combinación ${ls.join('+')} pide distinta cantidad de firmas por grupo: va como Conjunta con quorum ${Math.max(...cuenta)} (revisar).`);
