@@ -1538,7 +1538,9 @@
         let texto = new TextDecoder('utf-8').decode(buf);
         if (texto.includes('\ufffd')) texto = new TextDecoder('windows-1252').decode(buf);
         // ccusosob (uso de acuerdos de cuentas corrientes) → cuenta 131.804.015; el resto, reportes de garantías.
-        const leido = /ccusosob/i.test(f.name) || /ccusosob\.sqr/.test(texto.slice(0, 5000)) ? M.leerUsoAcuerdos(texto, f.name) : M.leerInventarioGarantias(texto, f.name);
+        // cadeval (cartera de préstamos) → cuentas de Cadeval del Excel de inventarios.
+        const leido = /cadeval/i.test(f.name) || /cadeval\.sqr/.test(texto.slice(0, 5000)) ? M.leerCadeval(texto, f.name)
+          : /ccusosob/i.test(f.name) || /ccusosob\.sqr/.test(texto.slice(0, 5000)) ? M.leerUsoAcuerdos(texto, f.name) : M.leerInventarioGarantias(texto, f.name);
         const i = inventario.findIndex(x => x.nombre === f.name);
         if (i > -1) inventario.splice(i, 1, { nombre: f.name, leido }); else inventario.push({ nombre: f.name, leido });
       } catch (e) { errores.push(esc(e.message || e)); }
@@ -1546,7 +1548,8 @@
     renderInventario(errores);
   }
 
-  const filasInventario = () => inventario.filter(x => !x.leido.usoAcuerdos).flatMap(x => x.leido.filas);
+  const filasInventario = () => inventario.filter(x => !x.leido.usoAcuerdos && !x.leido.cadeval).flatMap(x => x.leido.filas);
+  const cadevalInv = () => inventario.filter(x => x.leido.cadeval).flatMap(x => x.leido.filas);
   function filasInventarioFiltradas() {
     const pref = $('invPref').value, mon = $('invMoneda').value, ori = $('invOrigen').value, q = M.normalizar($('invBuscar').value);
     return filasInventario().filter(f => (!pref || (pref === 'S') === f.preferida) && (!mon || f.monedaDesc === mon) && (!ori || f.origen === ori)
@@ -1557,6 +1560,11 @@
     let html = errores.map(e => aviso('bad', e)).join('');
     html += inventario.map((x, i) => {
       const l = x.leido, malos = l.controles.filter(c => !c.ok);
+      if (l.cadeval) {
+        return `<p class="sub" style="margin:6px 0"><b>${esc(x.nombre)}</b> · Cadeval (cartera de préstamos) · ${esc(l.sucursales.join(', '))} · al ${esc(fechaAr(l.fecha))} · ${fmtEntero(l.filas.length)} operaciones · ` +
+          (malos.length ? `<span class="chip bad">${malos.length} totales por producto no coinciden</span>` : `<span class="chip ok">totales por producto OK</span>`) +
+          (l.sinLeer.length ? ` <span class="chip bad">${l.sinLeer.length} líneas sin leer</span>` : '') + ` <a href="#" data-quitar-inv="${i}">Quitar</a></p>`;
+      }
       if (l.usoAcuerdos) {
         const conInt = l.filas.filter(f => f.moneda === 80 && (f.contratado || f.excedido)).length;
         return `<p class="sub" style="margin:6px 0"><b>${esc(x.nombre)}</b> · Uso de acuerdos (131.804.015) · ${esc(l.oficinas.join(', '))} · proceso ${esc(fechaAr(l.fecha))} · ${fmtEntero(conInt)} usos con interés contratado o excedido · ` +
@@ -1753,15 +1761,16 @@
   }
   // Cada inventario lleva disponible = si se cargó su reporte (garhicon/garhisin o ccusosob).
   function inventariosContables() {
-    const filas = reportesInv().flatMap(x => x.leido.filas), usos = usosInv();
-    if (filas.length) completarEntes(filas.map(f => f.cliente));
-    if (!filas.length && !usos.length) return [];
+    const filas = reportesInv().flatMap(x => x.leido.filas), usos = usosInv(), cad = cadevalInv();
+    if (filas.length || cad.length) completarEntes(filas.map(f => f.cliente).concat(cad.map(f => f.ente)));
+    if (!filas.length && !usos.length && !cad.length) return [];
     const p = padronInv();
     if (usos.length) cuentasPbiAuto();
-    const inv = M.armarInventariosContables(filas, p, entesCache, usos, { cuitsPorNombre: cuitsNombreCache, cuentasPbi: cuentasPbi.mapa });
+    const inv = M.armarInventariosContables(filas, p, entesCache, usos, { cuitsPorNombre: cuitsNombreCache, cuentasPbi: cuentasPbi.mapa,
+      cadeval: cad, tc: numeroTc(), noFinancieras: p.cadevalNoFinanciera || {} });
     const cc = inv.find(i => i.def.fuente === 'ccusosob');
     if (cc) completarCuitsPorNombre(cc.filas.filter(f => f.faltaCuit).map(f => f.concepto));
-    return inv.map(i => Object.assign(i, { disponible: i.def.fuente === 'ccusosob' ? usos.length > 0 : filas.length > 0 }));
+    return inv.map(i => Object.assign(i, { disponible: i.def.fuente === 'ccusosob' ? usos.length > 0 : i.def.fuente === 'cadeval' ? cad.length > 0 && (i.filas.length > 0 || i.operaciones > 0) : filas.length > 0 }));
   }
   $('btnInvBaseSubir').addEventListener('click', () => $('archivoBaseEntes').click());
   $('archivoBaseEntes').addEventListener('change', async e => {
@@ -1795,10 +1804,10 @@
 
   let tcAutoPara = '';
   function renderInvContable() {
-    const reps = reportesInv(), ccs = inventario.filter(x => x.leido.usoAcuerdos);
-    $('cardInvContable').classList.toggle('oculto', !reps.length && !ccs.length);
-    if (!reps.length && !ccs.length) return;
-    if (!$('invFecha').value) $('invFecha').value = M.fechaInventarioDesdeReporte(reps.map(x => M.fechaReporteIso(x.leido.fecha)).concat(ccs.map(x => x.leido.fecha)).filter(Boolean).sort().pop() || '');
+    const reps = reportesInv(), ccs = inventario.filter(x => x.leido.usoAcuerdos), cads = inventario.filter(x => x.leido.cadeval);
+    $('cardInvContable').classList.toggle('oculto', !reps.length && !ccs.length && !cads.length);
+    if (!reps.length && !ccs.length && !cads.length) return;
+    if (!$('invFecha').value) $('invFecha').value = M.fechaInventarioDesdeReporte(reps.map(x => M.fechaReporteIso(x.leido.fecha)).concat(ccs.map(x => x.leido.fecha), cads.map(x => x.leido.fecha)).filter(Boolean).sort().pop() || '');
     const p = padronInv();
     // TC guardado: solo si es del mes del inventario; si no, se busca solo (una vez por fecha de inventario).
     const mesInv = $('invFecha').value.slice(0, 7);
@@ -1825,6 +1834,7 @@
           `<td style="white-space:nowrap"><button class="btn" type="button" data-inv-excel="${k}">Excel</button> <button class="btn" type="button" data-inv-pdf="${k}">PDF</button></td></tr>`;
       }).join('') + '</tbody></table></div>';
     html += avisoUsoAcuerdos(inv.find(i => i.def.fuente === 'ccusosob' && i.disponible), ccs);
+    html += avisoCadeval(inv.filter(i => i.def.fuente === 'cadeval'), cads);
     $('invContableResumen').innerHTML = html;
     renderFaltantes(inv.filter(i => i.disponible));
   }
@@ -1848,6 +1858,34 @@
         `${esc(x.nombre)} · ${esc(x.cuenta)} · ${fmtEntero(x.usos)} usos · $ ${fmtMonto(x.importe)}${excl.has(x.cuenta) ? ' <span class="chip gris">fuera del inventario</span>' : ''}</label>`).join('') + '</div>';
     return html;
   }
+  // Cadeval: controles del reporte contra su TOTAL TIPO OP y, en el producto 10051 (compra de cartera), qué entes no son
+  // entidades financieras según el BCRA (por defecto Cencosud y Tarjeta Naranja; se cambia por ente y queda guardado).
+  function avisoCadeval(invs, cads) {
+    if (!cads.length) return '';
+    const controles = cads.flatMap(x => x.leido.controles), malos = controles.filter(c => !c.ok);
+    let html = malos.length
+      ? aviso('warn', `Cadeval: ${malos.length} de ${controles.length} totales por producto no coinciden con el TOTAL TIPO OP del reporte: ` + malos.map(c => `sucursal ${c.sucursal} · moneda ${c.moneda} · producto ${esc(c.producto)}`).join('; ') + '. ¿Falta una hoja del reporte?')
+      : aviso('ok', `Cadeval: los saldos de capital y devengados de los ${controles.length} productos coinciden con los TOTAL TIPO OP del reporte.`);
+    const sinTc = invs.filter(i => i.faltaTc);
+    if (sinTc.length) html += aviso('warn', `Hay ${sinTc.length} cuentas en dólares: el saldo del reporte está en pesos y se pasa a dólares con el tipo de cambio Com. A 3500 del último día hábil del mes del inventario (completá el TC arriba).`);
+    const marcas = padronInv().cadevalNoFinanciera || {};
+    const entes = new Map();
+    cadevalInv().filter(f => f.sucursal === 1 && f.producto === '10051' && f.moneda === 80).forEach(f => { const g = entes.get(f.ente) || { ente: f.ente, cliente: f.cliente, saldo: 0 }; g.saldo += f.saldoCapital; entes.set(f.ente, g); });
+    if (entes.size) {
+      const lista = [...entes.values()].sort((a, b) => b.saldo - a.saldo);
+      const noFin = lista.filter(g => M.esEntidadNoFinanciera(g.ente, g.cliente, marcas));
+      html += `<details style="margin-top:8px"><summary class="sub">Compra de cartera (10051): ${noFin.length ? noFin.map(g => esc(g.cliente)).join(', ') + ' no ' + (noFin.length > 1 ? 'son entidades financieras' : 'es entidad financiera') : 'todas son entidades financieras'} · revisar</summary>` +
+        '<p class="sub">Las entidades financieras según el BCRA van a las cuentas 131.421.014.4 / 131.491.014.7 y las que no, a la 131.721.040.5 / 131.791.040.8. Marcá las que <b>no</b> son entidades financieras.</p>' +
+        lista.map(g => `<label style="display:block;margin-top:2px"><input type="checkbox" data-cad-nofin="${esc(g.ente)}" ${M.esEntidadNoFinanciera(g.ente, g.cliente, marcas) ? 'checked' : ''} data-escribe> ${esc(g.cliente)} <span class="sub">(ente ${esc(g.ente)} · $ ${fmtMonto(g.saldo)})</span></label>`).join('') + '</details>';
+    }
+    return html;
+  }
+  $('invContableResumen').addEventListener('change', e => {
+    const n = e.target.closest('[data-cad-nofin]');
+    if (!n) return;
+    const ente = n.dataset.cadNofin, marca = n.checked;
+    guardarPadron(p => { p.cadevalNoFinanciera = Object.assign({}, p.cadevalNoFinanciera, { [ente]: marca }); }).then(() => renderInvContable());
+  });
   $('invContableResumen').addEventListener('change', e => {
     const c = e.target.closest('[data-cc-excluir]');
     if (!c) return;
@@ -2197,7 +2235,7 @@
     const inv = inventariosContables();
     const lista = indices.map(k => inv[k]);
     if (!lista.length) return;
-    const nombre = lista.length === 1 ? `Inventario_${lista[0].def.id}_${sufijoFecha()}` : `Inventarios_${lista.every(i => i.def.fuente !== 'ccusosob') ? 'garantias' : 'contables'}_${sufijoFecha()}`;
+    const nombre = lista.length === 1 ? `Inventario_${lista[0].def.id}_${sufijoFecha()}` : `Inventarios_${lista.every(i => i.def.fuente === 'cadeval') ? 'cadeval' : lista.every(i => i.def.fuente !== 'ccusosob' && i.def.fuente !== 'cadeval') ? 'garantias' : 'contables'}_${sufijoFecha()}`;
     try {
       if (tipo === 'excel') await descargarExcelInventarios(lista, nombre + '.xlsx');
       else await descargarPdfInventarios(lista, nombre + '.pdf');
