@@ -1044,7 +1044,7 @@
       const k = Object.keys(nombres).find(x => x.length >= 8 && (x.startsWith(n) || n.startsWith(x)));
       return k ? nombres[k] : '';
     };
-    return INVENTARIOS_CONTABLES.map(def => {
+    const contables = INVENTARIOS_CONTABLES.map(def => {
       if (def.fuente === 'ccusosob') return inventarioUsoAcuerdos(def, usos, padron, cuitPorNombre, opciones);
       const elegidas = filas.filter(f => def.filtro(f)).map(f => Object.assign({}, f, { importe: round2(def.moneda === 'USD' ? f.montoOrigen : f.montoPesos) }))
         .filter(f => f.importe !== 0);
@@ -1077,6 +1077,7 @@
       }).sort((a, b) => (a.fecha || '9999').localeCompare(b.fecha || '9999') || String(a.concepto).localeCompare(String(b.concepto)));
       return { def, filas: filasInv, total: round2(filasInv.reduce((a, f) => a + f.importe, 0)) };
     });
+    return contables.concat(opciones.cadeval && opciones.cadeval.length ? armarInventariosCadeval(opciones.cadeval, padron, base, opciones) : []);
   }
 
   // Filas de la consulta de Power BI (tabla CuentasClientes: Cuenta, CUIT, Ente, Nombre, Estado) → { cuenta: [clientes] }.
@@ -1128,6 +1129,135 @@
       importe: round2(((m.get(u.cuenta) || {}).importe || 0) + u.contratado + u.excedido), usos: ((m.get(u.cuenta) || {}).usos || 0) + 1 }), new Map()).values()];
     return { def, filas: filasInv, usos: porUso.length, total: round2(filasInv.reduce((a, f) => a + f.importe, 0)), excluidos: resumen(excluidos),
       antiguos: resumen(conInteres.filter(antiguo)), fechaProceso: proceso };
+  }
+
+  // ---------------------------------------------------------------- Cadeval (cartera de préstamos, cadeval.sqr)
+  // Reporte del sistema de cartera del Banco: por sucursal, moneda y tipo de producto, una línea por operación con el saldo
+  // de capital (siempre en pesos, también en la moneda 2), el devengado de interés / ICO / acumulado y los intereses
+  // documentados. Va a las cuentas contables según la tabla CADEVAL_CUENTAS (la lógica del Excel "Inventarios (Activas) -
+  // Origen Cadeval").
+  function leerCadeval(texto, nombreArchivo = '') {
+    const lineas = String(texto).replace(/\r/g, '').split('\n');
+    const num = v => { const t = String(v).trim(); const neg = /^-|-$/.test(t); return (neg ? -1 : 1) * Number(t.replace(/[,-]/g, '')); };
+    const iso = t => { const m = String(t || '').match(/(\d{2})\/(\d{2})\/(\d{4})/); return m ? `${m[3]}-${m[2]}-${m[1]}` : ''; };
+    const N = '(-?[\\d,]+\\.\\d\\d-?)';
+    const reFila = new RegExp(`^\\s*(\\d{10})\\s+(\\d+)\\s+(.+?)\\s{2,}([\\d,]+\\.\\d\\d)\\s+(\\d\\d/\\d\\d/\\d{4})\\s+(\\d\\d/\\d\\d/\\d{4})\\s+([\\d.]+)\\s+(?:(\\d\\d/\\d\\d/\\d{4})\\s+)?${N}\\s+${N}\\s+${N}\\s+${N}\\s+${N}\\s*$`);
+    const reTotal = new RegExp(`^\\s*TOTAL\\s+TIPO OP\\s+${N}\\s+${N}\\s+${N}\\s+${N}\\s+${N}\\s*$`);
+    let fecha = '', sucursal = 0, sucursalNombre = '', moneda = 0, producto = '', productoNombre = '';
+    const filas = [], controles = [], sinLeer = [];
+    let actual = null;
+    for (const l of lineas) {
+      if (!fecha) { const m = l.match(/\bAL:\s*(\d{1,2})\/([A-Za-z]{3})\/(\d{4})/); if (m) fecha = fechaReporteIso(`${m[1]}/${m[2]}/${m[3]}`); }
+      let m = l.match(/^SUCURSAL\s*:\s*(\d+)\s+(.*?)\s*$/);
+      if (m) { sucursal = Number(m[1]); sucursalNombre = m[2]; continue; }
+      m = l.match(/^MONEDA\s*:\s*(\d+)\s+(.*?)\s*$/);
+      if (m) { moneda = Number(m[1]); continue; }
+      m = l.match(/^TIPO PROD:\s*(\d+)\s+(.*?)\s*$/);
+      if (m) {
+        // El encabezado se repite en cada página: el control es uno por sucursal, moneda y producto.
+        producto = m[1]; productoNombre = m[2];
+        actual = controles.find(x => x.sucursal === sucursal && x.moneda === moneda && x.producto === producto);
+        if (!actual) { actual = { sucursal, moneda, producto, filas: 0, capital: 0, acumulado: 0 }; controles.push(actual); }
+        continue;
+      }
+      m = l.match(reFila);
+      if (m) {
+        const f = { sucursal, sucursalNombre, moneda, producto, productoNombre, operacion: m[1], ente: m[2], cliente: m[3].trim(), montoOrigen: num(m[4]),
+          fechaInicio: iso(m[5]), fechaVto: iso(m[6]), tasa: Number(m[7]), fechaUltCobro: iso(m[8]), saldoCapital: num(m[9]), devengadoInteres: num(m[10]),
+          devengadoIco: num(m[11]), devengadoAcumulado: num(m[12]), interesesDocumentados: num(m[13]), archivo: nombreArchivo };
+        filas.push(f);
+        if (actual) { actual.filas++; actual.capital += f.saldoCapital; actual.acumulado += f.devengadoAcumulado; }
+        continue;
+      }
+      if (/^\s*\d{10}\s/.test(l)) { sinLeer.push(l.trim().slice(0, 80)); continue; }
+      m = l.match(reTotal);
+      if (m && actual) { actual.totalCapital = num(m[1]); actual.totalAcumulado = num(m[4]); actual = null; }
+    }
+    // Control: lo leído de cada tipo de producto coincide con su "TOTAL TIPO OP" del reporte.
+    controles.forEach(c => { c.capital = round2(c.capital); c.acumulado = round2(c.acumulado);
+      c.ok = c.totalCapital != null && Math.abs(c.capital - c.totalCapital) < 0.05 && Math.abs(c.acumulado - c.totalAcumulado) < 0.05; });
+    const sucursales = [...new Set(filas.map(f => `${f.sucursal} ${f.sucursalNombre}`))];
+    return { cadeval: true, fecha, filas, controles: controles.filter(c => c.filas || c.totalCapital != null), sinLeer, sucursales, nombre: nombreArchivo };
+  }
+
+  // Cuentas de Cadeval (hoja "Cadeval Suc 1" y "Cadeval Suc 2" del Excel de inventarios): sucursal, producto y moneda del
+  // reporte, y el concepto que se toma de cada operación:
+  //   capital      = saldo de capital
+  //   devengado    = devengado acumulado
+  //   documentados = -intereses documentados + devengado acumulado
+  // usd = la cuenta es en dólares: el saldo del reporte está en pesos y se pasa a dólares con el tipo de cambio Com. A 3500
+  // del último día hábil del mes del inventario (importe U$S = pesos / TC).
+  // entidad: en el producto 10051 (compra de cartera) separa las operaciones de entidades financieras (según el BCRA) de las
+  // que no lo son (por ejemplo Cencosud o Tarjeta Naranja).
+  const cta = (suc, cuenta, titulo, producto, concepto, usd = false, extra = {}) => Object.assign({ suc, cuenta, titulo, producto, concepto, usd }, extra);
+  const CADEVAL_CUENTAS = [
+    cta(1, '131.421.014.4', 'DOCUMENTOS COMPRADOS (SECTOR FCIERO)', '10051', 'capital', false, { entidad: 'financiera' }),
+    cta(1, '131.491.014.7', 'ints DOCUMENTOS COMPRADOS (SECTOR FCIERO)', '10051', 'documentados', false, { entidad: 'financiera' }),
+    cta(1, '131.721.040.5', 'COMPRA DE CARTERA SIN RESPONSABILIDAD – CAPITAL', '10051', 'capital', false, { entidad: 'no financiera' }),
+    cta(1, '131.791.040.8', 'COMPRA CARTERA SIN RESPONSABILIDAD- INT DOCUMENTADOS', '10051', 'documentados', false, { entidad: 'no financiera' }),
+    cta(1, '135.741.010.02', 'CAPITAL- PREFINANCIACION DE IMPORTACIONES', '5060', 'capital', true),
+    cta(1, '135.801.010.02.5', 'INTERES- PREFINANCIACION DE IMPORTACIONES', '5060', 'devengado', true),
+    cta(1, '131.718.041.0', 'Documentos Comprados Con Responsabilidad - Valor Nominal', '10011', 'capital'),
+    cta(1, '131.715.011.02', 'Documentos a sola firma - Capital', '5020', 'capital'),
+    cta(1, '131.721.061.9', 'Doc comprados- Desc de pagares', '10032', 'capital'),
+    cta(1, '131.791.041.7', 'COMPRA CARTERA CON RESPONSABILIDAD- INT DOCUMENTADOS', '10011', 'documentados'),
+    cta(1, '131.791.061.2', 'Otros ints documentados de pagares', '10032', 'documentados'),
+    cta(1, '131.805.011.2', 'Documentos a sola firma - Interes', '5020', 'devengado'),
+    cta(1, '131.741.031.4', 'PRESTAMOS DOLAR LINKED - CAPITAL', '5090', 'capital'),
+    cta(1, '131.801.031.6', 'PRESTAMOS DOLAR LINKED - INTERES', '5090', 'devengado'),
+    cta(1, '135.715.011.02', 'Documentos a sola firma - Capital SUCURSAL 1', '5020', 'capital', true),
+    cta(1, '135.799.001.02', 'Pre financiación y financiación de exportaciones- Capital SUCURSAL 1', '5050', 'capital', true),
+    cta(1, '135.815.001.02', 'Pre financiación y financiación de exportaciones- Intereses SUC 1', '5050', 'devengado', true),
+    cta(1, '135.805.011.02', 'Documentos a sola firma - Intereses SUC 1', '5020', 'devengado', true),
+    cta(1, '171.112.030.0', 'Préstamos Personales - Capital', '4011', 'capital'),
+    cta(1, '171.201.030.1', 'Préstamos Personales - Intereses', '4011', 'devengado'),
+    cta(1, '171.112.040.8', 'Préstamos Hipotecarios al Personal - Capital', '2011', 'capital'),
+    cta(1, '171.201.040.9', 'Intereses Préstamos Hipotecarios al Personal', '2011', 'devengado'),
+    cta(1, '131.718.020.5', 'DOCUMENTOS DESCONTADOS', '10030', 'capital'),
+    cta(1, '131.791.036.4', '[INTS. DOCUMENTADOS] - DOC. DESCONTADOS', '10030', 'documentados'),
+    cta(1, '135.721.061.02.3', 'DOC COMPRADOS DESCUENTO DE PAGARES', '10032', 'capital', true),
+    cta(1, '135.791.061.02', 'DOCUMENTOS COMPRADOS DESC DE PAGARES', '10032', 'documentados', true),
+    cta(1, '711.046.001.2', 'Creditos Clasificados Irrecuperables', '1500', 'capital', false, { contra: '721.086.001.6' }),
+    cta(1, '131.731.001.1', 'PRESTAMOS PERSONALES', '4020', 'capital'),
+    cta(1, '131.808.017.9', 'INTS COMP. DEV A COBRAR POR PRESTAMOS PERSONALES', '4020', 'devengado'),
+    cta(1, '131.712.081.9', 'OTROS ADELANTOS - OPS. MONETARIAS', '5070', 'capital'),
+    cta(1, '131.804.017.8', 'INTS. - ADELANTOS POR OPS. MONETARIAS (SP)', '5070', 'devengado'),
+    cta(2, '135.715.050.02', 'PREST SOLA FIRMA SUC QUILMES - Capital', '5020', 'capital', true),
+    cta(2, '135.805.050.7', 'Documentos a sola firma - Intereses SUC 2', '5020', 'devengado', true),
+    cta(2, '135.799.001.02.7', 'Pre financiación y financiación de exportaciones- Capital SUCURSAL 2', '5050', 'capital', true),
+    cta(2, '135.815.050.02', 'Pre financiación y financiación de exportaciones- Intereses SUC 2', '5050', 'devengado', true),
+  ];
+  // Entidades que no son financieras según el BCRA (producto 10051). Se puede cambiar por ente desde la pantalla.
+  const CADEVAL_NO_FINANCIERA = /cencosud|tarjeta naranja|naranja\s*x|^naranja/i;
+  const esEntidadNoFinanciera = (ente, nombre, marcas = {}) => (ente in marcas ? !!marcas[ente] : CADEVAL_NO_FINANCIERA.test(String(nombre || '')));
+
+  // Inventarios de las cuentas de Cadeval: una fila por ente (cliente) con el importe de la cuenta.
+  // opciones: { tc (Com. A 3500), noFinancieras ({ ente: true/false }), cuitsPorNombre }
+  function armarInventariosCadeval(filasCadeval, padron = {}, base = {}, opciones = {}) {
+    const entes = padron.entes || {}, tc = opciones.tc > 0 ? opciones.tc : 0, marcas = opciones.noFinancieras || {};
+    const valor = (f, concepto) => concepto === 'capital' ? f.saldoCapital : concepto === 'devengado' ? f.devengadoAcumulado : -f.interesesDocumentados + f.devengadoAcumulado;
+    return CADEVAL_CUENTAS.map(def => {
+      const ops = (filasCadeval || []).filter(f => f.sucursal === def.suc && String(f.producto) === def.producto && (def.usd ? f.moneda === 2 : f.moneda === 80)
+        && (!def.entidad || esEntidadNoFinanciera(f.ente, f.cliente, marcas) === (def.entidad === 'no financiera')));
+      const porEnte = new Map();
+      ops.forEach(f => {
+        const g = porEnte.get(f.ente) || { ente: f.ente, cliente: f.cliente, pesos: 0, operaciones: 0 };
+        g.pesos += valor(f, def.concepto); g.operaciones++;
+        porEnte.set(f.ente, g);
+      });
+      const filas = [...porEnte.values()].map(g => {
+        const b = base[g.ente], e = entes[g.ente];
+        const cuit = (b && b.cuit) || (e && e.cuit) || '';
+        const pesos = round2(g.pesos);
+        return { codigo: g.ente, ente: g.ente, concepto: g.cliente, descripcion: g.cliente, cuit, pesos, importe: def.usd ? (tc ? round2(pesos / tc) : 0) : pesos,
+          operaciones: g.operaciones, faltaCuit: !cuit, faltaFecha: false };
+      }).filter(f => f.pesos !== 0).sort((a, b2) => String(a.concepto).localeCompare(String(b2.concepto)));
+      const defInv = { id: def.cuenta, cuenta: def.cuenta, contra: def.contra || '', titulo: def.titulo, denominacion: def.titulo,
+        encabezado: def.concepto === 'capital' ? 'Inventario de Cartera de Préstamos' : 'Inventario de Intereses', fuente: 'cadeval', moneda: def.usd ? 'USD' : 'ARS',
+        columnas: ['ente', 'concepto', 'cuit', 'importe'], suc: def.suc, producto: def.producto, concepto: def.concepto, entidad: def.entidad || '' };
+      return { def: defInv, filas, total: round2(filas.reduce((a, f) => a + f.importe, 0)), totalPesos: round2(filas.reduce((a, f) => a + f.pesos, 0)), operaciones: ops.length,
+        faltaTc: def.usd && !tc && filas.length > 0 };
+    });
   }
 
   // Com. A 3500 del BCRA (com3500.xls): filas con una fecha y el tipo de cambio de referencia.
@@ -4859,7 +4989,7 @@ try {
     leerTxtMeli, bancoMeliDeTxt, bancosParaMeli,
     sqlExtraccionCartera, bookmarkletCartera, scriptPowerShellCartera, comandoTareaCartera, IMPORTES_CARTERA,
     NO_COBIS, ultimoDiaHabil, fechasNoCobis, FCIC_MELI_INICIAL, FERIADOS_AR, diaHabilAnterior, fechasFcicMeli, leerReporteCupones, armarNoCobisFcic, lineaNoCobis, txtNoCobis, loteApiNoCobis, scriptPowerShellNoCobis, scriptPowerShellProbarNoCobis, scriptPowerShellAgenteNoCobis, cmdEnvioNoCobis,
-    leerCartera, BASTANTEO_CATALOGO, BASTANTEO_CLAVES, BASTANTEO_EXTRA, leerPoderesOcr, leerAutoridadesOcr, COMPLIF_TIPOS, poderDesdeComplif, actaDesdeComplif, complifDeEmpresa, controlResumen, claveCriterio, usoDelResumen, aplicarRevocatorias, claveRevocatoria, poderesFirmantesD, presidentesDeActas, gruposDelUso, usoCompleto, tokensDe, combosDeClausula, poderDelPresidente, leerClienteBastanteo, cuitPorDni, cuitValido, cuilDeDorsoDni, formatoCuit, firmanteDe, firmantesSinPoder, jsonPoder, jsonBastanteoUnico, jsonBastanteoV1, optimizarReglas, montoDeTexto, tcDePlanilla, modeloBastanteo, analizarBastanteo, vistaAgrupada, chatContextBastanteo, condicionDeFirma, compararBastanteos, firmasMinimasDe, TIPOS_DE_ERROR_BASTANTEO, validarJsonBastanteo, separarNombre, leerInventarioGarantias, leerUsoAcuerdos, leerCuentasPowerBI, clienteDeCuenta, leerPadronDesdeLineasPdf, INVENTARIOS_CONTABLES, INVENTARIO_DENOMINACION, INVENTARIO_FIRMAS, fechaReporteIso, fechaInventarioDesdeReporte, leerPadronDesdeInventarios, leerBaseEntes, unirPadron, armarInventariosContables, leerCom3500, leerTcApiBcra, elegirTipoCambio, numeroEnLetras, daxCarteraPowerBI, daxDiagnosticoPowerBI, daxSaldoDeuda, armarSaldoDeuda, daxSaldoDeudaDetalle, armarDeudaDetalle, leerFilasPowerBI, sugerirColumnaCartera, columnasNumericasCartera, agruparCartera, valoresDistintos, sqlCartera,
+    leerCartera, BASTANTEO_CATALOGO, BASTANTEO_CLAVES, BASTANTEO_EXTRA, leerPoderesOcr, leerAutoridadesOcr, COMPLIF_TIPOS, poderDesdeComplif, actaDesdeComplif, complifDeEmpresa, controlResumen, claveCriterio, usoDelResumen, aplicarRevocatorias, claveRevocatoria, poderesFirmantesD, presidentesDeActas, gruposDelUso, usoCompleto, tokensDe, combosDeClausula, poderDelPresidente, leerClienteBastanteo, cuitPorDni, cuitValido, cuilDeDorsoDni, formatoCuit, firmanteDe, firmantesSinPoder, jsonPoder, jsonBastanteoUnico, jsonBastanteoV1, optimizarReglas, montoDeTexto, tcDePlanilla, modeloBastanteo, analizarBastanteo, vistaAgrupada, chatContextBastanteo, condicionDeFirma, compararBastanteos, firmasMinimasDe, TIPOS_DE_ERROR_BASTANTEO, validarJsonBastanteo, separarNombre, leerInventarioGarantias, leerUsoAcuerdos, leerCadeval, CADEVAL_CUENTAS, armarInventariosCadeval, esEntidadNoFinanciera, leerCuentasPowerBI, clienteDeCuenta, leerPadronDesdeLineasPdf, INVENTARIOS_CONTABLES, INVENTARIO_DENOMINACION, INVENTARIO_FIRMAS, fechaReporteIso, fechaInventarioDesdeReporte, leerPadronDesdeInventarios, leerBaseEntes, unirPadron, armarInventariosContables, leerCom3500, leerTcApiBcra, elegirTipoCambio, numeroEnLetras, daxCarteraPowerBI, daxDiagnosticoPowerBI, daxSaldoDeuda, armarSaldoDeuda, daxSaldoDeudaDetalle, armarDeudaDetalle, leerFilasPowerBI, sugerirColumnaCartera, columnasNumericasCartera, agruparCartera, valoresDistintos, sqlCartera,
     leerCsv, encabezadosEjemplo, leerDefinicionInterfaz, sugerirColumna, detectarHojaInterfaz,
     normalizar, provinciaPorNombre, crearBuscadorBancoPorNombre, round2, aNumero, aFechaSerial, aCodigoBanco,
     fechaDDMMYY, fechaYYYYMMDD, fechaLegible, hoyDDMMYY,
