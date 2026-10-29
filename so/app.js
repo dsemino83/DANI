@@ -12,7 +12,7 @@ import { renderUI, validar as validarUI, specsComparacion } from './genui.js';
 import { crearArchivos } from './archivos/servicio.js';
 import { formatoPedido, FORMATOS } from './archivos/generar.js';
 import { interpretarEdicion } from './archivos/tablas.js';
-import { exportacionDe } from './archivos/doc.js';
+import { exportacionDe, nombreApertura } from './archivos/doc.js';
 import { interpretarHorario, describirHorario, proximaEjecucion, FORMATOS_SERVIDOR, TZ_POR_DEFECTO } from './archivos/programadas.js';
 import { crearEstado, chips, riesgo, explicarPermiso, paraContinuidad } from './estado.js';
 import { analizar, comparar, mesAnterior, mesesConDatos, nombreMes, totalMes } from './analisis.js';
@@ -915,6 +915,13 @@ async function intencionArchivo(texto, adjuntos) {
       return i > 0 ? A.compararDos(vs[i - 1], vs[i]) : { texto: `${f.original_name} no tiene una versión anterior.` };
     }
   }
+  // Aperturas de exportación (como el saldo de deuda de VALO): en pantalla resumido, al exportar abierto.
+  // "apertura(s)" solo existe al exportar: alcanza para reconocer el pedido aunque no diga "exportar".
+  if (/\baperturas?\b/.test(n) || (/\b(exporta\w*|exportacion|excel|al exportar|cuando (lo )?export\w*|en el (excel|archivo|pdf))\b/.test(n)
+      && /\b(abri\w*|abrir|desglos\w*|agrega\w*|suma\w*|inclui\w*|quiero|saca\w*|quita\w*|por dia|total por|detalle por)\b/.test(n))) {
+    const r = await definirAperturas(texto);
+    if (r) return r;
+  }
   // Colecciones y paquetes ("descargar todo"): la colección es un metadato lógico y el paquete un ZIP verificado;
   // ninguno mueve, copia ni cambia el contenido de los archivos.
   const colM = texto.match(/colecci[oó]n\s+(?:de\s+|llamada\s+)?["“]?([^"”.,;!?]+?)["”]?\s*(?:[.,;!?]|$)/i);
@@ -961,6 +968,42 @@ async function intencionArchivo(texto, adjuntos) {
     if (f?.kind === 'table') { actividad('actualizando'); const r = await A.editarArchivo(f, texto); if (r) return r; }
   }
   return null;
+}
+
+// "Cuando exporte, abrilo por canal y mes", "agregá la apertura por día", "sacá la apertura por canal".
+async function definirAperturas(texto) {
+  const n = normalizar(texto);
+  const a = resolverArtefacto(texto, publicados().filter((x) => !x.configuration?.surface), E.get().artefactoId);
+  if (!a) return { texto: '¿Para qué tablero? Por ejemplo: "cuando exporte ventas, abrilo por canal y mes".', meta: { estado: 'propuesta' } };
+  const d = await datosDe(a.id).catch(() => null);
+  const campos = (d?.fields || a.schema?.fields || []).filter((f) => f.type === 'text');
+  const campo = campos.find((f) => n.includes(normalizar(f.label || f.key)) || n.includes(normalizar(f.key)));
+  const ex = exportacionDe(a);
+  const quitar = /\b(saca\w*|quita\w*|elimina\w*|borra\w*)\b/.test(n);
+  const pedidas = [];
+  if (/\bpor dia\b|\bdiari[ao]\b/.test(n)) pedidas.push({ tipo: 'dia' });
+  if (campo) pedidas.push({ tipo: /\by (por )?mes\b|\bmes a mes\b|\bpor mes\b/.test(n) ? 'campo_mes' : 'campo', campo: campo.key });
+  if (!pedidas.length) {
+    if (!campos.length && !/\bdia\b/.test(n)) return null;
+    return { texto: `¿Por qué querés abrir "${a.name}" al exportar? Puedo abrirlo por día (con el total de cada mes)${campos.length ? ` o por ${campos.map((f) => f.label || f.key).join(', ')}, solo o también por mes` : ''}.`, meta: { estado: 'propuesta' } };
+  }
+  const igual = (p, q) => p.tipo === q.tipo && (p.campo || null) === (q.campo || null);
+  const mismaBase = (p, q) => (p.campo || null) === (q.campo || null) && (p.tipo === 'dia') === (q.tipo === 'dia');
+  let aperturas = ex.aperturas.slice();
+  if (quitar) aperturas = aperturas.filter((x) => !pedidas.some((p) => mismaBase(p, x)));
+  else for (const p of pedidas) if (!aperturas.some((x) => igual(x, p))) aperturas = [...aperturas.filter((x) => !mismaBase(x, p)), p];
+  const anterior = a.configuration?.exportacion ?? null;
+  const exportacion = { ...(anterior || {}), aperturas };
+  const [act] = await q(sb.from('so_artifacts').update({ configuration: { ...a.configuration, exportacion } }).eq('id', a.id).select('id, configuration, version'));
+  if (!act) throw new Error('no pude guardar la exportación');
+  Object.assign(a, { configuration: act.configuration, version: act.version });
+  const lista = aperturas.map((x) => nombreApertura(x, d?.fields || [])).join('; ');
+  return { texto: quitar
+      ? `Listo: saqué esa apertura. ${aperturas.length ? `Al exportar "${a.name}" quedan: ${lista}.` : `"${a.name}" se exporta sin aperturas extra.`}`
+      : `Listo: cuando exportes "${a.name}" (Excel, PDF o Word), además del resumen va a incluir: ${lista}. En Excel cada una es una hoja. El tablero se sigue viendo igual.`,
+    meta: { estado: 'verificado', artifactId: a.id, cambios: pedidas.map((p) => `${quitar ? '−' : '+'} ${nombreApertura(p, d?.fields || [])} (al exportar)`),
+      undo: { tipo: 'exportacion', artifactId: a.id, anterior },
+      porque: 'Lo que se ve y lo que se exporta son configuraciones separadas: podés ver el tablero resumido y exportarlo abierto. También se usa en las plantillas y automatizaciones.' } };
 }
 
 // Archivos que Francisco generó o exportó en esta conversación (sin paquetes previos).
@@ -1654,6 +1697,12 @@ async function deshacerMensaje(id, { silencioso = false } = {}) {
       case 'revocar': for (const x of u.shares) await q(sb.rpc('so_compartir', { p_artifact: u.artifactId, p_email: x.email, p_permission: x.permission })); break;
       case 'favorito': await q(sb.from('so_menu').update({ favorite: u.valor }).eq('artifact_id', u.artifactId)); break;
       case 'automatizacion': await q(sb.from('so_automations').delete().eq('id', u.id)); break;
+      case 'exportacion': {
+        const a = artefacto(u.artifactId);
+        const [act] = await q(sb.from('so_artifacts').update({ configuration: { ...a.configuration, exportacion: u.anterior } }).eq('id', u.artifactId).select('id, configuration, version'));
+        if (act) Object.assign(a, { configuration: act.configuration, version: act.version });
+        break;
+      }
       case 'coleccion': await A.deshacerColeccion(u); D.olvidar(u.ids); st.archivosRecientes = null; st.colecciones = null; break;
       case 'importacion': await q(sb.rpc('so_deshacer_importacion', { p_batch: u.loteId })); break;
       case 'dataset': {
@@ -1852,6 +1901,8 @@ function configurarExportacion(a) {
       <label class="exp-op"><input type="radio" name="datos" value="todo"${ex.datos === 'todo' ? ' checked' : ''}> Todos los datos guardados (historial completo)</label></fieldset>
     <fieldset><legend>Secciones</legend>${chk('sec', 'resumen', 'Resumen e insights', ex.secciones.resumen)}${chk('sec', 'mensual', 'Totales por mes', ex.secciones.mensual)}${chk('sec', 'detalle', 'Detalle registro por registro', ex.secciones.detalle)}</fieldset>
     <fieldset><legend>Columnas del detalle</legend><label class="exp-op"><input type="checkbox" checked disabled> Fecha</label>${campos.map((c) => chk('col', c.key, c.label || c.key, !ex.columnas || ex.columnas.includes(c.key))).join('')}</fieldset>
+    <fieldset><legend>Aperturas al exportar</legend>${ex.aperturas.length ? ex.aperturas.map((x, i) => `<label class="exp-op"><input type="checkbox" name="ap" value="${i}" checked> ${esc(nombreApertura(x, campos))}</label>`).join('')
+      : '<p class="vacio">Ninguna. Pedíselas a Francisco: "cuando exporte, abrilo por canal y mes" o "agregá la apertura por día".</p>'}</fieldset>
     <p class="error" id="errorExportar" hidden></p>
     <div class="msg-acc"><button class="primario" type="submit">Guardar</button><button type="button" data-exp-defecto>Volver a lo predeterminado</button></div>`;
   const guardar = async (exportacion) => {
@@ -1871,7 +1922,7 @@ function configurarExportacion(a) {
     const cols = fd.getAll('col');
     if (sec.includes('detalle') && campos.length && !cols.length) { $('errorExportar').textContent = 'Elegí al menos una columna para el detalle.'; $('errorExportar').hidden = false; return; }
     guardar({ datos: fd.get('datos') || 'vista', secciones: { resumen: sec.includes('resumen'), mensual: sec.includes('mensual'), detalle: sec.includes('detalle') },
-      columnas: cols.length === campos.length ? null : cols });
+      columnas: cols.length === campos.length ? null : cols, aperturas: fd.getAll('ap').map((i) => ex.aperturas[Number(i)]).filter(Boolean) });
   };
   f.querySelector('[data-exp-defecto]').onclick = () => guardar(null);
   abrirHoja('exportar');

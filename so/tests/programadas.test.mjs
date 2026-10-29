@@ -59,5 +59,18 @@ test('exportación separada de la visualización: se ve resumido y se exporta el
   // Sin secciones con tabla, igual queda el detalle (CSV/Excel la necesitan).
   ({ doc } = docDeDatos({ name: 'V', configuration: { exportacion: { secciones: { resumen: true, mensual: false, detalle: false } } } }, { fields, records }, {}));
   assert.ok(tabla(doc, 'Detalle'));
-  assert.deepEqual(exportacionDe({}), { datos: 'vista', secciones: { resumen: true, mensual: true, detalle: true }, columnas: null });
+  assert.deepEqual(exportacionDe({}), { datos: 'vista', secciones: { resumen: true, mensual: true, detalle: true }, columnas: null, aperturas: [] });
+});
+
+test('aperturas al exportar (modelo saldo de deuda): por campo y mes, por campo y por día con subtotal mensual', () => {
+  const fields = [{ key: 'monto', label: 'Monto', type: 'number' }, { key: 'canal', label: 'Canal', type: 'text' }];
+  const records = [['2026-08-10', 100, 'web'], ['2026-08-11', 50, 'local'], ['2026-09-10', 70, 'web'], ['2026-09-10', 5, 'web']].map(([period, monto, canal]) => ({ period, data: { monto, canal } }));
+  const a = { name: 'V', configuration: { exportacion: { aperturas: [{ tipo: 'campo_mes', campo: 'canal' }, { tipo: 'dia' }, { tipo: 'campo', campo: 'canal' }, { tipo: 'raro' }] } } };
+  const { doc } = docDeDatos(a, { fields, records }, {});
+  const t = (n) => doc.secciones.find((s) => s.titulo === n)?.tabla;
+  assert.deepEqual(t('Por Canal y mes').filas, [['web', 100, 75, 175], ['local', 50, null, 50], ['Total', 150, 75, 225]]);
+  assert.deepEqual(t('Apertura por día').filas.map((f) => f[1]), ['2026-08-10', '2026-08-11', 'Total del mes', '2026-09-10', 'Total del mes', '']);
+  assert.equal(t('Apertura por día').filas.at(-1)[2], 225);
+  assert.deepEqual(t('Por Canal').filas.at(-1), ['Total', 225, 100]);
+  assert.equal(exportacionDe(a).aperturas.length, 3, 'tipos desconocidos se ignoran');
 });
