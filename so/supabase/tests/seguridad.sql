@@ -218,4 +218,41 @@ begin
   reset role;
   raise notice 'SEGURIDAD INGESTA OK';
 end $$;
+-- Workspace adaptativo y archivos generados: vista previa y tamaño propios, origen y versiones de archivos,
+-- plantillas aisladas por usuario y descargas solo desde la carpeta propia.
+do $$
+declare
+  ua uuid := '00000000-0000-0000-0000-00000000000a'; ub uuid := '00000000-0000-0000-0000-00000000000b';
+  pid uuid; aid uuid; f1 uuid := gen_random_uuid(); f2 uuid := gen_random_uuid(); tid uuid; n int; ck text := repeat('e', 64);
+begin
+  perform pg_temp.como(ua, 'a@test.so');
+  insert into public.so_projects (name) values ('Workspace') returning id into pid;
+  insert into public.so_artifacts (project_id, name, route, state) values (pid, 'Ventas', '#', 'published') returning id into aid;
+  insert into public.so_menu (artifact_id, name, route) values (aid, 'Ventas', '#');
+  update public.so_menu set preview = '{"v":2,"valor":580}', preview_at = now(), size = 'L' where artifact_id = aid;
+  perform pg_temp.debe_fallar(format($q$update public.so_menu set size = 'XL' where artifact_id = %L$q$, aid), 'tamaño de tarjeta inválido');
+  perform pg_temp.debe_fallar(format($q$update public.so_menu set preview = '[1,2]' where artifact_id = %L$q$, aid), 'vista previa que no es objeto');
+  update public.so_artifacts set state = 'archived' where id = aid;   -- archivar no borra datos
+  -- Archivo generado y su nueva versión (el original no se toca)
+  insert into public.so_files (id, project_id, artifact_id, original_name, safe_name, detected_type, kind, size, storage_path, checksum, status, origin, retention)
+  values (f1, pid, aid, 'Informe.xlsx', 'Informe.xlsx', 'xlsx', 'table', 900, ua::text || '/' || f1::text || '/Informe.xlsx', ck, 'ready', 'generated', 'active');
+  insert into public.so_files (id, project_id, original_name, safe_name, detected_type, kind, size, storage_path, checksum, status, origin, change_summary, retention)
+  values (f2, pid, 'Informe.xlsx', 'Informe.xlsx', 'xlsx', 'table', 950, ua::text || '/' || f2::text || '/Informe.xlsx', repeat('f', 64), 'ready', 'generated', 'agregué margen', 'active');
+  select version into n from public.so_files where id = f2; if n <> 2 then raise exception 'versión del archivo editado: %', n; end if;
+  if (select version_of from public.so_files where id = f2) <> f1 then raise exception 'la versión no apunta a su anterior'; end if;
+  if (select checksum from public.so_files where id = f1) <> ck then raise exception 'el original cambió'; end if;
+  perform pg_temp.debe_fallar(format($q$insert into public.so_files (original_name, safe_name, detected_type, kind, size, checksum, origin) values ('x', 'x.exe', 'exe', 'other', 1, %L, 'malware')$q$, ck), 'origen inválido');
+  insert into public.so_file_templates (project_id, artifact_id, name, formato, spec) values (pid, aid, 'Informe mensual', 'pdf', '{"secciones":["Resumen"]}') returning id into tid;
+  perform pg_temp.debe_fallar($q$insert into public.so_file_templates (name, formato) values ('Ejecutable', 'exe')$q$, 'formato de plantilla inválido');
+  -- Otro usuario no ve ni toca nada de esto (ni la descarga del binario)
+  perform pg_temp.como(ub, 'b@test.so');
+  select count(*) into n from public.so_file_templates; if n <> 0 then raise exception 'plantilla ajena visible'; end if;
+  select count(*) into n from public.so_files where id in (f1, f2); if n <> 0 then raise exception 'archivo generado ajeno visible'; end if;
+  select count(*) into n from public.so_menu where artifact_id = aid; if n <> 0 then raise exception 'vista previa ajena visible'; end if;
+  select count(*) into n from storage.objects where name like ua::text || '/%'; if n <> 0 then raise exception 'descarga de archivo ajeno posible: %', n; end if;
+  perform pg_temp.debe_fallar(format($q$insert into public.so_file_templates (project_id, name, formato) values (%L, 'robo', 'pdf')$q$, pid), 'plantilla en proyecto ajeno');
+  update public.so_file_templates set name = 'x' where id = tid; get diagnostics n = row_count; if n <> 0 then raise exception 'modificó plantilla ajena'; end if;
+  reset role;
+  raise notice 'SEGURIDAD WORKSPACE OK';
+end $$;
 rollback;
