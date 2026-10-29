@@ -1939,23 +1939,6 @@ let paletaItems = [], paletaSel = 0, paletaElegido = false, tBusca = null, remot
 const GRUPOS = [['reciente', 'Recientes'], ['artefacto', 'Tableros'], ['proyecto', 'Proyectos'], ['archivo', 'Archivos'], ['registro', 'Registros'], ['compartido', 'Compartidos conmigo'],
   ['chat', 'Conversaciones'], ['accion', 'Acciones'], ['pedir', 'Francisco']];
 const ICON = { reciente: 'historial', artefacto: 'chart', proyecto: 'trabajo', archivo: 'archivo', registro: 'tabla', compartido: 'compartir', chat: 'conversacion', accion: 'chispa', pedir: 'chispa' };
-function accionesPaleta() {
-  const modo = E.get().modo;
-  const a = E.get().vista === 'artefacto' && artefacto(E.get().artefactoId);
-  return [
-    { tipo: 'accion', titulo: 'Preguntarle a Francisco', run: () => abrirPanel() },
-    ...(modo === 'work' ? [{ tipo: 'accion', titulo: 'Crear una herramienta o tablero', extra: 'dashboard nuevo', run: () => { abrirPanel(); $('texto').value = 'Creá un dashboard de '; } },
-      { tipo: 'accion', titulo: 'Subir un archivo', extra: 'adjuntar', run: () => { abrirPanel(); $('inpArchivos').click(); } },
-      { tipo: 'accion', titulo: 'Conectar una API', extra: 'api fuente', run: () => (a ? D.abrirApi(a.id) : pedirAFrancisco('Conectá una API')) }] : []),
-    ...(a ? [{ tipo: 'accion', titulo: `Exportar ${a.name} a Excel`, run: () => exportarDesdeUI(a, 'xlsx') }, { tipo: 'accion', titulo: `Exportar ${a.name} a PDF`, run: () => exportarDesdeUI(a, 'pdf') },
-      { tipo: 'accion', titulo: `Compartir ${a.name}`, run: () => abrirHoja('compartir') }] : []),
-    { tipo: 'accion', titulo: 'Ir al Workspace', extra: 'inicio', run: () => { location.hash = '#/'; } },
-    { tipo: 'accion', titulo: 'Nueva conversación', run: () => { st.chatId = null; st.mensajes = []; pintarMensajes(); abrirPanel(); } },
-    { tipo: 'accion', titulo: modo === 'work' ? 'Cambiar a Personal' : 'Cambiar a Trabajo', run: () => cambiarModo(modo === 'work' ? 'personal' : 'work') },
-    { tipo: 'accion', titulo: 'Ver actividad y avisos', run: () => abrirCentro('tareas') },
-    { tipo: 'accion', titulo: 'Cambiar tema', run: ciclarTema },
-  ];
-}
 function itemsLocales() {
   const out = [];
   for (const a of publicados()) {
@@ -1980,10 +1963,11 @@ function abrirPaleta(inicial = '') {
 function filtrarPaleta(remoto = true) {
   const qy = $('paletaInput').value.trim();
   if (!qy) {
-    paletaItems = [...recientesPorUso(publicados(), st.menu, 5).map((a) => ({ tipo: 'reciente', titulo: a.name, extra: haceCuanto(st.menu.get(a.id).last_opened_at), run: () => { location.hash = `#/a/${a.id}`; } })), ...accionesPaleta()];
+    // Como un chat: sin lista de acciones; solo los recientes para volver rápido. Lo escrito lo resuelve Francisco.
+    paletaItems = recientesPorUso(publicados(), st.menu, 5).map((a) => ({ tipo: 'reciente', titulo: a.name, extra: haceCuanto(st.menu.get(a.id).last_opened_at), run: () => { location.hash = `#/a/${a.id}`; } }));
   } else {
     const ruta = clasificar(qy, { artefactos: publicados() });
-    const locales = rankear(qy, [...itemsLocales(), ...accionesPaleta()]).slice(0, 12);
+    const locales = rankear(qy, itemsLocales()).slice(0, 12);
     const contextuales = accionesPara(qy, publicados()).map((x) => ({ tipo: 'accion', titulo: x.titulo, run: () => {
       const a = artefacto(x.artefactoId);
       if (x.accion === 'actualizar') { location.hash = `#/a/${a.id}`; setTimeout(() => abrirArtefacto(a.id, { forzar: true }), 50); }
