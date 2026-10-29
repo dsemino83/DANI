@@ -663,3 +663,8 @@ label.radio { display: flex; gap: 8px; align-items: center; margin-top: 10px; }
 .tit-fila { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .tit-fila h2 { margin: 0; }
 .ib.chico { width: 28px; height: 28px; min-height: 28px; }
+
+/* Pregunta de conformidad al final de una entrega. */
+.conformidad { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 10px; font: var(--t-secondary); color: var(--text-secondary); }
+.conformidad button { min-height: 28px; padding: 2px 12px; border-radius: var(--r-full); font: var(--t-secondary); }
+.conformidad.hecha { margin: 8px 0 0; }

@@ -740,7 +740,41 @@ function htmlMensaje(m) {
   const cambios = meta.cambios?.length && meta.artifactId ? `<div class="change-card ${meta.deshecho ? 'deshecho' : ''}"><strong>Francisco actualizó ${esc(artefacto(meta.artifactId)?.name || 'el tablero')}</strong>
     <ul>${meta.cambios.map((c) => `<li>${esc(c)}</li>`).join('')}</ul>${E.get().artefactoId !== meta.artifactId || E.get().vista !== 'artefacto' ? `<a class="enlace" href="#/a/${esc(meta.artifactId)}">Ver</a>` : ''}</div>` : '';
   const ui = meta.ui?.length ? renderUI(meta.ui) : '';
-  return `<div class="msg assistant">${badge}<div>${html}</div>${ui}${cambios}${conf}${det}${card}${acciones.length ? `<div class="msg-acc">${acciones.join('')}</div>` : ''}</div>`;
+  return `<div class="msg assistant">${badge}<div>${html}</div>${ui}${cambios}${conf}${det}${card}${acciones.length ? `<div class="msg-acc">${acciones.join('')}</div>` : ''}${htmlConformidad(m)}</div>`;
+}
+
+// Al terminar algo concreto (crear, cambiar, generar, fijar), Francisco pregunta si quedó como el usuario quería:
+// la respuesta es una señal explícita de aprendizaje (no inferida) y cambia la emoción del avatar.
+const entregable = (m) => {
+  const x = m.meta || {};
+  return m.role === 'assistant' && ['verificado', 'ejecutado'].includes(x.estado) && !x.deshecho && !x.preview
+    && !!(x.artifactId || x.archivo || x.ui?.length || x.cambios?.length || x.fijado);
+};
+function htmlConformidad(m) {
+  const c = m.meta?.conformidad;
+  if (c === 'si') return '<p class="conformidad hecha">¡Genial! Lo tengo en cuenta para la próxima.</p>';
+  if (c === 'no') return '<p class="conformidad hecha">Contame qué cambio y lo ajusto.</p>';
+  const ultimo = [...st.mensajes].reverse().find((y) => y.role === 'assistant');
+  if (!entregable(m) || ultimo?.id !== m.id) return '';   // solo en la última entrega, para no llenar el chat de preguntas
+  return `<div class="conformidad" role="group" aria-label="¿Quedó como querías?"><span>¿Quedó como querías?</span>
+    <button type="button" data-conforme="${m.id}" data-si="1">Sí, así</button><button type="button" data-conforme="${m.id}" data-si="0">No, ajustar</button></div>`;
+}
+
+async function responderConformidad(id, si) {
+  const m = st.mensajes.find((y) => y.id === id);
+  if (!m) return;
+  const previo = st.mensajes[st.mensajes.indexOf(m) - 1];
+  await actualizarMeta(id, { conformidad: si ? 'si' : 'no' });
+  sb.from('so_signals').insert({ skill: m.meta?.artifactId ? 'FranciscoArtifact' : 'FranciscoIntent', signal: si ? 'acceptance' : 'correction', inferred: false,
+    artifact_id: m.meta?.artifactId ?? null, meta: { pedido: previo?.role === 'user' ? previo.content.slice(0, 300) : null } }).then(() => {}, () => {});
+  todosAv().forEach((a) => a.emocionar(si ? 'happy' : 'concerned'));
+  setTimeout(() => todosAv().forEach((a) => a.emocionar('neutral')), 4000);
+  if (!si) {
+    st.esperandoAjuste = { artifactId: m.meta?.artifactId ?? null };
+    abrirPanel({ foco: true });
+    $('texto').placeholder = 'Contame qué querés distinto (por ejemplo: "en barras", "sólo web", "sin decimales")';
+  }
+  pintarMensajes();
 }
 
 function pintarMensajes() {
@@ -752,6 +786,7 @@ function pintarMensajes() {
   cont.querySelectorAll('.gu-file[data-file]').forEach((n) => n.querySelectorAll('[data-gf]').forEach((b) => b.addEventListener('click', () => accionArchivo(b.dataset.gf, n.dataset.file, b))));
   cont.querySelectorAll('[data-gu-accion]').forEach((b) => b.addEventListener('click', () => accionUI(b.dataset.guAccion, JSON.parse(b.dataset.guDatos || '{}'), b)));
   cont.querySelectorAll('[data-fijar]').forEach((b) => b.addEventListener('click', () => fijarEnWorkspace(Number(b.dataset.fijar))));
+  cont.querySelectorAll('[data-conforme]').forEach((b) => b.addEventListener('click', () => responderConformidad(Number(b.dataset.conforme), b.dataset.si === '1')));
   conectarTarjetas(cont);
   cont.querySelectorAll('[data-undo]').forEach((b) => b.addEventListener('click', () => deshacerMensaje(Number(b.dataset.undo))));
   cont.querySelectorAll('[data-confirmar]').forEach((b) => b.addEventListener('click', () => resolverPreview(Number(b.dataset.confirmar), true)));
@@ -1192,6 +1227,10 @@ async function procesar(texto, { reintentoDe = null, adjuntosDirectos = null } =
     if (E.get().vista !== 'chat') abrirPanel({ foco: false });   // la respuesta tiene que verse, sin abandonar la superficie actual
     if (!reintentoDe) {
       const m = await guardarMensaje('user', texto, { ...contextoMeta(), ...(adjuntos.length ? { adjuntos } : {}) });
+      if (st.esperandoAjuste) {   // la corrección que pidió el usuario es su preferencia explícita (la usa la compactación)
+        sb.from('so_signals').insert({ skill: 'FranciscoArtifact', signal: 'preference', inferred: false, artifact_id: st.esperandoAjuste.artifactId, meta: { value: texto.slice(0, 300) } }).then(() => {}, () => {});
+        st.esperandoAjuste = null;
+      }
       if (adjuntos.length) await D.asociarMensaje(adjuntos, m.id);
     }
     const s = E.get();

@@ -237,6 +237,10 @@ export function interpretar(texto, ctx = {}) {
   const renom = original.match(/(?:cambiale el nombre|renombralo|renombrala|llamalo|llamala)\s*(?:a|como)?\s*["“]?([^"”]+?)["”]?\s*$/i);
   if (renom) return art ? { tipo: 'renombrar', artefactoId: art.id, nombre: renom[1].trim().slice(0, 120) } : { tipo: 'falta_artefacto' };
 
+  // "Cambiá a barras", "mostralo en líneas", "pasalo a torta": cambio de tipo de gráfico del tablero en contexto.
+  const tipoG = n.match(/\b(?:cambia\w*|mostra\w*|pasa\w*|ponelo|ponela|verlo|verla|quiero verlo)\b.*?\b(?:en |a |como )?(?:grafico de |un grafico de )?(barras?|lineas?|torta)\b/);
+  if (tipoG && !/\b(agregale|agrega|sumale)\b/.test(n)) return art ? { tipo: 'grafico', artefactoId: art.id, grafico: tipoG[1].startsWith('barra') ? 'bar' : tipoG[1].startsWith('torta') ? 'pie' : 'line' } : { tipo: 'falta_artefacto' };
+
   if (/\b(agregale|agrega|agregar|sumale|anadile|anadi|incorpora)\b/.test(n)) {
     if (!art) return { tipo: 'falta_artefacto' };
     const g = n.match(/\bgrafico de (barras?|lineas?|torta)\b/);
