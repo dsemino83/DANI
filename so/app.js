@@ -367,7 +367,7 @@ function pintarWorkspace() {
   const visibles = todos.filter((a) => st.menu.get(a.id)?.status !== 'hidden');
   const archivados = st.artefactos.filter((a) => a.state === 'archived');
   // Campo de escritura real (como en Personal): Enter se lo pasa a Francisco, que decide qué hacer.
-  const cmd = `<form class="comando" data-ws="comando" role="search">${icono('chispa')}<input type="text" name="pedido" autocomplete="off" placeholder="Escribile a Francisco: creá, analizá, abrí o buscá lo que necesites…" aria-label="Pedirle algo a Francisco"><kbd title="También con Ctrl+K">⌘K</kbd></form>`;
+  const cmd = `<form class="comando" data-ws="comando" role="search"><button type="button" class="adjuntar" data-ws="adjuntar" aria-label="Adjuntar archivos" title="Adjuntar archivos (también podés soltarlos en cualquier lugar)">+</button><input type="text" name="pedido" autocomplete="off" placeholder="Escribile a Francisco: creá, analizá, abrí o buscá lo que necesites…" aria-label="Pedirle algo a Francisco"><kbd title="También con Ctrl+K">⌘K</kbd></form>`;
   avatares.grande = null;
   if (!todos.length && !archivados.length) {
     h.innerHTML = `<div class="ws-vacio"><span id="avatarGrande"></span>
@@ -421,6 +421,8 @@ function pintarHome() { if (E.get().modo === 'work' && E.get().vista === 'home')
 function pedirAFrancisco(texto) { abrirPanel({ foco: false }); $('texto').value = texto; $('formChat').requestSubmit(); }
 
 function conectarComando(h) {
+  // El selector de archivos se abre en el mismo clic (si no, el navegador lo bloquea); los adjuntos van a la bandeja de Francisco.
+  h.querySelector('[data-ws="adjuntar"]')?.addEventListener('click', () => { $('inpArchivos').click(); abrirPanel({ foco: false }); });
   h.querySelector('[data-ws="comando"]')?.addEventListener('submit', (e) => {
     e.preventDefault();
     const t = e.target.elements.pedido.value.trim();
