@@ -172,8 +172,8 @@ E.sub((s) => {
 // ---------------------------------------------------------------- datos del workspace
 async function cargarProyectos() {
   if (E.get().modo !== 'work') { E.set({ proyectoId: null }); return; }
-  st.proyectos = await q(sb.from('so_projects').select('id, name, memory, updated_at').eq('mode', 'work').order('created_at'));
-  if (!st.proyectos.length) st.proyectos = [await q(sb.from('so_projects').insert({ name: 'Trabajo', mode: 'work' }).select('id, name, memory, updated_at').single())];
+  st.proyectos = await q(sb.from('so_espacios').select('id, name, memoria, updated_at').eq('mode', 'work').order('created_at'));
+  if (!st.proyectos.length) st.proyectos = [await q(sb.from('so_espacios').insert({ name: 'Trabajo', mode: 'work' }).select('id, name, memoria, updated_at').single())];
   const preferido = st.resume?.proyectoId && st.proyectos.some((p) => p.id === st.resume.proyectoId) ? st.resume.proyectoId : st.proyectos[0].id;
   if (!st.proyectos.some((p) => p.id === E.get().proyectoId)) E.set({ proyectoId: preferido });
 }
@@ -1468,7 +1468,7 @@ async function ejecutar(acc, texto = '') {
     }
     case 'proyecto_crear': {
       actividad('creando');
-      const p = await q(sb.from('so_projects').insert({ name: acc.nombre, mode: 'work' }).select('id, name, memory, updated_at').single());
+      const p = await q(sb.from('so_espacios').insert({ name: acc.nombre, mode: 'work' }).select('id, name, memoria, updated_at').single());
       st.proyectos.push(p);
       await cambiarProyecto(p.id);
       return { texto: `Creé el proyecto "${p.name}" y estamos trabajando ahí. Lo que crees ahora queda en este proyecto.`, meta: { estado: 'verificado' } };

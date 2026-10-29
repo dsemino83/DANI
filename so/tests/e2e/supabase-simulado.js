@@ -26,7 +26,8 @@
     const s = db.so_shares.find((x) => x.artifact_id === aid && !x.revoked_at && x.grantee_email.toLowerCase() === user().email && a.state === 'published');
     return s ? s.permission : null;
   }
-  function builder(table) {
+  function builder(tabla) {
+    const table = tabla === 'so_espacios' ? 'so_projects' : tabla;   // la vista so_espacios es so_projects con RLS (memory → memoria)
     const st = { op: 'select', filters: [], row: null, single: false, maybe: false, order: [], head: false, count: false, upsert: null, limit: null };
     const visible = (r) => !ownerTables.has(table) || (table === 'so_obs' ? true : r.owner_id === user().id) || (table === 'so_user_state' && r.owner_id === user().id);
     const run = () => {
