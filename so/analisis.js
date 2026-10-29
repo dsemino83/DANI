@@ -115,3 +115,47 @@ export function analizar(records, fields, hoy) {
   return { ...c, texto: `${c.texto} El mejor mes registrado es ${nombreMes(mesMax)} (${fmt.format(max)}).`,
     evidencia: { ...c.evidencia, registros: records.length, meses: meses.length } };
 }
+
+/**
+ * Insights útiles (no obviedades), ordenados por impacto × confianza × relevancia. Como máximo `max`.
+ * Solo se generan si hay contra qué comparar; nunca "septiembre tiene datos de septiembre".
+ * @returns {{ id: string, titulo: string, texto: string, tono: 'sube'|'baja'|'neutro', score: number }[]}
+ */
+export function insights(records, campo, cat, est = {}, hoy, max = 2) {
+  if (!campo || !records.length) return [];
+  const meses = mesesConDatos(records);
+  if (meses.length < 2) return [];
+  const mesA = est.hasta || est.desde || meses.at(-1);
+  const mesB = est.comparar || mesAnterior(mesA);
+  if (!meses.includes(mesA) || !meses.includes(mesB)) return [];
+  const c = comparar(records, campo, mesA, mesB, cat, hoy);
+  const conf = c.confianza.nivel === 'confirmado' ? 1 : 0.6;
+  const out = [];
+  const lbl = campo.label || campo.key;
+  if (c.variacion != null && Math.abs(c.variacion) >= 0.01) {
+    const baja = c.delta < 0;
+    const p = c.aportes[0];
+    const parte = p && Math.sign(p.delta) === Math.sign(c.delta) ? p.delta / c.delta : 0;
+    const explica = parte >= 0.3 && cat ? ` ${cat.label || cat.key} "${p.categoria}" explica ${fmt.format(Math.round(parte * 100))}% de ${baja ? 'la caída' : 'la suba'}.` : '';
+    out.push({ id: 'variacion', tono: baja ? 'baja' : 'sube', score: Math.min(1, Math.abs(c.variacion) * 4) * conf * (explica ? 1 : 0.8),
+      titulo: `${lbl} ${baja ? '↓' : '↑'} ${fmt.format(Math.abs(c.variacion * 100))}%`,
+      texto: `${nombreMes(mesA)} vs. ${nombreMes(mesB)}: ${fmt.format(c.a.total)} contra ${fmt.format(c.b.total)}.${explica}` });
+  }
+  if (cat) {
+    const m = new Map();
+    let tot = 0;
+    for (const r of records) if (String(r.period).slice(0, 7) === mesA && Number.isFinite(Number(r.data?.[campo.key]))) {
+      const k = String(r.data?.[cat.key] ?? 'Sin dato'); const v = Number(r.data[campo.key]); m.set(k, (m.get(k) || 0) + v); tot += v;
+    }
+    const top = [...m.entries()].sort((a, b) => b[1] - a[1])[0];
+    if (top && m.size >= 2 && tot > 0 && top[1] / tot >= 0.5) {
+      out.push({ id: 'concentracion', tono: 'neutro', score: (top[1] / tot - 0.4) * conf,
+        titulo: `${top[0]} concentra ${fmt.format(Math.round((top[1] / tot) * 100))}%`, texto: `De ${lbl} en ${nombreMes(mesA)} (${m.size} ${cat.label || cat.key} con datos).` });
+    }
+  }
+  const totales = meses.map((x) => totalMes(records, campo.key, x).total);
+  const iA = meses.indexOf(mesA);
+  if (meses.length >= 3 && totales[iA] === Math.max(...totales)) out.push({ id: 'record', tono: 'sube', score: 0.35 * conf, titulo: `Mejor mes registrado`, texto: `${nombreMes(mesA)} supera a los ${meses.length - 1} meses anteriores con datos.` });
+  else if (meses.length >= 3 && totales[iA] === Math.min(...totales)) out.push({ id: 'record', tono: 'baja', score: 0.35 * conf, titulo: `Mes más bajo registrado`, texto: `${nombreMes(mesA)} queda por debajo de los otros ${meses.length - 1} meses con datos.` });
+  return out.sort((x, y) => y.score - x.score).slice(0, max);
+}

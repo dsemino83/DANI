@@ -55,16 +55,39 @@ function svgFrancisco(modo) {
   </svg>`;
 }
 
+// AssetCache: un solo manifiesto compartido por todos los avatares; las imágenes de cada modo se precargan una vez.
+let global = null;
+const vivos = new Set();
+const precargadas = new Set();
+function precargar(m, modo) {
+  if (!m?.[modo] || precargadas.has(modo) || typeof Image === 'undefined') return;
+  precargadas.add(modo);
+  for (const src of Object.values(m[modo])) { const i = new Image(); i.decoding = 'async'; i.src = src; }
+}
+export function usarManifest(m) {
+  if (!m || !EMOCIONES.every((e) => m.work?.[e] && m.personal?.[e])) return false;   // incompleto → seguimos con el SVG local
+  global = m;
+  vivos.forEach((f) => f());
+  return true;
+}
+export async function cargarManifest(url = new URL('avatar/manifest.json', import.meta.url).href) {
+  try { const r = await fetch(url, { cache: 'force-cache' }); return r.ok ? usarManifest(await r.json()) : false; } catch { return false; }
+}
+
 export function crearAvatar(nodo, { modo = 'work', manifest = null } = {}) {
-  let fase = 'idle', emocion = 'neutral', tFase = null;
+  let fase = 'idle', emocion = 'neutral', tFase = null, fallo = false;
+  const man = () => (fallo ? null : manifest || global);
   nodo.classList.add('francisco');
   nodo.setAttribute('role', 'img');
+  const repintar = () => { if (nodo.isConnected || !nodo.ownerDocument) pintarModo(modo); else vivos.delete(repintar); };
+  vivos.add(repintar);
 
   function pintarModo(m) {
     modo = m;
     nodo.dataset.modo = m;
-    if (manifest?.[m]) {
-      nodo.innerHTML = `<img class="fr-img" alt="" src="">`;
+    if (man()?.[m]) {
+      precargar(man(), m);
+      nodo.innerHTML = `<img class="fr-img" alt="" src="" decoding="async">`;
     } else {
       nodo.innerHTML = svgFrancisco(m);
     }
@@ -76,8 +99,8 @@ export function crearAvatar(nodo, { modo = 'work', manifest = null } = {}) {
     nodo.setAttribute('aria-label', `Francisco (${emocion})`);
     const img = nodo.querySelector('.fr-img');
     if (img) {
-      const src = manifest[modo][emocion] || manifest[modo].neutral;
-      img.onerror = () => { manifest = null; pintarModo(modo); };   // cached → static → local fallback
+      const src = man()[modo][emocion] || man()[modo].neutral;
+      img.onerror = () => { fallo = true; pintarModo(modo); };   // cached → static → local fallback
       if (img.getAttribute('src') !== src) img.src = src;
       return;
     }

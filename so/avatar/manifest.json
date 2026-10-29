@@ -1,0 +1,36 @@
+{
+ "version": 1,
+ "generado": "2026-10-29",
+ "proveedor": "OpenArt · Nano Banana 2 (image2image)",
+ "nota": "Francisco adulto (~30 años) a partir de una foto de referencia. work = científico; personal = casual. Imágenes en el CDN de OpenArt; si no cargan, el avatar usa el SVG local.",
+ "work": {
+  "neutral": "https://cdn.openart.ai/openart/thumbnail/production/2026-10/create-image/S4cRISBJdQIP8OeAvmoc/image_1793279519511_5a0f7d03_1793279520134_0d7c90cf.webp",
+  "listening": "https://cdn.openart.ai/openart/thumbnail/production/2026-10/create-image/S4cRISBJdQIP8OeAvmoc/image_1793279527111_677c19eb_1793279527525_50952de2.webp",
+  "thinking": "https://cdn.openart.ai/openart/thumbnail/production/2026-10/create-image/S4cRISBJdQIP8OeAvmoc/image_1793279526892_6a1d46c8_1793279527294_1931165a.webp",
+  "understanding": "https://cdn.openart.ai/openart/thumbnail/production/2026-10/create-image/S4cRISBJdQIP8OeAvmoc/image_1793279531299_5a3b4793_1793279531823_d6dec5a1.webp",
+  "happy": "https://cdn.openart.ai/openart/thumbnail/production/2026-10/create-image/S4cRISBJdQIP8OeAvmoc/image_1793279536288_8d692ff6_1793279536542_3670f4a2.webp",
+  "excited": "https://cdn.openart.ai/openart/thumbnail/production/2026-10/create-image/S4cRISBJdQIP8OeAvmoc/image_1793279599789_2dcfdd2d_1793279600335_58193696.webp",
+  "curious": "https://cdn.openart.ai/openart/thumbnail/production/2026-10/create-image/S4cRISBJdQIP8OeAvmoc/image_1793279541714_a87ba49b_1793279541943_15a03987.webp",
+  "focused": "https://cdn.openart.ai/openart/thumbnail/production/2026-10/create-image/S4cRISBJdQIP8OeAvmoc/image_1793279542310_faee0f0f_1793279542525_41452a80.webp",
+  "concerned": "https://cdn.openart.ai/openart/thumbnail/production/2026-10/create-image/S4cRISBJdQIP8OeAvmoc/image_1793279546585_dd6f12ec_1793279547069_fab1617f.webp",
+  "surprised": "https://cdn.openart.ai/openart/thumbnail/production/2026-10/create-image/S4cRISBJdQIP8OeAvmoc/image_1793279547895_8beb8e11_1793279548189_1946f218.webp",
+  "confused": "https://cdn.openart.ai/openart/thumbnail/production/2026-10/create-image/S4cRISBJdQIP8OeAvmoc/image_1793279603529_da619277_1793279603808_c802e14e.webp",
+  "success": "https://cdn.openart.ai/openart/thumbnail/production/2026-10/create-image/S4cRISBJdQIP8OeAvmoc/image_1793279554299_0f091c04_1793279554617_f37e7bed.webp",
+  "error": "https://cdn.openart.ai/openart/thumbnail/production/2026-10/create-image/S4cRISBJdQIP8OeAvmoc/image_1793279556555_bb9b6cf1_1793279556776_276c116a.webp"
+ },
+ "personal": {
+  "neutral": "https://cdn.openart.ai/openart/thumbnail/production/2026-10/create-image/S4cRISBJdQIP8OeAvmoc/image_1793279606892_74ee33dd_1793279607870_e5d17f5f.webp",
+  "listening": "https://cdn.openart.ai/openart/thumbnail/production/2026-10/create-image/S4cRISBJdQIP8OeAvmoc/image_1793279609561_9de8e6f7_1793279610797_e050b346.webp",
+  "thinking": "https://cdn.openart.ai/openart/thumbnail/production/2026-10/create-image/S4cRISBJdQIP8OeAvmoc/image_1793279613379_f380f4f8_1793279613604_debcd7f0.webp",
+  "understanding": "https://cdn.openart.ai/openart/thumbnail/production/2026-10/create-image/S4cRISBJdQIP8OeAvmoc/image_1793279618050_d053d3c0_1793279618337_34dafb38.webp",
+  "happy": "https://cdn.openart.ai/openart/thumbnail/production/2026-10/create-image/S4cRISBJdQIP8OeAvmoc/image_1793279662358_cf99281a_1793279662787_d3c5e0fb.webp",
+  "excited": "https://cdn.openart.ai/openart/thumbnail/production/2026-10/create-image/S4cRISBJdQIP8OeAvmoc/image_1793279622484_4463bd08_1793279622707_6c451d24.webp",
+  "curious": "https://cdn.openart.ai/openart/thumbnail/production/2026-10/create-image/S4cRISBJdQIP8OeAvmoc/image_1793279665102_dcd46cf1_1793279665465_6402d9a0.webp",
+  "focused": "https://cdn.openart.ai/openart/thumbnail/production/2026-10/create-image/S4cRISBJdQIP8OeAvmoc/image_1793279670566_b0c7d226_1793279670771_a5788caa.webp",
+  "concerned": "https://cdn.openart.ai/openart/thumbnail/production/2026-10/create-image/S4cRISBJdQIP8OeAvmoc/image_1793279671062_93281092_1793279671320_2f28240f.webp",
+  "surprised": "https://cdn.openart.ai/openart/thumbnail/production/2026-10/create-image/S4cRISBJdQIP8OeAvmoc/image_1793279673179_3b664804_1793279673558_ee95aac9.webp",
+  "confused": "https://cdn.openart.ai/openart/thumbnail/production/2026-10/create-image/S4cRISBJdQIP8OeAvmoc/image_1793279681101_686f32d1_1793279681314_46f7358d.webp",
+  "success": "https://cdn.openart.ai/openart/thumbnail/production/2026-10/create-image/S4cRISBJdQIP8OeAvmoc/image_1793279682155_73a02582_1793279682420_3090b685.webp",
+  "error": "https://cdn.openart.ai/openart/thumbnail/production/2026-10/create-image/S4cRISBJdQIP8OeAvmoc/image_1793279685174_3eaff1e5_1793279685575_5a5c1403.webp"
+ }
+}
