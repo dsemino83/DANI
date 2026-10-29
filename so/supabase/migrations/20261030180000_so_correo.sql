@@ -101,12 +101,14 @@ create or replace function public.so_correo_leer_token(p_cuenta uuid) returns te
 language sql stable security definer set search_path = public, vault as $$
   select ds.decrypted_secret from public.so_mail_accounts c join vault.decrypted_secrets ds on ds.id = c.token_ref where c.id = p_cuenta;
 $$;
+-- Al desconectar: el permiso ya se revocó en Google; acá el valor guardado se reemplaza por uno aleatorio inservible y
+-- la cuenta deja de apuntarlo (sin DELETE: no se pierde nada recuperable y no queda un token válido).
 create or replace function public.so_correo_borrar_token(p_cuenta uuid) returns void
-language plpgsql security definer set search_path = public, vault as $$
+language plpgsql security definer set search_path = public, vault, extensions as $$
 declare ref uuid;
 begin
   select token_ref into ref from public.so_mail_accounts where id = p_cuenta;
-  if ref is not null then delete from vault.secrets where id = ref; end if;
+  if ref is not null then perform vault.update_secret(ref, encode(gen_random_bytes(32), 'hex')); end if;
   update public.so_mail_accounts set token_ref = null where id = p_cuenta;
 end;
 $$;
