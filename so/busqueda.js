@@ -14,7 +14,7 @@ export function puntaje(consulta, texto) {
     if (c === ' ') continue;
     const j = t.indexOf(c, previo + 1);
     if (j < 0) return 0;
-    salto += previo >= 0 ? j - previo - 1 : j;
+    salto += previo >= 0 ? j - previo - 1 : (j === 0 || t[j - 1] === ' ' ? 0 : Math.min(j, 10));   // empezar en una palabra no penaliza
     previo = j; i++;
   }
   return Math.max(1, 50 - salto * 2 - Math.min(20, t.length / 10));
@@ -32,6 +32,7 @@ export function rankear(consulta, items, ahora = Date.now()) {
     const dias = it.fecha ? (ahora - new Date(it.fecha).getTime()) / 864e5 : 365;
     const recencia = 20 / (1 + Math.max(0, dias));
     const frecuencia = Math.min(15, Math.log2(1 + (it.frecuencia || 0)) * 5);
-    return { ...it, score: rel + recencia + frecuencia + (it.favorito ? 10 : 0) };
+    // El Workspace es el catálogo: a igual relevancia, un artefacto va antes que un archivo o una conversación.
+    return { ...it, score: rel + recencia + frecuencia + (it.favorito ? 10 : 0) + (it.tipo === 'artefacto' ? 8 : 0) };
   }).filter(Boolean).sort((a, b) => b.score - a.score);
 }

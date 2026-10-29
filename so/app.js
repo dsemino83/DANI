@@ -34,7 +34,7 @@ const E = crearEstado({ modo: ls.get('so.modo') === 'personal' ? 'personal' : 'w
 const st = {
   user: null, proyectos: [], chats: [], chatId: null, mensajes: [], artefactos: [], menu: new Map(), compartidos: [],
   tareas: [], avisos: [], datos: new Map(), archivos: new Map(), ocupado: false, lastVisit: null, firstSeen: null, resume: null,
-  inicio: performance.now(), tabCentro: 'tareas', preferencias: {},
+  inicio: performance.now(), tabCentro: 'tareas', preferencias: {}, panel: 'cerrado',
 };
 
 // Íconos: un único sistema (iconos.js). Los botones de solo ícono ya tienen aria-label y title en el HTML.
@@ -275,7 +275,7 @@ function abrirPanel({ foco = true } = {}) {
   if (E.get().vista !== 'chat') panel('abierto');
   if (foco) setTimeout(() => $('texto').focus(), 0);
 }
-$('orb').onclick = () => (st.panel !== 'cerrado' && E.get().vista !== 'chat' ? panel('cerrado') : abrirPanel());
+$('orb').onclick = () => (['abierto', 'compacto'].includes(st.panel) && E.get().vista !== 'chat' ? panel('cerrado') : abrirPanel());
 $('cerrarPanel').onclick = () => {
   if (E.get().vista === 'chat') location.hash = E.get().modo === 'work' ? '#/' : '#/';
   else { panel('cerrado'); $('orb').focus(); }
@@ -664,7 +664,7 @@ function pintarSugerencias() {
   const vacio = !st.mensajes.length;
   if (s.seleccion) sug = ['¿Por qué cambió esto?', 'Comparalo con el mes anterior'];
   else if (s.artefactoId && vacio) sug = ['Analizá este tablero', 'Compará con el mes anterior', 'Compartí este tablero'];
-  else if (vacio && s.vista === 'home') {
+  else if (vacio && (s.vista === 'home' || s.vista === 'chat') && !s.artefactoId) {
     sug = s.modo === 'work'
       ? (st.artefactos.length ? ['Analizá mis ventas', 'Compará estos períodos', 'Creá una herramienta para…', 'Abrí el dashboard que usamos ayer']
         : ['Creá un dashboard de ventas con histórico', 'Analizá mis ventas', 'Guardá este histórico', 'Creá una herramienta para…', 'Compartí este dashboard'])
@@ -1294,7 +1294,8 @@ async function ejecutar(acc, texto = '') {
       if (acc.cuando != null) {
         const dia = new Date(); dia.setDate(dia.getDate() - acc.cuando);
         const clave = dia.toLocaleDateString('sv');
-        const cand = recientes(50).filter(({ m }) => m.last_opened_at && new Date(m.last_opened_at).toLocaleDateString('sv') === clave)
+        const delDia = new Set((ls.get('so.aperturas') || []).filter((x) => new Date(x.at).toLocaleDateString('sv') === clave).map((x) => x.id));
+        const cand = recientes(50).filter(({ a, m }) => delDia.has(a.id) || (m.last_opened_at && new Date(m.last_opened_at).toLocaleDateString('sv') === clave))
           .sort((x, y) => (y.m.open_count || 0) - (x.m.open_count || 0));
         destino = acc.cuando === 0 ? recientes(1)[0]?.a : cand[0]?.a;
         if (!destino) return { texto: `No encontré tableros abiertos ${acc.cuando === 1 ? 'ayer' : 'ese día'}. Los más recientes: ${recientes(3).map(({ a }) => a.name).join(', ') || 'ninguno'}.` };
@@ -1491,7 +1492,13 @@ async function abrirArtefacto(id, { forzar = false } = {}) {
   if (!forzar && st.menu.get(id) && !st.abiertos?.has(id)) {
     (st.abiertos ||= new Set()).add(id);
     sb.rpc('so_abrir_artefacto', { p_artifact: id }).then(() => {}, () => {});
-    const m = st.menu.get(id); m.last_opened_at = new Date().toISOString();
+    const m = st.menu.get(id);
+    // Historial de aperturas (en este dispositivo): "el que usamos ayer" sigue resolviendo aunque hoy se haya abierto otra vez.
+    const hist = (ls.get('so.aperturas') || []).filter((x) => x.at > new Date(Date.now() - 30 * 864e5).toISOString());
+    if (m.last_opened_at) hist.push({ id, at: m.last_opened_at });
+    m.last_opened_at = new Date().toISOString();
+    hist.push({ id, at: m.last_opened_at });
+    ls.set('so.aperturas', hist.slice(-300));
     if ((m.open_count || 0) > 0) evento('artifact_reuse');
     m.open_count = (m.open_count || 0) + 1;
   }
@@ -1894,7 +1901,7 @@ $('abrirPaleta').onclick = () => abrirPaleta();
 document.addEventListener('keydown', (e) => {
   if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k' && !$('app').hidden) { e.preventDefault(); $('paleta').open ? $('paleta').close() : abrirPaleta(); return; }
   if (e.key !== 'Escape' || $('paleta').open || $('centro').open || $('hoja').open || document.querySelector('dialog[open]') || !$('menuFlotante').hidden) return;
-  if (st.panel !== 'cerrado' && E.get().vista !== 'chat') { panel('cerrado'); $('orb').focus(); return; }
+  if (['abierto', 'compacto'].includes(st.panel) && E.get().vista !== 'chat') { panel('cerrado'); $('orb').focus(); return; }
   if (st.foco) { salirFoco(); return; }
   const exp = $('vistaHome').querySelector('.lcard.expandida');
   if (exp) cerrarVistazo(exp.dataset.art);

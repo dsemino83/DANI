@@ -71,13 +71,18 @@ const { srv, BASE } = crearServidor({ puerto: 8768, root, dir, tmp, extra: (p, r
 
 const b = await chromium.launch();
 const ctx = await b.newContext({ viewport: { width: 1360, height: 900 }, acceptDownloads: true });
+const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64');
+await ctx.route('https://cdn.openart.ai/**', (r) => r.fulfill({ status: 200, contentType: 'image/webp', body: PNG }));   // avatar OpenArt (sin internet en el sandbox)
 const pg = await ctx.newPage();
 const errores = []; pg.on('pageerror', (e) => errores.push(e.message)); pg.on('console', (m) => m.type() === 'error' && !/403|404|503|Failed to load resource/.test(m.text()) && errores.push(m.text()));
 pg.on('dialog', (dlg) => dlg.accept());
 const fallos = []; let pasos = 0; const medidas = {};
 const ok = (c, msg) => { if (!c) fallos.push(msg); console.log(`${c ? '✔' : '✘'} ${msg}`); };
 const listo = () => pg.waitForFunction(() => !document.getElementById('enviar').disabled, null, { timeout: 120000 });
-const decir = async (t) => { pasos++; await pg.fill('#texto', t); await pg.press('#texto', 'Enter'); await pg.waitForTimeout(100); await listo(); await pg.waitForTimeout(250); };
+const asegurarPanel = async () => { if (!(await pg.isVisible('#texto'))) { await pg.click('#orb'); await pg.waitForSelector('#texto', { state: 'visible' }); } };
+const abrirDatos = async () => { await pg.click('[data-aa="mas"]'); await pg.click('[data-mi="datos"]'); await pg.waitForSelector('#hoja[open] #datosCuerpo'); };
+const cerrarHoja = async () => { if (await pg.$eval('#hoja', (n) => n.open)) await pg.click('#cerrarHoja'); };
+const decir = async (t) => { pasos++; await cerrarHoja(); await asegurarPanel(); await pg.fill('#texto', t); await pg.press('#texto', 'Enter'); await pg.waitForTimeout(100); await listo(); await pg.waitForTimeout(250); };
 const ultimo = () => pg.$eval('#mensajes .msg.assistant:last-of-type', (n) => n.textContent.replace(/\s+/g, ' ').trim());
 const db = () => pg.evaluate(() => window.__db());
 const adjuntar = async (...files) => {
@@ -161,8 +166,8 @@ await pg.keyboard.press('Escape');
 journey('C');
 
 // ---------- D — tablero + CSV desde "Datos y fuentes" (vista previa → mapeo → importar → refrescar)
-await pg.click('#mensajes .msg:last-child .tarjeta-art a.primario'); await pg.waitForSelector('.kpis'); pasos++;
-await pg.click('#panelDatos summary'); pasos++; await pg.waitForTimeout(400);
+await pg.click('#mensajes .msg:last-child .msg-card a.primario'); await pg.waitForSelector('.kpis'); pasos++;
+await abrirDatos(); pasos++; await pg.waitForTimeout(400);
 await pg.setInputFiles('#datosCuerpo [data-subir]', F.oct); pasos++;
 await pg.waitForSelector('#dlgImportar[open] .resumen-import', { timeout: 20000 }); await pg.waitForTimeout(300);
 ok(/Se incorporarán 30 registros; 2 necesitan revisión/.test(await pg.textContent('#formImportar .resumen-import')), 'D: vista previa con conteos antes de importar');
@@ -178,6 +183,7 @@ await pg.setInputFiles('#datosCuerpo [data-subir]', F.oct); pasos++;
 await pg.waitForSelector('#dlgImportar[open] .alerta-txt', { timeout: 20000 });
 ok(/parece haber sido importado anteriormente/.test(await pg.textContent('#formImportar')), 'I: mismo archivo detectado como importado antes (vista previa)');
 await pg.click('#formImportar [data-cerrar]');
+await cerrarHoja();
 await adjuntar(F.oct);
 await decir('Sumá estos datos a este dashboard');
 t = await ultimo();
@@ -224,11 +230,10 @@ const api = d.so_api_sources.find((x) => x.base_url.includes('api.ejemplo.com') 
 ok(api && api.response_mapping.asignaciones.length >= 2 && api.auth_ref == null && !JSON.stringify(api).includes('secret'), 'F: configuración sin secretos y con mapeo');
 diaApi = 2;
 await pg.evaluate((id) => { const db = window.__db(); db.so_api_sources.find((x) => x.id === id).last_sync_at = new Date(Date.now() - 120000).toISOString(); localStorage.setItem('fake.db', JSON.stringify(db)); }, api.id);
-ok(/vista-chat/.test(await pg.getAttribute('#app', 'class')), 'UX: al pedir algo desde Inicio se ve la respuesta');
-await pg.click('#mensajes .msg:last-child .tarjeta-art a.primario'); await pg.waitForSelector('.kpis'); pasos++;
+ok(/panel-abierto/.test(await pg.getAttribute('#app', 'class')) && /vista-home/.test(await pg.getAttribute('#app', 'class')), 'UX: al pedir algo desde el Workspace la respuesta se ve sin abandonarlo');
+await pg.click('#mensajes .msg:last-child .msg-card a.primario'); await pg.waitForSelector('.kpis'); pasos++;
 ok(/Registros\s*3/.test(await pg.textContent('.kpis')), 'F: el tablero muestra los datos de la API');
-const abierto = await pg.$eval('#panelDatos', (n) => n.open);
-if (!abierto) await pg.click('#panelDatos summary');
+await abrirDatos();
 await pg.waitForSelector('#datosCuerpo [data-sync]');
 await pg.click('#datosCuerpo [data-sync]'); pasos++;
 await pg.waitForTimeout(1200);
@@ -299,7 +304,7 @@ journey('K');
 
 // ---------- búsqueda de archivos y referencias naturales
 await pg.keyboard.press('Control+k'); await pg.keyboard.type('mayoristas'); await pg.waitForTimeout(700);
-ok(/📄 informe\.pdf/.test(await pg.textContent('#paletaLista')), 'Búsqueda: archivos por contenido');
+ok(/Archivos[\s\S]*informe\.pdf/.test(await pg.textContent('#paletaLista')), 'Búsqueda: archivos por contenido');
 await pg.keyboard.press('Escape');
 await decir('Analizá el pdf que subí hoy');
 if (process.env.SO_DEBUG) console.log('PDFDBG', await ultimo(), await pg.evaluate(() => [location.hash, document.getElementById('app').className, document.getElementById('menuWorkspace').innerHTML.slice(0, 400)]));
@@ -313,15 +318,16 @@ const artId = (await db()).so_artifacts.find((x) => x.name === 'Dashboard de ven
 const pg2 = await ctx.newPage(); pg2.on('pageerror', (e) => errores.push('shared: ' + e.message));
 await pg2.goto(BASE + '/so/'); await pg2.evaluate(() => localStorage.setItem('fake.user', 'b'));
 await pg2.goto(`${BASE}/so/shared/${artId}`); await pg2.waitForSelector('.kpis');
-ok(!(await pg2.isVisible('form.carga')), 'J: USE sin habilitación → no puede cargar datos');
+ok(!(await pg2.$('details.carga-det')), 'J: USE sin habilitación → no puede cargar datos');
 const ajenos = await pg2.evaluate(async (k) => (await fetch(`/fake-supa/storage/v1/object/so-archivos/${k}`, { headers: { Authorization: 'Bearer 00000000-0000-0000-0000-00000000000b' } })).status, pdfRow.storage_path);
 ok(ajenos === 403, 'J: el receptor no accede a los archivos fuente del dueño');
 await pg2.evaluate(() => localStorage.setItem('fake.user', 'a'));
-await pg.click('#panelDatos summary').catch(() => {});
-if (!(await pg.$eval('#panelDatos', (n) => n.open))) await pg.click('#panelDatos summary');
+if (await pg.isVisible('#panelFrancisco')) { await pg.keyboard.press('Escape'); await pg.waitForTimeout(200); }
+await abrirDatos();
 await pg.waitForSelector('#datosCuerpo [data-shared-input]'); await pg.check('#datosCuerpo [data-shared-input]'); await pg.waitForTimeout(500);
+await cerrarHoja();
 await pg2.evaluate(() => localStorage.setItem('fake.user', 'b')); await pg2.reload(); await pg2.waitForSelector('.kpis');
-ok(await pg2.isVisible('form.carga') && /cargar datos/.test(await pg2.textContent('#meta')), 'J: habilitado por el dueño → USE puede cargar');
+ok(await pg2.$('details.carga-det') !== null && /cargar datos/.test(await pg2.textContent('#meta')), 'J: habilitado por el dueño → USE puede cargar');
 await pg2.setInputFiles('form.carga input[data-r="csv"]', F.nov); await pg2.waitForTimeout(2500);
 ok(/25 registros incorporados/.test(await pg2.textContent('#artefacto')), 'J: el receptor importa un archivo (APPEND)');
 await pg2.setInputFiles('form.carga input[data-r="csv"]', F.nov); await pg2.waitForTimeout(2000);
@@ -329,17 +335,19 @@ ok(/importado anteriormente/.test(await pg2.textContent('#artefacto')), 'J/I: du
 await pg2.evaluate(() => localStorage.setItem('fake.user', 'a'));
 await decir('compartilo con ana@empresa.com solo lectura');
 await pg2.evaluate(() => localStorage.setItem('fake.user', 'b')); await pg2.reload(); await pg2.waitForSelector('.kpis');
-ok(!(await pg2.isVisible('form.carga')), 'J: VIEW nunca carga datos');
+ok(!(await pg2.$('details.carga-det')), 'J: VIEW nunca carga datos');
 await pg2.evaluate(() => localStorage.setItem('fake.user', 'a')); await pg2.close();
 journey('J');
 
 // ---------- móvil y accesibilidad
 await shot('i1-escritorio.png');
 await pg.setViewportSize({ width: 390, height: 800 }); await pg.waitForTimeout(300);
-await pg.click('#fab'); await pg.waitForTimeout(300);
+if (!(await pg.isVisible('#panelFrancisco'))) await pg.click('#orb'); await pg.waitForTimeout(300);
 const movil = await b.newContext({ viewport: { width: 390, height: 800 }, isMobile: true, hasTouch: true });
 const pm = await movil.newPage();
 await pm.goto(BASE + '/so/'); await pm.waitForSelector('#app:not([hidden])'); await pm.waitForTimeout(500);
+ok(!(await pm.isVisible('#panelFrancisco')) && await pm.isVisible('#orb'), 'Móvil: el Workspace primero; Francisco en el orbe');
+await pm.tap('#orb'); await pm.waitForSelector('#texto', { state: 'visible' }); await pm.waitForTimeout(400);   // fin de la transición del panel
 ok(await pm.isVisible('#adjuntar') && await pm.isVisible('#camara'), 'Móvil: adjuntar archivo y foto/cámara disponibles (pantalla táctil)');
 ok(!(await pm.evaluate(() => document.documentElement.scrollWidth > innerWidth)), 'Móvil táctil: sin scroll horizontal');
 ok(await pm.evaluate(() => { const r = document.getElementById('enviar').getBoundingClientRect(); return r.right <= innerWidth && r.left >= 0; }), 'Móvil táctil: Enviar entero dentro de la pantalla');
