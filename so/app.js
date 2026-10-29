@@ -170,9 +170,11 @@ E.sub((s) => {
 });
 
 // ---------------------------------------------------------------- datos del workspace
+// Filtro de modo sin el texto "eq.work" en la URL: algunos filtros de red locales bloquean ese pedido (403 en el
+// preflight). mode solo admite 'work' o 'personal', así que "distinto de personal" es exactamente "work".
 async function cargarProyectos() {
   if (E.get().modo !== 'work') { E.set({ proyectoId: null }); return; }
-  st.proyectos = await q(sb.from('so_espacios').select('id, name, memoria, updated_at').eq('mode', 'work').order('created_at'));
+  st.proyectos = await q(sb.from('so_espacios').select('id, name, memoria, updated_at').neq('mode', 'personal').order('created_at'));
   if (!st.proyectos.length) st.proyectos = [await q(sb.from('so_espacios').insert({ name: 'Trabajo', mode: 'work' }).select('id, name, memoria, updated_at').single())];
   const preferido = st.resume?.proyectoId && st.proyectos.some((p) => p.id === st.resume.proyectoId) ? st.resume.proyectoId : st.proyectos[0].id;
   if (!st.proyectos.some((p) => p.id === E.get().proyectoId)) E.set({ proyectoId: preferido });
@@ -220,7 +222,7 @@ function pintarMenu() {
 }
 
 async function cargarChats() {
-  st.chats = await q(sb.from('so_chats').select('id, title, mode, updated_at').eq('mode', E.get().modo).order('updated_at', { ascending: false }).limit(50));
+  st.chats = await q(sb.from('so_chats').select('id, title, mode, updated_at')[E.get().modo === 'work' ? 'neq' : 'eq']('mode', 'personal').order('updated_at', { ascending: false }).limit(50));
   $('listaChats').innerHTML = st.chats.slice(0, 6).map((c) => `<a href="#/c/${c.id}" ${c.id === st.chatId ? 'aria-current="page"' : ''}>${icono('conversacion')}<span>${esc(c.title)}</span></a>`).join('')
     || '<span class="vacio">Sin conversaciones todavía.</span>';
 }
