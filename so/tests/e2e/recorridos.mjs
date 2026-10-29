@@ -18,9 +18,17 @@ const csv = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'so-e2e-')), 'ventas
   filas.push('mal;xx;1;web');
   fs.writeFileSync(csv, filas.join('\n'));
 }
+const objetos = new Map();
 const srv = http.createServer((req, res) => {
   let p = decodeURIComponent(req.url.split('?')[0]);
   if (p.endsWith('valo/vendor/supabase.js')) return res.end(fs.readFileSync(path.join(dir, 'supabase-simulado.js')));
+  if (p === '/so/config.js') { res.setHeader('Content-Type', 'text/javascript'); return res.end("window.SO_SUPABASE = { url: 'http://localhost:8767/fake-supa', anonKey: 'publica' };"); }
+  if (p.startsWith('/fake-supa/storage/v1/object/so-archivos/')) {   // Storage simulado (carpeta por usuario)
+    const clave = p.slice('/fake-supa/storage/v1/object/so-archivos/'.length);
+    if (req.method === 'POST') { const partes = []; req.on('data', (c) => partes.push(c)); req.on('end', () => { objetos.set(clave, Buffer.concat(partes)); res.end('{}'); }); return; }
+    if (!objetos.has(clave)) { res.statusCode = 404; return res.end(); }
+    return res.end(objetos.get(clave));
+  }
   if (p.endsWith('/')) p += 'index.html';
   const f = path.join(root, p);
   if (!f.startsWith(root) || !fs.existsSync(f)) { res.statusCode = 404; res.setHeader('Content-Type', 'text/html'); return res.end(fs.readFileSync(root + '/404.html')); }
@@ -70,18 +78,18 @@ journey('A');
 await decir('Guardá este histórico');
 ok(/historial/.test(await ultimo()), 'B: "guardá el histórico" confirma persistencia');
 pasos++;
+// Importación desde el tablero: vista previa con mapeo → importar (las tareas largas en segundo plano se cubren en ingesta.mjs, K).
 await pg.setInputFiles('input[data-r="csv"]', csv);
-ok(/Actualizando|Creando|Analizando|/.test(await pg.textContent('#actividad')), 'E: la importación no bloquea el composer');
-await decir('¿qué dashboards tengo?');   // el usuario sigue trabajando mientras importa
-ok(/Tenés 1/.test(await ultimo()), 'E: el usuario siguió trabajando durante la tarea');
-await pg.waitForFunction(() => window.__db().so_tasks.some((t) => t.status === 'completed'), null, { timeout: 30000 });
-await pg.waitForTimeout(600);
-ok(!(await pg.$$eval('#mensajes .msg', (n) => n.some((x) => /Importé/.test(x.textContent)))), 'E: el resultado de la tarea no contamina el chat');
+await pg.waitForSelector('#dlgImportar[open] .resumen-import', { timeout: 20000 }); await pg.waitForTimeout(300);
+ok(/Se incorporarán 3\.000 registros; 1 necesitan revisión/.test(await pg.textContent('#formImportar .resumen-import')), 'E: vista previa antes de importar');
+await clic('#formImportar [value="importar"]');
+await pg.waitForFunction(() => !document.getElementById('dlgImportar').open, null, { timeout: 30000 }); await pg.waitForTimeout(600);
+await decir('¿qué dashboards tengo?');
+ok(/Tenés 1/.test(await ultimo()), 'E: el usuario sigue trabajando después de importar');
 ok(await pg.isVisible('#badgeCentro'), 'E: el centro de actividad indica novedades');
 await clic('#btnCentro');
-ok(/Finalizadas[\s\S]*Importar ventas\.csv[\s\S]*3000 filas importadas/.test(await pg.textContent('#centroCuerpo')), 'E: centro muestra tarea finalizada con resultado');
 await clic('[data-tab="avisos"]');
-ok(/Importé 3000 filas/.test(await pg.textContent('#centroCuerpo')), 'E: aviso de éxito en el centro de notificaciones');
+ok(/ventas\.csv: 3\.000 registros incorporados, 1 necesitan revisión/.test(await pg.textContent('#centroCuerpo')), 'E: aviso operativo en el centro de notificaciones (no en el chat)');
 await pg.keyboard.press('Escape'); await pg.waitForTimeout(200);
 journey('E');
 await pg.waitForSelector('.kpis');
@@ -122,6 +130,9 @@ await clic('#mensajes .msg:last-child [data-confirmar]');
 await pg.waitForTimeout(400);
 ok(await pg.evaluate(() => window.__db().so_shares.some((s) => s.grantee_email === 'jefe@empresa.com' && s.permission === 'EDIT')), 'D: confirmación ejecuta');
 const artId = await pg.evaluate(() => window.__db().so_artifacts[0].id);
+// Con USE, cargar datos requiere que el dueño lo habilite (Datos y fuentes).
+if (!(await pg.$eval('#panelDatos', (n) => n.open))) await pg.click('#panelDatos summary');
+await pg.waitForSelector('#datosCuerpo [data-shared-input]'); await pg.check('#datosCuerpo [data-shared-input]'); await pg.waitForTimeout(500); pasos++;
 const pg2 = await ctx.newPage(); pg2.on('pageerror', (e) => errores.push('shared: ' + e.message));
 await pg2.evaluate(() => 0);
 await pg2.goto(BASE + '/so/'); await pg2.evaluate(() => localStorage.setItem('fake.user', 'b'));

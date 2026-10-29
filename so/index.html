@@ -76,6 +76,10 @@
             <p class="vacio" id="linkCompartido"></p>
             <ul id="listaCompartidos"></ul>
           </section>
+          <details class="tarjeta datos" id="panelDatos">
+            <summary>Datos y fuentes</summary>
+            <div id="datosCuerpo"></div>
+          </details>
           <details class="tarjeta versiones" id="panelVersiones">
             <summary>Versiones</summary>
             <ul id="listaVersiones"></ul>
@@ -89,7 +93,12 @@
           <div class="composer">
             <div class="sugerencias" id="sugerencias"></div>
             <div class="contexto" id="contexto" aria-label="Contexto que usa Francisco"></div>
+            <div class="bandeja" id="bandeja" aria-label="Adjuntos del próximo mensaje"></div>
             <form class="entrada" id="formChat">
+              <button type="button" class="adjuntar" id="adjuntar" aria-label="Adjuntar archivos" title="Adjuntar archivos (también podés arrastrarlos o pegarlos)">+</button>
+              <button type="button" class="adjuntar camara" id="camara" aria-label="Tomar o elegir una foto" title="Foto o cámara">📷</button>
+              <input type="file" id="inpArchivos" multiple hidden>
+              <input type="file" id="inpCamara" accept="image/*" capture="environment" hidden>
               <textarea id="texto" rows="1" placeholder="¿Qué querés conseguir?" aria-label="Mensaje para Francisco"></textarea>
               <button class="primario" type="submit" id="enviar">Enviar</button>
             </form>
@@ -98,6 +107,7 @@
         </section>
       </div>
       <button type="button" class="fab" id="fab" aria-controls="panelFrancisco">💬 Francisco</button>
+      <div class="soltar" id="soltar" hidden><p>Soltá los archivos para adjuntarlos</p></div>
     </main>
   </div>
 
@@ -117,6 +127,10 @@
     <ul id="paletaLista" role="listbox"></ul>
     <p class="vacio paleta-ayuda">↑↓ para moverte · Enter para abrir · Esc para cerrar</p>
   </dialog>
+
+  <dialog class="dlg" id="dlgArchivo" aria-label="Vista previa del archivo"><div id="dlgArchivoCuerpo"></div></dialog>
+  <dialog class="dlg ancho" id="dlgImportar" aria-label="Importar datos"><form method="dialog" id="formImportar"></form></dialog>
+  <dialog class="dlg" id="dlgApi" aria-label="Conectar una API"><form method="dialog" id="formApi"></form></dialog>
 
   <script type="module" src="app.js"></script>
 </body>

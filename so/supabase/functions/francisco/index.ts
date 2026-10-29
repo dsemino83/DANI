@@ -36,7 +36,7 @@ Deno.serve(async (req) => {
   const { data: u } = await sb.auth.getUser();
   if (!u?.user) return json(401, { error: "unauthorized" });
 
-  let body: { chatId?: string; projectId?: string | null };
+  let body: { chatId?: string; projectId?: string | null; archivos?: string[] };
   try { body = await req.json(); } catch { return json(400, { error: "bad_json" }); }
   if (!body.chatId || !/^[0-9a-f-]{36}$/.test(body.chatId)) return json(400, { error: "chat_id" });
 
@@ -59,10 +59,40 @@ Deno.serve(async (req) => {
   while (mensajes.length && mensajes[0].role !== "user") mensajes.shift();
   if (!mensajes.length) return json(400, { error: "sin_mensaje" });
 
+  // Archivos: solo fragmentos relevantes (índice del servidor, con referencia de página/hoja) y hasta 3 imágenes.
+  const { data: conAdjuntos } = await sb.from("so_messages").select("meta").eq("chat_id", chat.id).not("meta->adjuntos", "is", null)
+    .order("id", { ascending: false }).limit(6);
+  const ids = [...new Set([...(body.archivos ?? []), ...(conAdjuntos ?? []).flatMap((m) => (m.meta?.adjuntos ?? []).map((a: { fileId: string }) => a.fileId))])]
+    .filter((x) => /^[0-9a-f-]{36}$/.test(x)).slice(0, 10);
+  let fragmentos = "";
+  const imagenes: { type: "image"; source: { type: "base64"; media_type: string; data: string } }[] = [];
+  if (ids.length) {
+    const pregunta = [...mensajes].reverse().find((m) => m.role === "user")?.content ?? "";
+    const [{ data: frs }, { data: archivos }] = await Promise.all([
+      sb.rpc("so_buscar_fragmentos", { p_files: ids, p_q: pregunta, p_limit: 6 }),
+      sb.from("so_files").select("id, original_name, kind, detected_type, storage_path, size").in("id", ids),
+    ]);
+    const nombre = Object.fromEntries((archivos ?? []).map((f) => [f.id, f.original_name]));
+    if (frs?.length) fragmentos = "Fragmentos relevantes de archivos adjuntos (citá la referencia):\n" + frs.map((f: { file_id: string; ref: Record<string, unknown>; content: string }) =>
+      `[${nombre[f.file_id] ?? "archivo"}${f.ref?.pagina ? `, página ${f.ref.pagina}` : f.ref?.hoja ? `, hoja ${f.ref.hoja}` : f.ref?.diapositiva ? `, diapositiva ${f.ref.diapositiva}` : ""}]\n${f.content}`).join("\n---\n");
+    for (const f of (archivos ?? []).filter((x) => x.kind === "image" && ["png", "jpeg", "gif", "webp"].includes(x.detected_type) && x.size <= 5 * 1024 * 1024).slice(0, 3)) {
+      const { data: blob } = await sb.storage.from("so-archivos").download(f.storage_path);
+      if (!blob) continue;
+      const bytes = new Uint8Array(await blob.arrayBuffer());
+      let bin = ""; for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+      imagenes.push({ type: "image", source: { type: "base64", media_type: `image/${f.detected_type}`, data: btoa(bin) } });
+    }
+    if (imagenes.length) {
+      const ult = mensajes.length - 1;
+      mensajes[ult] = { role: "user", content: [...imagenes, { type: "text", text: mensajes[ult].content as string }] as never };
+    }
+  }
+
   const estado = [
     chat.summary && Object.keys(chat.summary).length ? `Resumen compactado: ${JSON.stringify(chat.summary)}` : "",
     decisiones?.length ? `Decisiones: ${decisiones.map((d) => d.decision).join(" | ")}` : "",
     artefactos?.length ? `Artefactos del workspace: ${JSON.stringify(artefactos)}` : "",
+    fragmentos,
   ].filter(Boolean).join("\n");
 
   const key = Deno.env.get("ANTHROPIC_API_KEY");
@@ -89,7 +119,7 @@ Deno.serve(async (req) => {
       : r.content.filter((b) => b.type === "text").map((b) => (b as Anthropic.Beta.BetaTextBlock).text).join("\n").trim();
     const tokens = (r.usage?.input_tokens ?? 0) + (r.usage?.output_tokens ?? 0);
     await sb.from("so_obs").insert({ request_id: requestId, user_id: u.user.id, project_id: chat.project_id, model: r.model,
-      skills: ["FranciscoContext"], capabilities: ["llm"], tokens, latency_ms: Date.now() - inicio, result: r.stop_reason ?? "ok" });
+      skills: ["FranciscoContext"], capabilities: imagenes.length ? ["llm", "vision"] : ["llm"], tokens, latency_ms: Date.now() - inicio, result: r.stop_reason ?? "ok" });
     return json(200, { reply: texto || "…", model: r.model, tokens, requestId });
   } catch (err) {
     const status = err instanceof Anthropic.APIError ? err.status ?? 502 : 502;

@@ -136,7 +136,7 @@ export function renderArtefacto(cont, art, op = {}) {
   const conf = art.configuration || {};
   let clave = conf.metrica && numericos.some((f) => f.key === conf.metrica) ? conf.metrica : numericos[0]?.key;
   const tipo = conf.grafico || 'line';
-  const puedeCargar = ['OWNER', 'EDIT', 'USE'].includes(art.permission);
+  const puedeCargar = op.puedeCargar ?? ['OWNER', 'EDIT'].includes(art.permission);
   const est = op.estado || {};
   const sel = est.seleccion?.artefactoId === art.id ? est.seleccion : null;
   const recs = filtrar(art.records, est);
@@ -183,11 +183,11 @@ export function renderArtefacto(cont, art, op = {}) {
       <details><summary>Ver fuentes</summary><p class="vacio">Fuente: ${esc(art.name)} · ${esc(comp.evidencia.operacion)} · ${comp.evidencia.registros} registros${est.filtro ? ` · filtro ${esc(est.filtro.valor)}` : ''}.</p></details></section>` : ''}
     <figure class="tarjeta"><figcaption>${esc(etiqueta)}${tipo === 'pie' && textos[0] ? ` por ${esc(textos[0].label || textos[0].key)}` : ' por mes'}</figcaption><div data-r="graf"></div>
       ${art.records.length ? (recs.length ? '' : '<p class="vacio">No hay datos con este período o filtro. <button type="button" class="enlace" data-r="limpiar">Quitar filtros</button></p>')
-        : `<p class="vacio">Todavía no hay datos.${puedeCargar ? ' Cargá el primero abajo, importá un CSV o pedíselo a Francisco ("registrá 1500").' : ''}</p>`}</figure>
+        : `<p class="vacio">Todavía no hay datos.${puedeCargar ? ' Cargá el primero abajo, importá un archivo o pedíselo a Francisco ("registrá 1500").' : ''}</p>`}</figure>
     ${puedeCargar ? `<form class="tarjeta carga" data-r="form"><h3>Cargar dato</h3>
       <label>Fecha <input type="date" name="__period" value="${new Date().toISOString().slice(0, 10)}" required></label>
       ${art.fields.map((f) => `<label>${esc(f.label || f.key)} <input name="${esc(f.key)}" type="${f.type === 'number' ? 'number' : f.type === 'date' ? 'date' : 'text'}" ${f.type === 'number' ? 'step="any"' : 'maxlength="2000"'}></label>`).join('')}
-      <div class="acciones-form"><button type="submit">Guardar</button>${op.onImportar ? '<label class="boton-archivo">Importar CSV<input type="file" accept=".csv,text/csv" data-r="csv" hidden></label>' : ''}</div>
+      <div class="acciones-form"><button type="submit">Guardar</button>${op.onImportar ? '<label class="boton-archivo">Importar archivo<input type="file" accept=".csv,.tsv,.txt,.xlsx,.xls,.ods,.json,.xml" data-r="csv" hidden></label>' : ''}</div>
       <span class="estado" data-r="estado" role="status"></span></form>` : ''}
     <details class="tarjeta" ${art.records.length <= 50 ? 'open' : ''}><summary>Historial (${recs.length}${recs.length !== art.records.length ? ` de ${art.records.length}` : ''})</summary>
       <div class="tabla-scroll"><table><thead><tr><th>Fecha</th>${art.fields.map((f) => `<th>${esc(f.label || f.key)}</th>`).join('')}</tr></thead>

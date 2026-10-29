@@ -59,6 +59,12 @@ begin
   perform public.so_compartir(aid, 'b@test.so', 'USE');
   reset role;
   perform pg_temp.como(ub, 'b@test.so');
+  perform pg_temp.debe_fallar(format($q$select public.so_shared_add_record(%L, null, '{"monto": 5}')$q$, aid), 'USE sin habilitar carga');
+  reset role;
+  perform pg_temp.como(ua, 'a@test.so');
+  update public.so_artifacts set permissions = permissions || '{"shared_input": true}' where id = aid;
+  reset role;
+  perform pg_temp.como(ub, 'b@test.so');
   perform public.so_shared_add_record(aid, '2026-02-28', '{"monto": 50}', 'k1');
   perform public.so_shared_add_record(aid, '2026-02-28', '{"monto": 50}', 'k1');
   perform pg_temp.debe_fallar(format($q$select public.so_shared_update_spec(%L, '{}')$q$, aid), 'USE no edita');
@@ -123,5 +129,93 @@ begin
   reset role;
   select open_count into n from public.so_menu where artifact_id = aid; if n <> 1 then raise exception 'B modificó recientes ajenos'; end if;
   raise notice 'SEGURIDAD UX OK';
+end $$;
+-- Ingesta universal: Storage aislado, archivos, lotes, estrategias reversibles, duplicados, compartidos, APIs y secretos.
+do $$
+declare
+  ua uuid := '00000000-0000-0000-0000-00000000000a'; ub uuid := '00000000-0000-0000-0000-00000000000b';
+  pid uuid; dsid uuid; aid uuid; fid uuid := gen_random_uuid(); b1 uuid; b2 uuid; b3 uuid; rid bigint; n int; j jsonb; src uuid; t text;
+  ck text := repeat('a', 64);
+begin
+  perform pg_temp.como(ua, 'a@test.so');
+  insert into public.so_projects (name) values ('Ingesta') returning id into pid;
+  insert into public.so_datasources (project_id, name, fields) values (pid, 'ventas', '[{"key":"cliente","type":"text"},{"key":"importe","type":"number"}]') returning id into dsid;
+  insert into public.so_artifacts (project_id, name, route, datasource_id, state) values (pid, 'Ventas', '#', dsid, 'published') returning id into aid;
+  -- Storage: solo en la propia carpeta
+  insert into storage.objects (bucket_id, name) values ('so-archivos', ua::text || '/' || fid::text || '/ventas.csv');
+  perform pg_temp.debe_fallar(format($q$insert into storage.objects (bucket_id, name) values ('so-archivos', %L)$q$, ub::text || '/x/y.csv'), 'subir a carpeta ajena');
+  -- Archivo: ruta, nombre y tamaño validados en la base
+  insert into public.so_files (id, project_id, artifact_id, original_name, safe_name, detected_type, kind, size, storage_path, checksum, status)
+  values (fid, pid, aid, 'ventas.csv', 'ventas.csv', 'csv', 'table', 120, ua::text || '/' || fid::text || '/ventas.csv', ck, 'ready');
+  perform pg_temp.debe_fallar(format($q$insert into public.so_files (original_name, safe_name, detected_type, kind, size, storage_path, checksum) values ('x', 'x.csv', 'csv', 'table', 1, %L, %L)$q$, ub::text || '/z/x.csv', ck), 'ruta de otro usuario');
+  perform pg_temp.debe_fallar(format($q$insert into public.so_files (original_name, safe_name, detected_type, kind, size, checksum) values ('../../etc/passwd', '../etc', 'txt', 'document', 1, %L)$q$, ck), 'path traversal en nombre');
+  perform pg_temp.debe_fallar(format($q$insert into public.so_files (original_name, safe_name, detected_type, kind, size, checksum) values ('g', 'g.csv', 'csv', 'table', 60000000, %L)$q$, ck), 'archivo demasiado grande');
+  insert into public.so_file_chunks (file_id, ord, ref, content) values (fid, 0, '{"pagina": 1}', 'Las ventas de octubre crecieron por el canal mayorista');
+  select count(*) into n from public.so_buscar_fragmentos(array[fid], 'mayorista'); if n <> 1 then raise exception 'fragmentos propios: %', n; end if;
+  select count(*) into n from public.so_buscar('mayorista') where kind = 'file'; if n <> 1 then raise exception 'búsqueda de archivos: %', n; end if;
+  -- Lote APPEND con linaje
+  insert into public.so_import_batches (dataset_id, artifact_id, source_file_id, strategy, checksum, source_name) values (dsid, aid, fid, 'APPEND', ck, 'ventas.csv') returning id into b1;
+  insert into public.so_records (datasource_id, owner_id, period, data, import_batch_id, source_ref, idempotency_key)
+  values (dsid, ua, '2026-09-30', '{"cliente":"ACME","importe":100}', b1, '{"fila": 2}', b1::text || ':2'),
+         (dsid, ua, '2026-09-30', '{"cliente":"Beta","importe":50}', b1, '{"fila": 3}', b1::text || ':3') ;
+  select id into rid from public.so_records where import_batch_id = b1 order by id limit 1;
+  j := public.so_origen_registro(rid);
+  if j -> 'archivo' ->> 'nombre' <> 'ventas.csv' or (j -> 'ref' ->> 'fila')::int <> 2 then raise exception 'linaje: %', j; end if;
+  -- UPSERT por clave: reemplaza ACME y deja Beta
+  insert into public.so_import_batches (dataset_id, artifact_id, strategy, key_field, checksum) values (dsid, aid, 'UPSERT', 'cliente', repeat('b', 64)) returning id into b2;
+  insert into public.so_records (datasource_id, owner_id, period, data, import_batch_id) values (dsid, ua, '2026-10-31', '{"cliente":"ACME","importe":130}', b2);
+  if public.so_aplicar_estrategia(b2) <> 1 then raise exception 'upsert'; end if;
+  select count(*) into n from public.so_records where datasource_id = dsid and superseded_by is null; if n <> 2 then raise exception 'activos tras upsert: %', n; end if;
+  -- REPLACE: reversible
+  insert into public.so_import_batches (dataset_id, artifact_id, strategy, checksum) values (dsid, aid, 'REPLACE', repeat('c', 64)) returning id into b3;
+  insert into public.so_records (datasource_id, owner_id, period, data, import_batch_id) values (dsid, ua, '2026-11-30', '{"cliente":"Gamma","importe":7}', b3);
+  perform public.so_aplicar_estrategia(b3);
+  select count(*) into n from public.so_records where datasource_id = dsid and superseded_by is null; if n <> 1 then raise exception 'replace: %', n; end if;
+  perform pg_temp.debe_fallar(format('select public.so_deshacer_importacion(%L)', b2), 'deshacer con dependencias posteriores');
+  j := public.so_deshacer_importacion(b3);
+  select count(*) into n from public.so_records where datasource_id = dsid and superseded_by is null; if n <> 2 then raise exception 'deshacer replace: % %', n, j; end if;
+  -- Compartido: USE sin habilitar no importa; con habilitación sí; duplicado detectado; filas inválidas a revisión
+  update public.so_artifacts set permissions = '{}' where id = aid;
+  perform public.so_compartir(aid, 'b@test.so', 'USE');
+  -- API: sin secretos en encabezados ni referencias forjadas; secreto solo vía Vault
+  perform pg_temp.debe_fallar(format($q$insert into public.so_api_sources (dataset_id, name, base_url, headers) values (%L, 'x', 'https://api.ejemplo.com/v1', '{"Authorization": "Bearer 123"}')$q$, dsid), 'secreto en encabezados');
+  perform pg_temp.debe_fallar(format($q$insert into public.so_api_sources (dataset_id, name, base_url) values (%L, 'x', 'http://169.254.169.254/latest')$q$, dsid), 'URL no https');
+  perform pg_temp.debe_fallar(format($q$insert into public.so_api_sources (dataset_id, name, base_url, auth_ref) values (%L, 'x', 'https://api.ejemplo.com', gen_random_uuid())$q$, dsid), 'auth_ref forjado');
+  insert into public.so_api_sources (dataset_id, artifact_id, name, base_url, auth_scheme) values (dsid, aid, 'Cotizaciones', 'https://api.ejemplo.com/v1/cotizaciones', 'bearer') returning id into src;
+  perform public.so_api_guardar_secreto(src, 'token-super-secreto');
+  perform pg_temp.debe_fallar(format('update public.so_api_sources set auth_ref = gen_random_uuid() where id = %L', src), 'cambiar auth_ref desde la página');
+  perform pg_temp.debe_fallar(format('select public.so_api_leer_secreto(%L)', src), 'leer secreto desde la página');
+  reset role;
+  set local role service_role;
+  if public.so_api_leer_secreto(src) <> 'token-super-secreto' then raise exception 'secreto para el servidor'; end if;
+  reset role;
+
+  perform pg_temp.como(ub, 'b@test.so');
+  select count(*) into n from storage.objects; if n <> 0 then raise exception 'B ve objetos de A'; end if;
+  select count(*) into n from public.so_files; if n <> 0 then raise exception 'B ve archivos de A'; end if;
+  select count(*) into n from public.so_buscar_fragmentos(array[fid], 'mayorista'); if n <> 0 then raise exception 'B recupera fragmentos de A'; end if;
+  select count(*) into n from public.so_import_batches; if n <> 0 then raise exception 'B ve lotes de A'; end if;
+  select count(*) into n from public.so_api_sources; if n <> 0 then raise exception 'B ve APIs de A'; end if;
+  if public.so_origen_registro(rid) is not null then raise exception 'B ve linaje ajeno'; end if;
+  perform pg_temp.debe_fallar(format('select public.so_deshacer_importacion(%L)', b1), 'B deshace importación ajena');
+  perform pg_temp.debe_fallar(format('select public.so_api_guardar_secreto(%L, %L)', src, 'x'), 'B cambia secreto ajeno');
+  j := public.so_shared_get(aid);
+  if (j ->> 'puede_cargar')::boolean then raise exception 'USE sin habilitar figura con carga'; end if;
+  perform pg_temp.debe_fallar(format($q$select public.so_shared_importar(%L, gen_random_uuid(), 'v.csv', %L, '[]'::jsonb)$q$, aid, ck), 'USE importa sin habilitación');
+  reset role;
+  perform pg_temp.como(ua, 'a@test.so');
+  update public.so_artifacts set permissions = '{"shared_input": true}' where id = aid;
+  reset role;
+  perform pg_temp.como(ub, 'b@test.so');
+  j := public.so_shared_importar(aid, gen_random_uuid(), 'ventas.csv', ck, '[]'::jsonb);
+  if not coalesce((j ->> 'duplicado')::boolean, false) then raise exception 'duplicado no detectado: %', j; end if;
+  b1 := gen_random_uuid();
+  j := public.so_shared_importar(aid, b1, 'nuevo.csv', repeat('d', 64),
+         '[{"fila": 2, "period": "2026-10-01", "data": {"cliente": "Zeta", "importe": 9}}, {"fila": 3, "period": "2026-10-01", "data": {"importe": "x"}}]'::jsonb,
+         '[{"fila": 4, "motivo": "fecha inválida"}]'::jsonb, true);
+  if (j ->> 'aceptadas')::int <> 1 or (j ->> 'rechazadas')::int <> 2 or j ->> 'estado' <> 'partial' then raise exception 'importación parcial: %', j; end if;
+  perform pg_temp.debe_fallar(format($q$select public.so_shared_importar(%L, %L, 'nuevo.csv', %L, '[]'::jsonb)$q$, aid, b1, repeat('d', 64)), 'reabrir un lote cerrado');
+  reset role;
+  raise notice 'SEGURIDAD INGESTA OK';
 end $$;
 rollback;

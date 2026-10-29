@@ -1,18 +1,20 @@
 // Supabase simulado: persistente en localStorage (sobrevive recargas), multiusuario, RLS simplificada y fallas inyectables.
 (function () {
   const KEY = 'fake.db';
-  const TABLAS = ['so_projects','so_datasources','so_records','so_artifacts','so_artifact_versions','so_menu','so_shares','so_chats','so_messages','so_decisions','so_signals','so_obs','so_tasks','so_notifications','so_user_state','so_events'];
+  const TABLAS = ['so_projects','so_datasources','so_records','so_artifacts','so_artifact_versions','so_menu','so_shares','so_chats','so_messages','so_decisions','so_signals','so_obs','so_tasks','so_notifications','so_user_state','so_events',
+    'so_files','so_file_chunks','so_data_inputs','so_api_sources','so_import_batches','so_ingest_log'];
   const load = () => { try { return JSON.parse(localStorage.getItem(KEY)) || null; } catch { return null; } };
   let db = load() || Object.fromEntries(TABLAS.map((t) => [t, []]));
+  for (const t of TABLAS) db[t] ||= [];
   db.__seq ||= 1;
-  const save = () => localStorage.setItem(KEY, JSON.stringify(db));
+  const save = () => { try { localStorage.setItem(KEY, JSON.stringify(db)); } catch { window.__sinCuota = true; } };   // el simulador persiste en localStorage
   window.__db = () => db;
   const USERS = { a: { id: '00000000-0000-0000-0000-00000000000a', email: 'd.semino83@gmail.com' }, b: { id: '00000000-0000-0000-0000-00000000000b', email: 'ana@empresa.com' } };
   const user = () => USERS[localStorage.getItem('fake.user') || 'a'];
   const ownerTables = new Set(TABLAS.filter((t) => !['so_artifact_versions'].includes(t)));
   const fallar = (k) => (JSON.parse(localStorage.getItem('fake.fallar') || '[]')).includes(k);
   const now = () => new Date().toISOString();
-  const numericId = new Set(['so_records','so_messages','so_decisions','so_signals','so_obs','so_artifact_versions','so_notifications','so_events']);
+  const numericId = new Set(['so_records','so_messages','so_decisions','so_signals','so_obs','so_artifact_versions','so_notifications','so_events','so_file_chunks','so_ingest_log']);
   function snap(a) { db.so_artifact_versions.push({ id: db.__seq++, artifact_id: a.id, owner_id: a.owner_id, version: a.version, snapshot: JSON.parse(JSON.stringify(a)), created_at: now() }); }
   function permiso(aid) {
     const a = db.so_artifacts.find((x) => x.id === aid && !x.deleted_at);
@@ -39,10 +41,15 @@
           if (st.op === 'upsert') {
             const cols = (st.upsert?.onConflict || (table === 'so_user_state' ? 'owner_id,key' : 'id')).split(',');
             const prev = db[table].find((x) => cols.every((c) => x[c] === r[c]));
-            if (prev) { if (!st.upsert?.ignoreDuplicates) Object.assign(prev, r); out.push(prev); continue; }
+            if (prev) { if (!st.upsert?.ignoreDuplicates) { Object.assign(prev, r); out.push(prev); } continue; }
           }
           const nuevo = { id: r.id ?? (numericId.has(table) ? db.__seq++ : crypto.randomUUID()), created_at: now(), updated_at: now(), deleted_at: null, revoked_at: null, read_at: null, ...r };
           if (table === 'so_artifacts') nuevo.version = 1;
+          if (table === 'so_files' && nuevo.storage_path && !nuevo.storage_path.startsWith(`${user().id}/${nuevo.id}/`)) return { data: null, error: { message: 'violates check constraint' } };
+          if (table === 'so_files') Object.assign(nuevo, { version: 1, retention: nuevo.retention || 'temporary', meta: nuevo.meta || {} });
+          if (table === 'so_import_batches') Object.assign(nuevo, { status: 'importing', rows_accepted: 0, rows_rejected: 0, rows_superseded: 0, errors: [], started_at: now(), user_id: user().id, ...r });
+          if (table === 'so_api_sources' && r.auth_ref) return { data: null, error: { message: 'la credencial se guarda solo con so_api_guardar_secreto' } };
+          if (table === 'so_api_sources') Object.assign(nuevo, { status: 'draft', auth_scheme: r.auth_scheme || 'none', parameters: {}, headers: {}, response_mapping: {}, retry_policy: { max: 2 }, timeout_ms: 10000, last_sync_at: null, ...r });
           if (table === 'so_menu') Object.assign(nuevo, { favorite: false, open_count: 0, last_opened_at: null, status: 'available', ...r });
           if (table === 'so_tasks') nuevo.checkpoint ||= {};
           db[table].push(nuevo); out.push(nuevo);
@@ -78,6 +85,8 @@
       delete() { st.op = 'delete'; return b; },
       eq(c, v) { st.filters.push((r) => r[c] === v); return b; },
       is(c, v) { st.filters.push((r) => (r[c] ?? null) === v); return b; },
+      neq(c, v) { st.filters.push((r) => r[c] !== v); return b; },
+      not(c, op, v) { st.filters.push((r) => (r[c] ?? null) !== v); return b; },
       in(c, v) { st.filters.push((r) => v.includes(r[c])); return b; },
       ilike(c, v) { st.filters.push((r) => String(r[c]).toLowerCase() === v.toLowerCase()); return b; },
       order(c, o) { st.order.push({ c, asc: o?.ascending !== false }); return b; },
@@ -113,17 +122,60 @@
         for (const r of db.so_records.filter((x) => x.owner_id === user().id)) if (JSON.stringify(r.data).toLowerCase().includes(qy)) {
           const art = db.so_artifacts.find((x) => x.datasource_id === r.datasource_id && !x.deleted_at); if (art) out.push({ kind: 'record', id: String(r.id), title: JSON.stringify(r.data), subtitle: `${art.name} · ${r.period}`, artifact_id: art.id });
         }
+        for (const f of db.so_files.filter((x) => x.owner_id === user().id)) if (f.original_name.toLowerCase().includes(qy) || db.so_file_chunks.some((k) => k.file_id === f.id && k.content.toLowerCase().includes(qy)))
+          out.push({ kind: 'file', id: f.id, title: f.original_name, subtitle: `${f.detected_type} · v${f.version}`, artifact_id: f.artifact_id });
         return ok(out);
+      }
+      case 'so_aplicar_estrategia': {
+        const b = db.so_import_batches.find((x) => x.id === a.p_batch); let n = 0;
+        for (const r of db.so_records.filter((x) => x.datasource_id === b.dataset_id && !x.superseded_by && x.import_batch_id !== b.id)) {
+          if (b.strategy === 'REPLACE' || b.strategy === 'UPSERT' && db.so_records.some((y) => y.import_batch_id === b.id && y.data[b.key_field] === r.data[b.key_field])) { r.superseded_by = b.id; n++; }
+        }
+        b.rows_superseded = n; return ok(n);
+      }
+      case 'so_deshacer_importacion': {
+        const b = db.so_import_batches.find((x) => x.id === a.p_batch && x.owner_id === user().id); if (!b) return err('lote inexistente o sin permiso');
+        const antes = db.so_records.length; db.so_records = db.so_records.filter((r) => r.import_batch_id !== b.id);
+        let reac = 0; for (const r of db.so_records) if (r.superseded_by === b.id) { r.superseded_by = null; reac++; }
+        b.status = 'undone'; return ok({ quitadas: antes - db.so_records.length, reactivadas: reac });
+      }
+      case 'so_origen_registro': {
+        const r = db.so_records.find((x) => x.id === a.p_record && x.owner_id === user().id); if (!r) return ok(null);
+        const b = db.so_import_batches.find((x) => x.id === r.import_batch_id); const f = b && db.so_files.find((x) => x.id === b.source_file_id); const api = b && db.so_api_sources.find((x) => x.id === b.api_source_id);
+        return ok({ registro: r.id, periodo: r.period, cargado: r.created_at, activo: !r.superseded_by, ref: r.source_ref, dataset: db.so_datasources.find((d) => d.id === r.datasource_id).name,
+          lote: b ? { id: b.id, estrategia: b.strategy, origen: b.source_type, nombre: b.source_name, fecha: b.started_at, estado: b.status } : null,
+          archivo: f ? { id: f.id, nombre: f.original_name, version: f.version } : null, api: api ? { nombre: api.name, host: new URL(api.base_url).hostname } : null, por: user().email });
+      }
+      case 'so_api_guardar_secreto': { const s = db.so_api_sources.find((x) => x.id === a.p_source && x.owner_id === user().id); if (!s) return err('sin permiso'); s.auth_ref = crypto.randomUUID(); (db.__vault ||= {})[s.auth_ref] = '***'; return ok(null); }
+      case 'so_buscar_fragmentos': {
+        const qs = String(a.p_q).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').split(/\W+/).filter((w) => w.length > 3);
+        return ok(db.so_file_chunks.filter((k) => a.p_files.includes(k.file_id) && k.owner_id === user().id)
+          .map((k) => ({ ...k, rank: qs.filter((w) => k.content.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').includes(w)).length })).sort((x, y) => y.rank - x.rank).slice(0, a.p_limit || 6));
+      }
+      case 'so_shared_importar': {
+        const p = permiso(a.p_artifact); const art = db.so_artifacts.find((x) => x.id === a.p_artifact);
+        if (!(p === 'OWNER' || p === 'EDIT' || p === 'USE' && art.permissions?.shared_input)) return err('sin permiso para cargar datos');
+        let b = db.so_import_batches.find((x) => x.id === a.p_lote);
+        if (!b) {
+          if (!a.p_forzar && db.so_import_batches.some((x) => x.dataset_id === art.datasource_id && x.checksum === a.p_checksum && ['importing', 'ready', 'partial'].includes(x.status))) return ok({ duplicado: true });
+          b = { id: a.p_lote, owner_id: art.owner_id, dataset_id: art.datasource_id, artifact_id: art.id, user_id: user().id, source_type: 'shared', strategy: 'APPEND', checksum: a.p_checksum, source_name: a.p_nombre, status: 'importing', rows_accepted: 0, rows_rejected: 0, rows_received: 0, errors: [], started_at: now() };
+          db.so_import_batches.push(b);
+        }
+        for (const f of a.p_filas) { db.so_records.push({ id: db.__seq++, datasource_id: art.datasource_id, owner_id: art.owner_id, period: f.period, data: f.data, import_batch_id: b.id, source_ref: { fila: f.fila }, idempotency_key: `${b.id}:${f.fila}`, superseded_by: null, created_at: now() }); b.rows_accepted++; }
+        b.rows_rejected += (a.p_rechazadas || []).length; b.errors.push(...(a.p_rechazadas || []));
+        if (a.p_final) b.status = b.rows_rejected ? 'partial' : 'ready';
+        return ok({ lote: b.id, aceptadas: b.rows_accepted, rechazadas: b.rows_rejected, estado: b.status });
       }
       case 'so_shared_get': {
         const p = permiso(a.p_artifact); if (!p) return err('sin acceso');
         const art = db.so_artifacts.find((x) => x.id === a.p_artifact); const ds = db.so_datasources.find((d) => d.id === art.datasource_id);
-        return ok({ id: art.id, name: art.name, type: art.type, version: art.version, permission: p, specification: art.specification, schema: art.schema,
+        return ok({ id: art.id, name: art.name, type: art.type, version: art.version, permission: p, puede_cargar: p === 'OWNER' || p === 'EDIT' || p === 'USE' && !!art.permissions?.shared_input, specification: art.specification, schema: art.schema,
           view: { grafico: art.configuration.grafico, metrica: art.configuration.metrica }, fields: ds.fields,
-          records: db.so_records.filter((r) => r.datasource_id === art.datasource_id).map((r) => ({ id: r.id, period: r.period, data: r.data, created_at: r.created_at })) });
+          records: db.so_records.filter((r) => r.datasource_id === art.datasource_id && !r.superseded_by).map((r) => ({ id: r.id, period: r.period, data: r.data, created_at: r.created_at })) });
       }
       case 'so_shared_add_record': {
-        const p = permiso(a.p_artifact); if (!['OWNER', 'USE', 'EDIT'].includes(p)) return err('sin permiso para cargar datos');
+        const p = permiso(a.p_artifact); const art0 = db.so_artifacts.find((x) => x.id === a.p_artifact);
+        if (!(p === 'OWNER' || p === 'EDIT' || p === 'USE' && art0?.permissions?.shared_input)) return err('sin permiso para cargar datos');
         const art = db.so_artifacts.find((x) => x.id === a.p_artifact);
         const r = { id: db.__seq++, datasource_id: art.datasource_id, owner_id: art.owner_id, period: a.p_period, data: a.p_data, created_at: now() };
         db.so_records.push(r); return ok(r.id);
@@ -131,14 +183,47 @@
     }
     return ok(null);
   };
+  const SUPA = location.origin + '/fake-supa';
+  const fnApi = async (body) => {
+    const src = db.so_api_sources.find((s) => s.id === body.sourceId && s.owner_id === user().id);
+    const err = (status, cuerpo) => ({ data: null, error: { message: 'x', context: { status, json: async () => cuerpo } } });
+    if (!src) return err(404, { error: 'fuente_no_encontrada' });
+    if (fallar('so-api')) return err(502, { error: 'api', mensaje: 'la API respondió 503' });
+    const u = new URL(src.base_url);
+    if (u.hostname === 'privada.ejemplo.com' && !src.auth_ref) return err(409, { error: 'falta_credencial', mensaje: 'Esta API necesita una credencial.' });
+    const r = await fetch(`/fake-api${u.pathname}`);
+    if (!r.ok) return err(502, { error: 'api', mensaje: `la API respondió ${r.status}` });
+    const json = await r.json();
+    const filas = json.data;
+    if (body.accion === 'probar') { src.status = 'ok'; save(); return { data: { ok: true, ruta: 'data', total: filas.length, columnas: Object.keys(filas[0]), muestra: filas.slice(0, 5) }, error: null }; }
+    if (src.last_sync_at && Date.now() - Date.parse(src.last_sync_at) < 60000) return err(429, { error: 'muy_seguido', mensaje: 'Se actualizó hace menos de un minuto.' });
+    const m = src.response_mapping; const ds = db.so_datasources.find((d) => d.id === src.dataset_id);
+    const lote = { id: crypto.randomUUID(), owner_id: user().id, dataset_id: ds.id, artifact_id: src.artifact_id, api_source_id: src.id, source_type: 'api', strategy: 'APPEND', source_name: src.name, status: 'ready', rows_accepted: 0, rows_rejected: 0, rows_superseded: 0, errors: [], started_at: now() };
+    db.so_import_batches.push(lote);
+    let nuevas = 0;
+    for (const [i, f] of filas.entries()) {
+      const data = {}; for (const a of m.asignaciones) data[a.campo] = typeof f[a.columna] === 'number' ? f[a.columna] : Number(f[a.columna]) || f[a.columna];
+      const period = m.fecha ? String(f[m.fecha]).slice(0, 10) : now().slice(0, 10);
+      const key = `api:${src.id}:${period}:${JSON.stringify(data)}`;
+      if (db.so_records.some((x) => x.datasource_id === ds.id && x.idempotency_key === key)) continue;
+      db.so_records.push({ id: db.__seq++, datasource_id: ds.id, owner_id: ds.owner_id, period, data, import_batch_id: lote.id, source_ref: { item: i + 1 }, idempotency_key: key, superseded_by: null, created_at: now() });
+      nuevas++;
+    }
+    lote.rows_accepted = nuevas; src.last_sync_at = now(); src.status = 'ok'; save();
+    return { data: { ok: true, lote: lote.id, recibidas: filas.length, nuevas, repetidas: filas.length - nuevas, rechazadas: 0 }, error: null };
+  };
   window.supabase = { createClient() {
     return {
       auth: {
         onAuthStateChange(f) { setTimeout(() => f('SIGNED_IN', { user: user() }), 10); return { data: {} }; },
-        getSession: async () => ({ data: { session: { user: user() } } }), signOut: async () => ({}), signInWithPassword: async () => ({}),
+        getSession: async () => ({ data: { session: { user: user(), access_token: user().id } } }), signOut: async () => ({}), signInWithPassword: async () => ({}),
       },
       from: builder, rpc,
-      functions: { invoke: async () => ({ data: null, error: { message: 'x', context: { status: 503 } } }) },
+      functions: { invoke: async (nombre, { body } = {}) => (nombre === 'so-api' ? fnApi(body) : { data: null, error: { message: 'x', context: { status: 503 } } }) },
+      storage: { from: () => ({
+        download: async (path) => { if (fallar('storage.download')) return { data: null, error: { message: 'no' } }; const r = await fetch(`${SUPA}/storage/v1/object/so-archivos/${path}`, { headers: { Authorization: `Bearer ${user().id}` } }); return r.ok ? { data: await r.blob(), error: null } : { data: null, error: { message: String(r.status) } }; },
+        createSignedUrl: async (path) => ({ data: { signedUrl: `${SUPA}/storage/v1/object/so-archivos/${path}?token=${user().id}` }, error: null }),
+      }) },
     };
   } };
 })();

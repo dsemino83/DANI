@@ -39,11 +39,29 @@ usuario de Supabase que el sitio `/web/`.
 - **Métricas** (`so_events`): tiempo al primer valor, tiempo a resultado, tareas completadas/fallidas, reintentos,
   recuperaciones, reuso, búsquedas, compartidos, deshacer y vistas previas confirmadas/canceladas.
 
+## Entrada universal (archivos, imágenes y APIs)
+
+Recorrido común: `recibir → identificar (firma de bytes) → validar → seguridad → guardar (Storage privado) → extraer
+(Web Worker aislado) → normalizar → indexar → asociar`. Módulos en `ingesta/`:
+
+| Archivo | Qué hace |
+|---|---|
+| `tipos.js` | Tipo real por contenido (no por extensión), avisa si el nombre miente, bloquea ejecutables/scripts, sanea nombres, límites y detección de credenciales pegadas en el chat. |
+| `lector-worker.js` | Lee PDF (pdf.js sin eval), XLSX/XLS/ODS (SheetJS, solo valores; macros nunca se ejecutan), DOCX/PPTX/ODT/ODP, CSV/TSV por partes, JSON, XML (sin DTD/entidades), TXT/MD/RTF. |
+| `entrada.js` | UniversalInputService: subida con progreso, cancelación y reintento por etapa (sin volver a subir), metadatos en `so_files`, fragmentos en `so_file_chunks`. |
+| `perfil.js` / `mapeo.js` | Perfil de datos (encabezados, tipos, nulos, duplicados, claves, formatos) y DataMappingEngine (sinónimos, ambigüedad → una sola pregunta, estrategia según intención). |
+| `importador.js` | ImportBatch: APPEND/UPSERT/REPLACE/TEMPORARY (reemplazar marca, no borra), filas inválidas a revisión, duplicados por checksum, reanudación con el mismo lote. |
+| `intencion.js` | "Analizá este archivo", "Creá un dashboard con estos datos", "Sumá esto a Ventas", "Compará con el anterior", "Conectá esta API", "¿De dónde salió este dato?", "el Excel que subí la semana pasada". |
+| `../datos.js` | Adjuntos del chat (+, arrastrar, pegar, cámara), vista previa, panel "Datos y fuentes", vista previa de importación con mapeo editable, alta de APIs con credencial en Vault. |
+| `../supabase/functions/so-api/` | Llamadas a APIs desde el servidor: anti-SSRF, redirecciones revalidadas, tiempo y tamaño máximos, reintentos, historial idempotente. |
+| `../supabase/migrations/20261029220000_so_ingesta.sql` | Bucket privado y políticas por carpeta, archivos, fragmentos, DatasetRegistry, entradas de datos, lotes y linaje, fuentes API con secretos en Vault, carga compartida solo si el dueño la habilita, retención. |
+
 ## Verificación
 
 ```
 npm run test:so                                   # intención, análisis, estado, búsqueda, importación, avatar
 npm run test:so:e2e                               # recorridos A–G en Chromium con Supabase simulado
+npm run test:so:ingesta                           # recorridos de ingesta A–K (archivos reales generados, Storage simulado)
 psql … -f so/supabase/tests/seguridad.sql         # sobre una base con la migración (nunca producción)
 ```
 

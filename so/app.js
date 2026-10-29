@@ -8,7 +8,9 @@ import { crearAvatar } from './avatar.js';
 import { crearEstado, chips, riesgo, explicarPermiso, paraContinuidad } from './estado.js';
 import { analizar, comparar, mesAnterior, mesesConDatos, nombreMes, totalMes } from './analisis.js';
 import { rankear } from './busqueda.js';
-import { parseCSV, mapear } from './importar.js';
+import { crearDatos } from './datos.js';
+import { interpretarEntrada } from './ingesta/intencion.js';
+import { pareceSecreto } from './ingesta/tipos.js';
 
 const cfg = window.SO_SUPABASE;
 const sb = window.supabase.createClient(cfg.url, cfg.anonKey, { auth: { persistSession: true, autoRefreshToken: true } });
@@ -51,7 +53,7 @@ const proyecto = () => st.proyectos.find((p) => p.id === E.get().proyectoId) || 
 const artefacto = (id) => st.artefactos.find((a) => a.id === id) || null;
 
 // Modelo de actividad: solo el estado relevante, nunca razonamiento interno.
-const ACT = { entendiendo: 'Entendiendo', buscando: 'Buscando', analizando: 'Analizando', creando: 'Creando', actualizando: 'Actualizando',
+const ACT = { subiendo: 'Subiendo adjuntos', entendiendo: 'Entendiendo', buscando: 'Buscando', analizando: 'Analizando', creando: 'Creando', actualizando: 'Actualizando',
   verificando: 'Verificando', esperando: 'Esperando información', listo: 'Listo', atencion: 'Necesita atención' };
 let tAct = null;
 function actividad(clave) {
@@ -61,6 +63,14 @@ function actividad(clave) {
   p.dataset.tipo = clave || '';
   if (clave === 'listo') tAct = setTimeout(() => { p.textContent = ''; p.dataset.tipo = ''; }, 2500);
 }
+
+// Entrada universal (adjuntos, archivos, importaciones, APIs). Las dependencias son funciones de este módulo.
+const D = crearDatos({ sb, cfg, st, E, q, esc, $, actividad: (k) => actividad(k), notificar: (...a) => notificar(...a), evento: (...a) => evento(...a),
+  abrirArtefacto: (...a) => abrirArtefacto(...a), datosDe: (...a) => datosDe(...a), crearArtefacto: (...a) => crearArtefacto(...a), artefacto: (id) => artefacto(id),
+  cargarArtefactos: () => cargarArtefactos(), conversar: (o) => conversar(o), haceCuanto,
+  procesarTexto: (t, adj) => procesar(t, { adjuntosDirectos: adj }),
+  prellenar: (t, adj) => { st.adjuntosPrellenados = adj; $('texto').value = t; abrirPanel(); $('texto').focus(); },
+  resultadoImportacion: async (r) => { if (!r) return; if (!st.chatId) await asegurarChat('Datos'); await guardarMensaje('assistant', r.texto, r.meta || {}); } });
 
 // ---------------------------------------------------------------- tema y sesión
 const TEMAS = ['auto', 'light', 'dark'];
@@ -403,7 +413,7 @@ const ESTADOS = { verificado: ['✓ Verificado', 'ok'], ejecutado: ['Hecho', 'ok
 function htmlMensaje(m) {
   const meta = m.meta || {};
   let html = esc(m.content).replace(/(https?:\/\/[^\s<]+)/g, (u) => `<a href="${u}">${u}</a>`);
-  if (m.role !== 'assistant') return `<div class="msg ${m.role}">${html}</div>`;
+  if (m.role !== 'assistant') return `<div class="msg ${m.role}">${html}${D.htmlAdjuntos(meta.adjuntos)}</div>`;
   const est = meta.deshecho ? 'deshecho' : meta.preview && meta.resuelto ? meta.resuelto : meta.estado;
   const badge = est && ESTADOS[est] ? `<span class="estado-msg ${ESTADOS[est][1]}">${ESTADOS[est][0]}</span>` : '';
   const conf = meta.confianza && meta.confianza.nivel !== 'confirmado'
@@ -416,7 +426,11 @@ function htmlMensaje(m) {
   if (meta.undo && !meta.deshecho) acciones.push(`<button type="button" data-undo="${m.id}">Deshacer</button>`);
   if (meta.preview && !meta.resuelto) acciones.push(`<button type="button" class="peligro" data-confirmar="${m.id}">${esc(meta.preview.boton || 'Confirmar')}</button><button type="button" data-cancelar="${m.id}">Cancelar</button>`);
   if (meta.reintentar && !meta.reintentado) acciones.push(`<button type="button" data-reintentar="${m.id}">Reintentar</button>`);
-  if (meta.abrir && !a) acciones.push(`<a class="boton" href="#/a/${meta.abrir}">Abrir tablero</a>`);
+  if (meta.abrir && !a) acciones.push(`<a class="boton" href="#/a/${meta.abrir}">Ver dashboard</a>`);
+  if (meta.incidencias) acciones.push(`<button type="button" data-incidencias="${meta.incidencias}">Ver incidencias</button>`);
+  if (meta.revisar && !meta.resuelto) acciones.push(`<button type="button" data-revisar="${m.id}">Revisar columnas</button>`);
+  if (meta.credencial) acciones.push(`<button type="button" class="primario" data-credencial="${meta.credencial}">Cargar credencial de forma segura</button>`);
+  if (meta.reintentarApi && !meta.reintentado) acciones.push(`<button type="button" data-reintentar-api="${m.id}">Reintentar</button>`);
   return `<div class="msg assistant">${badge}<div>${html}</div>${conf}${det}${card}${acciones.length ? `<div class="msg-acc">${acciones.join('')}</div>` : ''}</div>`;
 }
 
@@ -428,6 +442,21 @@ function pintarMensajes() {
   cont.querySelectorAll('[data-confirmar]').forEach((b) => b.addEventListener('click', () => resolverPreview(Number(b.dataset.confirmar), true)));
   cont.querySelectorAll('[data-cancelar]').forEach((b) => b.addEventListener('click', () => resolverPreview(Number(b.dataset.cancelar), false)));
   cont.querySelectorAll('[data-reintentar]').forEach((b) => b.addEventListener('click', () => reintentar(Number(b.dataset.reintentar))));
+  D.conectarAdjuntos(cont);
+  cont.querySelectorAll('[data-incidencias]').forEach((b) => b.addEventListener('click', () => D.incidenciasDe(b.dataset.incidencias)));
+  cont.querySelectorAll('[data-revisar]').forEach((b) => b.addEventListener('click', () => {
+    const x = st.mensajes.find((y) => y.id === Number(b.dataset.revisar))?.meta?.revisar;
+    if (x) D.abrirImportacion(x.fileId, x.artefactoId);
+  }));
+  cont.querySelectorAll('[data-credencial]').forEach((b) => b.addEventListener('click', () => D.credencial(b.dataset.credencial)));
+  cont.querySelectorAll('[data-reintentar-api]').forEach((b) => b.addEventListener('click', async () => {
+    const m = st.mensajes.find((y) => y.id === Number(b.dataset.reintentarApi));
+    await actualizarMeta(m.id, { reintentado: true });
+    evento('retry', null, { via: 'api' });
+    const r = await D.reintentarApi(m.meta.reintentarApi).catch((e) => ({ ok: false, texto: `No pude: ${e.message}.`, meta: { estado: 'fallo' } }));
+    await guardarMensaje('assistant', r.texto, r.meta || {});
+    if (r.ok !== false) evento('recovery_success', null, { via: 'api' });
+  }));
   cont.scrollTop = cont.scrollHeight;
   pintarSugerencias();
 }
@@ -470,26 +499,57 @@ $('texto').addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shif
 $('formChat').onsubmit = async (e) => {
   e.preventDefault();
   const texto = $('texto').value.trim();
-  if (!texto || st.ocupado) return;
+  const hayAdjuntos = $('bandeja').children.length > 0 || st.adjuntosPrellenados?.length;
+  if ((!texto && !hayAdjuntos) || st.ocupado) return;
+  if (pareceSecreto(texto)) {
+    // Una credencial no debe viajar ni quedar guardada en la conversación: no se envía.
+    actividad('atencion');
+    $('actividad').textContent = 'Eso parece una credencial: no la mandes por el chat. Cargala en "Datos y fuentes" → Conectar API (se guarda cifrada).';
+    return;
+  }
   $('texto').value = ''; $('texto').style.height = 'auto';
   await procesar(texto);
 };
 
 // ---------------------------------------------------------------- ciclo: intención → confianza → acción → visibilidad
-async function procesar(texto, { reintentoDe = null } = {}) {
+async function procesar(texto, { reintentoDe = null, adjuntosDirectos = null } = {}) {
   st.ocupado = true; $('enviar').disabled = true;
   const inicio = performance.now();
   fase('thinking'); actividad('entendiendo');
   let r;
   try {
+    // Adjuntos: el mensaje espera las subidas en curso; los que fallan no impiden enviar.
+    let adjuntos = adjuntosDirectos || [], fuera = [];
+    if (!reintentoDe && !adjuntosDirectos) {
+      ({ adjuntos, fuera } = await D.tomarAdjuntos());
+      if (st.adjuntosPrellenados?.length) { adjuntos = [...adjuntos, ...st.adjuntosPrellenados]; st.adjuntosPrellenados = null; }
+    }
+    if (!texto && adjuntos.length) texto = adjuntos.length === 1 ? 'Analizá este archivo' : 'Analizá estos archivos';
+    if (!texto) { r = { texto: fuera.length ? `No pude adjuntar: ${fuera.join(', ')}.` : 'No hay nada para enviar.', meta: { estado: 'fallo' }, ok: false }; throw Object.assign(new Error('vacío'), { r }); }
     await asegurarChat(texto);
-    if (!reintentoDe) await guardarMensaje('user', texto, contextoMeta());
+    if (E.get().vista === 'home') {   // desde Inicio, la respuesta tiene que verse: se pasa a la conversación
+      history.replaceState(null, '', `#/c/${st.chatId}`);
+      vista('chat');
+      $('titulo').textContent = st.chats.find((x) => x.id === st.chatId)?.title || 'Conversación';
+      pintarMensajes();
+    }
+    if (!reintentoDe) {
+      const m = await guardarMensaje('user', texto, { ...contextoMeta(), ...(adjuntos.length ? { adjuntos } : {}) });
+      if (adjuntos.length) await D.asociarMensaje(adjuntos, m.id);
+    }
     const s = E.get();
-    const accion = interpretar(texto, { modo: s.modo, artefactos: st.artefactos, activoId: s.artefactoId, hoy: hoy() });
-    if (riesgo(accion) === 'alto') r = await proponer(accion);
-    else r = await ejecutar(accion, texto);
+    const previos = adjuntos.length ? adjuntos : reintentoDe ? (st.mensajes.find((x) => x.id === reintentoDe)?.meta?.adjuntos || []) : [];
+    const entradaAcc = interpretarEntrada(texto, { modo: s.modo, adjuntos: previos, adjuntosPrevios: ultimosAdjuntos(), artefactos: st.artefactos, activoId: s.artefactoId });
+    if (entradaAcc && entradaAcc.tipo !== 'bloqueado') r = await D.ejecutarEntrada(entradaAcc);
+    else if (entradaAcc) r = await ejecutar(entradaAcc, texto);
+    else {
+      const accion = interpretar(texto, { modo: s.modo, artefactos: st.artefactos, activoId: s.artefactoId, hoy: hoy() });
+      if (riesgo(accion) === 'alto') r = await proponer(accion);
+      else r = await ejecutar(accion, texto);
+    }
+    if (fuera.length) r = { ...r, texto: `No pude adjuntar ${fuera.join(', ')}; seguí con el resto.\n${r.texto}` };
   } catch (err) {
-    r = { texto: `No pude completarlo: ${err.message || err}.`, meta: { estado: 'fallo', reintentar: texto }, ok: false };
+    r = err.r || { texto: `No pude completarlo: ${err.message || err}.`, meta: { estado: 'fallo', reintentar: texto }, ok: false };
   }
   try {
     fase('responding');
@@ -505,6 +565,12 @@ async function procesar(texto, { reintentoDe = null } = {}) {
   if (ok && r.meta?.estado !== 'propuesta') evento('time_to_result', Math.round(performance.now() - inicio));
   st.ocupado = false; $('enviar').disabled = false;
   $('texto').placeholder = '¿Qué querés conseguir?';
+}
+
+// Adjuntos recientes de la conversación (para "analizá este archivo" en un mensaje posterior).
+function ultimosAdjuntos() {
+  for (const m of [...st.mensajes].reverse().slice(0, 8)) if (m.role === 'user' && m.meta?.adjuntos?.length) return m.meta.adjuntos;
+  return [];
 }
 
 // La referencia estructurada (no solo el texto visible) viaja con el mensaje.
@@ -546,7 +612,7 @@ async function resolverPreview(id, confirmar) {
   if (!confirmar) { await guardarMensaje('assistant', 'No hice nada. Todo queda como estaba.', { estado: 'cancelado' }); return; }
   st.ocupado = true; fase('thinking');
   let r;
-  try { r = await ejecutar(m.meta.preview.accion); } catch (err) { r = { texto: `No pude completarlo: ${err.message}.`, meta: { estado: 'fallo' }, ok: false }; }
+  try { r = D.esAccionDatos(m.meta.preview.accion.tipo) ? await D.ejecutarEntrada(m.meta.preview.accion) : await ejecutar(m.meta.preview.accion); } catch (err) { r = { texto: `No pude completarlo: ${err.message}.`, meta: { estado: 'fallo' }, ok: false }; }
   await guardarMensaje('assistant', r.texto, r.meta || {});
   fase(r.ok === false ? 'error' : 'success'); actividad(r.ok === false ? 'atencion' : 'listo');
   st.ocupado = false;
@@ -559,8 +625,8 @@ async function datosDe(id, { forzar = false } = {}) {
   const c = st.datos.get(id);
   if (c && !forzar && Date.now() - Date.parse(c.cargado) < 30000) return { a, ...c };
   const [ds, records] = await Promise.all([
-    q(sb.from('so_datasources').select('name, fields').eq('id', a.datasource_id).single()),
-    q(sb.from('so_records').select('id, period, data, created_at').eq('datasource_id', a.datasource_id).order('period').order('id').limit(10000)),
+    q(sb.from('so_datasources').select('id, owner_id, name, fields').eq('id', a.datasource_id).single()),
+    q(sb.from('so_records').select('id, period, data, created_at, import_batch_id').eq('datasource_id', a.datasource_id).is('superseded_by', null).order('period').order('id').limit(20000)),
   ]);
   const ultimo = records.reduce((m, r) => (r.created_at > m ? r.created_at : m), '') || null;
   const d = { fields: ds.fields, origen: ds.name, records, cargado: new Date().toISOString(), ultimo };
@@ -597,6 +663,7 @@ async function ejecutar(acc, texto = '') {
       const ok = (await q(sb.from('so_shares').select('id').eq('id', shareId).eq('permission', acc.permiso).is('revoked_at', null))).length === 1;
       if (!ok) return { ok: false, texto: `No pude confirmar que "${a.name}" quedó compartido con ${acc.email}.`, meta: { estado: 'fallo', reintentar: texto } };
       evento('share_success', null, { permiso: acc.permiso });
+      if (E.get().vista === 'artefacto' && E.get().artefactoId === a.id) pintarCompartidos(a);
       senal('FranciscoSecurity', 'success', { op: 'share', permiso: acc.permiso }, a.id);
       return { texto: `${explicarPermiso(acc.email, acc.permiso, `"${a.name}"`)} No ve tus conversaciones ni otros tableros.\nLink: ${BASE_SHARED}${a.id}`,
         meta: { estado: 'verificado', artifactId: a.id, undo: { tipo: 'compartir', artifactId: a.id, shareId, email: acc.email, previo: previo?.permission || null },
@@ -613,6 +680,7 @@ async function ejecutar(acc, texto = '') {
       actividad('verificando');
       const quedan = await q(sb.from('so_shares').select('id').in('id', ss.map((x) => x.id)).is('revoked_at', null));
       if (quedan.length) return { ok: false, texto: 'No pude confirmar la revocación de todos los accesos.', meta: { estado: 'fallo', reintentar: texto } };
+      if (E.get().vista === 'artefacto' && E.get().artefactoId === acc.artefactoId) pintarCompartidos(artefacto(acc.artefactoId));
       return { texto: `${ss.map((x) => x.grantee_email).join(', ')} ya no puede${ss.length > 1 ? 'n' : ''} abrir "${artefacto(acc.artefactoId)?.name}".`,
         meta: { estado: 'verificado', artifactId: acc.artefactoId, undo: { tipo: 'revocar', artifactId: acc.artefactoId, shares: ss.map((x) => ({ email: x.grantee_email, permission: x.permission })) } } };
     }
@@ -659,11 +727,20 @@ async function ejecutar(acc, texto = '') {
       const num = fields.find((f) => f.key === (a.configuration?.metrica || '')) || fields.find((f) => f.type === 'number');
       if (!num) return { texto: `"${a.name}" no tiene campos numéricos para comparar.` };
       const meses = mesesConDatos(records);
-      const mesA = acc.mesA || s.seleccion?.mes || s.hasta || s.desde || meses.at(-1);
+      // "noviembre" sin año: si hay datos de ese mes en otro año, se usa el más cercano a los datos (no a hoy).
+      const ajustar = (ym) => {
+        if (!ym || meses.includes(ym)) return ym;
+        const mismos = meses.filter((m) => m.slice(5) === ym.slice(5));
+        return mismos.sort((x, y) => Math.abs(+x.slice(0, 4) - +ym.slice(0, 4)) - Math.abs(+y.slice(0, 4) - +ym.slice(0, 4)))[0] || ym;
+      };
+      const mesA = ajustar(acc.mesA) || s.seleccion?.mes || s.hasta || s.desde || meses.at(-1);
       if (!mesA) return { texto: `Todavía no hay datos en "${a.name}" para comparar.` };
-      const mesB = acc.mesB && acc.mesB !== mesA ? acc.mesB : mesAnterior(mesA);
+      const mesB = acc.mesB && acc.mesB !== mesA ? ajustar(acc.mesB) : mesAnterior(mesA);
       const base = s.filtro && s.artefactoId === a.id ? records.filter((r) => String(r.data?.[s.filtro.key] ?? '').toLowerCase() === String(s.filtro.valor).toLowerCase()) : records;
-      const c = comparar(base, num, mesA, mesB, fields.find((f) => f.type === 'text'), hoy());
+      // La explicación usa la categoría más útil: un campo de texto con pocos valores distintos (canal, región…).
+      const cat = fields.filter((f) => f.type === 'text').map((f) => ({ f, n: new Set(records.map((r) => r.data?.[f.key]).filter(Boolean)).size }))
+        .filter((x) => x.n >= 2 && x.n <= 20).sort((x, y) => x.n - y.n)[0]?.f || null;
+      const c = comparar(base, num, mesA, mesB, cat, hoy());
       E.set({ artefactoId: a.id, desde: mesA, hasta: mesA, comparar: mesB, ...(s.artefactoId === a.id ? {} : { filtro: null }) });
       if (location.hash !== `#/a/${a.id}`) location.hash = `#/a/${a.id}`; else abrirArtefacto(a.id);
       return { texto: c.texto, meta: { estado: 'ejecutado', confianza: c.confianza, artifactId: a.id,
@@ -859,6 +936,13 @@ async function deshacerMensaje(id, { silencioso = false } = {}) {
         break;
       case 'revocar': for (const x of u.shares) await q(sb.rpc('so_compartir', { p_artifact: u.artifactId, p_email: x.email, p_permission: x.permission })); break;
       case 'favorito': await q(sb.from('so_menu').update({ favorite: u.valor }).eq('artifact_id', u.artifactId)); break;
+      case 'importacion': await q(sb.rpc('so_deshacer_importacion', { p_batch: u.loteId })); break;
+      case 'dataset': {
+        const a = artefacto(u.artifactId);
+        const { data: ds } = await sb.from('so_datasources').select('fields').eq('id', u.anterior).single();
+        await q(sb.from('so_artifacts').update({ datasource_id: u.anterior, schema: { fields: ds.fields }, configuration: { ...a.configuration, metrica: ds.fields.find((f) => f.type === 'number')?.key ?? null } }).eq('id', u.artifactId));
+        break;
+      }
     }
     if (u.artifactId) st.datos.delete(u.artifactId);
     await actualizarMeta(id, { deshecho: true });
@@ -874,10 +958,11 @@ async function deshacerMensaje(id, { silencioso = false } = {}) {
   }
 }
 
-async function conversar() {
-  const { data, error } = await sb.functions.invoke('francisco', { body: { chatId: st.chatId } });
+async function conversar({ archivos = null, silencioso = false } = {}) {
+  const { data, error } = await sb.functions.invoke('francisco', { body: { chatId: st.chatId, ...(archivos ? { archivos } : {}) } });
   if (!error) return { texto: data.reply, modelo: data.model, tokens: data.tokens, skills: ['FranciscoContext'], capacidades: ['llm'] };
   const status = error.context?.status;
+  if (silencioso) return { ok: false, sinModelo: status === 503 || status === 404 || !status };
   if (status === 503 || status === 404 || /Failed to send|FunctionsFetchError|not found/i.test(error.message || '')) {
     return { texto: E.get().modo === 'work'
       ? 'Para conversar libremente todavía no tengo conectado el modelo de lenguaje. Lo que sí puedo hacer ya: crear tableros, analizarlos, comparar períodos, filtrar, cargar e importar datos, compartir y deshacer cambios.'
@@ -922,6 +1007,8 @@ async function abrirArtefacto(id, { forzar = false } = {}) {
   pintarArtefacto(d.a, d);
   pintarCompartidos(d.a);
   pintarVersiones(d.a);
+  D.pintarPanel(d.a.id);
+  if (!forzar) D.refrescarAlAbrir(d.a.id);
 }
 
 function pintarArtefacto(a, d) {
@@ -939,7 +1026,7 @@ function pintarArtefacto(a, d) {
       senal('FranciscoData', 'success', { op: 'record', via: 'form' }, a.id);
       await abrirArtefacto(a.id, { forzar: true });
     },
-    onImportar: (file) => importarCSV(file, a),
+    onImportar: (file) => D.abrirImportacion(file, a.id),
     frescura: { cargado: d.cargado, ultimo: d.ultimo, cache: d.cache },
     onActualizar: () => abrirArtefacto(a.id, { forzar: true }),
   });
@@ -1027,49 +1114,6 @@ async function pintarVersiones(a) {
   });
 }
 
-// ---------------------------------------------------------------- tareas en segundo plano: importación CSV
-async function sha(texto) {
-  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(texto));
-  return [...new Uint8Array(buf)].slice(0, 8).map((b) => b.toString(16).padStart(2, '0')).join('');
-}
-
-async function importarCSV(file, a) {
-  let tarea = null;
-  try {
-    const texto = await file.text();
-    const hash = await sha(texto);
-    const { fields } = await datosDe(a.id);
-    const { filas, omitidas, sinUsar } = mapear(parseCSV(texto), fields, hoy());
-    const clave = `import:${a.id}:${hash}`;
-    const base = { kind: 'import', name: `Importar ${file.name}`, artifact_id: a.id, idempotency_key: clave, status: 'running', progress: filas.length ? 0 : null,
-      needs_action: null, error: null, input: { archivo: file.name, filas: filas.length, omitidas: omitidas.length, sinUsar }, updated_at: new Date().toISOString() };
-    tarea = (await q(sb.from('so_tasks').upsert(base, { onConflict: 'owner_id,idempotency_key' }).select('*').single()));
-    st.archivos.set(tarea.id, { file, artefactoId: a.id });
-    await cargarCentro();
-    if (!filas.length) throw new Error(omitidas.length ? `ninguna fila válida (por ejemplo, línea ${omitidas[0].linea}: ${omitidas[0].motivo})` : 'el archivo no tiene filas con columnas reconocibles');
-    const LOTE = 200; let hechas = tarea.checkpoint?.hechas || 0;
-    for (let i = hechas; i < filas.length; i += LOTE) {
-      const lote = filas.slice(i, i + LOTE).map((f) => ({ datasource_id: a.datasource_id, owner_id: st.user.id, period: f.period, data: f.data, idempotency_key: `${hash}:${f.linea}` }));
-      await q(sb.from('so_records').upsert(lote, { onConflict: 'datasource_id,idempotency_key', ignoreDuplicates: true }));
-      hechas = Math.min(filas.length, i + LOTE);
-      await sb.from('so_tasks').update({ progress: hechas / filas.length, checkpoint: { hechas }, updated_at: new Date().toISOString() }).eq('id', tarea.id);
-      pintarCentroSiAbierto();
-    }
-    const result = { importadas: filas.length, omitidas: omitidas.slice(0, 20), sinUsar };
-    await q(sb.from('so_tasks').update({ status: 'completed', progress: 1, result, updated_at: new Date().toISOString() }).eq('id', tarea.id));
-    st.archivos.delete(tarea.id);
-    st.datos.delete(a.id);
-    await notificar('success', `Importé ${filas.length} filas en "${a.name}"`, omitidas.length ? `${omitidas.length} filas no se importaron (ver detalle en Actividad).` : null, { group_key: `import:${a.id}`, artifact_id: a.id, task_id: tarea.id });
-    evento('task_completed', filas.length, { kind: 'import' });
-    if (E.get().vista === 'artefacto' && E.get().artefactoId === a.id) abrirArtefacto(a.id, { forzar: true });
-  } catch (err) {
-    if (tarea) await sb.from('so_tasks').update({ status: 'failed', error: err.message, needs_action: 'Reintentar', updated_at: new Date().toISOString() }).eq('id', tarea.id);
-    await notificar('action', `No pude importar ${file.name} en "${a.name}"`, err.message, { group_key: `import:${a.id}`, artifact_id: a.id, task_id: tarea?.id ?? null });
-    evento('task_failed', null, { kind: 'import' });
-  }
-  await cargarCentro();
-}
-
 // ---------------------------------------------------------------- centro de actividad y avisos (fuera del chat)
 async function notificar(priority, title, body = null, extra = {}) {
   try { await sb.from('so_notifications').insert({ priority, title: title.slice(0, 200), body, ...extra }); } catch {}
@@ -1083,9 +1127,9 @@ async function cargarCentro() {
       q(sb.from('so_notifications').select('id, priority, title, body, group_key, artifact_id, read_at, created_at').order('created_at', { ascending: false }).limit(60)),
     ]);
     // Tareas que quedaron "en curso" sin el archivo en memoria (se cerró la página): necesitan atención, no se fingen activas.
-    const huerfanas = tareas.filter((t) => t.status === 'running' && !st.archivos.has(t.id) && Date.now() - Date.parse(t.updated_at) > 120000);
+    const huerfanas = tareas.filter((t) => t.status === 'running' && !st.tareasVivas?.has(t.id) && Date.now() - Date.parse(t.updated_at) > 120000);
     for (const t of huerfanas) {
-      t.status = 'waiting'; t.needs_action = 'Volvé a elegir el archivo para continuar (no se duplican filas)';
+      t.status = 'waiting'; t.needs_action = 'Se interrumpió: podés reanudar (el archivo ya está guardado y no se duplican filas)';
       sb.from('so_tasks').update({ status: 'waiting', needs_action: t.needs_action }).eq('id', t.id).then(() => {}, () => {});
     }
     st.tareas = tareas; st.avisos = avisos;
@@ -1124,22 +1168,15 @@ function pintarCentro() {
     c.innerHTML = grupos.map(([titulo, ts]) => `<section><h3>${titulo}</h3>${ts.length ? `<ul class="lista">${ts.map((t) => {
       const art = artefacto(t.artifact_id);
       const prog = t.status === 'running' && t.progress != null ? `<progress max="1" value="${t.progress}" aria-label="Progreso">${Math.round(t.progress * 100)}%</progress> ${Math.round(t.progress * 100)}%` : '';
-      const res = t.status === 'completed' && t.result ? `${t.result.importadas} filas importadas${t.result.omitidas?.length ? ` · ${t.result.omitidas.length}+ omitidas` : ''}` : '';
-      const det = t.result?.omitidas?.length ? `<details><summary>Ver filas omitidas</summary><ul>${t.result.omitidas.map((o) => `<li>Línea ${o.linea}: ${esc(o.motivo)}</li>`).join('')}</ul></details>` : '';
-      const accion = ['failed', 'waiting'].includes(t.status)
-        ? (st.archivos.has(t.id) ? `<button type="button" data-reintentar-tarea="${t.id}">Reintentar</button>`
-          : `<label class="boton-archivo">Elegir archivo<input type="file" accept=".csv,text/csv" data-rearchivo="${t.id}" hidden></label>`) : '';
+      const res = t.status === 'completed' && t.result ? `${t.result.importadas} filas importadas${t.result.omitidas?.length ? ` · ${t.result.omitidas.length}+ a revisar` : ''}` : '';
+      const det = t.result?.omitidas?.length ? `<details><summary>Ver filas a revisar</summary><ul>${t.result.omitidas.map((o) => `<li>Fila ${o.fila ?? o.linea}: ${esc(o.motivo)}</li>`).join('')}</ul></details>` : '';
+      const accion = ['failed', 'waiting'].includes(t.status) && t.kind === 'import' && t.input?.fileId ? `<button type="button" data-reanudar="${t.id}">Reanudar</button>` : '';
       return `<li class="tarea"><div><strong>${esc(t.name || t.kind)}</strong>${art ? ` · <a href="#/a/${art.id}">${esc(art.name)}</a>` : ''}
         <div class="vacio">${esc({ running: 'En curso', queued: 'En cola', waiting: 'Esperando', failed: 'Falló', completed: 'Terminada', cancelled: 'Cancelada' }[t.status])} · ${esc(haceCuanto(t.updated_at))}
         ${t.error ? ` · ${esc(t.error)}` : ''}${t.needs_action && t.status !== 'failed' ? ` · ${esc(t.needs_action)}` : ''}</div>${prog}${res ? `<div>${esc(res)}</div>` : ''}${det}</div>${accion}</li>`;
     }).join('')}</ul>` : '<p class="vacio">Nada por acá.</p>'}</section>`).join('');
-    c.querySelectorAll('[data-reintentar-tarea]').forEach((b) => b.addEventListener('click', () => {
-      const x = st.archivos.get(b.dataset.reintentarTarea); evento('retry', null, { kind: 'import' });
-      importarCSV(x.file, artefacto(x.artefactoId)).then(() => evento('recovery_success', null, { kind: 'import' }));
-    }));
-    c.querySelectorAll('[data-rearchivo]').forEach((inp) => inp.addEventListener('change', () => {
-      const t = st.tareas.find((x) => x.id === inp.dataset.rearchivo);
-      const f = inp.files?.[0]; if (f && artefacto(t.artifact_id)) importarCSV(f, artefacto(t.artifact_id));
+    c.querySelectorAll('[data-reanudar]').forEach((b) => b.addEventListener('click', () => {
+      b.disabled = true; D.reanudar(st.tareas.find((x) => x.id === b.dataset.reanudar)).finally(cargarCentro);
     }));
   } else {
     // Agrupar avisos repetidos; prioridad critical > action > success > info.
@@ -1198,7 +1235,7 @@ function abrirPaleta(inicial = '') {
 }
 function filtrarPaleta(remoto = true) {
   const qy = $('paletaInput').value.trim();
-  const ICON = { accion: '⚡', artefacto: '📊', proyecto: '🗂', compartido: '📎', chat: '💬', registro: '🧾', pedir: '✨' };
+  const ICON = { accion: '⚡', artefacto: '📊', proyecto: '🗂', compartido: '📎', chat: '💬', registro: '🧾', archivo: '📄', pedir: '✨' };
   if (!qy) {
     paletaItems = [...recientes(5).map(({ a, m }) => ({ tipo: 'artefacto', titulo: a.name, extra: 'reciente', run: () => { location.hash = `#/a/${a.id}`; } })), ...accionesPaleta()];
   } else {
@@ -1210,11 +1247,12 @@ function filtrarPaleta(remoto = true) {
   $('paletaLista').querySelectorAll('li').forEach((li) => li.addEventListener('click', () => elegirPaleta(Number(li.dataset.i))));
   if (!remoto) return;
   clearTimeout(tBusca);
-  if (qy.length >= 2 && E.get().modo === 'work') tBusca = setTimeout(async () => {
+  if (qy.length >= 2) tBusca = setTimeout(async () => {
     try {
       const rs = await q(sb.rpc('so_buscar', { p_q: qy, p_limit: 8 }));
       if ($('paletaInput').value.trim() !== qy) return;
-      remotos = rs.filter((r) => r.kind === 'record').map((r) => ({ tipo: 'registro', titulo: r.title, extra: r.subtitle, run: () => { location.hash = `#/a/${r.artifact_id}`; } }));
+      remotos = [...rs.filter((r) => r.kind === 'file').map((r) => ({ tipo: 'archivo', titulo: r.title, extra: r.subtitle, run: () => D.vistaPrevia(r.id) })),
+        ...rs.filter((r) => r.kind === 'record').map((r) => ({ tipo: 'registro', titulo: r.title, extra: r.subtitle, run: () => { location.hash = `#/a/${r.artifact_id}`; } }))];
       if (remotos.length) filtrarPaleta(false);
     } catch { /* la búsqueda remota es complementaria */ }
   }, 250);
