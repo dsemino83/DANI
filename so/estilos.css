@@ -658,3 +658,8 @@ label.radio { display: flex; gap: 8px; align-items: center; margin-top: 10px; }
 }
 @media (forced-colors: active) { .lcard, .kpi, .pill, .comando { border: 1px solid CanvasText; } .spark path { stroke: CanvasText; } }
 .col-lista { padding-bottom: 88px; }   /* el orbe de Francisco no tapa la última fila */
+
+/* Encabezado de sección con acción (Conversaciones + nueva). */
+.tit-fila { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.tit-fila h2 { margin: 0; }
+.ib.chico { width: 28px; height: 28px; min-height: 28px; }

@@ -776,6 +776,17 @@ function pintarMensajes() {
   pintarSugerencias();
 }
 
+// Nueva conversación: se empieza vacía y se crea en la base con el primer mensaje (asegurarChat), sin chats huérfanos.
+function nuevaConversacion() {
+  st.chatId = null; st.mensajes = []; st.archivoFoco = null;
+  if (E.get().modo === 'personal' || E.get().vista === 'chat') { if (location.hash === '#/') ruta(); else location.hash = '#/'; }
+  pintarMensajes(); pintarMenu();
+  abrirPanel({ foco: true });
+  $('lateral').classList.remove('abierto');
+}
+$('nuevaConversacion').onclick = nuevaConversacion;
+$('nuevaConvPanel').onclick = nuevaConversacion;
+
 async function asegurarChat(titulo) {
   if (st.chatId) return;
   const c = await q(sb.from('so_chats').insert({ mode: E.get().modo, project_id: E.get().proyectoId ?? null, title: titulo.slice(0, 60) }).select('id, title, mode, updated_at').single());
