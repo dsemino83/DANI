@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SO · Francisco</title>
+<link rel="stylesheet" href="estilos.css">
+<script src="../valo/vendor/supabase.js"></script>
+<script src="config.js"></script>
+</head>
+<body>
+  <section class="login" id="login" hidden>
+    <h1><span id="avatarLogin"></span> SO</h1>
+    <p>Entrá con tu usuario para trabajar con Francisco.</p>
+    <form id="formLogin" style="display:grid;gap:10px">
+      <input type="email" name="email" placeholder="Correo" autocomplete="username" required>
+      <input type="password" name="password" placeholder="Contraseña" autocomplete="current-password" required>
+      <button class="primario" type="submit">Entrar</button>
+      <div class="error" id="errorLogin" hidden></div>
+    </form>
+  </section>
+
+  <div class="app" id="app" hidden>
+    <aside class="lateral" id="lateral">
+      <div class="marca"><span id="avatarMarca"></span><div><strong>Francisco</strong><small id="usuario"></small></div></div>
+      <div class="modos" role="group" aria-label="Modo">
+        <button type="button" data-modo="work" aria-pressed="true">Trabajo</button>
+        <button type="button" data-modo="personal" aria-pressed="false">Personal</button>
+      </div>
+      <button type="button" id="nuevoChat">+ Nueva conversación</button>
+      <h2>Conversaciones</h2>
+      <nav id="listaChats"></nav>
+      <div id="bloqueWorkspace">
+        <h2>Workspace</h2>
+        <nav id="menuWorkspace"></nav>
+        <h2 id="tituloCompartidos" hidden>Compartidos conmigo</h2>
+        <nav id="menuCompartidos"></nav>
+      </div>
+      <div class="pie">
+        <button type="button" id="tema">Tema: automático</button>
+        <button type="button" id="salir">Salir</button>
+      </div>
+    </aside>
+
+    <main>
+      <header class="encabezado">
+        <button type="button" class="menu-movil" id="abrirMenu" aria-label="Menú">☰</button>
+        <h1 id="titulo">Francisco</h1>
+        <span class="meta" id="meta"></span>
+      </header>
+
+      <section class="chat" id="vistaChat">
+        <div class="mensajes" id="mensajes" aria-live="polite"></div>
+        <form class="entrada" id="formChat">
+          <textarea id="texto" rows="1" placeholder="Pedile algo a Francisco…" aria-label="Mensaje"></textarea>
+          <button class="primario" type="submit" id="enviar">Enviar</button>
+        </form>
+      </section>
+
+      <section class="workspace" id="vistaArtefacto" hidden>
+        <div id="artefacto"></div>
+        <section class="tarjeta compartir" id="panelCompartir">
+          <h3>Compartir</h3>
+          <p class="vacio">Comparte solo este tablero y sus datos. Nunca la conversación, la memoria ni otros tableros.</p>
+          <form id="formCompartir">
+            <input type="email" name="email" placeholder="correo@empresa.com" required>
+            <select name="permiso" aria-label="Permiso">
+              <option value="USE" selected>Usar (ver y cargar datos)</option>
+              <option value="VIEW">Solo ver</option>
+              <option value="EDIT">Editar</option>
+            </select>
+            <button class="primario" type="submit">Compartir</button>
+          </form>
+          <p class="vacio" id="linkCompartido"></p>
+          <ul id="listaCompartidos"></ul>
+        </section>
+        <details class="tarjeta versiones" id="panelVersiones">
+          <summary>Versiones</summary>
+          <ul id="listaVersiones"></ul>
+        </details>
+      </section>
+    </main>
+  </div>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>

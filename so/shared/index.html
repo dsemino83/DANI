@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SO · Tablero compartido</title>
+<link rel="stylesheet" href="../estilos.css">
+<script src="../../valo/vendor/supabase.js"></script>
+<script src="../config.js"></script>
+</head>
+<body>
+  <!-- Ruta independiente /so/shared/:artifactId. Solo muestra el tablero compartido: sin chat, historial de conversación,
+       memoria, otros tableros ni configuración privada. Cada lectura/escritura la valida el servidor (so_shared_*). -->
+  <section class="login" id="login" hidden>
+    <h1>SO · Tablero compartido</h1>
+    <p>Entrá con el correo con el que te compartieron el tablero.</p>
+    <form id="formLogin" style="display:grid;gap:10px">
+      <input type="email" name="email" placeholder="Correo" autocomplete="username" required>
+      <input type="password" name="password" placeholder="Contraseña" autocomplete="current-password" required>
+      <button class="primario" type="submit">Entrar</button>
+      <div class="error" id="errorLogin" hidden></div>
+    </form>
+  </section>
+  <main id="vista" hidden>
+    <header class="encabezado">
+      <h1 id="titulo">Tablero compartido</h1>
+      <span class="meta" id="meta"></span>
+      <button type="button" id="salir">Salir</button>
+    </header>
+    <section class="workspace"><div id="artefacto"></div></section>
+  </main>
+  <script type="module" src="shared.js"></script>
+</body>
+</html>

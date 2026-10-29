@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Página no encontrada</title>
+<script>
+  // GitHub Pages no tiene rutas dinámicas: /so/shared/<id> se resuelve en /so/shared/#<id>.
+  (function () {
+    var m = location.pathname.match(/^(.*\/so\/shared)\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\/?$/);
+    if (m) location.replace(m[1] + '/#' + m[2]);
+  })();
+</script>
+<style>
+  body { margin: 0; min-height: 100vh; display: grid; place-items: center; padding: 16px; background: #f6f6f4; color: #0b0b0b;
+    font: 16px/1.5 system-ui, sans-serif; text-align: center; }
+  @media (prefers-color-scheme: dark) { body { background: #121211; color: #f0efec; } a { color: #3987e5; } }
+</style>
+</head>
+<body><p>No encontramos esta página.</p></body>
+</html>
