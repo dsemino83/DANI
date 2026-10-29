@@ -12,6 +12,7 @@ import { renderUI, validar as validarUI, specsComparacion } from './genui.js';
 import { crearArchivos } from './archivos/servicio.js';
 import { formatoPedido, FORMATOS } from './archivos/generar.js';
 import { interpretarEdicion } from './archivos/tablas.js';
+import { exportacionDe } from './archivos/doc.js';
 import { interpretarHorario, describirHorario, proximaEjecucion, FORMATOS_SERVIDOR, TZ_POR_DEFECTO } from './archivos/programadas.js';
 import { crearEstado, chips, riesgo, explicarPermiso, paraContinuidad } from './estado.js';
 import { analizar, comparar, mesAnterior, mesesConDatos, nombreMes, totalMes } from './analisis.js';
@@ -947,11 +948,12 @@ async function intencionArchivo(texto, adjuntos) {
     actividad('creando');
     if (adjuntos.length === 1) return A.convertirArchivo(await D.archivo(adjuntos[0].fileId), formato);
     const deictico = /\b(esto|eso|este archivo|ese archivo|el archivo|lo que generaste|el que generaste|el excel|el pdf|la planilla|esa planilla)\b/.test(n);
-    if (s.vista === 'artefacto' && s.artefactoId && !(deictico && st.archivoFoco && /\b(archivo|generaste|planilla)\b/.test(n))) return A.exportarArtefacto(artefacto(s.artefactoId), formato);
+    const datos = /\b(todos los datos|todo el historial|historial completo|sin filtros?|todo lo guardado|datos completos|detalle completo)\b/.test(n) ? 'todo' : null;
+    if (s.vista === 'artefacto' && s.artefactoId && !(deictico && st.archivoFoco && /\b(archivo|generaste|planilla)\b/.test(n))) return A.exportarArtefacto(artefacto(s.artefactoId), formato, { datos });
     if (deictico && st.archivoFoco) return A.convertirArchivo(await D.archivo(st.archivoFoco), formato);
     const nombrado = publicados().find((a) => normalizar(a.name).split(/\s+/).filter((w) => w.length > 3 && !['dashboard', 'tablero'].includes(w)).some((w) => n.includes(w)));
-    if (nombrado) return A.exportarArtefacto(nombrado, formato);
-    if (s.artefactoId && artefacto(s.artefactoId)) return A.exportarArtefacto(artefacto(s.artefactoId), formato);
+    if (nombrado) return A.exportarArtefacto(nombrado, formato, { datos });
+    if (s.artefactoId && artefacto(s.artefactoId)) return A.exportarArtefacto(artefacto(s.artefactoId), formato, { datos });
     return { texto: `¿De qué querés el ${FORMATOS[formato].etiqueta}? Abrí un tablero o adjuntá un archivo y pedímelo de nuevo.` };
   }
   if (st.archivoFoco && /\b(margen|duplicad\w*|repetid\w*|ordena\w*|deja solo|dejame solo|filtra\w* las filas|quita\w* la columna|saca\w* la columna)\b/.test(n) && (s.vista !== 'artefacto' || /\b(archivo|planilla|excel)\b/.test(n))) {
@@ -1812,12 +1814,13 @@ function pintarCabecera() {
     const g = a.configuration?.grafico || 'line';
     const items = [{ id: 'editar', texto: 'Editar con Francisco' }, { id: 'datos', texto: 'Datos y fuentes' },
       ...['line', 'bar', 'pie'].filter((x) => x !== g).map((x) => ({ id: `graf-${x}`, texto: `Ver gráfico de ${{ line: 'líneas', bar: 'barras', pie: 'torta' }[x]}` })),
-      { id: 'exp-pdf', texto: 'Exportar a PDF' }, { id: 'exp-xlsx', texto: 'Exportar a Excel' }, { id: 'exp-csv', texto: 'Exportar a CSV' }, { id: 'exp-png', texto: 'Exportar como imagen (PNG)' },
+      { id: 'exp-pdf', texto: 'Exportar a PDF' }, { id: 'exp-xlsx', texto: 'Exportar a Excel' }, { id: 'exp-csv', texto: 'Exportar a CSV' }, { id: 'exp-png', texto: 'Exportar como imagen (PNG)' }, { id: 'exp-config', texto: 'Exportación…' },
       { id: 'versiones', texto: 'Versiones' }, { id: 'duplicar', texto: 'Duplicar' }, { id: 'archivar', texto: 'Archivar' }];
     abrirMenuFlotante(e.currentTarget, items, async (x) => {
       if (x === 'editar') return editarConFrancisco(a.id);
       if (x === 'datos' || x === 'versiones') return abrirHoja(x);
       if (x.startsWith('graf-')) return procesarAccion({ tipo: 'grafico', artefactoId: a.id, grafico: x.slice(5) });
+      if (x === 'exp-config') return configurarExportacion(a);
       if (x.startsWith('exp-')) return exportarDesdeUI(a, x.slice(4));
       if (x === 'duplicar' || x === 'archivar') { await accionTarjeta(x, a.id); if (x === 'archivar') location.hash = '#/'; }
     });
@@ -1836,10 +1839,48 @@ async function exportarDesdeUI(a, formato) {
 }
 
 // Hoja lateral (compartir · datos y fuentes · versiones): aparece solo cuando se pide.
+// Exportación ≠ visualización: el tablero puede verse resumido y exportarse con el detalle completo (o al revés).
+// Se guarda en configuration.exportacion y la usan el menú, Francisco, las plantillas y las automatizaciones.
+function configurarExportacion(a) {
+  const ex = exportacionDe(a);
+  const campos = st.datos.get(a.id)?.fields || a.schema?.fields || [];
+  const f = $('formExportar');
+  const chk = (name, val, txt, on) => `<label class="exp-op"><input type="checkbox" name="${name}" value="${esc(val)}"${on ? ' checked' : ''}> ${esc(txt)}</label>`;
+  f.innerHTML = `<p class="vacio">Cómo se exporta "${esc(a.name)}". No cambia cómo se ve el tablero.</p>
+    <fieldset><legend>Datos</legend>
+      <label class="exp-op"><input type="radio" name="datos" value="vista"${ex.datos === 'vista' ? ' checked' : ''}> Lo que estoy viendo (con filtros y período)</label>
+      <label class="exp-op"><input type="radio" name="datos" value="todo"${ex.datos === 'todo' ? ' checked' : ''}> Todos los datos guardados (historial completo)</label></fieldset>
+    <fieldset><legend>Secciones</legend>${chk('sec', 'resumen', 'Resumen e insights', ex.secciones.resumen)}${chk('sec', 'mensual', 'Totales por mes', ex.secciones.mensual)}${chk('sec', 'detalle', 'Detalle registro por registro', ex.secciones.detalle)}</fieldset>
+    <fieldset><legend>Columnas del detalle</legend><label class="exp-op"><input type="checkbox" checked disabled> Fecha</label>${campos.map((c) => chk('col', c.key, c.label || c.key, !ex.columnas || ex.columnas.includes(c.key))).join('')}</fieldset>
+    <p class="error" id="errorExportar" hidden></p>
+    <div class="msg-acc"><button class="primario" type="submit">Guardar</button><button type="button" data-exp-defecto>Volver a lo predeterminado</button></div>`;
+  const guardar = async (exportacion) => {
+    try {
+      const [act] = await q(sb.from('so_artifacts').update({ configuration: { ...a.configuration, exportacion } }).eq('id', a.id).select('id, configuration, version'));
+      if (!act) throw new Error('no se guardó');
+      Object.assign(a, { configuration: act.configuration, version: act.version });
+      $('hoja').close();
+      toast(exportacion ? 'Guardé cómo se exporta este tablero.' : 'La exportación volvió a lo predeterminado.');
+    } catch (err) { $('errorExportar').textContent = `No pude guardar: ${err.message}.`; $('errorExportar').hidden = false; }
+  };
+  f.onsubmit = (e) => {
+    e.preventDefault();
+    const fd = new FormData(f);
+    const sec = fd.getAll('sec');
+    if (!sec.includes('mensual') && !sec.includes('detalle')) { $('errorExportar').textContent = 'Elegí al menos "Totales por mes" o "Detalle": Excel y CSV necesitan una tabla.'; $('errorExportar').hidden = false; return; }
+    const cols = fd.getAll('col');
+    if (sec.includes('detalle') && campos.length && !cols.length) { $('errorExportar').textContent = 'Elegí al menos una columna para el detalle.'; $('errorExportar').hidden = false; return; }
+    guardar({ datos: fd.get('datos') || 'vista', secciones: { resumen: sec.includes('resumen'), mensual: sec.includes('mensual'), detalle: sec.includes('detalle') },
+      columnas: cols.length === campos.length ? null : cols });
+  };
+  f.querySelector('[data-exp-defecto]').onclick = () => guardar(null);
+  abrirHoja('exportar');
+}
+
 function abrirHoja(tipo) {
   const h = $('hoja');
   h.querySelectorAll('[data-hoja]').forEach((n) => { n.hidden = n.dataset.hoja !== tipo; });
-  $('hojaTitulo').textContent = { compartir: 'Compartir', datos: 'Datos y fuentes', versiones: 'Versiones' }[tipo];
+  $('hojaTitulo').textContent = { compartir: 'Compartir', datos: 'Datos y fuentes', versiones: 'Versiones', exportar: 'Exportación' }[tipo];
   if (!h.open) h.showModal();
   if (tipo === 'compartir') $('formCompartir').email.focus();
   else h.querySelector(`[data-hoja="${tipo}"] button, [data-hoja="${tipo}"] input, [data-hoja="${tipo}"] select`)?.focus();

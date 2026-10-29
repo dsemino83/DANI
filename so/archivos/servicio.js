@@ -115,9 +115,9 @@ export function crearArchivos(x) {
   const resultado = (f, texto, extra = {}) => ({ texto, meta: { estado: 'verificado', ui: [spec(f)], archivo: f.id, porque: `Comprobé la estructura (${f.validacion || f.meta?.validacion}) y que la descarga autorizada devuelve exactamente el archivo generado.`, ...extra }, skills: ['FranciscoFiles'], capacidades: ['storage'] });
 
   // ------------------------------------------------------------------ contenido: artefacto / tabla → DocSpec
-  async function docDeArtefacto(a, { formato } = {}) {
+  async function docDeArtefacto(a, { formato, datos = null } = {}) {
     const s = E.get().artefactoId === a.id ? E.get() : {};
-    return docDeDatos(a, await x.datosDe(a.id), s, { formato });
+    return docDeDatos(a, await x.datosDe(a.id), s, { formato, datos });
   }
 
   const docDeTabla = (titulo, tabla, subtitulo = null) => ({ titulo, subtitulo: subtitulo || `${tabla.filas.length} filas · generado ${new Date().toLocaleDateString('es-AR')}`, secciones: [{ titulo: 'Datos', tabla }] });
@@ -129,9 +129,9 @@ export function crearArchivos(x) {
   }
 
   // ------------------------------------------------------------------ acciones
-  async function exportarArtefacto(a, formato) {
+  async function exportarArtefacto(a, formato, { datos = null } = {}) {
     if (!FORMATOS[formato]) return { texto: `Todavía no exporto a ${formato}.` };
-    const { doc, registros } = await docDeArtefacto(a, { formato });
+    const { doc, registros } = await docDeArtefacto(a, { formato, datos });
     const grande = registros > 20000;
     let tarea = null;
     if (grande) tarea = await q(sb.from('so_tasks').insert({ kind: 'export', name: `Exportar ${a.name} (${FORMATOS[formato].etiqueta})`, status: 'running', artifact_id: a.id, progress: 0.1, input: { formato } }).select('id').single());

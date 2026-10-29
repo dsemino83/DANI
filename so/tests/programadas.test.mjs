@@ -37,3 +37,27 @@ test('el servidor no promete imágenes', () => {
   for (const f of ['png', 'jpg', 'webp', 'zip']) assert.ok(!FORMATOS_SERVIDOR.includes(f), f);
   for (const f of ['pdf', 'xlsx', 'docx', 'pptx', 'csv']) assert.ok(FORMATOS_SERVIDOR.includes(f), f);
 });
+
+import { docDeDatos, exportacionDe } from '../archivos/doc.js';
+test('exportación separada de la visualización: se ve resumido y se exporta el detalle completo', () => {
+  const fields = [{ key: 'monto', label: 'Monto', type: 'number' }, { key: 'canal', label: 'Canal', type: 'text' }, { key: 'nota', label: 'Nota', type: 'text' }];
+  const records = [['2026-08-10', 100, 'web'], ['2026-08-11', 50, 'local'], ['2026-09-10', 70, 'web'], ['2026-09-11', 30, 'local']].map(([period, monto, canal]) => ({ period, data: { monto, canal, nota: 'x' } }));
+  const vista = { filtro: { key: 'canal', valor: 'web' }, desde: '2026-09', hasta: '2026-09' };   // lo que se ve: solo web de septiembre
+  const tabla = (doc, t) => doc.secciones.find((s) => s.titulo === t)?.tabla;
+  // Por defecto: exporta lo que se ve.
+  let { doc } = docDeDatos({ name: 'V', configuration: {} }, { fields, records }, vista);
+  assert.equal(tabla(doc, 'Detalle').filas.length, 1);
+  // Configurado: todos los datos, solo el detalle, columnas Monto y Canal.
+  const a = { name: 'V', configuration: { exportacion: { datos: 'todo', secciones: { resumen: false, mensual: false, detalle: true }, columnas: ['monto', 'canal'] } } };
+  ({ doc } = docDeDatos(a, { fields, records }, vista));
+  assert.deepEqual(doc.secciones.map((s) => s.titulo), ['Detalle']);
+  assert.equal(tabla(doc, 'Detalle').filas.length, 4, 'historial completo aunque la vista esté filtrada');
+  assert.deepEqual(tabla(doc, 'Detalle').columnas.map((c) => c.label), ['Fecha', 'Monto', 'Canal']);
+  // Un pedido puntual ("exportá todos los datos") manda sobre lo guardado.
+  ({ doc } = docDeDatos({ name: 'V', configuration: {} }, { fields, records }, vista, { datos: 'todo' }));
+  assert.equal(tabla(doc, 'Detalle').filas.length, 4);
+  // Sin secciones con tabla, igual queda el detalle (CSV/Excel la necesitan).
+  ({ doc } = docDeDatos({ name: 'V', configuration: { exportacion: { secciones: { resumen: true, mensual: false, detalle: false } } } }, { fields, records }, {}));
+  assert.ok(tabla(doc, 'Detalle'));
+  assert.deepEqual(exportacionDe({}), { datos: 'vista', secciones: { resumen: true, mensual: true, detalle: true }, columnas: null });
+});

@@ -668,3 +668,8 @@ label.radio { display: flex; gap: 8px; align-items: center; margin-top: 10px; }
 .conformidad { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 10px; font: var(--t-secondary); color: var(--text-secondary); }
 .conformidad button { min-height: 28px; padding: 2px 12px; border-radius: var(--r-full); font: var(--t-secondary); }
 .conformidad.hecha { margin: 8px 0 0; }
+
+/* Configuración de exportación (hoja lateral). */
+#formExportar fieldset { border: 1px solid var(--border-subtle); border-radius: var(--r2); padding: 10px 12px; margin: 0 0 12px; display: grid; gap: 6px; }
+#formExportar legend { font-weight: 600; padding: 0 4px; }
+.exp-op { display: flex; align-items: center; gap: 8px; min-height: 28px; }
