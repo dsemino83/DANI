@@ -6,7 +6,7 @@
 -- Configuración única fuera del repositorio (no son datos versionables): los secretos de Vault
 --   'so_functions_url' (https://<ref>.supabase.co) y 'so_cron_token' (aleatorio, generado en la base).
 
-create extension if not exists pg_net;
+create extension if not exists pg_net with schema extensions;   -- fuera de public (asesor de seguridad)
 
 alter table public.so_automations add column if not exists schedule jsonb;
 alter table public.so_automations add column if not exists next_run_at timestamptz;
