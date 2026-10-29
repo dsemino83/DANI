@@ -90,4 +90,38 @@ begin
   reset role;
   raise notice 'SEGURIDAD OK';
 end $$;
+-- Capa UX: búsqueda global, notificaciones, estado y métricas no cruzan usuarios.
+do $$
+declare
+  ua uuid := '00000000-0000-0000-0000-00000000000a'; ub uuid := '00000000-0000-0000-0000-00000000000b';
+  pid uuid; dsid uuid; aid uuid; n int;
+begin
+  perform pg_temp.como(ua, 'a@test.so');
+  insert into public.so_projects (name) values ('Comercial') returning id into pid;
+  insert into public.so_datasources (project_id, name, fields) values (pid, 'ventas', '[{"key":"canal","type":"text"}]') returning id into dsid;
+  insert into public.so_artifacts (project_id, name, route, datasource_id, state) values (pid, 'Tablero Zeta', '#', dsid, 'published') returning id into aid;
+  insert into public.so_menu (artifact_id, name, route) values (aid, 'Tablero Zeta', '#');
+  insert into public.so_records (datasource_id, owner_id, data) values (dsid, ua, '{"canal": "mayorista"}');
+  insert into public.so_notifications (priority, title) values ('success', 'Importación terminada');
+  insert into public.so_user_state (key, value) values ('resume', '{"artifactId": "x"}');
+  insert into public.so_events (name, value) values ('time_to_first_value', 1200);
+  perform public.so_abrir_artefacto(aid);
+  select count(*) into n from public.so_buscar('zeta') where kind = 'artifact'; if n <> 1 then raise exception 'búsqueda propia: %', n; end if;
+  select count(*) into n from public.so_buscar('mayorista') where kind = 'record'; if n <> 1 then raise exception 'búsqueda de registros: %', n; end if;
+  select count(*) into n from public.so_buscar('comercial') where kind = 'project'; if n <> 1 then raise exception 'búsqueda de proyectos: %', n; end if;
+  select open_count into n from public.so_menu where artifact_id = aid; if n <> 1 then raise exception 'recientes: %', n; end if;
+  perform pg_temp.debe_fallar('update public.so_events set value = 0', 'métricas inmutables');
+  reset role;
+
+  perform pg_temp.como(ub, 'b@test.so');
+  select count(*) into n from public.so_buscar('zeta'); if n <> 0 then raise exception 'B encuentra artefactos ajenos'; end if;
+  select count(*) into n from public.so_buscar('mayorista'); if n <> 0 then raise exception 'B encuentra registros ajenos'; end if;
+  select count(*) into n from public.so_notifications; if n <> 0 then raise exception 'B ve notificaciones ajenas'; end if;
+  select count(*) into n from public.so_user_state; if n <> 0 then raise exception 'B ve estado ajeno'; end if;
+  select count(*) into n from public.so_events; if n <> 0 then raise exception 'B ve métricas ajenas'; end if;
+  perform public.so_abrir_artefacto(aid);
+  reset role;
+  select open_count into n from public.so_menu where artifact_id = aid; if n <> 1 then raise exception 'B modificó recientes ajenos'; end if;
+  raise notice 'SEGURIDAD UX OK';
+end $$;
 rollback;

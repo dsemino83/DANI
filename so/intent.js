@@ -1,3 +1,4 @@
+import { parseMes } from './analisis.js';
 // SO · FranciscoIntent: interpreta pedidos en lenguaje natural de forma determinista (sin LLM).
 // Devuelve una acción estructurada que la página ejecuta contra Supabase (con RLS), o { tipo: 'chat' } para que
 // Francisco responda conversando. Módulo puro: sin DOM ni red (se prueba con node --test).
@@ -78,6 +79,12 @@ export function resolverArtefacto(texto, artefactos, activoId) {
     if (hit) return hit;
   }
   for (const a of lista) if (n.includes(normalizar(a.name))) return a;
+  const VACIAS = new Set(['dashboard', 'tablero', 'panel', 'herramienta', 'reporte', 'informe', 'formulario', 'de', 'del', 'la', 'el', 'los', 'las', 'y', 'para']);
+  const porPalabras = lista.filter((a) => {
+    const ps = normalizar(a.name).split(/[^a-z0-9]+/).filter((w) => w.length > 2 && !VACIAS.has(w));
+    return ps.length && ps.every((w) => new RegExp(`\\b${w}`).test(n));
+  });
+  if (porPalabras.length === 1) return porPalabras[0];
   const activo = lista.find((a) => a.id === activoId);
   if (activo) return activo;
   return lista.length === 1 ? lista[0] : null;
@@ -138,7 +145,7 @@ export function interpretar(texto, ctx = {}) {
     const t = tema(original) || capital(tipo === 'dashboard' ? 'general' : tipo);
     const explicitos = camposExplicitos(original);
     const persistente = requierePersistencia(original);
-    const graf = /\b(torta|pie)\b/.test(n) ? 'pie' : /\bbarras?\b/.test(n) ? 'bar' : 'line';
+    const graf = /\b(torta|pie)\b/.test(n) ? 'pie' : /\bbarras?\b/.test(n) ? 'bar' : /\blineas?\b/.test(n) ? 'line' : null;   // null: usar la preferencia confirmada
     return {
       tipo: 'crear',
       artefacto: {
@@ -148,12 +155,59 @@ export function interpretar(texto, ctx = {}) {
         persistentStorage: persistente,
         // Un dashboard o herramienta siempre necesita una fuente de datos para mostrar algo.
         campos: explicitos.length ? explicitos : camposPorTema(t),
+        camposExplicitos: explicitos.length > 0,
         grafico: graf,
       },
     };
   }
 
   const art = resolverArtefacto(original, ctx.artefactos, ctx.activoId);
+  const ref = (ctx.hoy || new Date().toISOString()).slice(0, 7);   // los meses nombrados se ubican respecto de hoy
+
+  if (/^(deshace|deshacer|deshacelo|volve atras|revertilo|revertir|undo)\b|\bdeshace (eso|lo ultimo|el cambio)\b/.test(n)) return { tipo: 'deshacer' };
+
+  const proy = original.match(/(?:cre[aá]|arm[aá]|nuevo)\s+(?:un |el )?proyecto\s+(?:de |llamado )?["“]?([^"”.]+?)["”]?\s*$/i);
+  if (proy) return { tipo: 'proyecto_crear', nombre: proy[1].trim().slice(0, 120) };
+  const camb = original.match(/(?:cambi[aá]|pas[aá]|and[aá]|abr[ií]|ir)\s+(?:al|a|el)\s+proyecto\s+["“]?([^"”.]+?)["”]?\s*$/i);
+  if (camb) return { tipo: 'proyecto_cambiar', nombre: camb[1].trim() };
+
+  if (/\b(abri|abrir|abrime|llevame|ir al|anda al|mostrame el|mostrame la)\b/.test(n) && /\b(dashboard|tablero|panel|herramienta|reporte|que usamos|que use|de ayer|el de|la de)\b/.test(n)) {
+    if (/\b(ayer|antes de ayer|anteayer)\b/.test(n)) return { tipo: 'abrir', cuando: /antes de ayer|anteayer/.test(n) ? 2 : 1 };
+    if (/\b(ultimo|ultima|reciente)\b/.test(n)) return { tipo: 'abrir', cuando: 0 };
+    return art ? { tipo: 'abrir', artefactoId: art.id } : { tipo: 'falta_artefacto' };
+  }
+
+  if (/\b(favorit|destacalo|fijalo)/.test(n)) {
+    return art ? { tipo: 'favorito', artefactoId: art.id, valor: !/\b(saca|quita|sacalo|quitalo)\b/.test(n) } : { tipo: 'falta_artefacto' };
+  }
+
+  if (/\b(saca|quita|borra|limpia)\w* (el |los )?filtros?\b|\bmostrame todo\b|\bsin filtros?\b/.test(n)) return { tipo: 'filtrar', valor: null };
+  const solo = original.match(/\b(?:s[oó]lo|solamente|[uú]nicamente)\s+(?:(?:los|las|el|la|de|del)\s+)?(.+?)(?=[.,;!?]|$)/i);
+  if (solo && !/\bcompart|@/.test(n) && /\b(mostrame|mostra|filtra|filtrar|ver|dejame|quiero ver|solo|solamente)\b/.test(n) && !/\b(ver|lectura|mirar)\b\s*$/.test(normalizar(solo[1]))) {
+    return art ? { tipo: 'filtrar', artefactoId: art.id, valor: solo[1].trim() } : { tipo: 'falta_artefacto' };
+  }
+
+  if (/\bcompar\w*|\bversus\b|\bvs\.?\s/.test(n) && !/\bcompart/.test(n)) {
+    const partes = n.split(/\bcon\b|\bcontra\b|\bversus\b|\bvs\.?\s/);
+    const a = partes.length > 1 ? parseMes(partes[0], ref) : null;
+    const b = parseMes(partes.length > 1 ? partes.slice(1).join(' ') : n, ref);
+    return art ? { tipo: 'comparar', artefactoId: art.id, mesA: a, mesB: a && !b ? null : b } : { tipo: 'falta_artefacto' };
+  }
+
+  if (/\bpor que\b/.test(n) && /\b(bajo|subio|cayo|aumento|cambio|crecio|disminuyo|esto|eso)\b/.test(n)) {
+    return art ? { tipo: 'por_que', artefactoId: art.id, mes: parseMes(n, ref) } : { tipo: 'falta_artefacto' };
+  }
+
+  if (/\b(analiza|analizar|analisis|resumime|como vienen?|como van|como viene|que paso con)\b/.test(n)) {
+    return art ? { tipo: 'analizar', artefactoId: art.id } : (ctx.artefactos || []).length ? { tipo: 'falta_artefacto' } : { tipo: 'sin_datos' };
+  }
+
+  const mesSolo = !/\b(registra|carga|guarda|anota)\b/.test(n) && /\b(mostrame|ver|filtra|quiero ver|periodo)\b/.test(n) ? parseMes(n, ref) : null;
+  if (mesSolo) return art ? { tipo: 'periodo', artefactoId: art.id, mes: mesSolo } : { tipo: 'falta_artefacto' };
+
+  if (requierePersistencia(original) && !numeros(original).length && art && !/\b(crea|arma|nuevo)\b/.test(n)) {
+    return { tipo: 'persistir', artefactoId: art.id };
+  }
 
   const email = original.match(EMAIL);
   if (/\b(dejar? de compartir|deja de compartir|revoca|revocar|quitale el acceso|sacale el acceso)\b/.test(n)) {

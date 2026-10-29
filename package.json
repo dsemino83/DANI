@@ -9,7 +9,8 @@
     "typecheck": "tsc -p tsconfig.json",
     "build:estado": "node valo/bastanteo/generar-estado.mjs",
     "test:bastanteo": "node --test valo/tests/bastanteo.test.js valo/tests/bastanteo-estado.test.mjs valo/tests/bastanteo-razonamiento.test.mjs valo/tests/inventarios.test.js",
-    "test:so": "node --test so/tests/intent.test.mjs so/tests/vista.test.mjs so/tests/avatar.test.mjs"
+    "test:so": "node --test so/tests/*.test.mjs",
+    "test:so:e2e": "node so/tests/e2e/recorridos.mjs"
   },
   "devDependencies": {
     "typescript": "5.9.3"

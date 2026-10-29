@@ -20,22 +20,25 @@
     </form>
   </section>
 
-  <div class="app" id="app" hidden>
-    <aside class="lateral" id="lateral">
+  <div class="app vista-home" id="app" hidden>
+    <aside class="lateral" id="lateral" aria-label="Navegación">
       <div class="marca"><span id="avatarMarca"></span><div><strong>Francisco</strong><small id="usuario"></small></div></div>
       <div class="modos" role="group" aria-label="Modo">
         <button type="button" data-modo="work" aria-pressed="true">Trabajo</button>
         <button type="button" data-modo="personal" aria-pressed="false">Personal</button>
       </div>
-      <button type="button" id="nuevoChat">+ Nueva conversación</button>
-      <h2>Conversaciones</h2>
-      <nav id="listaChats"></nav>
+      <button type="button" class="buscar" id="abrirPaleta" aria-keyshortcuts="Control+K Meta+K">🔎 Buscar o pedir algo <kbd>⌘K</kbd></button>
+      <nav aria-label="Principal"><a href="#/" id="linkInicio">🏠 Inicio</a></nav>
       <div id="bloqueWorkspace">
-        <h2>Workspace</h2>
+        <h2 id="tituloFavoritos" hidden>Favoritos</h2>
+        <nav id="menuFavoritos"></nav>
+        <h2>Recientes</h2>
         <nav id="menuWorkspace"></nav>
         <h2 id="tituloCompartidos" hidden>Compartidos conmigo</h2>
         <nav id="menuCompartidos"></nav>
       </div>
+      <h2>Conversaciones</h2>
+      <nav id="listaChats"></nav>
       <div class="pie">
         <button type="button" id="tema">Tema: automático</button>
         <button type="button" id="salir">Salir</button>
@@ -45,42 +48,75 @@
     <main>
       <header class="encabezado">
         <button type="button" class="menu-movil" id="abrirMenu" aria-label="Menú">☰</button>
-        <h1 id="titulo">Francisco</h1>
+        <h1 id="titulo">Inicio</h1>
         <span class="meta" id="meta"></span>
+        <button type="button" class="centro-btn" id="btnCentro" aria-haspopup="dialog" aria-controls="centro">
+          <span aria-hidden="true">🔔</span><span class="sr">Actividad y avisos</span><span class="badge" id="badgeCentro" hidden></span>
+        </button>
       </header>
 
-      <section class="chat" id="vistaChat">
-        <div class="mensajes" id="mensajes" aria-live="polite"></div>
-        <form class="entrada" id="formChat">
-          <textarea id="texto" rows="1" placeholder="Pedile algo a Francisco…" aria-label="Mensaje"></textarea>
-          <button class="primario" type="submit" id="enviar">Enviar</button>
-        </form>
-      </section>
-
-      <section class="workspace" id="vistaArtefacto" hidden>
-        <div id="artefacto"></div>
-        <section class="tarjeta compartir" id="panelCompartir">
-          <h3>Compartir</h3>
-          <p class="vacio">Comparte solo este tablero y sus datos. Nunca la conversación, la memoria ni otros tableros.</p>
-          <form id="formCompartir">
-            <input type="email" name="email" placeholder="correo@empresa.com" required>
-            <select name="permiso" aria-label="Permiso">
-              <option value="USE" selected>Usar (ver y cargar datos)</option>
-              <option value="VIEW">Solo ver</option>
-              <option value="EDIT">Editar</option>
-            </select>
-            <button class="primario" type="submit">Compartir</button>
-          </form>
-          <p class="vacio" id="linkCompartido"></p>
-          <ul id="listaCompartidos"></ul>
+      <div class="cuerpo">
+        <section class="home" id="vistaHome" aria-label="Inicio del proyecto"></section>
+        <section class="workspace" id="vistaArtefacto" hidden>
+          <div class="acciones-artefacto" id="accionesArtefacto"></div>
+          <div id="errorArtefacto"></div>
+          <div id="artefacto"></div>
+          <section class="tarjeta compartir" id="panelCompartir">
+            <h3>Compartir</h3>
+            <p class="vacio">Comparte solo este tablero y sus datos. Nunca la conversación, la memoria ni otros tableros.</p>
+            <form id="formCompartir">
+              <input type="email" name="email" placeholder="correo@empresa.com" required aria-label="Correo">
+              <select name="permiso" aria-label="Permiso">
+                <option value="USE" selected>Puede usarlo (ver y cargar datos)</option>
+                <option value="VIEW">Solo puede verlo</option>
+                <option value="EDIT">Puede modificarlo</option>
+              </select>
+              <button class="primario" type="submit">Compartir</button>
+            </form>
+            <p class="vacio" id="linkCompartido"></p>
+            <ul id="listaCompartidos"></ul>
+          </section>
+          <details class="tarjeta versiones" id="panelVersiones">
+            <summary>Versiones</summary>
+            <ul id="listaVersiones"></ul>
+          </details>
         </section>
-        <details class="tarjeta versiones" id="panelVersiones">
-          <summary>Versiones</summary>
-          <ul id="listaVersiones"></ul>
-        </details>
-      </section>
+
+        <!-- Francisco: punto de entrada universal. Hereda modo, proyecto, artefacto, vista, selección y filtros. -->
+        <section class="francisco-panel" id="panelFrancisco" aria-label="Francisco">
+          <div class="panel-cab"><strong>Francisco</strong><button type="button" id="cerrarPanel" aria-label="Volver al tablero">✕</button></div>
+          <div class="mensajes" id="mensajes" aria-live="polite"></div>
+          <div class="composer">
+            <div class="sugerencias" id="sugerencias"></div>
+            <div class="contexto" id="contexto" aria-label="Contexto que usa Francisco"></div>
+            <form class="entrada" id="formChat">
+              <textarea id="texto" rows="1" placeholder="¿Qué querés conseguir?" aria-label="Mensaje para Francisco"></textarea>
+              <button class="primario" type="submit" id="enviar">Enviar</button>
+            </form>
+            <p class="actividad" id="actividad" role="status" aria-live="polite"></p>
+          </div>
+        </section>
+      </div>
+      <button type="button" class="fab" id="fab" aria-controls="panelFrancisco">💬 Francisco</button>
     </main>
   </div>
+
+  <dialog class="centro" id="centro" aria-label="Actividad y avisos">
+    <div class="centro-cab">
+      <div role="tablist">
+        <button type="button" role="tab" data-tab="tareas" aria-selected="true">Actividad</button>
+        <button type="button" role="tab" data-tab="avisos" aria-selected="false">Avisos</button>
+      </div>
+      <button type="button" id="cerrarCentro" aria-label="Cerrar">✕</button>
+    </div>
+    <div id="centroCuerpo"></div>
+  </dialog>
+
+  <dialog class="paleta" id="paleta" aria-label="Buscar o pedir algo">
+    <input type="search" id="paletaInput" placeholder="Buscá tableros, conversaciones, datos… o escribí un pedido" aria-label="Buscar" autocomplete="off">
+    <ul id="paletaLista" role="listbox"></ul>
+    <p class="vacio paleta-ayuda">↑↓ para moverte · Enter para abrir · Esc para cerrar</p>
+  </dialog>
 
   <script type="module" src="app.js"></script>
 </body>
