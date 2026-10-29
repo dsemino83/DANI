@@ -33,6 +33,7 @@ export function crearDatos(d) {
     const nuevos = await entrada.agregar(files, 'chat', { chatId: st.chatId });
     bandeja.push(...nuevos.map((x) => x.id));
     pintarBandeja();
+    d.abrirFrancisco?.();   // soltar o adjuntar en cualquier superficie trae a Francisco con el adjunto listo
     $('texto').focus();
   }
   $('adjuntar').onclick = () => $('inpArchivos').click();
@@ -51,7 +52,8 @@ export function crearDatos(d) {
   document.addEventListener('drop', (e) => {
     if (!e.dataTransfer?.files?.length) return;
     e.preventDefault(); arrastres = 0; $('soltar').hidden = true;
-    // Sobre un tablero abierto, el archivo alimenta ese tablero; en el resto, va al chat.
+    // Sobre un tablero abierto, el archivo alimenta ese tablero (input contextual); en el Workspace o en Francisco,
+    // va como adjunto y Francisco propone qué hacer.
     if (E.get().vista === 'artefacto' && !panel.contains(e.target) && st.puedeImportarAqui) abrirImportacion(e.dataTransfer.files[0], E.get().artefactoId);
     else adjuntar(e.dataTransfer.files);
   });

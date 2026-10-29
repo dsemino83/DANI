@@ -2,7 +2,7 @@
 // selección para preguntar a Francisco, frescura de datos, carga e importación, e historial.
 // Lo usan el workspace del dueño (app.js) y la ruta compartida (shared/). El estado (período, filtro, comparación,
 // selección) llega de afuera y los cambios se devuelven por onEstado: la UI y Francisco comparten la misma fuente.
-import { filtrar, mesesConDatos, nombreMes, comparar, mesAnterior } from './analisis.js';
+import { filtrar, mesesConDatos, nombreMes, comparar, mesAnterior, insights } from './analisis.js';
 
 export const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const fmt = new Intl.NumberFormat('es-AR', { maximumFractionDigits: 2 });
@@ -124,11 +124,20 @@ function grafTorta(partes, etiqueta) {
   return svg;
 }
 
+// Categoría útil para explicar cambios: texto con pocos valores distintos (canal, región…).
+export function categoriaUtil(fields, records) {
+  return fields.filter((f) => f.type === 'text').map((f) => ({ f, n: new Set(records.map((r) => r.data?.[f.key]).filter(Boolean)).size }))
+    .filter((x) => x.n >= 2 && x.n <= 30).sort((x, y) => x.n - y.n)[0]?.f || null;
+}
+
 /**
+ * Focused Artifact (dashboard). Jerarquía: resumen → FilterBar → KPIs (+ inspector) → insights → gráfico → detalle.
+ * El estado (período, filtro, comparación, selección) llega de afuera y los cambios vuelven por onEstado: la UI y
+ * Francisco comparten la misma fuente de verdad. Lo usan el workspace del dueño y la ruta compartida.
  * @param {HTMLElement} cont
  * @param {{ id: string, name: string, version?: number, fields: any[], records: any[], configuration?: any, permission: string }} art
- * @param {{ estado?: any, onEstado?: Function, onSeleccion?: Function, onAdd?: Function, onImportar?: Function,
- *           frescura?: { cargado: string, ultimo: string|null, cache?: boolean }, onActualizar?: Function }} op
+ * @param {{ estado?: any, onEstado?: Function, onSeleccion?: Function, onAdd?: Function, onImportar?: Function, onAccion?: Function,
+ *           frescura?: { cargado: string, ultimo: string|null, cache?: boolean }, onActualizar?: Function, puedeCargar?: boolean }} op
  */
 export function renderArtefacto(cont, art, op = {}) {
   const numericos = art.fields.filter((f) => f.type === 'number');
@@ -155,45 +164,64 @@ export function renderArtefacto(cont, art, op = {}) {
   const varTxt = k?.variacion == null ? '—' : `${k.variacion >= 0 ? '▲' : '▼'} ${fmt.format(Math.abs(k.variacion * 100))}%`;
   const valoresCat = (key) => [...new Set(art.records.map((r) => r.data?.[key]).filter((v) => v != null && v !== ''))].sort().slice(0, 200);
   const compMes = est.comparar ? (est.hasta || est.desde || meses.at(-1)) : null;
-  const comp = est.comparar && campo && compMes ? comparar(filtrar(art.records, { filtro: est.filtro }), campo, compMes, est.comparar, textos[0]) : null;
-  const kpiBtn = (id, label, valor) => `<button type="button" class="kpi ${sel?.tipo === 'kpi' && sel.id === id ? 'seleccionado' : ''}" data-kpi="${id}"
-      aria-label="${esc(label)}: ${esc(valor)}. Seleccionar para preguntar a Francisco"><span>${esc(label)}</span><strong>${esc(valor)}</strong></button>`;
+  const cat = categoriaUtil(art.fields, art.records);
+  const comp = est.comparar && campo && compMes ? comparar(filtrar(art.records, { filtro: est.filtro }), campo, compMes, est.comparar, cat || textos[0]) : null;
+  const base = filtrar(art.records, { filtro: est.filtro });
+  const ins = campo ? insights(base, campo, cat, { desde: est.desde, hasta: est.hasta, comparar: est.comparar }, op.hoy, 2) : [];
+  const kpiBtn = (id, label, valor, extra = '') => `<button type="button" class="kpi ${sel?.tipo === 'kpi' && sel.id === id ? 'seleccionado' : ''}" data-kpi="${id}" aria-pressed="${sel?.tipo === 'kpi' && sel.id === id}"
+      aria-label="${esc(label)}: ${esc(valor)}. Ver opciones"><span>${esc(label)}</span><strong>${esc(valor)}</strong>${extra}</button>`;
+  const periodo = est.desde && est.hasta && est.desde === est.hasta ? est.desde : null;
+  const rango = (est.desde || est.hasta) && !periodo;
+  const pill = (activo) => `pill ${activo ? 'activo' : ''}`;
+  const kInfo = { total: [k?.total, null], ultimo: [k?.ultimoMes?.total, k?.ultimoMes?.mes], variacion: [k?.variacion, k?.ultimoMes?.mes], registros: [recs.length, null] };
+  const mesRef = periodo || est.hasta || meses.at(-1);
+  const resumen = campo && k?.ultimoMes ? `${esc(etiqueta)} ${esc(nombreMes(k.ultimoMes.mes))}: <strong>${fmt.format(k.ultimoMes.total)}</strong>${k.variacion != null ? ` <span class="delta ${k.variacion >= 0 ? 'sube' : 'baja'}">${varTxt}</span> vs. ${esc(nombreMes(mesAnterior(k.ultimoMes.mes)))}` : ''}`
+    : art.records.length ? `${recs.length} registros` : 'Todavía no hay datos';
 
   raiz.innerHTML = `
-    <div class="barra-herr" role="group" aria-label="Contexto del tablero">
-      ${numericos.length > 1 ? `<label>Métrica <select data-r="metrica">${numericos.map((f) =>
+    <div class="resumen-art"><p class="ra-txt">${resumen}</p>
+      <p class="frescura" data-r="frescura">${op.frescura ? `${op.frescura.cache ? '<strong>Mostrando los últimos datos guardados en este dispositivo.</strong> ' : ''}Actualizado ${esc(haceCuanto(op.frescura.ultimo || op.frescura.cargado))}` : ''}
+      ${op.onActualizar ? '<button type="button" class="enlace" data-r="actualizar">Actualizar</button>' : ''}</p></div>
+    <div class="barra-filtros" role="group" aria-label="Filtros del tablero">
+      ${numericos.length > 1 ? `<label class="${pill(false)}"><span class="sr">Métrica</span><select data-r="metrica">${numericos.map((f) =>
         `<option value="${esc(f.key)}" ${f.key === clave ? 'selected' : ''}>${esc(f.label || f.key)}</option>`).join('')}</select></label>` : ''}
-      <label>Desde <select data-r="desde"><option value="">—</option>${meses.map((m) => `<option value="${m}" ${est.desde === m ? 'selected' : ''}>${nombreMes(m)}</option>`).join('')}</select></label>
-      <label>Hasta <select data-r="hasta"><option value="">—</option>${meses.map((m) => `<option value="${m}" ${est.hasta === m ? 'selected' : ''}>${nombreMes(m)}</option>`).join('')}</select></label>
-      ${textos.length ? `<label>Solo <select data-r="filtro"><option value="">Todos</option>${textos.map((t) => `<optgroup label="${esc(t.label || t.key)}">${valoresCat(t.key).map((v) =>
-        `<option value="${esc(t.key)}|${esc(v)}" ${est.filtro?.key === t.key && String(est.filtro.valor).toLowerCase() === String(v).toLowerCase() ? 'selected' : ''}>${esc(v)}</option>`).join('')}</optgroup>`).join('')}</select></label>` : ''}
-      <label>Comparar con <select data-r="comparar"><option value="">—</option>${meses.map((m) => `<option value="${m}" ${est.comparar === m ? 'selected' : ''}>${nombreMes(m)}</option>`).join('')}</select></label>
+      <label class="${pill(periodo || rango)}"><span class="sr">Período</span><select data-r="periodo"><option value="">Todo el período</option>${meses.map((m) => `<option value="${m}" ${periodo === m ? 'selected' : ''}>${nombreMes(m)}</option>`).join('')}${rango ? '<option value="__rango" selected>Rango personalizado</option>' : ''}</select></label>
+      <label class="${pill(est.comparar)}"><span class="sr">Comparar con</span><select data-r="comparar"><option value="">Sin comparar</option>${meses.map((m) => `<option value="${m}" ${est.comparar === m ? 'selected' : ''}>vs. ${nombreMes(m)}</option>`).join('')}</select></label>
+      ${textos.length ? `<label class="${pill(est.filtro)}"><span class="sr">Filtro</span><select data-r="filtro"><option value="">${esc(cat?.label || textos[0].label || 'Filtro')}: todos</option>${textos.map((t) => `<optgroup label="${esc(t.label || t.key)}">${valoresCat(t.key).map((v) =>
+        `<option value="${esc(t.key)}|${esc(v)}" ${est.filtro?.key === t.key && String(est.filtro.valor).toLowerCase() === String(v).toLowerCase() ? 'selected' : ''}>${esc(t.label || t.key)}: ${esc(v)}</option>`).join('')}</optgroup>`).join('')}</select></label>` : ''}
+      <details class="mas-filtros"><summary class="pill">Más</summary><div class="mf-cuerpo">
+        <label>Desde <select data-r="desde"><option value="">—</option>${meses.map((m) => `<option value="${m}" ${est.desde === m ? 'selected' : ''}>${nombreMes(m)}</option>`).join('')}</select></label>
+        <label>Hasta <select data-r="hasta"><option value="">—</option>${meses.map((m) => `<option value="${m}" ${est.hasta === m ? 'selected' : ''}>${nombreMes(m)}</option>`).join('')}</select></label></div></details>
+      ${est.desde || est.hasta || est.filtro || est.comparar ? '<button type="button" class="enlace" data-r="limpiar-todo">Limpiar</button>' : ''}
     </div>
-    <p class="frescura" data-r="frescura">${op.frescura ? `${op.frescura.cache ? '<strong>Mostrando los últimos datos guardados en este dispositivo.</strong> ' : ''}Datos ${esc(haceCuanto(op.frescura.cargado))}` +
-      `${op.frescura.ultimo ? ` · último registro ${esc(haceCuanto(op.frescura.ultimo))}` : ''}` : ''}
-      ${op.onActualizar ? '<button type="button" class="enlace" data-r="actualizar">Actualizar</button>' : ''}</p>
     <div class="kpis">
       ${kpiBtn('total', `Total ${etiqueta}`, k ? fmt.format(k.total) : '—')}
       ${kpiBtn('ultimo', `Último mes${k?.ultimoMes ? ` (${nombreMes(k.ultimoMes.mes)})` : ''}`, k?.ultimoMes ? fmt.format(k.ultimoMes.total) : '—')}
       ${kpiBtn('variacion', 'Vs. mes anterior', varTxt)}
       ${kpiBtn('registros', 'Registros', String(recs.length))}
     </div>
+    ${sel?.tipo === 'kpi' ? `<div class="inspector" role="group" aria-label="Opciones de ${esc(sel.etiqueta)}"><div class="insp-val"><span>${esc(sel.etiqueta)}</span><strong>${esc(kInfo[sel.id]?.[0] == null ? '—' : sel.id === 'variacion' ? varTxt : fmt.format(kInfo[sel.id][0]))}</strong></div>
+      <div class="insp-acc"><button type="button" data-insp="explicar">Explicar</button><button type="button" data-insp="comparar">Comparar con el mes anterior</button>
+      <button type="button" data-insp="evolucion">Ver evolución</button><button type="button" class="ask" data-insp="preguntar">✦ Preguntar</button>
+      <button type="button" class="ib cerrar-insp" data-insp="cerrar" aria-label="Quitar selección" title="Quitar selección">✕</button></div></div>` : ''}
+    ${sel && sel.tipo !== 'kpi' ? `<div class="sel-accion" role="group" aria-label="Selección"><span>${esc(sel.etiqueta)}</span><button type="button" class="ask" data-insp="preguntar">✦ Preguntar</button><button type="button" class="ib" data-insp="cerrar" aria-label="Quitar selección" title="Quitar selección">✕</button></div>` : ''}
+    ${ins.length && !comp ? `<div class="insights">${ins.map((x) => `<div class="insight ${x.tono}"><strong>${esc(x.titulo)}</strong><p>${esc(x.texto)}</p></div>`).join('')}</div>` : ''}
     ${comp ? `<section class="tarjeta comparacion" aria-live="polite"><h3>${esc(nombreMes(compMes))} vs. ${esc(nombreMes(est.comparar))}</h3>
       <p>${esc(comp.texto)}</p>${comp.confianza.nivel !== 'confirmado' ? `<p class="confianza incompleta">Información incompleta: ${esc(comp.confianza.motivo)}</p>` : ''}
       <details><summary>Ver fuentes</summary><p class="vacio">Fuente: ${esc(art.name)} · ${esc(comp.evidencia.operacion)} · ${comp.evidencia.registros} registros${est.filtro ? ` · filtro ${esc(est.filtro.valor)}` : ''}.</p></details></section>` : ''}
-    <figure class="tarjeta"><figcaption>${esc(etiqueta)}${tipo === 'pie' && textos[0] ? ` por ${esc(textos[0].label || textos[0].key)}` : ' por mes'}</figcaption><div data-r="graf"></div>
+    <figure class="tarjeta grafico-art" id="grafico-${esc(art.id)}"><figcaption>${esc(etiqueta)}${tipo === 'pie' && textos[0] ? ` por ${esc(textos[0].label || textos[0].key)}` : ' por mes'}</figcaption><div data-r="graf"></div>
       ${art.records.length ? (recs.length ? '' : '<p class="vacio">No hay datos con este período o filtro. <button type="button" class="enlace" data-r="limpiar">Quitar filtros</button></p>')
-        : `<p class="vacio">Todavía no hay datos.${puedeCargar ? ' Cargá el primero abajo, importá un archivo o pedíselo a Francisco ("registrá 1500").' : ''}</p>`}</figure>
-    ${puedeCargar ? `<form class="tarjeta carga" data-r="form"><h3>Cargar dato</h3>
+        : `<p class="vacio">Todavía no hay datos.${puedeCargar ? ' Cargá el primero, importá un archivo (también podés soltarlo acá) o pedíselo a Francisco ("registrá 1500").' : ''}</p>`}</figure>
+    <details class="tarjeta" ${art.records.length <= 50 ? 'open' : ''}><summary>Detalle (${recs.length}${recs.length !== art.records.length ? ` de ${art.records.length}` : ''})</summary>
+      <div class="tabla-scroll"><table><caption class="sr">Registros de ${esc(art.name)}</caption><thead><tr><th scope="col">Fecha</th>${art.fields.map((f) => `<th scope="col">${esc(f.label || f.key)}</th>`).join('')}</tr></thead>
+      <tbody>${recs.slice().reverse().slice(0, 500).map((r) => `<tr tabindex="0" data-fila="${esc(r.id)}" class="${sel?.tipo === 'fila' && String(sel.recordId) === String(r.id) ? 'seleccionado' : ''}"><td>${esc(r.period)}</td>${art.fields.map((f) =>
+        `<td class="${f.type === 'number' ? 'num' : ''}">${f.type === 'number' && r.data?.[f.key] != null ? fmt.format(r.data[f.key]) : esc(r.data?.[f.key] ?? '')}</td>`).join('')}</tr>`).join('')}</tbody></table></div>
+    </details>
+    ${puedeCargar ? `<details class="tarjeta carga-det" ${art.records.length ? '' : 'open'}><summary>Cargar datos</summary><form class="carga" data-r="form">
       <label>Fecha <input type="date" name="__period" value="${new Date().toISOString().slice(0, 10)}" required></label>
       ${art.fields.map((f) => `<label>${esc(f.label || f.key)} <input name="${esc(f.key)}" type="${f.type === 'number' ? 'number' : f.type === 'date' ? 'date' : 'text'}" ${f.type === 'number' ? 'step="any"' : 'maxlength="2000"'}></label>`).join('')}
       <div class="acciones-form"><button type="submit">Guardar</button>${op.onImportar ? '<label class="boton-archivo">Importar archivo<input type="file" accept=".csv,.tsv,.txt,.xlsx,.xls,.ods,.json,.xml" data-r="csv" hidden></label>' : ''}</div>
-      <span class="estado" data-r="estado" role="status"></span></form>` : ''}
-    <details class="tarjeta" ${art.records.length <= 50 ? 'open' : ''}><summary>Historial (${recs.length}${recs.length !== art.records.length ? ` de ${art.records.length}` : ''})</summary>
-      <div class="tabla-scroll"><table><thead><tr><th>Fecha</th>${art.fields.map((f) => `<th>${esc(f.label || f.key)}</th>`).join('')}</tr></thead>
-      <tbody>${recs.slice().reverse().slice(0, 500).map((r) => `<tr tabindex="0" data-fila="${esc(r.id)}" class="${sel?.tipo === 'fila' && String(sel.recordId) === String(r.id) ? 'seleccionado' : ''}"><td>${esc(r.period)}</td>${art.fields.map((f) =>
-        `<td class="${f.type === 'number' ? 'num' : ''}">${f.type === 'number' && r.data?.[f.key] != null ? fmt.format(r.data[f.key]) : esc(r.data?.[f.key] ?? '')}</td>`).join('')}</tr>`).join('')}</tbody></table></div>
-    </details>`;
+      <span class="estado" data-r="estado" role="status"></span></form></details>` : ''}`;
 
   const g = raiz.querySelector('[data-r="graf"]');
   if (clave && recs.length) {
@@ -202,6 +230,7 @@ export function renderArtefacto(cont, art, op = {}) {
   }
   const on = (r, ev, f) => raiz.querySelector(`[data-r="${r}"]`)?.addEventListener(ev, f);
   on('metrica', 'change', (e) => { clave = e.target.value; op.onMetrica?.(clave); renderArtefacto(cont, { ...art, configuration: { ...conf, metrica: clave } }, op); });
+  on('periodo', 'change', (e) => { if (e.target.value !== '__rango') cambiar({ desde: e.target.value || null, hasta: e.target.value || null }); });
   on('desde', 'change', (e) => cambiar({ desde: e.target.value || null }));
   on('hasta', 'change', (e) => cambiar({ hasta: e.target.value || null }));
   on('comparar', 'change', (e) => cambiar({ comparar: e.target.value || null }));
@@ -211,13 +240,19 @@ export function renderArtefacto(cont, art, op = {}) {
     cambiar({ filtro: { key, valor: v.join('|'), label: textos.find((t) => t.key === key)?.label } });
   });
   on('limpiar', 'click', () => cambiar({ desde: null, hasta: null, filtro: null, comparar: null }));
+  on('limpiar-todo', 'click', () => cambiar({ desde: null, hasta: null, filtro: null, comparar: null }));
   on('actualizar', 'click', () => op.onActualizar?.());
   on('csv', 'change', (e) => { const f = e.target.files?.[0]; if (f) op.onImportar?.(f); e.target.value = ''; });
 
-  const kpiInfo = { total: [k?.total, null], ultimo: [k?.ultimoMes?.total, k?.ultimoMes?.mes], variacion: [k?.variacion, k?.ultimoMes?.mes], registros: [recs.length, null] };
   raiz.querySelectorAll('[data-kpi]').forEach((b) => b.addEventListener('click', () => {
     const id = b.dataset.kpi;
-    seleccionar({ tipo: 'kpi', id, campo: clave, valor: kpiInfo[id][0], mes: kpiInfo[id][1], etiqueta: b.querySelector('span').textContent });
+    seleccionar({ tipo: 'kpi', id, campo: clave, valor: kInfo[id][0], mes: kInfo[id][1] || mesRef, etiqueta: b.querySelector('span').textContent });
+  }));
+  raiz.querySelectorAll('[data-insp]').forEach((b) => b.addEventListener('click', () => {
+    const a = b.dataset.insp;
+    if (a === 'cerrar') return op.onSeleccion?.(null);
+    if (a === 'evolucion') { raiz.querySelector('.grafico-art')?.scrollIntoView({ behavior: 'smooth', block: 'center' }); raiz.querySelector('.grafico-art')?.classList.add('resaltado'); setTimeout(() => raiz.querySelector('.grafico-art')?.classList.remove('resaltado'), 1600); return; }
+    op.onAccion?.(a, sel);
   }));
   raiz.querySelectorAll('[data-fila]').forEach((tr) => {
     const go = () => {
@@ -225,7 +260,7 @@ export function renderArtefacto(cont, art, op = {}) {
       if (r) seleccionar({ tipo: 'fila', recordId: r.id, mes: mesDe(r.period), valor: r.data?.[clave], datos: r.data, etiqueta: `registro del ${r.period}` });
     };
     tr.addEventListener('click', go);
-    tr.addEventListener('keydown', (e) => { if (e.key === 'Enter') go(); });
+    tr.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(); } });
   });
 
   const form = raiz.querySelector('[data-r="form"]');

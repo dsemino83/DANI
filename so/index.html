@@ -2,13 +2,14 @@
 <html lang="es">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>SO · Francisco</title>
 <link rel="stylesheet" href="estilos.css">
 <script src="../valo/vendor/supabase.js"></script>
 <script src="config.js"></script>
 </head>
 <body>
+  <a class="saltar" href="#principal">Saltar al contenido</a>
   <section class="login" id="login" hidden>
     <h1><span id="avatarLogin"></span> SO</h1>
     <p>Entrá con tu usuario para trabajar con Francisco.</p>
@@ -21,74 +22,60 @@
   </section>
 
   <div class="app vista-home" id="app" hidden>
+    <!-- Navegación secundaria: el catálogo real vive en el Workspace. -->
     <aside class="lateral" id="lateral" aria-label="Navegación">
-      <div class="marca"><span id="avatarMarca"></span><div><strong>Francisco</strong><small id="usuario"></small></div></div>
+      <div class="marca"><span id="avatarMarca"></span><div><strong>SO</strong><small id="usuario"></small></div>
+        <button type="button" class="ib colapsar" id="colapsar" aria-label="Contraer navegación" title="Contraer navegación" aria-expanded="true"></button></div>
       <div class="modos" role="group" aria-label="Modo">
-        <button type="button" data-modo="work" aria-pressed="true">Trabajo</button>
-        <button type="button" data-modo="personal" aria-pressed="false">Personal</button>
+        <button type="button" data-modo="work" aria-pressed="true"><span class="ic-modo" data-ic="trabajo"></span><span>Trabajo</span></button>
+        <button type="button" data-modo="personal" aria-pressed="false"><span class="ic-modo" data-ic="personal"></span><span>Personal</span></button>
       </div>
-      <button type="button" class="buscar" id="abrirPaleta" aria-keyshortcuts="Control+K Meta+K">🔎 Buscar o pedir algo <kbd>⌘K</kbd></button>
-      <nav aria-label="Principal"><a href="#/" id="linkInicio">🏠 Inicio</a></nav>
+      <button type="button" class="buscar" id="abrirPaleta" aria-keyshortcuts="Control+K Meta+K"><span data-ic="buscar"></span><span>Buscar o pedir</span> <kbd>⌘K</kbd></button>
+      <nav aria-label="Principal"><a href="#/" id="linkInicio"><span data-ic="inicio"></span><span>Inicio</span></a></nav>
       <div id="bloqueWorkspace">
         <h2 id="tituloFavoritos" hidden>Favoritos</h2>
-        <nav id="menuFavoritos"></nav>
-        <h2>Recientes</h2>
-        <nav id="menuWorkspace"></nav>
+        <nav id="menuFavoritos" aria-labelledby="tituloFavoritos"></nav>
+        <h2 id="tituloRecientes">Recientes</h2>
+        <nav id="menuWorkspace" aria-labelledby="tituloRecientes"></nav>
         <h2 id="tituloCompartidos" hidden>Compartidos conmigo</h2>
-        <nav id="menuCompartidos"></nav>
+        <nav id="menuCompartidos" aria-labelledby="tituloCompartidos"></nav>
       </div>
-      <h2>Conversaciones</h2>
-      <nav id="listaChats"></nav>
+      <h2 id="tituloChats">Conversaciones</h2>
+      <nav id="listaChats" aria-labelledby="tituloChats"></nav>
       <div class="pie">
         <button type="button" id="tema">Tema: automático</button>
         <button type="button" id="salir">Salir</button>
       </div>
     </aside>
 
-    <main>
+    <main id="principal" tabindex="-1">
       <header class="encabezado">
-        <button type="button" class="menu-movil" id="abrirMenu" aria-label="Menú">☰</button>
-        <h1 id="titulo">Inicio</h1>
-        <span class="meta" id="meta"></span>
-        <button type="button" class="centro-btn" id="btnCentro" aria-haspopup="dialog" aria-controls="centro">
-          <span aria-hidden="true">🔔</span><span class="sr">Actividad y avisos</span><span class="badge" id="badgeCentro" hidden></span>
+        <button type="button" class="ib menu-movil" id="abrirMenu" aria-label="Abrir navegación" title="Navegación"></button>
+        <a class="volver" id="volver" href="#/" hidden><span data-ic="atras"></span><span>Trabajo</span></a>
+        <div class="titulo-cab"><span class="tc-ic" id="tituloIcono" aria-hidden="true"></span><h1 id="titulo">Inicio</h1><span class="meta" id="meta"></span></div>
+        <div class="acc-cab" id="accionesCab"></div>
+        <button type="button" class="ib" id="btnBuscar" aria-label="Buscar o pedir algo (Ctrl+K)" title="Buscar o pedir algo (⌘K)" aria-keyshortcuts="Control+K Meta+K"></button>
+        <button type="button" class="ib centro-btn" id="btnCentro" aria-haspopup="dialog" aria-controls="centro" title="Actividad y avisos">
+          <span data-ic="campana"></span><span class="sr">Actividad y avisos</span><span class="badge" id="badgeCentro" hidden></span>
         </button>
       </header>
 
       <div class="cuerpo">
-        <section class="home" id="vistaHome" aria-label="Inicio del proyecto"></section>
-        <section class="workspace" id="vistaArtefacto" hidden>
-          <div class="acciones-artefacto" id="accionesArtefacto"></div>
+        <section class="home" id="vistaHome" aria-label="Workspace"></section>
+        <section class="workspace" id="vistaArtefacto" aria-label="Artefacto" hidden>
           <div id="errorArtefacto"></div>
           <div id="artefacto"></div>
-          <section class="tarjeta compartir" id="panelCompartir">
-            <h3>Compartir</h3>
-            <p class="vacio">Comparte solo este tablero y sus datos. Nunca la conversación, la memoria ni otros tableros.</p>
-            <form id="formCompartir">
-              <input type="email" name="email" placeholder="correo@empresa.com" required aria-label="Correo">
-              <select name="permiso" aria-label="Permiso">
-                <option value="USE" selected>Puede usarlo (ver y cargar datos)</option>
-                <option value="VIEW">Solo puede verlo</option>
-                <option value="EDIT">Puede modificarlo</option>
-              </select>
-              <button class="primario" type="submit">Compartir</button>
-            </form>
-            <p class="vacio" id="linkCompartido"></p>
-            <ul id="listaCompartidos"></ul>
-          </section>
-          <details class="tarjeta datos" id="panelDatos">
-            <summary>Datos y fuentes</summary>
-            <div id="datosCuerpo"></div>
-          </details>
-          <details class="tarjeta versiones" id="panelVersiones">
-            <summary>Versiones</summary>
-            <ul id="listaVersiones"></ul>
-          </details>
         </section>
+        <section class="archivo-vista" id="vistaArchivo" aria-label="Archivo" hidden></section>
 
-        <!-- Francisco: punto de entrada universal. Hereda modo, proyecto, artefacto, vista, selección y filtros. -->
-        <section class="francisco-panel" id="panelFrancisco" aria-label="Francisco">
-          <div class="panel-cab"><strong>Francisco</strong><button type="button" id="cerrarPanel" aria-label="Volver al tablero">✕</button></div>
+        <!-- Francisco: contextual. Cerrado por defecto en Workspace y artefactos; conversación completa en #/c/:id. -->
+        <section class="francisco-panel" id="panelFrancisco" aria-label="Francisco" data-estado="cerrado">
+          <div class="panel-cab">
+            <span class="pc-av" id="avatarPanel"></span><strong>Francisco</strong>
+            <span class="pc-esp"></span>
+            <button type="button" class="ib" id="ampliarPanel" aria-label="Abrir la conversación completa" title="Conversación completa"></button>
+            <button type="button" class="ib" id="cerrarPanel" aria-label="Cerrar Francisco" title="Cerrar (Esc)"></button>
+          </div>
           <div class="mensajes" id="mensajes" aria-live="polite"></div>
           <div class="composer">
             <div class="sugerencias" id="sugerencias"></div>
@@ -96,7 +83,7 @@
             <div class="bandeja" id="bandeja" aria-label="Adjuntos del próximo mensaje"></div>
             <form class="entrada" id="formChat">
               <button type="button" class="adjuntar" id="adjuntar" aria-label="Adjuntar archivos" title="Adjuntar archivos (también podés arrastrarlos o pegarlos)">+</button>
-              <button type="button" class="adjuntar camara" id="camara" aria-label="Tomar o elegir una foto" title="Foto o cámara">📷</button>
+              <button type="button" class="adjuntar camara" id="camara" aria-label="Tomar o elegir una foto" title="Foto o cámara"></button>
               <input type="file" id="inpArchivos" multiple hidden>
               <input type="file" id="inpCamara" accept="image/*" capture="environment" hidden>
               <textarea id="texto" rows="1" placeholder="¿Qué querés conseguir?" aria-label="Mensaje para Francisco"></textarea>
@@ -106,10 +93,34 @@
           </div>
         </section>
       </div>
-      <button type="button" class="fab" id="fab" aria-controls="panelFrancisco">💬 Francisco</button>
-      <div class="soltar" id="soltar" hidden><p>Soltá los archivos para adjuntarlos</p></div>
+      <button type="button" class="orb" id="orb" aria-controls="panelFrancisco" aria-expanded="false" aria-label="Abrir Francisco" title="Francisco">
+        <span class="orb-av" id="avatarOrb"></span><span class="orb-estado" id="orbEstado" aria-hidden="true"></span></button>
+      <div class="soltar" id="soltar" hidden><p>Soltá los archivos: Francisco te propone qué hacer con ellos</p></div>
     </main>
   </div>
+
+  <!-- Hoja lateral del artefacto: compartir, datos y fuentes, versiones (aparece solo cuando se pide). -->
+  <dialog class="hoja" id="hoja" aria-labelledby="hojaTitulo">
+    <div class="hoja-cab"><h2 id="hojaTitulo">Detalles</h2><button type="button" class="ib" id="cerrarHoja" aria-label="Cerrar" title="Cerrar"></button></div>
+    <section class="compartir" id="panelCompartir" data-hoja="compartir">
+      <p class="vacio">Comparte solo este tablero y sus datos. Nunca la conversación, la memoria ni otros tableros.</p>
+      <form id="formCompartir">
+        <input type="email" name="email" placeholder="correo@empresa.com" required aria-label="Correo">
+        <select name="permiso" aria-label="Permiso">
+          <option value="USE" selected>Puede usarlo (ver y cargar datos)</option>
+          <option value="VIEW">Solo puede verlo</option>
+          <option value="EDIT">Puede modificarlo</option>
+        </select>
+        <button class="primario" type="submit">Compartir</button>
+      </form>
+      <p class="vacio" id="linkCompartido"></p>
+      <ul id="listaCompartidos"></ul>
+    </section>
+    <section class="datos" id="panelDatos" data-hoja="datos"><div id="datosCuerpo"></div></section>
+    <section class="versiones" id="panelVersiones" data-hoja="versiones"><ul id="listaVersiones"></ul></section>
+  </dialog>
+
+  <div class="menu-flotante" id="menuFlotante" role="menu" hidden></div>
 
   <dialog class="centro" id="centro" aria-label="Actividad y avisos">
     <div class="centro-cab">
@@ -117,15 +128,15 @@
         <button type="button" role="tab" data-tab="tareas" aria-selected="true">Actividad</button>
         <button type="button" role="tab" data-tab="avisos" aria-selected="false">Avisos</button>
       </div>
-      <button type="button" id="cerrarCentro" aria-label="Cerrar">✕</button>
+      <button type="button" class="ib" id="cerrarCentro" aria-label="Cerrar"></button>
     </div>
     <div id="centroCuerpo"></div>
   </dialog>
 
-  <dialog class="paleta" id="paleta" aria-label="Buscar o pedir algo">
-    <input type="search" id="paletaInput" placeholder="Buscá tableros, conversaciones, datos… o escribí un pedido" aria-label="Buscar" autocomplete="off">
-    <ul id="paletaLista" role="listbox"></ul>
-    <p class="vacio paleta-ayuda">↑↓ para moverte · Enter para abrir · Esc para cerrar</p>
+  <dialog class="paleta" id="paleta" aria-label="Buscar, abrir o pedirle algo a Francisco">
+    <div class="paleta-in"><span data-ic="chispa"></span><input type="search" id="paletaInput" placeholder="Buscar, abrir o pedirle algo a Francisco…" aria-label="Buscar, abrir o pedirle algo a Francisco" autocomplete="off" role="combobox" aria-expanded="true" aria-controls="paletaLista"></div>
+    <div id="paletaLista" role="listbox" aria-label="Resultados"></div>
+    <p class="vacio paleta-ayuda">↑↓ para moverte · Enter para abrir o pedir · Esc para cerrar</p>
   </dialog>
 
   <dialog class="dlg" id="dlgArchivo" aria-label="Vista previa del archivo"><div id="dlgArchivoCuerpo"></div></dialog>

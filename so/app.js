@@ -2,9 +2,16 @@
 // deterministas se ejecutan contra Supabase con la sesión del usuario (RLS) y se verifican releyendo antes de
 // informar éxito. La conversación libre va a la Edge Function. Patrones: bajo riesgo → ejecutar; medio → ejecutar +
 // Deshacer; alto → vista previa breve. Las notificaciones operativas y tareas largas viven fuera del chat.
-import { interpretar, armarRegistro, normalizar } from './intent.js';
-import { renderArtefacto, esc, haceCuanto } from './vista.js';
-import { crearAvatar } from './avatar.js';
+import { interpretar, armarRegistro, normalizar, resolverArtefacto } from './intent.js';
+import { renderArtefacto, esc, haceCuanto, categoriaUtil } from './vista.js';
+import { crearAvatar, cargarManifest } from './avatar.js';
+import { icono } from './iconos.js';
+import { presentacion, calcularPreview, previewVigente, ordenarWorkspace, reordenar, recientesPorUso, continuar, htmlTarjeta, htmlVistazo, accionesMenu, sparkline } from './workspace.js';
+import { clasificar, accionesPara } from './comando.js';
+import { renderUI, validar as validarUI, specsComparacion } from './genui.js';
+import { crearArchivos } from './archivos/servicio.js';
+import { formatoPedido, FORMATOS } from './archivos/generar.js';
+import { interpretarEdicion } from './archivos/tablas.js';
 import { crearEstado, chips, riesgo, explicarPermiso, paraContinuidad } from './estado.js';
 import { analizar, comparar, mesAnterior, mesesConDatos, nombreMes, totalMes } from './analisis.js';
 import { rankear } from './busqueda.js';
@@ -30,9 +37,16 @@ const st = {
   inicio: performance.now(), tabCentro: 'tareas', preferencias: {},
 };
 
-const avatares = { marca: crearAvatar($('avatarMarca'), { modo: E.get().modo }), login: crearAvatar($('avatarLogin'), { modo: 'work' }), grande: null };
-const todosAv = () => [avatares.marca, avatares.grande].filter(Boolean);
-const fase = (f) => todosAv().forEach((a) => a.setFase(f));
+// Íconos: un único sistema (iconos.js). Los botones de solo ícono ya tienen aria-label y title en el HTML.
+document.querySelectorAll('[data-ic]').forEach((n) => { n.innerHTML = icono(n.dataset.ic); });
+for (const [id, ic] of Object.entries({ colapsar: 'lateral', abrirMenu: 'lateral', btnBuscar: 'buscar', ampliarPanel: 'conversacion', cerrarPanel: 'cerrar', camara: 'imagen', cerrarHoja: 'cerrar', cerrarCentro: 'cerrar' })) $(id).innerHTML = icono(ic);
+
+const avatares = { marca: crearAvatar($('avatarMarca'), { modo: E.get().modo }), login: crearAvatar($('avatarLogin'), { modo: 'work' }),
+  panel: crearAvatar($('avatarPanel'), { modo: E.get().modo }), orb: crearAvatar($('avatarOrb'), { modo: E.get().modo }), grande: null };
+const todosAv = () => [avatares.marca, avatares.panel, avatares.orb, avatares.grande].filter(Boolean);
+cargarManifest();   // AssetCache: imágenes de OpenArt si cargan; si no, sigue el SVG local
+const ORB = { idle: 'idle', listening: 'listening', thinking: 'thinking', executing: 'working', responding: 'working', success: 'done', error: 'attention' };
+const fase = (f) => { todosAv().forEach((a) => a.setFase(f)); $('orb').dataset.estado = ORB[f] || 'idle'; };
 
 // ---------------------------------------------------------------- utilidades
 async function q(promesa) {
@@ -70,7 +84,11 @@ const D = crearDatos({ sb, cfg, st, E, q, esc, $, actividad: (k) => actividad(k)
   cargarArtefactos: () => cargarArtefactos(), conversar: (o) => conversar(o), haceCuanto,
   procesarTexto: (t, adj) => procesar(t, { adjuntosDirectos: adj }),
   prellenar: (t, adj) => { st.adjuntosPrellenados = adj; $('texto').value = t; abrirPanel(); $('texto').focus(); },
-  resultadoImportacion: async (r) => { if (!r) return; if (!st.chatId) await asegurarChat('Datos'); await guardarMensaje('assistant', r.texto, r.meta || {}); } });
+  abrirFrancisco: () => abrirPanel(),
+  resultadoImportacion: async (r) => { if (!r) return; if (!st.chatId) await asegurarChat('Datos'); await guardarMensaje('assistant', r.texto, r.meta || {}); await trasImportar(r); } });
+
+// Archivos generados, versiones, comparación, consolidación, plantillas y automatizaciones.
+const A = crearArchivos({ sb, cfg, st, E, q, D, notificar: (...a) => notificar(...a), evento: (...a) => evento(...a), artefacto: (id) => artefacto(id), datosDe: (...a) => datosDe(...a) });
 
 // ---------------------------------------------------------------- tema y sesión
 const TEMAS = ['auto', 'light', 'dark'];
@@ -162,9 +180,9 @@ async function cargarProyectos() {
 async function cargarArtefactos() {
   if (E.get().modo !== 'work') { st.artefactos = []; pintarMenu(); return; }
   const [arts, menu, comp, prefs] = await Promise.all([
-    q(sb.from('so_artifacts').select('id, project_id, name, type, version, route, state, datasource_id, configuration, specification, schema, deleted_at, updated_at')
+    q(sb.from('so_artifacts').select('id, project_id, name, type, version, route, state, datasource_id, configuration, specification, schema, deleted_at, created_at, updated_at')
       .eq('project_id', E.get().proyectoId).is('deleted_at', null).order('updated_at', { ascending: false })),
-    q(sb.from('so_menu').select('artifact_id, name, favorite, last_opened_at, open_count, status')),
+    q(sb.from('so_menu').select('artifact_id, name, favorite, last_opened_at, open_count, status, ord, size, preview, preview_at')),
     q(sb.rpc('so_shared_list')),
     q(sb.from('so_signals').select('meta').eq('signal', 'preference').eq('inferred', false).order('id', { ascending: false }).limit(50)),
   ]);
@@ -179,30 +197,30 @@ async function cargarArtefactos() {
   pintarMenu();
 }
 
+const publicados = () => st.artefactos.filter((a) => a.state === 'published');
 function recientes(n = 8) {
-  return st.artefactos.filter((a) => a.state === 'published').map((a) => ({ a, m: st.menu.get(a.id) || {} }))
+  return publicados().map((a) => ({ a, m: st.menu.get(a.id) || {} }))
     .sort((x, y) => String(y.m.last_opened_at || y.a.updated_at).localeCompare(String(x.m.last_opened_at || x.a.updated_at))).slice(0, n);
 }
 
+// Navegación secundaria: solo Favoritos y Recientes (por apertura real). El catálogo vive en el Workspace.
 function pintarMenu() {
   const actual = location.hash.match(/^#\/a\/(.+)$/)?.[1];
-  const link = (a, icono = '📊') => `<a href="#/a/${a.id}" ${actual === a.id ? 'aria-current="page"' : ''}>${icono} ${esc(a.name)}</a>`;
-  const favs = st.artefactos.filter((a) => st.menu.get(a.id)?.favorite);
+  const link = (a, ic = 'chart', relleno = false) => `<a href="#/a/${a.id}" ${actual === a.id ? 'aria-current="page"' : ''}>${icono(ic, { relleno })}<span>${esc(a.name)}</span></a>`;
+  const favs = publicados().filter((a) => st.menu.get(a.id)?.favorite);
   $('tituloFavoritos').hidden = !favs.length;
-  $('menuFavoritos').innerHTML = favs.map((a) => link(a, '★')).join('');
-  const recs = recientes(6).filter(({ a }) => !st.menu.get(a.id)?.favorite);
-  const total = st.artefactos.filter((a) => a.state === 'published').length;
-  $('menuWorkspace').innerHTML = (recs.length ? recs.map(({ a }) => link(a)).join('') : (favs.length ? '' : '<span class="vacio">Lo que crees con Francisco aparece acá.</span>'))
-    + (total > 6 ? `<button type="button" class="enlace" data-ver-todos>Ver los ${total} tableros…</button>` : '');
-  $('menuWorkspace').querySelector('[data-ver-todos]')?.addEventListener('click', () => abrirPaleta(''));
+  $('menuFavoritos').innerHTML = favs.slice(0, 6).map((a) => link(a, 'estrella', true)).join('');
+  const recs = recientesPorUso(publicados(), st.menu, 5).filter((a) => !st.menu.get(a.id)?.favorite);
+  $('tituloRecientes').hidden = !recs.length;
+  $('menuWorkspace').innerHTML = recs.map((a) => link(a, presentacion(a).icon)).join('');
   $('tituloCompartidos').hidden = !st.compartidos.length;
-  $('menuCompartidos').innerHTML = st.compartidos.map((a) => `<a href="${esc(BASE_SHARED + a.id)}">📎 ${esc(a.name)}</a>`).join('');
-  $('linkInicio').toggleAttribute('aria-current', !location.hash || location.hash === '#/');
+  $('menuCompartidos').innerHTML = st.compartidos.map((a) => `<a href="${esc(BASE_SHARED + a.id)}">${icono('compartir')}<span>${esc(a.name)}</span></a>`).join('');
+  $('linkInicio').toggleAttribute('aria-current', !location.hash || location.hash === '#/' || location.hash === '#/work');
 }
 
 async function cargarChats() {
   st.chats = await q(sb.from('so_chats').select('id, title, mode, updated_at').eq('mode', E.get().modo).order('updated_at', { ascending: false }).limit(50));
-  $('listaChats').innerHTML = st.chats.slice(0, 8).map((c) => `<a href="#/c/${c.id}" ${c.id === st.chatId ? 'aria-current="page"' : ''}>💬 ${esc(c.title)}</a>`).join('')
+  $('listaChats').innerHTML = st.chats.slice(0, 6).map((c) => `<a href="#/c/${c.id}" ${c.id === st.chatId ? 'aria-current="page"' : ''}>${icono('conversacion')}<span>${esc(c.title)}</span></a>`).join('')
     || '<span class="vacio">Sin conversaciones todavía.</span>';
 }
 
@@ -227,131 +245,389 @@ async function cambiarProyecto(id) {
 // ---------------------------------------------------------------- rutas y vistas
 function vista(nombre) {
   const app = $('app');
-  app.classList.remove('vista-home', 'vista-chat', 'vista-artefacto', 'panel-abierto');
+  const prev = E.get().vista;
+  app.classList.remove('vista-home', 'vista-chat', 'vista-artefacto', 'vista-archivo');
   app.classList.add(`vista-${nombre}`);
   $('vistaHome').hidden = nombre !== 'home';
   $('vistaArtefacto').hidden = nombre !== 'artefacto';
+  $('vistaArchivo').hidden = nombre !== 'archivo';
+  $('volver').hidden = !['artefacto', 'archivo'].includes(nombre) || E.get().modo !== 'work';
+  if (nombre !== 'artefacto') { $('accionesCab').innerHTML = ''; $('tituloIcono').innerHTML = ''; salirFoco(); }
+  // Francisco no ocupa espacio permanente: se cierra al cambiar de superficie (salvo que él mismo esté navegando).
+  if (nombre === 'chat') panel('abierto');
+  else if (prev !== nombre && !st.ocupado) panel('cerrado');
   E.set({ vista: nombre });
 }
+
+// ---------------------------------------------------------------- Francisco contextual: cerrado · compacto · abierto
+function panel(estado) {
+  st.panel = estado;
+  const app = $('app');
+  app.classList.toggle('panel-abierto', estado !== 'cerrado');
+  app.classList.toggle('panel-compacto', estado === 'compacto');
+  $('panelFrancisco').dataset.estado = estado;
+  $('orb').setAttribute('aria-expanded', String(estado !== 'cerrado'));
+  $('orb').setAttribute('aria-label', estado === 'cerrado' ? 'Abrir Francisco' : 'Cerrar Francisco');
+  $('ampliarPanel').hidden = E.get().vista === 'chat' || !st.chatId;
+  if (estado !== 'cerrado') { pintarContexto(); const m = $('mensajes'); m.scrollTop = m.scrollHeight; }
+}
+function abrirPanel({ foco = true } = {}) {
+  if (E.get().vista !== 'chat') panel('abierto');
+  if (foco) setTimeout(() => $('texto').focus(), 0);
+}
+$('orb').onclick = () => (st.panel !== 'cerrado' && E.get().vista !== 'chat' ? panel('cerrado') : abrirPanel());
+$('cerrarPanel').onclick = () => {
+  if (E.get().vista === 'chat') location.hash = E.get().modo === 'work' ? '#/' : '#/';
+  else { panel('cerrado'); $('orb').focus(); }
+};
+$('ampliarPanel').onclick = () => { if (st.chatId) location.hash = `#/c/${st.chatId}`; };
+$('volver').addEventListener('click', (e) => { if (st.desdeWorkspace) { e.preventDefault(); history.back(); } });
+
+// Modo foco: oculta navegación secundaria y maximiza el artefacto. Esc restaura.
+function entrarFoco() { $('app').classList.add('foco'); st.foco = true; pintarCabecera(); }
+function salirFoco() { if (!st.foco) return; $('app').classList.remove('foco'); st.foco = false; if (E.get().vista === 'artefacto') pintarCabecera(); }
+
+$('colapsar').onclick = () => {
+  const c = !$('app').classList.contains('lateral-mini');
+  $('app').classList.toggle('lateral-mini', c);
+  $('colapsar').setAttribute('aria-expanded', String(!c));
+  ls.set('so.lateralMini', c);
+};
+if (ls.get('so.lateralMini')) { $('app').classList.add('lateral-mini'); $('colapsar').setAttribute('aria-expanded', 'false'); }
+$('btnBuscar').onclick = () => abrirPaleta();
 
 async function ruta() {
   $('lateral').classList.remove('abierto');
   const h = location.hash;
+  // Rutas compatibles: #/work y #/work/:id son alias del contrato estable (#/ y #/a/:id).
+  const w = h.match(/^#\/work\/([0-9a-f-]{36})$/);
+  if (w) { location.replace(`#/a/${w[1]}`); return; }
+  if (h === '#/work') { location.replace('#/'); return; }
+  if (E.get().vista === 'home' && !$('vistaHome').hidden) st.wsScroll = $('vistaHome').scrollTop;   // continuidad espacial
   const a = h.match(/^#\/a\/([0-9a-f-]{36})$/);
+  const f = h.match(/^#\/f\/([0-9a-f-]{36})$/);
   const c = h.match(/^#\/c\/([0-9a-f-]{36})$/);
-  if (a && E.get().modo === 'work') { pintarMenu(); return abrirArtefacto(a[1]); }
+  st.desdeWorkspace = !!(a || f) && st.ultimaRuta === 'home';
+  if (a && E.get().modo === 'work') { st.ultimaRuta = 'artefacto'; pintarMenu(); return abrirArtefacto(a[1]); }
+  if (f) { st.ultimaRuta = 'archivo'; pintarMenu(); return abrirArchivo(f[1]); }
   if (c) {
     if (st.chatId !== c[1]) { st.chatId = c[1]; await cargarMensajes(); }
     vista('chat');
     const chat = st.chats.find((x) => x.id === c[1]);
     $('titulo').textContent = chat?.title || 'Conversación';
     $('meta').textContent = '';
+    st.ultimaRuta = 'chat';
+  } else if (E.get().modo === 'personal') {
+    vista('chat');   // Personal: solo conversación
+    $('titulo').textContent = 'Personal'; $('meta').textContent = '';
+    st.ultimaRuta = 'chat';
   } else {
     vista('home');
     E.set({ artefactoId: null });
-    pintarHome();
+    pintarWorkspace();
+    st.ultimaRuta = 'home';
+    if (st.wsScroll != null) $('vistaHome').scrollTop = st.wsScroll;
+    if (st.ultimaTarjeta) $('vistaHome').querySelector(`.lcard[data-art="${st.ultimaTarjeta}"]`)?.focus({ preventScroll: true });
   }
   pintarMensajes();
   pintarMenu();
   cargarChats().catch(() => {});
 }
 
-// Inicio del proyecto: continuar, recientes, actividad, pendientes, compartidos. Sin métricas decorativas.
-function pintarHome() {
-  const modo = E.get().modo;
+// ---------------------------------------------------------------- Workspace Home
+const pvDe = (id) => { const m = st.menu.get(id); return m?.preview?.v ? m.preview : ls.get(`so.pv.${id}`); };
+const editable = () => true;   // el dueño ve su propio Workspace; lo compartido conmigo se abre en /so/shared (permiso real del servidor)
+
+function itemContinuar(c) {
+  const ic = { atencion: 'alerta', artefacto: 'chart', hecho: 'ok', aviso: 'campana' }[c.tipo];
+  if (c.tipo === 'artefacto') return `<button type="button" class="cont-item" data-continuar="${esc(c.artefactoId)}">${icono(ic)}<span><strong>Continuar ${esc(c.titulo)}</strong><small>${esc(c.detalle)}</small></span></button>`;
+  return `<button type="button" class="cont-item ${c.tipo}" data-centro="${c.tipo === 'aviso' ? 'avisos' : 'tareas'}">${icono(ic)}<span><strong>${esc(c.titulo)}</strong><small>${esc(c.detalle)}</small></span></button>`;
+}
+
+function pintarWorkspace() {
   const p = proyecto();
-  $('titulo').textContent = modo === 'work' ? `Inicio · ${p?.name || 'Trabajo'}` : 'Inicio · Personal';
-  $('meta').textContent = modo === 'work' && st.proyectos.length > 1 ? 'Cambiá de proyecto con ⌘K' : '';
-  const primeraVez = !st.chats.length && !st.artefactos.length;
+  $('titulo').textContent = 'Trabajo';
+  $('meta').textContent = st.proyectos.length > 1 ? (p?.name || '') : '';
   const h = $('vistaHome');
-  if (primeraVez) {
-    h.innerHTML = `<div class="bienvenida"><span id="avatarGrande"></span>
-      <h2>${modo === 'work' ? 'Soy Francisco. Decime qué querés conseguir y yo me ocupo del resto.' : 'Soy Francisco. Acá charlamos tranquilos.'}</h2>
-      ${modo === 'work' ? `<ul class="explica">
-        <li><strong>Pedime objetivos</strong>, no pasos: "quiero seguir mis ventas mes a mes".</li>
-        <li><strong>Creo</strong> tableros y herramientas con su historial guardado.</li>
-        <li><strong>Modifico</strong> lo que ya existe: "agregale vendedor", "compará con agosto".</li>
-        <li><strong>Los resultados</strong> quedan en el menú de la izquierda y en tarjetas que podés abrir y compartir.</li>
-      </ul>` : '<p class="vacio">En Personal solo conversamos: no se crean tableros.</p>'}
-    </div>`;
-    avatares.grande = crearAvatar(h.querySelector('#avatarGrande'), { modo });
-    pintarSugerencias();
+  const todos = publicados();
+  const ocultos = todos.filter((a) => st.menu.get(a.id)?.status === 'hidden');
+  const visibles = todos.filter((a) => st.menu.get(a.id)?.status !== 'hidden');
+  const archivados = st.artefactos.filter((a) => a.state === 'archived');
+  const cmd = `<button type="button" class="comando" data-ws="comando" aria-keyshortcuts="Control+K Meta+K">${icono('chispa')}<span>Buscar, abrir o pedirle algo a Francisco…</span><kbd>⌘K</kbd></button>`;
+  avatares.grande = null;
+  if (!todos.length && !archivados.length) {
+    h.innerHTML = `<div class="ws-vacio"><span id="avatarGrande"></span>
+      <h2>¿Qué querés crear?</h2>
+      <p>Soy Francisco. Decime qué querés conseguir y lo armo: tableros, análisis y seguimientos con su historial guardado. Lo que creemos aparece acá como tarjetas vivas que podés abrir, compartir y actualizar.</p>
+      ${cmd}
+      <div class="ws-sugerencias" role="group" aria-label="Ideas para empezar">
+        ${[['chart', 'Dashboard', 'Creá un dashboard de ventas con histórico'], ['chispa', 'Análisis', '__archivo'], ['linea', 'Seguimiento', 'Necesito seguimiento de clientes mes a mes'], ['doc', 'Reporte', 'Creá un reporte de gastos con histórico']]
+          .map(([ic, t, pedido]) => `<button type="button" class="sug-card" data-pedido="${esc(pedido)}">${icono(ic, { tam: 22 })}<strong>${t}</strong><small>${pedido === '__archivo' ? 'Subí un archivo y lo analizo' : esc(pedido)}</small></button>`).join('')}
+      </div>
+      <p class="vacio">También podés soltar un archivo en cualquier lugar.</p></div>`;
+    avatares.grande = crearAvatar(h.querySelector('#avatarGrande'), { modo: 'work' });
+    h.querySelector('[data-ws="comando"]').onclick = () => abrirPaleta();
+    h.querySelectorAll('[data-pedido]').forEach((b) => b.addEventListener('click', () => {
+      if (b.dataset.pedido === '__archivo') { abrirPanel(); $('inpArchivos').click(); return; }
+      pedirAFrancisco(b.dataset.pedido);
+    }));
     return;
   }
-  avatares.grande = null;
-  const terminadas = st.tareas.filter((t) => t.status === 'completed' && st.lastVisit && t.updated_at > st.lastVisit);
-  const atencion = st.tareas.filter((t) => ['failed', 'waiting'].includes(t.status));
-  const r = st.resume?.artefactoId && artefacto(st.resume.artefactoId);
-  const ultimoChat = st.chats[0];
-  const bloques = [];
-  if (r || ultimoChat) {
-    bloques.push(`<section class="tarjeta"><h3>Continuar trabajando</h3><div class="continuar">
-      ${r ? `<button type="button" class="primario" data-continuar>Continuar ${esc(r.name)}${st.resume.filtro ? ` · solo ${esc(st.resume.filtro.valor)}` : ''}${st.resume.desde ? ` · ${esc(nombreMes(st.resume.desde))}` : ''}</button>` : ''}
-      ${ultimoChat ? `<a class="boton" href="#/c/${ultimoChat.id}">Seguir la conversación "${esc(ultimoChat.title)}"</a>` : ''}
-      ${terminadas.length ? `<button type="button" class="enlace" data-centro>Francisco terminó ${terminadas.length} ${terminadas.length === 1 ? 'tarea' : 'tareas'} desde tu última visita</button>` : ''}
-    </div></section>`);
-  }
-  if (modo === 'work') {
-    const recs = recientes(6);
-    if (recs.length) bloques.push(`<section><h3 class="titulo-seccion">Recientes</h3><div class="tarjetas">${recs.map(({ a }) => tarjetaArtefacto(a)).join('')}</div></section>`);
-    if (atencion.length) bloques.push(`<section class="tarjeta"><h3>Pendientes</h3><ul class="lista">${atencion.map((t) =>
-      `<li><span>⚠️ ${esc(t.name || t.kind)}${t.needs_action ? ` — ${esc(t.needs_action)}` : ''}</span><button type="button" class="enlace" data-centro>Ver</button></li>`).join('')}</ul></section>`);
-    const rel = st.avisos.filter((n) => !n.read_at).slice(0, 4);
-    if (rel.length) bloques.push(`<section class="tarjeta"><h3>Actividad relevante</h3><ul class="lista">${rel.map((n) =>
-      `<li><span>${{ critical: '⛔', action: '⚠️', success: '✅', info: 'ℹ️' }[n.priority]} ${esc(n.title)}</span><small>${esc(haceCuanto(n.created_at))}</small></li>`).join('')}</ul></section>`);
-    if (st.compartidos.length) bloques.push(`<section class="tarjeta"><h3>Compartidos conmigo</h3><ul class="lista">${st.compartidos.map((a) =>
-      `<li><a href="${esc(BASE_SHARED + a.id)}">📎 ${esc(a.name)}</a><small>${esc({ VIEW: 'puedo verlo', USE: 'puedo usarlo', EDIT: 'puedo modificarlo' }[a.permission])}</small></li>`).join('')}</ul></section>`);
-  } else {
-    bloques.push(`<section class="tarjeta"><h3>Conversaciones recientes</h3><ul class="lista">${st.chats.slice(0, 6).map((c) =>
-      `<li><a href="#/c/${c.id}">💬 ${esc(c.title)}</a><small>${esc(haceCuanto(c.updated_at))}</small></li>`).join('')}</ul></section>`);
-  }
-  h.innerHTML = bloques.join('') || '<p class="vacio">Pedile algo a Francisco abajo.</p>';
-  h.querySelector('[data-continuar]')?.addEventListener('click', () => {
+  const cont = continuar({ resume: st.resume, artefactos: todos, tareas: st.tareas, avisos: st.avisos, lastVisit: st.lastVisit });
+  const recs = recientesPorUso(visibles, st.menu, 5);
+  const lista = st.wsVer === 'archivados' ? archivados : st.wsVer === 'ocultos' ? ocultos : ordenarWorkspace(visibles, st.menu);
+  const archivosRec = (st.archivosRecientes || []).slice(0, 4);
+  h.innerHTML = `<div class="ws">
+    <div class="ws-cab">${cmd}</div>
+    ${cont.length ? `<section class="ws-sec" aria-labelledby="tCont"><h2 id="tCont" class="ws-tit">Continuar</h2><div class="continuar-lista">${cont.map(itemContinuar).join('')}</div></section>` : ''}
+    ${recs.length > 1 ? `<section class="ws-sec" aria-labelledby="tRec"><h2 id="tRec" class="ws-tit">Recientes</h2><div class="recientes-fila">${recs.map((a) =>
+      `<a class="rec-chip" href="#/a/${esc(a.id)}">${icono(presentacion(a).icon, { tam: 16 })}<span>${esc(a.name)}</span><small>${esc(haceCuanto(st.menu.get(a.id).last_opened_at))}</small></a>`).join('')}</div></section>` : ''}
+    <section class="ws-sec" aria-labelledby="tGrid">
+      <div class="ws-tit-fila"><h2 id="tGrid" class="ws-tit">${st.wsVer === 'archivados' ? 'Archivados' : st.wsVer === 'ocultos' ? 'Ocultos' : 'Tu espacio de trabajo'}</h2>
+        ${st.wsVer ? '<button type="button" class="enlace" data-ws="todo">Volver al Workspace</button>' : `${archivados.length ? `<button type="button" class="enlace" data-ws="archivados">Archivados (${archivados.length})</button>` : ''}${ocultos.length ? `<button type="button" class="enlace" data-ws="ocultos">Ocultos (${ocultos.length})</button>` : ''}`}</div>
+      <div class="bento" id="bento">${lista.map((a) => htmlTarjeta(a, st.menu.get(a.id) || {}, pvDe(a.id), { editable: editable(a) })).join('')}
+        ${st.wsVer ? '' : `<button type="button" class="lcard crear" data-ws="crear">${icono('agregar', { tam: 26 })}<strong>Crear</strong><small>Pedile a Francisco un tablero, un análisis o un seguimiento</small></button>`}</div>
+      ${lista.length > 1 && !st.wsVer ? '<p class="vacio ayuda-orden">Arrastrá las tarjetas para ordenarlas, o usá ••• → Mover.</p>' : ''}
+    </section>
+    ${archivosRec.length && !st.wsVer ? `<section class="ws-sec" aria-labelledby="tArch"><h2 id="tArch" class="ws-tit">Archivos</h2><div class="archivos-fila">${archivosRec.map((f) =>
+      `<a class="arch-chip" href="#/f/${esc(f.id)}">${icono(f.kind === 'table' ? 'tabla' : f.kind === 'presentation' ? 'pres' : f.kind === 'image' ? 'imagen' : 'doc', { tam: 18 })}<span><strong>${esc(f.original_name)}</strong><small>${esc((f.detected_type || '').toUpperCase())}${f.version > 1 ? ` · v${f.version}` : ''} · ${esc({ generated: 'generado por Francisco', export: 'exportado' }[f.origin] || 'subido')} · ${esc(haceCuanto(f.created_at))}</small></span></a>`).join('')}</div></section>` : ''}
+    ${st.compartidos.length && !st.wsVer ? `<section class="ws-sec" aria-labelledby="tComp"><h2 id="tComp" class="ws-tit">Compartidos conmigo</h2><div class="archivos-fila">${st.compartidos.map((a) =>
+      `<a class="arch-chip" href="${esc(BASE_SHARED + a.id)}">${icono('compartir', { tam: 18 })}<span><strong>${esc(a.name)}</strong><small>${esc({ VIEW: 'Podés verlo', USE: 'Podés usarlo', EDIT: 'Podés editarlo' }[a.permission])}</small></span></a>`).join('')}</div></section>` : ''}
+  </div>`;
+  conectarWorkspace(h);
+  programarPreviews();
+  if (!st.archivosRecientes) D.listaArchivos().then((fs) => { st.archivosRecientes = fs; if (E.get().vista === 'home' && fs.length) pintarWorkspace(); }).catch(() => { st.archivosRecientes = []; });
+}
+
+function pintarHome() { if (E.get().modo === 'work' && E.get().vista === 'home') pintarWorkspace(); }
+
+function pedirAFrancisco(texto) { abrirPanel({ foco: false }); $('texto').value = texto; $('formChat').requestSubmit(); }
+
+function conectarWorkspace(h) {
+  h.querySelector('[data-ws="comando"]')?.addEventListener('click', () => abrirPaleta());
+  h.querySelector('[data-ws="crear"]')?.addEventListener('click', () => {
+    abrirPanel();
+    $('texto').placeholder = 'Ej: "Creá un dashboard de cobranzas", "Necesito seguimiento de clientes"';
+  });
+  for (const k of ['archivados', 'ocultos', 'todo']) h.querySelector(`[data-ws="${k}"]`)?.addEventListener('click', () => { st.wsVer = k === 'todo' ? null : k; pintarWorkspace(); h.querySelector('#tGrid')?.focus?.(); });
+  h.querySelectorAll('[data-continuar]').forEach((b) => b.addEventListener('click', () => {
     const rs = st.resume;
-    location.hash = `#/a/${rs.artefactoId}`;
-    setTimeout(() => E.set({ desde: rs.desde, hasta: rs.hasta, filtro: rs.filtro }), 0);
+    location.hash = `#/a/${b.dataset.continuar}`;
+    if (rs?.artefactoId === b.dataset.continuar) setTimeout(() => E.set({ desde: rs.desde, hasta: rs.hasta, filtro: rs.filtro }), 0);
+  }));
+  h.querySelectorAll('[data-centro]').forEach((b) => b.addEventListener('click', () => abrirCentro(b.dataset.centro)));
+  const bento = h.querySelector('#bento');
+  if (!bento) return;
+  const abrir = (id) => { st.ultimaTarjeta = id; location.hash = `#/a/${id}`; };
+  bento.addEventListener('click', (e) => {
+    const card = e.target.closest('.lcard[data-art]');
+    if (!card) return;
+    const b = e.target.closest('[data-lc]');
+    if (b) { e.stopPropagation(); return accionTarjeta(b.dataset.lc === 'menu' ? null : b.dataset.lc, card.dataset.art, b); }
+    if (e.target.closest('a')) return;
+    abrir(card.dataset.art);
   });
-  h.querySelectorAll('[data-centro]').forEach((b) => b.addEventListener('click', () => abrirCentro('tareas')));
-  conectarTarjetas(h);
-  pintarSugerencias();
-}
-
-// ---------------------------------------------------------------- ArtifactCard
-function tarjetaArtefacto(a, extra = '') {
-  const m = st.menu.get(a.id) || {};
-  const tipo = { dashboard: 'Tablero', tool: 'Herramienta', form: 'Formulario', report: 'Reporte' }[a.type] || a.type;
-  const estado = a.deleted_at || a.state === 'deleted' ? 'Eliminado' : a.state === 'published' ? 'Publicado' : 'Borrador';
-  return `<article class="tarjeta-art" data-art="${a.id}">
-    <div class="ta-cab"><span class="ta-tipo">📊 ${esc(tipo)}</span>${m.favorite ? '<span title="Favorito">★</span>' : ''}</div>
-    <h4>${esc(a.name)}</h4>
-    <p class="ta-meta">${esc(estado)} · v${a.version} · actualizado ${esc(haceCuanto(a.updated_at))}</p>
-    ${extra}
-    ${estado === 'Eliminado' ? '' : `<div class="ta-acc"><a class="boton primario" href="#/a/${a.id}">Abrir</a>
-      <button type="button" class="enlace" data-ta="compartir">Compartir</button> ·
-      <button type="button" class="enlace" data-ta="editar">Editar con Francisco</button> ·
-      <details class="mas"><summary class="enlace">Más</summary><div class="mas-menu">
-        <button type="button" data-ta="favorito">${m.favorite ? 'Quitar de favoritos' : 'Agregar a favoritos'}</button>
-        <button type="button" data-ta="versiones">Ver versiones</button></div></details></div>`}
-  </article>`;
-}
-
-function conectarTarjetas(raiz) {
-  raiz.querySelectorAll('[data-art] [data-ta]').forEach((b) => {
-    const id = b.closest('[data-art]').dataset.art;
-    b.addEventListener('click', () => accionTarjeta(b.dataset.ta, id));
+  bento.addEventListener('keydown', (e) => {
+    const card = e.target.classList?.contains('lcard') ? e.target : null;
+    if (!card?.dataset.art) return;
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); abrir(card.dataset.art); }
+  });
+  // Arrastrar para ordenar (alternativa accesible: ••• → Mover antes/después).
+  let arrastrada = null;
+  bento.addEventListener('dragstart', (e) => { const c = e.target.closest?.('.lcard[data-art]'); if (!c) return; arrastrada = c.dataset.art; c.classList.add('arrastrando'); e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', arrastrada); });
+  bento.addEventListener('dragend', () => { bento.querySelectorAll('.arrastrando, .destino').forEach((n) => n.classList.remove('arrastrando', 'destino')); });
+  bento.addEventListener('dragover', (e) => { if (!arrastrada) return; const c = e.target.closest('.lcard[data-art]'); if (c && c.dataset.art !== arrastrada) { e.preventDefault(); bento.querySelectorAll('.destino').forEach((n) => n.classList.remove('destino')); c.classList.add('destino'); } });
+  bento.addEventListener('drop', (e) => {
+    const c = e.target.closest('.lcard[data-art]');
+    if (!arrastrada || !c || [...e.dataTransfer.types].includes('Files')) return;
+    e.preventDefault(); e.stopPropagation();
+    moverTarjeta(arrastrada, c.dataset.art);
+    arrastrada = null;
   });
 }
 
-async function accionTarjeta(accion, id) {
+async function moverTarjeta(id, destino) {
+  const ids = ordenarWorkspace(publicados().filter((a) => st.menu.get(a.id)?.status !== 'hidden'), st.menu).map((a) => a.id);
+  const nuevo = reordenar(ids, id, destino);
+  nuevo.forEach((x, i) => { const m = st.menu.get(x); if (m) m.ord = i; });
+  pintarWorkspace();
+  $('vistaHome').querySelector(`.lcard[data-art="${id}"]`)?.focus();
+  try { await Promise.all(nuevo.map((x, i) => q(sb.from('so_menu').update({ ord: i }).eq('artifact_id', x)))); }
+  catch (err) { toast(`No pude guardar el orden: ${err.message}.`); }
+}
+
+// ArtifactPreviewCache: se recalcula en segundo plano, de a uno, solo lo vencido. Nunca bloquea el Workspace.
+let tPreviews = null;
+function programarPreviews() {
+  clearTimeout(tPreviews);
+  tPreviews = setTimeout(async () => {
+    for (const a of publicados()) {
+      if (E.get().vista !== 'home') return;
+      if (previewVigente(pvDe(a.id), a) || !a.datasource_id) continue;
+      try { await actualizarPreview(a.id); } catch { /* la tarjeta queda con su último estado */ }
+    }
+  }, 'requestIdleCallback' in window ? 300 : 600);
+}
+async function actualizarPreview(id, d = null) {
+  const a = artefacto(id);
+  if (!a?.datasource_id) return null;
+  d ||= await datosDe(id);
+  const pv = calcularPreview(d.records, d.fields, a.configuration, hoy());
+  ls.set(`so.pv.${id}`, pv);
+  const m = st.menu.get(id);
+  if (m) { m.preview = pv; m.preview_at = pv.at; }
+  sb.from('so_menu').update({ preview: pv, preview_at: pv.at }).eq('artifact_id', id).then(() => {}, () => {});
+  const card = $('vistaHome').querySelector(`.lcard[data-art="${id}"]`);
+  if (card && !card.classList.contains('expandida')) {
+    const foco = document.activeElement === card;
+    card.outerHTML = htmlTarjeta(a, m || {}, pv, { editable: editable(a) });
+    if (foco) $('vistaHome').querySelector(`.lcard[data-art="${id}"]`)?.focus();
+  }
+  return pv;
+}
+function invalidarPreview(id) { const m = st.menu.get(id); if (m) m.preview = null; ls.set(`so.pv.${id}`, null); }
+
+// Toast con Deshacer (undo-first para acciones reversibles; nada de confirmaciones innecesarias).
+function toast(texto, accion = null) {
+  let t = $('toast');
+  if (!t) { t = document.createElement('div'); t.id = 'toast'; t.className = 'toast'; t.setAttribute('role', 'status'); t.setAttribute('aria-live', 'polite'); document.body.append(t); }
+  t.innerHTML = `<span>${esc(texto)}</span>${accion ? `<button type="button">${esc(accion.texto)}</button>` : ''}`;
+  t.hidden = false;
+  t.querySelector('button')?.addEventListener('click', async () => { t.hidden = true; await accion.fn(); });
+  clearTimeout(t._t); t._t = setTimeout(() => { t.hidden = true; }, 7000);
+}
+
+// Menú contextual genérico (tarjetas y •••): teclado completo, Esc cierra y devuelve el foco.
+function abrirMenuFlotante(ancla, items, alElegir) {
+  const m = $('menuFlotante');
+  m.innerHTML = items.map((it) => `<button type="button" role="menuitem" data-mi="${esc(it.id)}" ${it.peligro ? 'class="peligro-txt"' : ''}>${esc(it.texto)}</button>`).join('');
+  m.hidden = false;
+  const r = ancla.getBoundingClientRect();
+  const ancho = Math.min(260, innerWidth - 16);
+  m.style.left = `${Math.max(8, Math.min(innerWidth - ancho - 8, r.right - ancho))}px`;
+  m.style.top = `${Math.min(innerHeight - m.offsetHeight - 8, r.bottom + 6)}px`;
+  ancla.setAttribute('aria-expanded', 'true');
+  const botones = [...m.querySelectorAll('[role="menuitem"]')];
+  botones[0]?.focus();
+  const cerrar = (devolver = true) => { m.hidden = true; ancla.setAttribute('aria-expanded', 'false'); document.removeEventListener('pointerdown', fuera, true); if (devolver && ancla.isConnected) ancla.focus(); };
+  const fuera = (e) => { if (!m.contains(e.target) && e.target !== ancla) cerrar(false); };
+  document.addEventListener('pointerdown', fuera, true);
+  m.onkeydown = (e) => {
+    const i = botones.indexOf(document.activeElement);
+    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); cerrar(); }
+    if (e.key === 'ArrowDown') { e.preventDefault(); botones[(i + 1) % botones.length].focus(); }
+    if (e.key === 'ArrowUp') { e.preventDefault(); botones[(i - 1 + botones.length) % botones.length].focus(); }
+    if (e.key === 'Tab') cerrar(false);
+  };
+  m.onclick = (e) => { const b = e.target.closest('[data-mi]'); if (!b) return; cerrar(false); alElegir(b.dataset.mi); };
+}
+
+async function accionTarjeta(accion, id, ancla = null) {
   const a = artefacto(id);
   if (!a) return;
-  if (accion === 'editar') return editarConFrancisco(id);
-  if (accion === 'favorito') return procesarAccion({ tipo: 'favorito', artefactoId: id, valor: !st.menu.get(id)?.favorite }, null);
-  location.hash = `#/a/${id}`;
-  setTimeout(() => {
-    if (accion === 'compartir') { $('panelCompartir').scrollIntoView({ behavior: 'smooth' }); $('formCompartir').email.focus(); }
-    if (accion === 'versiones') { $('panelVersiones').open = true; $('panelVersiones').scrollIntoView({ behavior: 'smooth' }); }
-  }, 300);
+  const m = st.menu.get(id) || {};
+  if (accion === null) {
+    return abrirMenuFlotante(ancla, accionesMenu({ editable: editable(a), favorito: m.favorite, oculto: m.status === 'hidden', archivado: a.state === 'archived', tam: m.size || 'M' }),
+      (x) => accionTarjeta(x, id, ancla));
+  }
+  const card = () => $('vistaHome').querySelector(`.lcard[data-art="${id}"]`);
+  switch (accion) {
+    case 'abrir': st.ultimaTarjeta = id; location.hash = `#/a/${id}`; return;
+    case 'vistazo': {
+      const c = card(); if (!c) return;
+      if (c.classList.contains('expandida')) return cerrarVistazo(id);
+      $('vistaHome').querySelectorAll('.lcard.expandida').forEach((n) => cerrarVistazo(n.dataset.art));
+      c.classList.add('expandida');
+      c.setAttribute('role', 'group');
+      c.innerHTML = htmlVistazo(a, m, pvDe(id), { editable: editable(a) });
+      c.querySelector('a.boton')?.focus();
+      c.querySelector('[data-lc="cerrar-vistazo"]').addEventListener('click', (e) => { e.stopPropagation(); cerrarVistazo(id); });
+      return;
+    }
+    case 'cerrar-vistazo': return cerrarVistazo(id);
+    case 'preguntar': case 'editar':
+      E.set({ artefactoId: id });
+      abrirPanel();
+      $('texto').placeholder = accion === 'editar' ? `¿Qué querés cambiar de ${a.name}?` : `Preguntá sobre ${a.name}…`;
+      return;
+    case 'actualizar': {
+      toast(`Actualizando ${a.name}…`);
+      st.datos.delete(id);
+      try { await D.refrescarAlAbrir(id); const pv = await actualizarPreview(id, await datosDe(id, { forzar: true })); toast(`${a.name} actualizado${pv?.ultimo ? ` · último dato ${haceCuanto(pv.ultimo)}` : ''}.`); }
+      catch (err) { toast(`No pude actualizar ${a.name}: ${err.message}. Seguís viendo los últimos datos.`); }
+      if (card()?.classList.contains('expandida')) accionTarjeta('vistazo', id);
+      return;
+    }
+    case 'compartir': location.hash = `#/a/${id}`; setTimeout(() => abrirHoja('compartir'), 250); return;
+    case 'favorito': await procesarAccion({ tipo: 'favorito', artefactoId: id, valor: !m.favorite }); pintarWorkspace(); card()?.querySelector('[data-lc="favorito"]')?.focus(); return;
+    case 'tam-S': case 'tam-M': case 'tam-L': {
+      const size = accion.slice(4);
+      m.size = size;
+      const c = card(); if (c) c.dataset.size = size;
+      c?.focus();
+      sb.from('so_menu').update({ size }).eq('artifact_id', id).then(({ error }) => { if (error) toast('No pude guardar el tamaño.'); });
+      return;
+    }
+    case 'antes': case 'despues': {
+      const ids = ordenarWorkspace(publicados().filter((x) => st.menu.get(x.id)?.status !== 'hidden'), st.menu).map((x) => x.id);
+      const i = ids.indexOf(id);
+      return moverTarjeta(id, accion === 'antes' ? Math.max(0, i - 1) : Math.min(ids.length - 1, i + 1));
+    }
+    case 'ocultar': case 'mostrar': {
+      const status = accion === 'ocultar' ? 'hidden' : 'available';
+      await q(sb.from('so_menu').update({ status }).eq('artifact_id', id)); m.status = status;
+      pintarWorkspace();
+      toast(accion === 'ocultar' ? `Oculté ${a.name} del Workspace.` : `${a.name} vuelve al Workspace.`, { texto: 'Deshacer', fn: async () => { await q(sb.from('so_menu').update({ status: status === 'hidden' ? 'available' : 'hidden' }).eq('artifact_id', id)); m.status = status === 'hidden' ? 'available' : 'hidden'; pintarWorkspace(); } });
+      return;
+    }
+    case 'archivar': case 'desarchivar': {
+      const state = accion === 'archivar' ? 'archived' : 'published';
+      await q(sb.from('so_artifacts').update({ state }).eq('id', id));
+      const v = await q(sb.from('so_artifacts').select('state').eq('id', id).single());
+      await cargarArtefactos(); pintarWorkspace();
+      if (v.state !== state) return toast(`No pude ${accion} ${a.name}.`);
+      toast(accion === 'archivar' ? `Archivé ${a.name}. Los datos siguen guardados.` : `${a.name} volvió al Workspace.`, { texto: 'Deshacer', fn: async () => { await q(sb.from('so_artifacts').update({ state: state === 'archived' ? 'published' : 'archived' }).eq('id', id)); await cargarArtefactos(); pintarWorkspace(); } });
+      return;
+    }
+    case 'duplicar': {
+      const nid = crypto.randomUUID();
+      const nombre = `${a.name} (copia)`.slice(0, 120);
+      await q(sb.from('so_artifacts').insert({ id: nid, project_id: a.project_id, name: nombre, type: a.type, route: `#/a/${nid}`, datasource_id: a.datasource_id, menu: a.menu || {},
+        specification: { ...a.specification, duplicadoDe: a.id }, schema: a.schema, configuration: a.configuration, permissions: { default: 'owner' }, sharing: { default: 'USE' }, state: 'published', deployment_state: 'available' }));
+      await q(sb.from('so_menu').insert({ artifact_id: nid, name: nombre, route: `#/a/${nid}`, ord: (m.ord ?? 0) + 1, size: m.size || 'M' }));
+      const ok = (await q(sb.from('so_artifacts').select('id').eq('id', nid))).length === 1;
+      await cargarArtefactos(); pintarWorkspace();
+      if (!ok) return toast('No pude confirmar la copia.');
+      toast(`Dupliqué ${a.name}: usa la misma fuente de datos (no se copian registros).`, { texto: 'Deshacer', fn: async () => { await q(sb.from('so_artifacts').update({ state: 'deleted', deleted_at: new Date().toISOString() }).eq('id', nid)); await sb.from('so_menu').update({ status: 'removed' }).eq('artifact_id', nid); await cargarArtefactos(); pintarWorkspace(); } });
+      return;
+    }
+    case 'eliminar': {
+      // Destrucción material: se explica el impacto antes (los datos históricos se conservan y es reversible).
+      if (!confirm(`Eliminar "${a.name}" quita la visualización del Workspace. Los datos históricos, archivos y fuentes se conservan y podés deshacerlo desde la conversación. ¿Continuar?`)) return;
+      await procesarAccion({ tipo: 'borrar_visualizacion', artefactoId: id });
+      pintarWorkspace();
+      return;
+    }
+  }
+}
+function cerrarVistazo(id) {
+  const c = $('vistaHome').querySelector(`.lcard[data-art="${id}"]`);
+  if (!c) return;
+  const a = artefacto(id);
+  c.outerHTML = htmlTarjeta(a, st.menu.get(id) || {}, pvDe(id), { editable: editable(a) });
+  $('vistaHome').querySelector(`.lcard[data-art="${id}"]`)?.focus();
+}
+
+// Tarjeta de artefacto dentro de la conversación (misma Living Card, versión compacta).
+function tarjetaArtefacto(a) {
+  return `<div class="msg-card">${htmlTarjeta(a, st.menu.get(a.id) || {}, pvDe(a.id), { editable: false })}<a class="boton primario" href="#/a/${a.id}">Abrir</a></div>`;
+}
+function conectarTarjetas(raiz) {
+  raiz.querySelectorAll('.msg-card .lcard[data-art]').forEach((c) => {
+    c.setAttribute('draggable', 'false');
+    c.addEventListener('click', (e) => { const b = e.target.closest('[data-lc]'); if (b) { e.stopPropagation(); return accionTarjeta(b.dataset.lc === 'menu' ? null : b.dataset.lc, c.dataset.art, b); } location.hash = `#/a/${c.dataset.art}`; });
+    c.addEventListener('keydown', (e) => { if (e.target === c && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); location.hash = `#/a/${c.dataset.art}`; } });
+  });
 }
 
 function editarConFrancisco(id) {
@@ -359,27 +635,27 @@ function editarConFrancisco(id) {
   if (location.hash !== `#/a/${id}`) location.hash = `#/a/${id}`;
   abrirPanel();
   $('texto').placeholder = `¿Qué querés cambiar o saber de ${artefacto(id)?.name || 'este tablero'}?`;
-  $('texto').focus();
 }
 
-function abrirPanel() { $('app').classList.add('panel-abierto'); }
-$('fab').onclick = () => { abrirPanel(); $('texto').focus(); };
-$('cerrarPanel').onclick = () => $('app').classList.remove('panel-abierto');
-
 // ---------------------------------------------------------------- contexto visible y sugerencias
+// Contexto compacto: "Ventas · Sep 2026 · Web". Al tocarlo se ve el detalle y cada parte se puede quitar.
 function pintarContexto() {
   const s = E.get();
   const a = s.artefactoId && artefacto(s.artefactoId);
   const periodo = s.desde || s.hasta ? (s.desde === s.hasta || !s.hasta || !s.desde ? nombreMes(s.desde || s.hasta) : `${nombreMes(s.desde)} – ${nombreMes(s.hasta)}`) : null;
   const lista = chips(s, { proyecto: st.proyectos.length > 1 ? proyecto()?.name : null, artefacto: a?.name, periodo, comparar: s.comparar && nombreMes(s.comparar) });
-  $('contexto').innerHTML = lista.map((c) => `<span class="chip">${esc(c.texto)}${c.quitar ? `<button type="button" data-quitar="${c.id}" aria-label="Quitar ${esc(c.texto)}">×</button>` : ''}</span>`).join('');
+  const corto = [a?.name, periodo, s.filtro?.valor, s.comparar ? `vs. ${nombreMes(s.comparar)}` : null, s.seleccion?.etiqueta].filter(Boolean);
+  const abierto = !!st.ctxAbierto;
+  $('contexto').innerHTML = corto.length ? `<button type="button" class="ctx-resumen" aria-expanded="${abierto}" aria-controls="ctxChips" title="Ver y editar el contexto">${icono('chispa', { tam: 14 })}<span>${esc(corto.join(' · '))}</span></button>
+    <div class="ctx-chips" id="ctxChips" ${abierto ? '' : 'hidden'}>${lista.map((c) => `<span class="chip">${esc(c.texto)}${c.quitar ? `<button type="button" data-quitar="${c.id}" aria-label="Quitar ${esc(c.texto)}">×</button>` : ''}</span>`).join('')}</div>` : '';
+  $('contexto').querySelector('.ctx-resumen')?.addEventListener('click', () => { st.ctxAbierto = !st.ctxAbierto; pintarContexto(); $('contexto').querySelector('.ctx-resumen')?.focus(); });
   $('contexto').querySelectorAll('[data-quitar]').forEach((b) => b.addEventListener('click', () => {
     const c = lista.find((x) => x.id === b.dataset.quitar);
     E.set(c.quitar);
     if (c.id === 'artefacto' && location.hash.startsWith('#/a/')) location.hash = '#/';
   }));
   pintarSugerencias();
-  pintarAccionesArtefacto();
+  if (E.get().vista === 'artefacto') pintarCabecera();
 }
 
 function pintarSugerencias() {
@@ -431,12 +707,24 @@ function htmlMensaje(m) {
   if (meta.revisar && !meta.resuelto) acciones.push(`<button type="button" data-revisar="${m.id}">Revisar columnas</button>`);
   if (meta.credencial) acciones.push(`<button type="button" class="primario" data-credencial="${meta.credencial}">Cargar credencial de forma segura</button>`);
   if (meta.reintentarApi && !meta.reintentado) acciones.push(`<button type="button" data-reintentar-api="${m.id}">Reintentar</button>`);
-  return `<div class="msg assistant">${badge}<div>${html}</div>${conf}${det}${card}${acciones.length ? `<div class="msg-acc">${acciones.join('')}</div>` : ''}</div>`;
+  if (meta.pin && !meta.fijado && !meta.deshecho) acciones.push(`<button type="button" data-fijar="${m.id}">${icono('agregar', { tam: 14 })} Fijar en Workspace</button>`);
+  if (meta.fijado) acciones.push(`<a class="boton" href="#/a/${esc(meta.fijado)}">Ver en el Workspace</a>`);
+  // Change Card: qué cambió, en lenguaje humano (nunca un diff técnico).
+  const cambios = meta.cambios?.length && meta.artifactId ? `<div class="change-card ${meta.deshecho ? 'deshecho' : ''}"><strong>Francisco actualizó ${esc(artefacto(meta.artifactId)?.name || 'el tablero')}</strong>
+    <ul>${meta.cambios.map((c) => `<li>${esc(c)}</li>`).join('')}</ul>${E.get().artefactoId !== meta.artifactId || E.get().vista !== 'artefacto' ? `<a class="enlace" href="#/a/${esc(meta.artifactId)}">Ver</a>` : ''}</div>` : '';
+  const ui = meta.ui?.length ? renderUI(meta.ui) : '';
+  return `<div class="msg assistant">${badge}<div>${html}</div>${ui}${cambios}${conf}${det}${card}${acciones.length ? `<div class="msg-acc">${acciones.join('')}</div>` : ''}</div>`;
 }
 
 function pintarMensajes() {
   const cont = $('mensajes');
-  cont.innerHTML = st.mensajes.map(htmlMensaje).join('');
+  const bienvenida = !st.mensajes.length && E.get().vista === 'chat';
+  cont.innerHTML = bienvenida ? `<div class="bienvenida"><span id="avatarChat"></span><h2>${E.get().modo === 'work' ? 'Soy Francisco. Decime qué querés conseguir.' : 'Soy Francisco. Acá charlamos tranquilos.'}</h2>
+    <p class="vacio">${E.get().modo === 'work' ? 'Lo que creemos aparece en el Workspace.' : 'En Personal solo conversamos: no se crean tableros.'}</p></div>` : st.mensajes.map(htmlMensaje).join('');
+  if (bienvenida) crearAvatar(cont.querySelector('#avatarChat'), { modo: E.get().modo });
+  cont.querySelectorAll('.gu-file[data-file]').forEach((n) => n.querySelectorAll('[data-gf]').forEach((b) => b.addEventListener('click', () => accionArchivo(b.dataset.gf, n.dataset.file, b))));
+  cont.querySelectorAll('[data-gu-accion]').forEach((b) => b.addEventListener('click', () => accionUI(b.dataset.guAccion, JSON.parse(b.dataset.guDatos || '{}'), b)));
+  cont.querySelectorAll('[data-fijar]').forEach((b) => b.addEventListener('click', () => fijarEnWorkspace(Number(b.dataset.fijar))));
   conectarTarjetas(cont);
   cont.querySelectorAll('[data-undo]').forEach((b) => b.addEventListener('click', () => deshacerMensaje(Number(b.dataset.undo))));
   cont.querySelectorAll('[data-confirmar]').forEach((b) => b.addEventListener('click', () => resolverPreview(Number(b.dataset.confirmar), true)));
@@ -467,11 +755,11 @@ async function asegurarChat(titulo) {
   st.chatId = c.id; st.mensajes = [];
   st.chats.unshift(c);
   cargarChats().catch(() => {});
-  if (E.get().vista !== 'artefacto') {
+  if (E.get().vista === 'chat') {   // en Personal o en la conversación completa, la URL refleja el chat
     history.replaceState(null, '', `#/c/${c.id}`);
-    vista('chat');
     $('titulo').textContent = c.title;
   }
+  $('ampliarPanel').hidden = E.get().vista === 'chat';
 }
 
 async function guardarMensaje(role, content, meta = {}) {
@@ -511,6 +799,206 @@ $('formChat').onsubmit = async (e) => {
   await procesar(texto);
 };
 
+// ---------------------------------------------------------------- archivos: intención → archivo real (generar, editar, comparar, consolidar)
+async function intencionArchivo(texto, adjuntos) {
+  const n = normalizar(texto);
+  const s = E.get();
+  if (/\bcada vez que\b/.test(n) && /\b(cargue|cargo|suba|subo|importe|llegue|entre|actualice)\b/.test(n)) return crearAutomatizacionDesde(texto);
+  if (/\b(cada|todos los|todas las) (lunes|martes|miercoles|jueves|viernes|sabado|domingo|dia|dias|semana|semanas|mes|meses|manana|mananas)\b/.test(n) && /\b(genera|generame|manda|envia|arma|prepara|informe|reporte|excel|pdf)\b/.test(n)) {
+    return { texto: 'Todavía no puedo ejecutar tareas programadas por calendario: las automatizaciones de SO corren cuando se cargan datos (mientras SO está abierto). Puedo generar el informe ahora ("generá el informe en PDF") o dejarlo configurado para que se arme solo cada vez que cargues datos.',
+      meta: { estado: 'ejecutado', confianza: { nivel: 'incompleta', motivo: 'no hay un ejecutor programado en el servidor todavía' } } };
+  }
+  const pl = texto.match(/guard[aá]\w*\s+(?:esto|este informe|este reporte|el informe|esta exportaci[oó]n|este archivo)?\s*como\s+plantilla(?:\s+(?:de\s+|llamada\s+)?["“]?([^"”.]+)["”]?)?/i);
+  if (pl) {
+    const f = st.archivoFoco && await D.archivo(st.archivoFoco);
+    const aid = f?.artifact_id || s.artefactoId;
+    if (!f || !aid) return { texto: 'Primero generá un informe desde un tablero (por ejemplo "exportá ventas a PDF") y después pedime que lo guarde como plantilla.' };
+    return A.guardarPlantilla((pl[1] || `Informe de ${artefacto(aid)?.name || 'datos'}`).trim(), { formato: f.detected_type, artifactId: aid });
+  }
+  if (/\b(genera|generame|arma|armame|hace|haceme|prepara|preparame)\b/.test(n)) {
+    const ps = await A.plantillas().catch(() => []);
+    const p = ps.find((x) => n.includes(normalizar(x.name)));
+    if (p) { actividad('creando'); return A.usarPlantilla(p); }
+  }
+  const archivosDe = async (lista) => (await Promise.all(lista.map((x) => D.archivo(x.fileId)))).filter(Boolean);
+  if (/\b(consolid|unifica|unificar|junta|juntar|combina|combinar)\w*/.test(n) && adjuntos.length >= 2) {
+    actividad('analizando');
+    return A.consolidarArchivos(await archivosDe(adjuntos), (p) => { $('actividad').textContent = `Procesando · ${p}`; });
+  }
+  if (/\b(compar\w*|que cambio|diferencias)\b/.test(n) && !/\bcompart/.test(n)) {
+    if (adjuntos.length >= 2) {
+      actividad('analizando');
+      const fs = (await archivosDe(adjuntos)).sort((x, y) => (x.version || 1) - (y.version || 1) || String(x.created_at).localeCompare(String(y.created_at)));
+      return A.compararDos(fs[0], fs[1]);
+    }
+    if (/\b(version anterior|la anterior|version previa|v\d+)\b/.test(n) && st.archivoFoco) {
+      actividad('analizando');
+      const f = await D.archivo(st.archivoFoco);
+      const vs = await A.versionesDe(f);
+      const i = vs.findIndex((v) => v.id === f.id);
+      return i > 0 ? A.compararDos(vs[i - 1], vs[i]) : { texto: `${f.original_name} no tiene una versión anterior.` };
+    }
+  }
+  const formato = formatoPedido(texto);
+  if (formato) {
+    actividad('creando');
+    if (adjuntos.length === 1) return A.convertirArchivo(await D.archivo(adjuntos[0].fileId), formato);
+    const deictico = /\b(esto|eso|este archivo|ese archivo|el archivo|lo que generaste|el que generaste|el excel|el pdf|la planilla|esa planilla)\b/.test(n);
+    if (s.vista === 'artefacto' && s.artefactoId && !(deictico && st.archivoFoco && /\b(archivo|generaste|planilla)\b/.test(n))) return A.exportarArtefacto(artefacto(s.artefactoId), formato);
+    if (deictico && st.archivoFoco) return A.convertirArchivo(await D.archivo(st.archivoFoco), formato);
+    const nombrado = publicados().find((a) => normalizar(a.name).split(/\s+/).filter((w) => w.length > 3 && !['dashboard', 'tablero'].includes(w)).some((w) => n.includes(w)));
+    if (nombrado) return A.exportarArtefacto(nombrado, formato);
+    if (s.artefactoId && artefacto(s.artefactoId)) return A.exportarArtefacto(artefacto(s.artefactoId), formato);
+    return { texto: `¿De qué querés el ${FORMATOS[formato].etiqueta}? Abrí un tablero o adjuntá un archivo y pedímelo de nuevo.` };
+  }
+  if (st.archivoFoco && /\b(margen|duplicad\w*|repetid\w*|ordena\w*|deja solo|dejame solo|filtra\w* las filas|quita\w* la columna|saca\w* la columna)\b/.test(n) && (s.vista !== 'artefacto' || /\b(archivo|planilla|excel)\b/.test(n))) {
+    const f = await D.archivo(st.archivoFoco);
+    if (f?.kind === 'table') { actividad('actualizando'); const r = await A.editarArchivo(f, texto); if (r) return r; }
+  }
+  return null;
+}
+
+async function crearAutomatizacionDesde(texto) {
+  const n = normalizar(texto);
+  const a = resolverArtefacto(texto, publicados(), E.get().artefactoId);
+  if (!a) return { texto: '¿Para qué tablero? Por ejemplo: "Cada vez que cargue ventas, generá el PDF y avisame".' };
+  const pasos = [];
+  if (/\bcompar/.test(n)) pasos.push('comparar');
+  if (/\bpdf|informe\b/.test(n)) pasos.push('pdf');
+  if (/\bexcel|xlsx|planilla\b/.test(n)) pasos.push('xlsx');
+  if (/\bavis|notific|aviseme|avisame\b/.test(n)) pasos.push('avisar');
+  if (!pasos.some((x) => ['pdf', 'xlsx', 'avisar', 'comparar'].includes(x))) pasos.push('avisar');
+  const id = await A.crearAutomatizacion(a, pasos);
+  const ok = (await q(sb.from('so_automations').select('id').eq('id', id))).length === 1;
+  const que = { comparar: 'lo comparo con el mes anterior', pdf: 'genero el PDF', xlsx: 'genero el Excel', avisar: 'te aviso' };
+  return { texto: `Listo: cada vez que cargues datos en "${a.name}" (archivo, API o carga manual de un lote), valido e incorporo al histórico, actualizo el tablero y ${pasos.map((p) => que[p]).join(', ')}. Se ejecuta en SO al completarse la importación, una sola vez por carga.`,
+    meta: { estado: ok ? 'verificado' : 'ejecutado', artifactId: a.id, undo: { tipo: 'automatizacion', id, artifactId: a.id },
+      porque: 'Por ahora corre en tu sesión de SO al terminar la importación (no en un servidor programado). Cada ejecución queda en el centro de actividad.' } };
+}
+
+// Después de cualquier importación (chat, tablero o segundo plano): tarjeta al día + automatizaciones del tablero.
+async function trasImportar(r) {
+  const u = r?.meta?.undo;
+  const aid = r?.meta?.artifactId || u?.artifactId;
+  if (aid) invalidarPreview(aid);
+  if (u?.tipo === 'importacion' && u.loteId && artefacto(aid)) {
+    const res = await A.ejecutarAutomatizaciones(artefacto(aid), u.loteId).catch(() => []);
+    for (const x of res) {
+      if (!st.chatId) await asegurarChat('Automatizaciones');
+      await guardarMensaje('assistant', x.ok ? `Automatización de "${artefacto(aid).name}" completada: ${x.hechos.join(', ') || 'aviso enviado'}.` : `La automatización de "${artefacto(aid).name}" falló: ${x.error}`, { estado: x.ok ? 'verificado' : 'fallo' });
+    }
+    if (res.length) { st.archivosRecientes = null; cargarCentro(); }
+  }
+}
+
+async function accionArchivo(accion, id, ancla) {
+  try {
+    if (accion === 'bajar') { await A.descargar(id); return; }
+    if (accion === 'ver') { st.archivoFoco = id; return D.vistaPrevia(id); }
+    if (accion === 'mas') {
+      const f = await D.archivo(id);
+      return abrirMenuFlotante(ancla, [{ id: 'abrir', texto: 'Abrir en SO' }, { id: 'usar', texto: 'Usar con Francisco' }, { id: 'versiones', texto: 'Ver versiones' },
+        ...(f?.kind === 'table' ? [{ id: 'pdf', texto: 'Convertir a PDF' }, { id: 'pptx', texto: 'Convertir a PowerPoint' }] : [])], async (x) => {
+        if (x === 'abrir' || x === 'versiones') location.hash = `#/f/${id}`;
+        if (x === 'usar') { st.archivoFoco = id; D.prellenar('', [{ fileId: f.id, nombre: f.original_name, kind: f.kind, tipo: f.detected_type }]); }
+        if (x === 'pdf' || x === 'pptx') pedirConArchivo(id, x === 'pdf' ? 'Pasalo a PDF' : 'Preparame una presentación con esto');
+      });
+    }
+  } catch (err) { toast(`No pude: ${err.message}.`); }
+}
+function pedirConArchivo(fileId, texto) {
+  D.archivo(fileId).then((f) => { abrirPanel({ foco: false }); procesar(texto, { adjuntosDirectos: [{ fileId: f.id, nombre: f.original_name, kind: f.kind, tipo: f.detected_type }] }); });
+}
+
+async function accionUI(accion, datos) {
+  if (accion === 'exportar_comparacion') {
+    actividad('creando');
+    const r = await A.exportarComparacion(datos.a, datos.b).catch((err) => ({ ok: false, texto: `No pude exportar la comparación: ${err.message}.`, meta: { estado: 'fallo' } }));
+    await guardarMensaje('assistant', r.texto, r.meta || {});
+    actividad(r.ok === false ? 'atencion' : 'listo');
+  }
+}
+
+// Pin to Workspace: Generative Surface → WorkArtifact → Living Card (con su fuente, para recalcular siempre).
+async function fijarEnWorkspace(mensajeId) {
+  const m = st.mensajes.find((x) => x.id === mensajeId);
+  const pin = m?.meta?.pin;
+  if (!pin || m.meta.fijado || st.ocupado) return;
+  st.ocupado = true;
+  try {
+    const p = proyecto();
+    const fuente = pin.fuente?.artifactId && artefacto(pin.fuente.artifactId);
+    const id = crypto.randomUUID();
+    const { specs } = validarUI(m.meta.ui || []);
+    await q(sb.from('so_artifacts').insert({ id, project_id: p.id, name: pin.titulo.slice(0, 120), type: 'report', route: `#/a/${id}`, datasource_id: fuente?.datasource_id ?? null,
+      menu: { icon: 'chispa' }, specification: { origen: 'GenerativeUI', fijadoDe: mensajeId }, schema: {}, permissions: { default: 'owner' }, sharing: { default: 'USE' },
+      configuration: { surface: { ui: specs, fuente: pin.fuente || null }, presentation: { kind: 'analysis', icon: 'chispa', description: pin.titulo } }, state: 'published', deployment_state: 'available' }));
+    await q(sb.from('so_menu').insert({ artifact_id: id, name: pin.titulo.slice(0, 120), route: `#/a/${id}`, ord: st.artefactos.length }));
+    const ok = (await q(sb.from('so_artifacts').select('id').eq('id', id))).length === 1;
+    await cargarArtefactos();
+    await actualizarMeta(mensajeId, { fijado: id });
+    await guardarMensaje('assistant', `Fijé "${pin.titulo}" en el Workspace. Se recalcula con los datos actuales cada vez que lo abrís.`, { estado: ok ? 'verificado' : 'ejecutado', artifactId: id, undo: { tipo: 'crear', artifactId: id } });
+    evento('pin_to_workspace');
+  } catch (err) { toast(`No pude fijarlo: ${err.message}.`); } finally { st.ocupado = false; }
+}
+
+// File Workspace: Header · Preview · Metadata · Acciones · Versiones (para archivos relevantes, no adjuntos triviales).
+async function abrirArchivo(id) {
+  vista('archivo');
+  const c = $('vistaArchivo');
+  c.innerHTML = esqueleto();
+  const f = await D.archivo(id).catch(() => null);
+  if (!f) { $('titulo').textContent = 'Archivo'; c.innerHTML = '<p class="vacio">Ese archivo no existe o no tenés acceso.</p>'; return; }
+  st.archivoFoco = f.id;
+  $('titulo').textContent = f.original_name; $('meta').textContent = '';
+  $('tituloIcono').innerHTML = icono(f.kind === 'table' ? 'tabla' : f.kind === 'presentation' ? 'pres' : f.kind === 'image' ? 'imagen' : 'doc');
+  const vs = await A.versionesDe(f).catch(() => [f]);
+  const origen = { generated: 'Generado por Francisco', export: 'Exportado desde un tablero', upload: 'Subido', api: 'Desde una API', connector: 'Desde un conector' }[f.origin || 'upload'];
+  const acciones = f.kind === 'table' ? [['analizar', 'Analizar'], ['editar', 'Editar con Francisco'], ['comparar', 'Comparar'], ['tablero', 'Crear tablero'], ['pdf', 'Convertir a PDF'], ['pptx', 'Presentación']]
+    : f.kind === 'image' ? [['analizar', 'Analizar'], ['usar', 'Usar con Francisco']]
+      : f.kind === 'presentation' ? [['resumir', 'Resumir'], ['pdf', 'Convertir a PDF']]
+        : [['resumir', 'Resumir'], ['preguntar', 'Preguntar'], ['comparar', 'Comparar'], ['docx', 'Convertir a Word'], ['pdf', 'Convertir a PDF']];
+  const art = f.artifact_id && artefacto(f.artifact_id);
+  c.innerHTML = `<div class="archivo">
+    <div class="arch-acc"><button type="button" class="primario" data-fa="bajar">${icono('bajar', { tam: 16 })} Descargar</button><button type="button" data-fa="ver">${icono('ojo', { tam: 16 })} Vista previa</button>
+      ${acciones.map(([k, t]) => `<button type="button" data-fa="${k}">${esc(t)}</button>`).join('')}</div>
+    <dl class="arch-meta"><div><dt>Tipo</dt><dd>${esc((f.detected_type || '').toUpperCase())} · ${esc(tamTxt(f.size))}</dd></div><div><dt>Origen</dt><dd>${esc(origen)}</dd></div>
+      <div><dt>Versión</dt><dd>v${f.version || 1}${f.change_summary ? ` — ${esc(f.change_summary)}` : ''}</dd></div><div><dt>Creado</dt><dd>${esc(new Date(f.created_at).toLocaleString('es-AR'))}</dd></div>
+      ${art ? `<div><dt>Tablero</dt><dd><a href="#/a/${esc(art.id)}">${esc(art.name)}</a></dd></div>` : ''}${f.meta?.resumen ? `<div class="ancho"><dt>Contenido</dt><dd>${esc(f.meta.resumen)}</dd></div>` : ''}</dl>
+    <section class="tarjeta"><h3>Versiones</h3><ol class="versiones-arch" reversed>${vs.slice().reverse().map((v) => `<li class="${v.id === f.id ? 'actual' : ''}"><span><strong>v${v.version || 1}</strong> — ${esc(v.change_summary || (v.version > 1 ? 'versión nueva' : 'original'))}</span>
+      <small>${esc(haceCuanto(v.created_at))}</small>${v.id === f.id ? '<span class="etiqueta">esta</span>' : `<span class="fila-acc"><a class="enlace" href="#/f/${esc(v.id)}">Abrir</a><button type="button" class="enlace" data-cmp="${esc(v.id)}">Comparar</button><button type="button" class="enlace" data-rest="${esc(v.id)}">Restaurar</button></span>`}</li>`).join('')}</ol>
+      <p class="vacio">Editar o restaurar siempre crea una versión nueva: la historia no se pierde.</p></section></div>`;
+  const tf = { fileId: f.id, nombre: f.original_name, kind: f.kind, tipo: f.detected_type };
+  c.querySelectorAll('[data-fa]').forEach((b) => b.addEventListener('click', () => {
+    const k = b.dataset.fa;
+    if (k === 'bajar') return accionArchivo('bajar', f.id);
+    if (k === 'ver') return D.vistaPrevia(f.id);
+    if (k === 'editar' || k === 'preguntar' || k === 'usar') { D.prellenar('', [tf]); $('texto').placeholder = k === 'editar' ? 'Ej: "agregale margen", "sacá duplicados", "ordená por monto"' : 'Preguntá sobre el archivo…'; return; }
+    if (k === 'comparar') { const prev = vs[vs.findIndex((v) => v.id === f.id) - 1]; if (prev) return compararVersiones(prev.id, f.id); D.prellenar('Comparalo con ', [tf]); return; }
+    const pedido = { analizar: 'Analizá este archivo', resumir: 'Resumí este archivo', tablero: 'Creá un dashboard con estos datos', pdf: 'Pasalo a PDF', pptx: 'Preparame una presentación con esto', docx: 'Pasalo a Word' }[k];
+    abrirPanel({ foco: false }); procesar(pedido, { adjuntosDirectos: [tf] });
+  }));
+  c.querySelectorAll('[data-cmp]').forEach((b) => b.addEventListener('click', () => compararVersiones(b.dataset.cmp, f.id)));
+  c.querySelectorAll('[data-rest]').forEach((b) => b.addEventListener('click', async () => {
+    abrirPanel({ foco: false });
+    const elegida = vs.find((v) => v.id === b.dataset.rest);
+    if (!st.chatId) await asegurarChat(`Versiones de ${f.original_name}`);
+    const r = await A.restaurar(f, elegida).catch((err) => ({ ok: false, texto: `No pude restaurar: ${err.message}.`, meta: { estado: 'fallo' } }));
+    await guardarMensaje('assistant', r.texto, r.meta || {});
+    if (r.meta?.archivo) location.hash = `#/f/${r.meta.archivo}`;
+  }));
+}
+const tamTxt = (b) => (b < 1024 ? `${b} B` : b < 1048576 ? `${Math.round(b / 102.4) / 10} KB` : `${Math.round(b / 104857.6) / 10} MB`);
+async function compararVersiones(idA, idB) {
+  abrirPanel({ foco: false });
+  if (!st.chatId) await asegurarChat('Comparar versiones');
+  actividad('analizando');
+  const [fa, fb] = await Promise.all([D.archivo(idA), D.archivo(idB)]);
+  const r = await A.compararDos(fa, fb).catch((err) => ({ ok: false, texto: `No pude comparar: ${err.message}.`, meta: { estado: 'fallo' } }));
+  await guardarMensaje('assistant', r.texto, r.meta || {});
+  actividad(r.ok === false ? 'atencion' : 'listo');
+}
+
 // ---------------------------------------------------------------- ciclo: intención → confianza → acción → visibilidad
 async function procesar(texto, { reintentoDe = null, adjuntosDirectos = null } = {}) {
   st.ocupado = true; $('enviar').disabled = true;
@@ -527,26 +1015,25 @@ async function procesar(texto, { reintentoDe = null, adjuntosDirectos = null } =
     if (!texto && adjuntos.length) texto = adjuntos.length === 1 ? 'Analizá este archivo' : 'Analizá estos archivos';
     if (!texto) { r = { texto: fuera.length ? `No pude adjuntar: ${fuera.join(', ')}.` : 'No hay nada para enviar.', meta: { estado: 'fallo' }, ok: false }; throw Object.assign(new Error('vacío'), { r }); }
     await asegurarChat(texto);
-    if (E.get().vista === 'home') {   // desde Inicio, la respuesta tiene que verse: se pasa a la conversación
-      history.replaceState(null, '', `#/c/${st.chatId}`);
-      vista('chat');
-      $('titulo').textContent = st.chats.find((x) => x.id === st.chatId)?.title || 'Conversación';
-      pintarMensajes();
-    }
+    if (E.get().vista !== 'chat') abrirPanel({ foco: false });   // la respuesta tiene que verse, sin abandonar la superficie actual
     if (!reintentoDe) {
       const m = await guardarMensaje('user', texto, { ...contextoMeta(), ...(adjuntos.length ? { adjuntos } : {}) });
       if (adjuntos.length) await D.asociarMensaje(adjuntos, m.id);
     }
     const s = E.get();
     const previos = adjuntos.length ? adjuntos : reintentoDe ? (st.mensajes.find((x) => x.id === reintentoDe)?.meta?.adjuntos || []) : [];
-    const entradaAcc = interpretarEntrada(texto, { modo: s.modo, adjuntos: previos, adjuntosPrevios: ultimosAdjuntos(), artefactos: st.artefactos, activoId: s.artefactoId });
-    if (entradaAcc && entradaAcc.tipo !== 'bloqueado') r = await D.ejecutarEntrada(entradaAcc);
+    if (previos.length === 1 && previos[0].kind === 'table') st.archivoFoco = previos[0].fileId;
+    const archAcc = s.modo === 'work' ? await intencionArchivo(texto, previos) : null;
+    const entradaAcc = archAcc ? null : interpretarEntrada(texto, { modo: s.modo, adjuntos: previos, adjuntosPrevios: ultimosAdjuntos(), artefactos: st.artefactos, activoId: s.artefactoId });
+    if (archAcc) r = archAcc;
+    else if (entradaAcc && entradaAcc.tipo !== 'bloqueado') { r = await D.ejecutarEntrada(entradaAcc); await trasImportar(r); }
     else if (entradaAcc) r = await ejecutar(entradaAcc, texto);
     else {
       const accion = interpretar(texto, { modo: s.modo, artefactos: st.artefactos, activoId: s.artefactoId, hoy: hoy() });
       if (riesgo(accion) === 'alto') r = await proponer(accion);
       else r = await ejecutar(accion, texto);
     }
+    if (r?.meta?.archivo) { st.archivoFoco = r.meta.archivo; st.archivosRecientes = null; }
     if (fuera.length) r = { ...r, texto: `No pude adjuntar ${fuera.join(', ')}; seguí con el resto.\n${r.texto}` };
   } catch (err) {
     r = err.r || { texto: `No pude completarlo: ${err.message || err}.`, meta: { estado: 'fallo', reintentar: texto }, ok: false };
@@ -646,11 +1133,11 @@ async function ejecutar(acc, texto = '') {
       actividad('actualizando');
       senal('FranciscoUI', 'preference', { value: `grafico:${acc.grafico}` }, acc.artefactoId);
       return actualizarArtefacto(acc.artefactoId, (a) => ({ configuration: { ...a.configuration, grafico: acc.grafico } }),
-        `Cambié el gráfico a ${{ bar: 'barras', line: 'líneas', pie: 'torta' }[acc.grafico]}.`);
+        `Cambié el gráfico a ${{ bar: 'barras', line: 'líneas', pie: 'torta' }[acc.grafico]}.`, {}, [`~ gráfico de ${{ bar: 'barras', line: 'líneas', pie: 'torta' }[acc.grafico]}`]);
     }
     case 'renombrar': {
       actividad('actualizando');
-      const r = await actualizarArtefacto(acc.artefactoId, () => ({ name: acc.nombre }), `Ahora se llama "${acc.nombre}".`);
+      const r = await actualizarArtefacto(acc.artefactoId, () => ({ name: acc.nombre }), `Ahora se llama "${acc.nombre}".`, {}, [`~ nombre: ${acc.nombre}`]);
       await sb.from('so_menu').update({ name: acc.nombre }).eq('artifact_id', acc.artefactoId);
       return r;
     }
@@ -743,9 +1230,11 @@ async function ejecutar(acc, texto = '') {
       const c = comparar(base, num, mesA, mesB, cat, hoy());
       E.set({ artefactoId: a.id, desde: mesA, hasta: mesA, comparar: mesB, ...(s.artefactoId === a.id ? {} : { filtro: null }) });
       if (location.hash !== `#/a/${a.id}`) location.hash = `#/a/${a.id}`; else abrirArtefacto(a.id);
-      return { texto: c.texto, meta: { estado: 'ejecutado', confianza: c.confianza, artifactId: a.id,
-        fuente: { origen, operacion: c.evidencia.operacion + (base !== records ? ` (solo ${s.filtro.valor})` : ''), registros: c.evidencia.registros, at: new Date().toISOString() },
-        porque: `Usé "${origen}" porque es la fuente asociada a "${a.name}".` }, skills: ['FranciscoIntent', 'FranciscoData'] };
+      const filtro = base !== records ? s.filtro : null;
+      return { texto: c.texto, meta: { estado: 'ejecutado', confianza: c.confianza, artifactId: a.id, ui: specsComparacion(c, num, cat),
+        pin: { titulo: `${a.name}: ${nombreMes(mesA)} vs. ${nombreMes(mesB)}${filtro ? ` (${filtro.valor})` : ''}`, fuente: { op: 'comparar', artifactId: a.id, campo: num.key, mesA, mesB, filtro } },
+        fuente: { origen, operacion: c.evidencia.operacion + (filtro ? ` (solo ${filtro.valor})` : ''), registros: c.evidencia.registros, at: new Date().toISOString() },
+        porque: `Usé "${origen}" porque es la fuente asociada a "${a.name}".` }, skills: ['FranciscoIntent', 'FranciscoData', 'GenerativeUI'] };
     }
     case 'por_que': {
       actividad('analizando');
@@ -757,7 +1246,16 @@ async function ejecutar(acc, texto = '') {
       actividad('analizando');
       const { a, fields, records, origen } = await datosDe(acc.artefactoId);
       const r = analizar(records, fields, hoy());
-      return { texto: r.texto, meta: { estado: 'ejecutado', confianza: r.confianza, artifactId: a.id, tarjeta: true,
+      const num = fields.find((f) => f.key === a.configuration?.metrica) || fields.find((f) => f.type === 'number');
+      const ui = [];
+      if (num && r.a) {
+        const serie = (await import('./vista.js')).porMes(records, num.key).slice(-12);
+        ui.push({ type: 'Metric', props: { label: `${num.label} ${nombreMes(r.a.mes)}`, valor: r.a.total, delta: r.variacion, detalle: `vs. ${nombreMes(r.b.mes)}` } });
+        if (serie.length > 1) ui.push({ type: 'Chart', props: { titulo: `${num.label} por mes`, tipo: 'bar', puntos: serie.map((p) => ({ x: p.mes, y: p.total })) } });
+        const cat = categoriaUtil(fields, records);
+        for (const i of (await import('./analisis.js')).insights(records, num, cat, {}, hoy(), 2)) ui.push({ type: 'Insight', props: { titulo: i.titulo, texto: i.texto, tono: i.tono } });
+      }
+      return { texto: r.texto, meta: { estado: 'ejecutado', confianza: r.confianza, artifactId: a.id, tarjeta: !ui.length, ui,
         fuente: r.evidencia ? { origen, operacion: r.evidencia.operacion, registros: r.evidencia.registros, at: new Date().toISOString() } : null,
         porque: `Usé "${origen}" porque es la fuente asociada a "${a.name}".` } };
     }
@@ -771,9 +1269,10 @@ async function ejecutar(acc, texto = '') {
         const valores = [...new Set(records.map((r) => r.data?.[f.key]).filter(Boolean))];
         const hit = valores.find((v) => normalizar(v) === buscado) || valores.find((v) => normalizar(v).includes(buscado) || buscado.includes(normalizar(v)));
         if (hit) {
-          E.set({ artefactoId: a.id, filtro: { key: f.key, valor: hit, label: f.label } });
+          const mes = acc.mes && mesesConDatos(records).includes(acc.mes) ? acc.mes : acc.mes ? mesesConDatos(records).filter((m) => m.slice(5) === acc.mes.slice(5)).at(-1) || acc.mes : null;
+          E.set({ artefactoId: a.id, filtro: { key: f.key, valor: hit, label: f.label }, ...(mes ? { desde: mes, hasta: mes } : {}) });
           if (location.hash !== `#/a/${a.id}`) location.hash = `#/a/${a.id}`; else abrirArtefacto(a.id);
-          return { texto: `Mostrando solo ${f.label || f.key}: ${hit} en "${a.name}".`, meta: { estado: 'ejecutado' } };
+          return { texto: `Mostrando solo ${f.label || f.key}: ${hit}${mes ? ` de ${nombreMes(mes)}` : ''} en "${a.name}".`, meta: { estado: 'ejecutado', ui: [{ type: 'Filter', props: { label: f.label || f.key, valor: hit } }, ...(mes ? [{ type: 'Filter', props: { label: 'Mes', valor: nombreMes(mes) } }] : [])] } };
         }
       }
       actividad('esperando');
@@ -874,6 +1373,7 @@ async function crearArtefacto(spec) {
   if (!st.artefactos.length && st.firstSeen) evento('time_to_first_value', Date.now() - Date.parse(st.firstSeen));
   E.set({ artefactoId: id });
   await cargarArtefactos();
+  await actualizarPreview(id).catch(() => {});   // la Living Card nace con su estado real (sin datos todavía)
   const porque = `${spec.camposExplicitos ? 'Usé los campos que pediste' : `Elegí ${spec.campos.map((c) => c.label).join(', ')} porque es lo habitual para ${spec.tema}`}` +
     `${spec.grafico ? '' : st.preferencias.grafico ? `; gráfico de ${{ bar: 'barras', line: 'líneas', pie: 'torta' }[grafico]} porque es el que solés elegir` : ''}. Podés pedir "agregale…" o cambiarlo cuando quieras.`;
   return {
@@ -883,7 +1383,7 @@ async function crearArtefacto(spec) {
   };
 }
 
-async function actualizarArtefacto(id, cambio, texto, extraUndo = {}) {
+async function actualizarArtefacto(id, cambio, texto, extraUndo = {}, cambios = null) {
   const a = artefacto(id);
   await q(sb.from('so_artifacts').update(cambio(a)).eq('id', id));
   actividad('verificando');
@@ -892,7 +1392,8 @@ async function actualizarArtefacto(id, cambio, texto, extraUndo = {}) {
   await cargarArtefactos();
   if (E.get().vista === 'artefacto') abrirArtefacto(id);
   senal('FranciscoArtifact', 'success', { op: 'update' }, id);
-  return { texto: `${texto} (versión ${v.version}).`, meta: { estado: v.version > a.version ? 'verificado' : 'ejecutado', artifactId: id, tarjeta: E.get().vista !== 'artefacto',
+  invalidarPreview(id);
+  return { texto: `${texto} (versión ${v.version}).`, meta: { estado: v.version > a.version ? 'verificado' : 'ejecutado', artifactId: id, tarjeta: E.get().vista !== 'artefacto' && !cambios, ...(cambios ? { cambios } : {}),
     undo: { tipo: 'version', artifactId: id, version: a.version, ...extraUndo } }, skills: ['FranciscoIntent', 'FranciscoArtifact'] };
 }
 
@@ -905,7 +1406,7 @@ async function agregarCampos(acc) {
   await q(sb.from('so_datasources').update({ fields, updated_at: new Date().toISOString() }).eq('id', a.datasource_id));
   st.datos.delete(a.id);
   return actualizarArtefacto(a.id, () => ({ schema: { ...a.schema, fields } }), `Agregué ${nuevos.map((c) => `"${c.label}"`).join(', ')} a "${a.name}"`,
-    { datasourceId: a.datasource_id, fields: ds.fields });
+    { datasourceId: a.datasource_id, fields: ds.fields }, nuevos.map((c) => `+ campo ${c.label}`));
 }
 
 // ---------------------------------------------------------------- deshacer
@@ -936,6 +1437,7 @@ async function deshacerMensaje(id, { silencioso = false } = {}) {
         break;
       case 'revocar': for (const x of u.shares) await q(sb.rpc('so_compartir', { p_artifact: u.artifactId, p_email: x.email, p_permission: x.permission })); break;
       case 'favorito': await q(sb.from('so_menu').update({ favorite: u.valor }).eq('artifact_id', u.artifactId)); break;
+      case 'automatizacion': await q(sb.from('so_automations').delete().eq('id', u.id)); break;
       case 'importacion': await q(sb.rpc('so_deshacer_importacion', { p_batch: u.loteId })); break;
       case 'dataset': {
         const a = artefacto(u.artifactId);
@@ -972,27 +1474,37 @@ async function conversar({ archivos = null, silencioso = false } = {}) {
   return { ok: false, texto: 'No pude responder ahora (error del servicio).', meta: { estado: 'fallo', reintentar: st.mensajes.at(-1)?.content } };
 }
 
-// ---------------------------------------------------------------- vista de artefacto
+// ---------------------------------------------------------------- Focused Artifact
 let renderToken = 0;
+const esqueleto = () => `<div class="esqueleto" aria-busy="true" aria-label="Cargando"><div class="sk sk-linea"></div><div class="sk-fila">${'<div class="sk sk-kpi"></div>'.repeat(4)}</div><div class="sk sk-graf"></div><div class="sk sk-tabla"></div></div>`;
+
 async function abrirArtefacto(id, { forzar = false } = {}) {
   const token = ++renderToken;
   vista('artefacto');
   if (E.get().artefactoId !== id) E.set({ artefactoId: id });
   const a0 = artefacto(id);
   $('titulo').textContent = a0?.name || 'Tablero';
+  $('tituloIcono').innerHTML = a0 ? icono(presentacion(a0).icon) : '';
   $('errorArtefacto').innerHTML = '';
+  pintarCabecera();
+  if (!st.datos.has(id) && !$('artefacto').querySelector(`[data-art-id="${id}"]`)) $('artefacto').innerHTML = esqueleto();
   if (!forzar && st.menu.get(id) && !st.abiertos?.has(id)) {
     (st.abiertos ||= new Set()).add(id);
     sb.rpc('so_abrir_artefacto', { p_artifact: id }).then(() => {}, () => {});
-    if ((st.menu.get(id).open_count || 0) > 0) evento('artifact_reuse');
+    const m = st.menu.get(id); m.last_opened_at = new Date().toISOString();
+    if ((m.open_count || 0) > 0) evento('artifact_reuse');
+    m.open_count = (m.open_count || 0) + 1;
   }
+  if (a0?.configuration?.surface && !a0.datasource_id) return renderSuperficie(a0, null);
   let d;
   try {
     d = await datosDe(id, { forzar });
   } catch (err) {
     if (token !== renderToken) return;
     const cache = ls.get(`so.datos.${id}`);
-    $('errorArtefacto').innerHTML = `<div class="tarjeta alerta" role="alert"><p><strong>No pude actualizar ${esc(a0?.name || 'este tablero')}</strong> (${esc(err.message)}).</p>
+    $('artefacto').innerHTML = '';
+    $('errorArtefacto').innerHTML = `<div class="tarjeta alerta" role="alert"><p><strong>No pude actualizar ${esc(a0?.name || 'este tablero')}</strong>. ${cache ? 'Podés seguir con los últimos datos guardados en este dispositivo.' : 'Probá de nuevo en un momento.'}</p>
+      <p class="vacio">Detalle: ${esc(err.message)}.</p>
       <button type="button" class="primario" data-r="reintentar">Reintentar</button>${cache ? ' <button type="button" data-r="cache">Seguir usando los últimos datos</button>' : ''}</div>`;
     $('errorArtefacto').querySelector('[data-r="reintentar"]').onclick = async () => { evento('retry'); await abrirArtefacto(id, { forzar: true }); if (!$('errorArtefacto').innerHTML) evento('recovery_success'); };
     $('errorArtefacto').querySelector('[data-r="cache"]')?.addEventListener('click', () => {
@@ -1004,7 +1516,9 @@ async function abrirArtefacto(id, { forzar = false } = {}) {
   }
   if (token !== renderToken) return;
   if (!d.a || d.a.deleted_at) { $('artefacto').innerHTML = '<p class="vacio">Ese tablero no existe o fue eliminado.</p>'; return; }
-  pintarArtefacto(d.a, d);
+  if (d.a.configuration?.surface) renderSuperficie(d.a, d);
+  else pintarArtefacto(d.a, d);
+  actualizarPreview(id, d).catch(() => {});   // la tarjeta del Workspace queda al día sin otra consulta
   pintarCompartidos(d.a);
   pintarVersiones(d.a);
   D.pintarPanel(d.a.id);
@@ -1013,44 +1527,103 @@ async function abrirArtefacto(id, { forzar = false } = {}) {
 
 function pintarArtefacto(a, d) {
   $('titulo').textContent = a.name;
-  $('meta').textContent = `v${a.version} · ${a.state === 'published' ? 'publicado' : a.state}`;
+  $('meta').textContent = '';
   renderArtefacto($('artefacto'), { ...a, fields: d.fields, records: d.records, permission: 'OWNER' }, {
-    estado: E.get(),
+    estado: E.get(), hoy: hoy(),
     onEstado: (c) => E.set(c),   // el render lo hace la suscripción al estado (misma vía que Francisco)
     onSeleccion: (sel) => {
       const actual = E.get().seleccion;
-      E.set({ seleccion: actual && JSON.stringify(actual) === JSON.stringify(sel) ? null : sel });
+      E.set({ seleccion: !sel || (actual && actual.tipo === sel.tipo && actual.id === sel.id && actual.recordId === sel.recordId && actual.mes === sel.mes) ? null : sel });
+    },
+    onAccion: (accion, sel) => {
+      if (accion === 'explicar') return pedirAFrancisco('¿Por qué cambió esto?');
+      if (accion === 'comparar') return pedirAFrancisco('Comparalo con el mes anterior');
+      if (accion === 'preguntar') { abrirPanel(); $('texto').placeholder = `Preguntá sobre ${sel?.etiqueta || a.name}…`; }
     },
     onAdd: async (period, data) => {
       await q(sb.from('so_records').insert({ datasource_id: a.datasource_id, owner_id: st.user.id, period, data, idempotency_key: crypto.randomUUID() }));
       senal('FranciscoData', 'success', { op: 'record', via: 'form' }, a.id);
+      invalidarPreview(a.id);
       await abrirArtefacto(a.id, { forzar: true });
     },
     onImportar: (file) => D.abrirImportacion(file, a.id),
     frescura: { cargado: d.cargado, ultimo: d.ultimo, cache: d.cache },
     onActualizar: () => abrirArtefacto(a.id, { forzar: true }),
   });
+  $('artefacto').firstElementChild?.setAttribute('data-art-id', a.id);
 }
 
-function pintarAccionesArtefacto() {
+// Superficie generada por Francisco y fijada en el Workspace: se recalcula con los datos actuales de su fuente.
+async function renderSuperficie(a, d) {
+  const sup = a.configuration.surface || {};
+  let ui = sup.ui || [], nota = 'Instantánea guardada al fijarla.';
+  const f = sup.fuente;
+  try {
+    if (f?.op === 'comparar' && f.artifactId) {
+      const fuente = await datosDe(f.artifactId);
+      const num = fuente.fields.find((x) => x.key === f.campo) || fuente.fields.find((x) => x.type === 'number');
+      const cat = categoriaUtil(fuente.fields, fuente.records);
+      const recs = f.filtro ? fuente.records.filter((r) => String(r.data?.[f.filtro.key] ?? '').toLowerCase() === String(f.filtro.valor).toLowerCase()) : fuente.records;
+      const c = (await import('./analisis.js')).comparar(recs, num, f.mesA, f.mesB, cat, hoy());
+      ui = specsComparacion(c, num, cat);
+      nota = `Calculado ahora con "${fuente.a.name}"${f.filtro ? ` (solo ${f.filtro.valor})` : ''} · ${c.evidencia.registros} registros.`;
+    }
+  } catch { nota = 'No pude recalcular con los datos actuales: muestro la instantánea guardada.'; }
+  $('artefacto').innerHTML = `<div class="superficie" data-art-id="${esc(a.id)}">${renderUI(ui) || '<p class="vacio">Esta superficie no tiene contenido.</p>'}<p class="vacio">${esc(nota)}</p></div>`;
+}
+
+// Cabecera del artefacto: ← Trabajo · Nombre · ☆ · Compartir · ••• (y Modo foco). Nada de IA duplicada.
+function pintarCabecera() {
   const s = E.get();
   const a = s.vista === 'artefacto' && artefacto(s.artefactoId);
-  if (!a) { $('accionesArtefacto').innerHTML = ''; return; }
-  const fav = st.menu.get(a.id)?.favorite;
-  const g = a.configuration?.grafico || 'line';
-  $('accionesArtefacto').innerHTML = `
-    <button type="button" data-aa="favorito" aria-pressed="${!!fav}">${fav ? '★ Favorito' : '☆ Favorito'}</button>
-    <label class="compacto">Gráfico <select data-aa="grafico"><option value="line" ${g === 'line' ? 'selected' : ''}>Líneas</option><option value="bar" ${g === 'bar' ? 'selected' : ''}>Barras</option><option value="pie" ${g === 'pie' ? 'selected' : ''}>Torta</option></select></label>
-    <button type="button" data-aa="compartir">Compartir</button>
-    ${s.seleccion ? `<button type="button" class="primario" data-aa="preguntar">Preguntar a Francisco sobre: ${esc(s.seleccion.etiqueta)}</button>`
-      : '<button type="button" class="primario" data-aa="editar">Editar con Francisco</button>'}`;
-  const on = (k, ev, f) => $('accionesArtefacto').querySelector(`[data-aa="${k}"]`)?.addEventListener(ev, f);
-  on('favorito', 'click', () => procesarAccion({ tipo: 'favorito', artefactoId: a.id, valor: !fav }, null));
-  on('grafico', 'change', (e) => procesarAccion({ tipo: 'grafico', artefactoId: a.id, grafico: e.target.value }, null));
-  on('compartir', 'click', () => { $('panelCompartir').scrollIntoView({ behavior: 'smooth' }); $('formCompartir').email.focus(); });
-  on('editar', 'click', () => editarConFrancisco(a.id));
-  on('preguntar', 'click', () => { abrirPanel(); $('texto').placeholder = `Preguntá sobre ${s.seleccion.etiqueta}…`; $('texto').focus(); });
+  if (!a) { $('accionesCab').innerHTML = ''; return; }
+  const fav = !!st.menu.get(a.id)?.favorite;
+  $('accionesCab').innerHTML = `
+    <button type="button" class="ib" data-aa="favorito" aria-pressed="${fav}" aria-label="${fav ? 'Quitar de favoritos' : 'Agregar a favoritos'}" title="Favorito">${icono('estrella', { relleno: fav })}</button>
+    <button type="button" class="btn-sec" data-aa="compartir">${icono('compartir', { tam: 16 })}<span>Compartir</span></button>
+    <button type="button" class="ib" data-aa="foco" aria-pressed="${!!st.foco}" aria-label="${st.foco ? 'Salir del modo foco' : 'Modo foco'}" title="${st.foco ? 'Salir del modo foco (Esc)' : 'Modo foco'}">${icono('foco')}</button>
+    <button type="button" class="ib" data-aa="mas" aria-haspopup="menu" aria-expanded="false" aria-label="Más acciones de ${esc(a.name)}" title="Más acciones">${icono('mas')}</button>`;
+  const on = (k, f) => $('accionesCab').querySelector(`[data-aa="${k}"]`)?.addEventListener('click', f);
+  on('favorito', () => procesarAccion({ tipo: 'favorito', artefactoId: a.id, valor: !fav }));
+  on('compartir', () => abrirHoja('compartir'));
+  on('foco', () => (st.foco ? salirFoco() : entrarFoco()));
+  on('mas', (e) => {
+    const g = a.configuration?.grafico || 'line';
+    const items = [{ id: 'editar', texto: 'Editar con Francisco' }, { id: 'datos', texto: 'Datos y fuentes' },
+      ...['line', 'bar', 'pie'].filter((x) => x !== g).map((x) => ({ id: `graf-${x}`, texto: `Ver gráfico de ${{ line: 'líneas', bar: 'barras', pie: 'torta' }[x]}` })),
+      { id: 'exp-pdf', texto: 'Exportar a PDF' }, { id: 'exp-xlsx', texto: 'Exportar a Excel' }, { id: 'exp-csv', texto: 'Exportar a CSV' },
+      { id: 'versiones', texto: 'Versiones' }, { id: 'duplicar', texto: 'Duplicar' }, { id: 'archivar', texto: 'Archivar' }];
+    abrirMenuFlotante(e.currentTarget, items, async (x) => {
+      if (x === 'editar') return editarConFrancisco(a.id);
+      if (x === 'datos' || x === 'versiones') return abrirHoja(x);
+      if (x.startsWith('graf-')) return procesarAccion({ tipo: 'grafico', artefactoId: a.id, grafico: x.slice(5) });
+      if (x.startsWith('exp-')) return exportarDesdeUI(a, x.slice(4));
+      if (x === 'duplicar' || x === 'archivar') { await accionTarjeta(x, a.id); if (x === 'archivar') location.hash = '#/'; }
+    });
+  });
 }
+
+async function exportarDesdeUI(a, formato) {
+  toast(`Generando ${FORMATOS[formato].etiqueta} de ${a.name}…`);
+  actividad('creando');
+  const r = await A.exportarArtefacto(a, formato).catch((err) => ({ ok: false, texto: `No pude generar el archivo: ${err.message}.`, meta: { estado: 'fallo' } }));
+  if (!st.chatId) await asegurarChat(`Exportar ${a.name}`);
+  await guardarMensaje('assistant', r.texto, r.meta || {});
+  if (r.meta?.archivo) { st.archivoFoco = r.meta.archivo; st.archivosRecientes = null; }
+  actividad(r.ok === false ? 'atencion' : 'listo');
+  abrirPanel({ foco: false });
+}
+
+// Hoja lateral (compartir · datos y fuentes · versiones): aparece solo cuando se pide.
+function abrirHoja(tipo) {
+  const h = $('hoja');
+  h.querySelectorAll('[data-hoja]').forEach((n) => { n.hidden = n.dataset.hoja !== tipo; });
+  $('hojaTitulo').textContent = { compartir: 'Compartir', datos: 'Datos y fuentes', versiones: 'Versiones' }[tipo];
+  if (!h.open) h.showModal();
+  if (tipo === 'compartir') $('formCompartir').email.focus();
+  else h.querySelector(`[data-hoja="${tipo}"] button, [data-hoja="${tipo}"] input, [data-hoja="${tipo}"] select`)?.focus();
+}
+$('cerrarHoja').onclick = () => $('hoja').close();
 
 // Manipulación directa con el mismo camino que la conversación (mismo estado, mismas verificaciones y Deshacer).
 async function procesarAccion(acc) {
@@ -1063,7 +1636,7 @@ async function procesarAccion(acc) {
   } catch (err) {
     actividad('atencion');
     notificar('action', `No pude completar la acción: ${err.message}`);
-  } finally { st.ocupado = false; pintarAccionesArtefacto(); }
+  } finally { st.ocupado = false; if (E.get().vista === 'artefacto') pintarCabecera(); if (E.get().vista === 'home') pintarWorkspace(); }
 }
 
 async function pintarCompartidos(a) {
@@ -1201,15 +1774,25 @@ function pintarCentro() {
   }
 }
 
-// ---------------------------------------------------------------- paleta de comandos (⌘K / Ctrl+K) y búsqueda global
+// ---------------------------------------------------------------- Universal Command (barra y ⌘K): buscar, abrir o pedir
+// Un solo punto de entrada. Resultados agrupados (Recientes · Tableros · Proyectos · Archivos · Acciones · Francisco);
+// Enter con texto libre pasa por el CommandRouter, que delega en navegación, búsqueda, Francisco o entrada universal.
 let paletaItems = [], paletaSel = 0, paletaElegido = false, tBusca = null, remotos = [];
+const GRUPOS = [['reciente', 'Recientes'], ['artefacto', 'Tableros'], ['proyecto', 'Proyectos'], ['archivo', 'Archivos'], ['registro', 'Registros'], ['compartido', 'Compartidos conmigo'],
+  ['chat', 'Conversaciones'], ['accion', 'Acciones'], ['pedir', 'Francisco']];
+const ICON = { reciente: 'historial', artefacto: 'chart', proyecto: 'trabajo', archivo: 'archivo', registro: 'tabla', compartido: 'compartir', chat: 'conversacion', accion: 'chispa', pedir: 'chispa' };
 function accionesPaleta() {
   const modo = E.get().modo;
+  const a = E.get().vista === 'artefacto' && artefacto(E.get().artefactoId);
   return [
-    { tipo: 'accion', titulo: 'Preguntarle a Francisco', extra: 'abrir chat composer', run: () => { abrirPanel(); $('texto').focus(); } },
-    { tipo: 'accion', titulo: 'Ir al inicio', run: () => { location.hash = '#/'; } },
-    { tipo: 'accion', titulo: 'Nueva conversación', run: () => { st.chatId = null; st.mensajes = []; location.hash = '#/'; ruta(); $('texto').focus(); } },
-    ...(modo === 'work' ? [{ tipo: 'accion', titulo: 'Crear un tablero', extra: 'dashboard nuevo', run: () => { $('texto').value = 'Creá un dashboard de '; $('texto').focus(); } }] : []),
+    { tipo: 'accion', titulo: 'Preguntarle a Francisco', run: () => abrirPanel() },
+    ...(modo === 'work' ? [{ tipo: 'accion', titulo: 'Crear una herramienta o tablero', extra: 'dashboard nuevo', run: () => { abrirPanel(); $('texto').value = 'Creá un dashboard de '; } },
+      { tipo: 'accion', titulo: 'Subir un archivo', extra: 'adjuntar', run: () => { abrirPanel(); $('inpArchivos').click(); } },
+      { tipo: 'accion', titulo: 'Conectar una API', extra: 'api fuente', run: () => (a ? D.abrirApi(a.id) : pedirAFrancisco('Conectá una API')) }] : []),
+    ...(a ? [{ tipo: 'accion', titulo: `Exportar ${a.name} a Excel`, run: () => exportarDesdeUI(a, 'xlsx') }, { tipo: 'accion', titulo: `Exportar ${a.name} a PDF`, run: () => exportarDesdeUI(a, 'pdf') },
+      { tipo: 'accion', titulo: `Compartir ${a.name}`, run: () => abrirHoja('compartir') }] : []),
+    { tipo: 'accion', titulo: 'Ir al Workspace', extra: 'inicio', run: () => { location.hash = '#/'; } },
+    { tipo: 'accion', titulo: 'Nueva conversación', run: () => { st.chatId = null; st.mensajes = []; pintarMensajes(); abrirPanel(); } },
     { tipo: 'accion', titulo: modo === 'work' ? 'Cambiar a Personal' : 'Cambiar a Trabajo', run: () => cambiarModo(modo === 'work' ? 'personal' : 'work') },
     { tipo: 'accion', titulo: 'Ver actividad y avisos', run: () => abrirCentro('tareas') },
     { tipo: 'accion', titulo: 'Cambiar tema', run: ciclarTema },
@@ -1217,17 +1800,19 @@ function accionesPaleta() {
 }
 function itemsLocales() {
   const out = [];
-  for (const a of st.artefactos.filter((x) => x.state === 'published')) {
+  for (const a of publicados()) {
     const m = st.menu.get(a.id) || {};
-    out.push({ tipo: 'artefacto', titulo: a.name, extra: a.type, fecha: m.last_opened_at || a.updated_at, frecuencia: m.open_count, favorito: m.favorite, run: () => { location.hash = `#/a/${a.id}`; } });
+    out.push({ tipo: 'artefacto', titulo: a.name, extra: presentacion(a).tipo, fecha: m.last_opened_at || a.updated_at, frecuencia: m.open_count, favorito: m.favorite, run: () => { location.hash = `#/a/${a.id}`; } });
   }
   for (const p of st.proyectos) out.push({ tipo: 'proyecto', titulo: `Proyecto: ${p.name}`, fecha: p.updated_at, run: () => cambiarProyecto(p.id) });
   for (const a of st.compartidos) out.push({ tipo: 'compartido', titulo: a.name, extra: 'compartido conmigo', run: () => { location.href = BASE_SHARED + a.id; } });
   for (const c of st.chats) out.push({ tipo: 'chat', titulo: c.title, extra: 'conversación', fecha: c.updated_at, run: () => { location.hash = `#/c/${c.id}`; } });
+  for (const f of st.archivosRecientes || []) out.push({ tipo: 'archivo', titulo: f.original_name, extra: `${(f.detected_type || '').toUpperCase()}${f.version > 1 ? ` · v${f.version}` : ''}`, fecha: f.created_at, run: () => { location.hash = `#/f/${f.id}`; } });
   return out;
 }
 function abrirPaleta(inicial = '') {
   paletaElegido = false; remotos = [];
+  if (!st.archivosRecientes) D.listaArchivos().then((fs) => { st.archivosRecientes = fs; }).catch(() => {});
   $('paleta').showModal();
   $('paletaInput').value = inicial;
   filtrarPaleta();
@@ -1235,24 +1820,44 @@ function abrirPaleta(inicial = '') {
 }
 function filtrarPaleta(remoto = true) {
   const qy = $('paletaInput').value.trim();
-  const ICON = { accion: '⚡', artefacto: '📊', proyecto: '🗂', compartido: '📎', chat: '💬', registro: '🧾', archivo: '📄', pedir: '✨' };
   if (!qy) {
-    paletaItems = [...recientes(5).map(({ a, m }) => ({ tipo: 'artefacto', titulo: a.name, extra: 'reciente', run: () => { location.hash = `#/a/${a.id}`; } })), ...accionesPaleta()];
+    paletaItems = [...recientesPorUso(publicados(), st.menu, 5).map((a) => ({ tipo: 'reciente', titulo: a.name, extra: haceCuanto(st.menu.get(a.id).last_opened_at), run: () => { location.hash = `#/a/${a.id}`; } })), ...accionesPaleta()];
   } else {
-    paletaItems = [...rankear(qy, [...itemsLocales(), ...accionesPaleta()]).slice(0, 12), ...remotos,
-      { tipo: 'pedir', titulo: `Pedirle a Francisco: "${qy}"`, run: () => { abrirPanel(); $('texto').value = qy; $('formChat').requestSubmit(); } }];
+    const ruta = clasificar(qy, { artefactos: publicados() });
+    const locales = rankear(qy, [...itemsLocales(), ...accionesPaleta()]).slice(0, 12);
+    const contextuales = accionesPara(qy, publicados()).map((x) => ({ tipo: 'accion', titulo: x.titulo, run: () => {
+      const a = artefacto(x.artefactoId);
+      if (x.accion === 'actualizar') { location.hash = `#/a/${a.id}`; setTimeout(() => abrirArtefacto(a.id, { forzar: true }), 50); }
+      if (x.accion === 'exportar') exportarDesdeUI(a, x.formato);
+      if (x.accion === 'compartir') { location.hash = `#/a/${a.id}`; setTimeout(() => abrirHoja('compartir'), 250); }
+    } }));
+    const pedir = { tipo: 'pedir', titulo: `Preguntar a Francisco: "${qy}"`, run: () => pedirAFrancisco(qy) };
+    // Si el router ve un pedido (no una búsqueda), "Preguntar a Francisco" va primero.
+    const primeroFrancisco = ['ASK', 'CREATE', 'EXECUTE', 'SHARE', 'CONNECT', 'UPLOAD'].includes(ruta.tipo) && !(locales[0] && normalizar(locales[0].titulo) === normalizar(qy));
+    paletaItems = primeroFrancisco ? [pedir, ...locales, ...remotos, ...contextuales] : [...locales, ...remotos, ...contextuales, pedir];
   }
   paletaSel = 0;
-  $('paletaLista').innerHTML = paletaItems.map((it, i) => `<li role="option" id="op${i}" aria-selected="${i === 0}" data-i="${i}">${ICON[it.tipo] || '•'} ${esc(it.titulo)}${it.extra && it.tipo !== 'accion' ? ` <small>${esc(it.extra)}</small>` : ''}</li>`).join('');
-  $('paletaLista').querySelectorAll('li').forEach((li) => li.addEventListener('click', () => elegirPaleta(Number(li.dataset.i))));
+  // Orden visual = orden de navegación: los grupos se arman respetando el orden de los ítems.
+  const orden = [];
+  for (const it of paletaItems) if (!orden.includes(it.tipo)) orden.push(it.tipo);
+  const grupos = orden.map((t) => [t, paletaItems.map((it, i) => ({ it, i })).filter(({ it }) => it.tipo === t)]);
+  paletaItems = grupos.flatMap(([, xs]) => xs.map(({ it }) => it));
+  let n = 0;
+  $('paletaLista').innerHTML = grupos.map(([t, xs]) => `<div role="group" aria-label="${esc(GRUPOS.find((g) => g[0] === t)?.[1] || t)}"><p class="pal-grupo">${esc(GRUPOS.find((g) => g[0] === t)?.[1] || t)}</p>${xs.map(({ it }) => {
+    const i = n++;
+    return `<div role="option" class="pal-item" id="op${i}" aria-selected="${i === 0}" data-i="${i}">${icono(ICON[it.tipo] || 'chispa', { tam: 16 })}<span>${esc(it.titulo)}</span>${it.extra && it.tipo !== 'accion' ? `<small>${esc(it.extra)}</small>` : ''}</div>`;
+  }).join('')}</div>`).join('');
+  $('paletaInput').setAttribute('aria-activedescendant', 'op0');
+  $('paletaLista').querySelectorAll('[data-i]').forEach((li) => li.addEventListener('click', () => elegirPaleta(Number(li.dataset.i))));
   if (!remoto) return;
   clearTimeout(tBusca);
   if (qy.length >= 2) tBusca = setTimeout(async () => {
     try {
       const rs = await q(sb.rpc('so_buscar', { p_q: qy, p_limit: 8 }));
       if ($('paletaInput').value.trim() !== qy) return;
-      remotos = [...rs.filter((r) => r.kind === 'file').map((r) => ({ tipo: 'archivo', titulo: r.title, extra: r.subtitle, run: () => D.vistaPrevia(r.id) })),
-        ...rs.filter((r) => r.kind === 'record').map((r) => ({ tipo: 'registro', titulo: r.title, extra: r.subtitle, run: () => { location.hash = `#/a/${r.artifact_id}`; } }))];
+      remotos = [...rs.filter((r) => r.kind === 'file').map((r) => ({ tipo: 'archivo', titulo: r.title, extra: r.subtitle, run: () => { location.hash = `#/f/${r.id}`; } })),
+        ...rs.filter((r) => r.kind === 'record').map((r) => ({ tipo: 'registro', titulo: r.title, extra: r.subtitle, run: () => { location.hash = `#/a/${r.artifact_id}`; } }))]
+        .filter((x) => !(x.tipo === 'archivo' && (st.archivosRecientes || []).some((f) => f.original_name === x.titulo && normalizar(x.titulo).includes(normalizar(qy)))));
       if (remotos.length) filtrarPaleta(false);
     } catch { /* la búsqueda remota es complementaria */ }
   }, 250);
@@ -1271,21 +1876,33 @@ $('paletaInput').addEventListener('keydown', (e) => {
   if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
     e.preventDefault();
     paletaSel = (paletaSel + (e.key === 'ArrowDown' ? 1 : -1) + n) % n;
-    $('paletaLista').querySelectorAll('li').forEach((li, i) => li.setAttribute('aria-selected', String(i === paletaSel)));
+    $('paletaLista').querySelectorAll('[data-i]').forEach((li) => li.setAttribute('aria-selected', String(Number(li.dataset.i) === paletaSel)));
     $('paletaLista').querySelector(`#op${paletaSel}`)?.scrollIntoView({ block: 'nearest' });
     $('paletaInput').setAttribute('aria-activedescendant', `op${paletaSel}`);
-  } else if (e.key === 'Enter') { e.preventDefault(); elegirPaleta(paletaSel); }
+  } else if (e.key === 'Enter') {
+    e.preventDefault();
+    const qy = $('paletaInput').value.trim();
+    const ruta = qy ? clasificar(qy, { artefactos: publicados() }) : null;
+    // CommandRouter: navegación directa, subir y conectar no necesitan pasar por la conversación.
+    if (ruta?.tipo === 'NAVIGATE' && ruta.artefactoId && paletaSel === 0 && paletaItems[0]?.tipo === 'pedir') { $('paleta').close(); location.hash = `#/a/${ruta.artefactoId}`; return; }
+    if (ruta?.tipo === 'UPLOAD' && paletaSel === 0) { $('paleta').close(); abrirPanel(); $('inpArchivos').click(); return; }
+    elegirPaleta(paletaSel);
+  }
 });
 $('paleta').addEventListener('close', () => { if (!paletaElegido && $('paletaInput').value.trim()) evento('search_miss'); });
 $('abrirPaleta').onclick = () => abrirPaleta();
 document.addEventListener('keydown', (e) => {
-  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k' && !$('app').hidden) { e.preventDefault(); $('paleta').open ? $('paleta').close() : abrirPaleta(); }
-  if (e.key === 'Escape' && $('app').classList.contains('panel-abierto') && !$('paleta').open && !$('centro').open) $('app').classList.remove('panel-abierto');
+  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k' && !$('app').hidden) { e.preventDefault(); $('paleta').open ? $('paleta').close() : abrirPaleta(); return; }
+  if (e.key !== 'Escape' || $('paleta').open || $('centro').open || $('hoja').open || document.querySelector('dialog[open]') || !$('menuFlotante').hidden) return;
+  if (st.panel !== 'cerrado' && E.get().vista !== 'chat') { panel('cerrado'); $('orb').focus(); return; }
+  if (st.foco) { salirFoco(); return; }
+  const exp = $('vistaHome').querySelector('.lcard.expandida');
+  if (exp) cerrarVistazo(exp.dataset.art);
 });
 
 // ---------------------------------------------------------------- usuarios que solo recibieron tableros compartidos
 async function soloCompartidos() {
-  document.querySelector('.modos').hidden = true; $('abrirPaleta').hidden = true; $('panelFrancisco').hidden = true; $('fab').hidden = true; $('btnCentro').hidden = true;
+  document.querySelector('.modos').hidden = true; $('abrirPaleta').hidden = true; $('panelFrancisco').hidden = true; $('orb').hidden = true; $('btnCentro').hidden = true;
   $('listaChats').previousElementSibling.hidden = true; $('listaChats').hidden = true;
   $('titulo').textContent = 'Tableros compartidos conmigo';
   const compartidos = await q(sb.rpc('so_shared_list'));

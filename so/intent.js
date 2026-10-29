@@ -8,7 +8,7 @@ export const PALABRAS_PERSISTENCIA = ['guardar', 'guarda', 'registrar', 'registr
   'mantener informacion', 'estadisticas historicas', 'mes a mes', 'por mes'];
 
 const TIPOS = [
-  { re: /\b(dashboard|tablero|panel)\b/, tipo: 'dashboard' },
+  { re: /\b(dashboard|tablero|panel|seguimiento)\b/, tipo: 'dashboard' },
   { re: /\b(herramienta|calculadora|app|aplicacion)\b/, tipo: 'tool' },
   { re: /\b(formulario|planilla de carga)\b/, tipo: 'form' },
   { re: /\b(reporte|informe)\b/, tipo: 'report' },
@@ -45,7 +45,7 @@ function tipoDe(n) {
 
 // "dashboard de ventas con histórico" → "ventas"
 function tema(textoOriginal) {
-  const m = textoOriginal.match(/(?:dashboard|tablero|panel|herramienta|reporte|informe|formulario|calculadora)\s+(?:de|para|del|sobre)\s+(?:la |las |los |el )?(.+?)(?=\s+(?:con|que|y|para|donde|mes a mes|por mes)\b|[.,;!?]|$)/i);
+  const m = textoOriginal.match(/(?:dashboard|tablero|panel|herramienta|reporte|informe|formulario|calculadora|seguimiento)\s+(?:de|para|del|sobre)\s+(?:la |las |los |el )?(.+?)(?=\s+(?:con|que|y|para|donde|mes a mes|por mes)\b|[.,;!?]|$)/i);
   return m ? m[1].trim() : '';
 }
 
@@ -184,7 +184,12 @@ export function interpretar(texto, ctx = {}) {
   if (/\b(saca|quita|borra|limpia)\w* (el |los )?filtros?\b|\bmostrame todo\b|\bsin filtros?\b/.test(n)) return { tipo: 'filtrar', valor: null };
   const solo = original.match(/\b(?:s[oó]lo|solamente|[uú]nicamente)\s+(?:(?:los|las|el|la|de|del)\s+)?(.+?)(?=[.,;!?]|$)/i);
   if (solo && !/\bcompart|@/.test(n) && /\b(mostrame|mostra|filtra|filtrar|ver|dejame|quiero ver|solo|solamente)\b/.test(n) && !/\b(ver|lectura|mirar)\b\s*$/.test(normalizar(solo[1]))) {
-    return art ? { tipo: 'filtrar', artefactoId: art.id, valor: solo[1].trim() } : { tipo: 'falta_artefacto' };
+    // "sólo web de septiembre" → filtro + período (la UI refleja ambos: nunca un filtro invisible).
+    let valor = solo[1].trim();
+    const mes = parseMes(valor, ref);
+    if (mes) valor = valor.replace(/\s*(?:de|del|en)?\s*(?:el mes de\s+)?(?:enero|febrero|marzo|abril|mayo|junio|julio|agosto|sep?tiembre|octubre|noviembre|diciembre)(?:\s+(?:de\s+)?\d{4})?\s*/i, ' ').trim();
+    if (!valor) return art ? { tipo: 'periodo', artefactoId: art.id, mes } : { tipo: 'falta_artefacto' };
+    return art ? { tipo: 'filtrar', artefactoId: art.id, valor, ...(mes ? { mes } : {}) } : { tipo: 'falta_artefacto' };
   }
 
   if (/\bcompar\w*|\bversus\b|\bvs\.?\s/.test(n) && !/\bcompart/.test(n)) {

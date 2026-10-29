@@ -1,0 +1,23 @@
+// Prueba de humo rápida del Workspace (capturas en SO_E2E_OUT). No reemplaza los recorridos.
+import { createRequire } from 'node:module'; const { chromium } = createRequire(import.meta.url)('playwright');
+import path from 'node:path'; import { fileURLToPath } from 'node:url';
+import { crearServidor } from './servidor.mjs';
+const dir = path.dirname(fileURLToPath(import.meta.url)); const root = path.resolve(dir, '../../..');
+const out = process.env.SO_E2E_OUT;
+const { srv, BASE } = crearServidor({ puerto: 8769, root, dir });
+const b = await chromium.launch(); const pg = await (await b.newContext({ viewport: { width: 1360, height: 860 } })).newPage();
+const errores = []; pg.on('pageerror', (e) => errores.push(e.stack || e.message)); pg.on('console', (m) => m.type() === 'error' && errores.push(m.text()));
+pg.on('dialog', (d) => d.accept());
+await pg.goto(BASE + '/so/'); await pg.evaluate(() => localStorage.clear()); await pg.goto(BASE + '/so/');
+await pg.waitForSelector('#app:not([hidden])'); await pg.waitForTimeout(600);
+await pg.screenshot({ path: path.join(out, '1-vacio.png') });
+await pg.click('[data-pedido="Creá un dashboard de ventas con histórico"]');
+await pg.waitForFunction(() => !document.getElementById('enviar').disabled, null, { timeout: 15000 }); await pg.waitForTimeout(500);
+await pg.screenshot({ path: path.join(out, '2-creado.png') });
+console.log('MSG', await pg.$eval('#mensajes', (n) => n.textContent.replace(/\s+/g, ' ').slice(0, 300)));
+await pg.evaluate(() => { location.hash = '#/'; }); await pg.waitForTimeout(800);
+await pg.screenshot({ path: path.join(out, '3-workspace.png') });
+await pg.click('.lcard[data-art] .lc-nombre'); await pg.waitForSelector('.kpis', { timeout: 8000 }); await pg.waitForTimeout(400);
+await pg.screenshot({ path: path.join(out, '4-artefacto.png') });
+console.log('ERRORES', JSON.stringify(errores, null, 1));
+await b.close(); srv.close();

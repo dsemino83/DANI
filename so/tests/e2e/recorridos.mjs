@@ -2,7 +2,8 @@
 // recargas, multiusuario y con fallas inyectables. No toca la base real. Uso: npm run test:so:e2e
 // (requiere Playwright; SO_E2E_OUT=<carpeta> guarda capturas).
 import { createRequire } from 'node:module'; const { chromium } = createRequire(import.meta.url)('playwright');
-import http from 'node:http'; import fs from 'node:fs'; import os from 'node:os'; import path from 'node:path'; import { fileURLToPath } from 'node:url';
+import { crearServidor } from './servidor.mjs';
+import fs from 'node:fs'; import os from 'node:os'; import path from 'node:path'; import { fileURLToPath } from 'node:url';
 const dir = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(dir, '../../..');
 const out = process.env.SO_E2E_OUT || null;
@@ -18,23 +19,7 @@ const csv = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'so-e2e-')), 'ventas
   filas.push('mal;xx;1;web');
   fs.writeFileSync(csv, filas.join('\n'));
 }
-const objetos = new Map();
-const srv = http.createServer((req, res) => {
-  let p = decodeURIComponent(req.url.split('?')[0]);
-  if (p.endsWith('valo/vendor/supabase.js')) return res.end(fs.readFileSync(path.join(dir, 'supabase-simulado.js')));
-  if (p === '/so/config.js') { res.setHeader('Content-Type', 'text/javascript'); return res.end("window.SO_SUPABASE = { url: 'http://localhost:8767/fake-supa', anonKey: 'publica' };"); }
-  if (p.startsWith('/fake-supa/storage/v1/object/so-archivos/')) {   // Storage simulado (carpeta por usuario)
-    const clave = p.slice('/fake-supa/storage/v1/object/so-archivos/'.length);
-    if (req.method === 'POST') { const partes = []; req.on('data', (c) => partes.push(c)); req.on('end', () => { objetos.set(clave, Buffer.concat(partes)); res.end('{}'); }); return; }
-    if (!objetos.has(clave)) { res.statusCode = 404; return res.end(); }
-    return res.end(objetos.get(clave));
-  }
-  if (p.endsWith('/')) p += 'index.html';
-  const f = path.join(root, p);
-  if (!f.startsWith(root) || !fs.existsSync(f)) { res.statusCode = 404; res.setHeader('Content-Type', 'text/html'); return res.end(fs.readFileSync(root + '/404.html')); }
-  res.setHeader('Content-Type', { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css' }[path.extname(f)] || 'application/octet-stream'); res.end(fs.readFileSync(f));
-}).listen(8767);
-const BASE = 'http://localhost:8767';
+const { srv, BASE } = crearServidor({ puerto: 8767, root, dir });
 const b = await chromium.launch();
 const ctx = await b.newContext({ viewport: { width: 1360, height: 900 } });
 const pg = await ctx.newPage();

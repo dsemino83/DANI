@@ -2,7 +2,7 @@
 (function () {
   const KEY = 'fake.db';
   const TABLAS = ['so_projects','so_datasources','so_records','so_artifacts','so_artifact_versions','so_menu','so_shares','so_chats','so_messages','so_decisions','so_signals','so_obs','so_tasks','so_notifications','so_user_state','so_events',
-    'so_files','so_file_chunks','so_data_inputs','so_api_sources','so_import_batches','so_ingest_log'];
+    'so_files','so_file_chunks','so_data_inputs','so_api_sources','so_import_batches','so_ingest_log','so_automations','so_file_templates'];
   const load = () => { try { return JSON.parse(localStorage.getItem(KEY)) || null; } catch { return null; } };
   let db = load() || Object.fromEntries(TABLAS.map((t) => [t, []]));
   for (const t of TABLAS) db[t] ||= [];
@@ -46,18 +46,24 @@
           const nuevo = { id: r.id ?? (numericId.has(table) ? db.__seq++ : crypto.randomUUID()), created_at: now(), updated_at: now(), deleted_at: null, revoked_at: null, read_at: null, ...r };
           if (table === 'so_artifacts') nuevo.version = 1;
           if (table === 'so_files' && nuevo.storage_path && !nuevo.storage_path.startsWith(`${user().id}/${nuevo.id}/`)) return { data: null, error: { message: 'violates check constraint' } };
-          if (table === 'so_files') Object.assign(nuevo, { version: 1, retention: nuevo.retention || 'temporary', meta: nuevo.meta || {} });
+          if (table === 'so_files') Object.assign(nuevo, { version: nuevo.version || 1, retention: nuevo.retention || 'temporary', meta: nuevo.meta || {} });
           if (table === 'so_import_batches') Object.assign(nuevo, { status: 'importing', rows_accepted: 0, rows_rejected: 0, rows_superseded: 0, errors: [], started_at: now(), user_id: user().id, ...r });
           if (table === 'so_api_sources' && r.auth_ref) return { data: null, error: { message: 'la credencial se guarda solo con so_api_guardar_secreto' } };
           if (table === 'so_api_sources') Object.assign(nuevo, { status: 'draft', auth_scheme: r.auth_scheme || 'none', parameters: {}, headers: {}, response_mapping: {}, retry_policy: { max: 2 }, timeout_ms: 10000, last_sync_at: null, ...r });
-          if (table === 'so_menu') Object.assign(nuevo, { favorite: false, open_count: 0, last_opened_at: null, status: 'available', ...r });
+          if (table === 'so_menu') Object.assign(nuevo, { favorite: false, open_count: 0, last_opened_at: null, status: 'available', ord: 0, size: 'M', preview: null, ...r });
+          if (table === 'so_menu' && !['S', 'M', 'L'].includes(nuevo.size)) return { data: null, error: { message: 'violates check constraint so_menu_size_check' } };
           if (table === 'so_tasks') nuevo.checkpoint ||= {};
+          if (table === 'so_tasks' && r.idempotency_key && db.so_tasks.some((x) => x.owner_id === nuevo.owner_id && x.idempotency_key === r.idempotency_key)) return { data: null, error: { message: 'duplicate key value violates unique constraint' } };
+          if (table === 'so_files') { nuevo.origin ||= 'upload'; if (!['upload', 'generated', 'export', 'api', 'connector'].includes(nuevo.origin)) return { data: null, error: { message: 'violates check constraint so_files_origin_check' } }; }
+          if (table === 'so_files' && !r.version_of) { const prev = db.so_files.filter((f) => f.owner_id === nuevo.owner_id && f.safe_name.toLowerCase() === nuevo.safe_name.toLowerCase() && (f.project_id ?? null) === (nuevo.project_id ?? null) && f.checksum !== nuevo.checksum).sort((x, y) => y.version - x.version)[0]; if (prev) { nuevo.version_of = prev.id; nuevo.version = prev.version + 1; } }
+          if (table === 'so_file_templates' && !['xlsx', 'csv', 'json', 'pdf', 'docx', 'pptx', 'txt', 'md'].includes(r.formato)) return { data: null, error: { message: 'violates check constraint' } };
           db[table].push(nuevo); out.push(nuevo);
           if (table === 'so_artifacts') snap(nuevo);
         }
         data = st.single ? out[0] : out;
       } else if (st.op === 'update') {
         data = db[table].filter(match);
+        if (table === 'so_menu' && st.row.size && !['S', 'M', 'L'].includes(st.row.size)) return { data: null, error: { message: 'violates check constraint so_menu_size_check' } };
         for (const r of data) {
           const antes = JSON.stringify([r.specification, r.schema, r.configuration, r.name, r.state]);
           Object.assign(r, st.row);
@@ -222,7 +228,12 @@
       functions: { invoke: async (nombre, { body } = {}) => (nombre === 'so-api' ? fnApi(body) : { data: null, error: { message: 'x', context: { status: 503 } } }) },
       storage: { from: () => ({
         download: async (path) => { if (fallar('storage.download')) return { data: null, error: { message: 'no' } }; const r = await fetch(`${SUPA}/storage/v1/object/so-archivos/${path}`, { headers: { Authorization: `Bearer ${user().id}` } }); return r.ok ? { data: await r.blob(), error: null } : { data: null, error: { message: String(r.status) } }; },
-        createSignedUrl: async (path) => ({ data: { signedUrl: `${SUPA}/storage/v1/object/so-archivos/${path}?token=${user().id}` }, error: null }),
+        // Como RLS de storage.objects: solo se firma lo que está en la carpeta del usuario. El token expira.
+        createSignedUrl: async (path, segundos = 60, op = {}) => {
+          if (!String(path).startsWith(`${user().id}/`)) return { data: null, error: { message: 'Object not found' } };
+          const token = btoa(JSON.stringify({ u: user().id, p: path, exp: Date.now() + segundos * 1000 }));
+          return { data: { signedUrl: `${SUPA}/storage/v1/object/sign/so-archivos/${path}?token=${encodeURIComponent(token)}${op.download ? `&download=${encodeURIComponent(op.download)}` : ''}` }, error: null };
+        },
       }) },
     };
   } };
