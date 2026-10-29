@@ -231,8 +231,12 @@ async function cambiarModo(modo, navegar = true) {
   todosAv().forEach((a) => a.setModo(modo));
   $('bloqueWorkspace').hidden = modo !== 'work';
   st.chatId = null; st.mensajes = [];
-  await cargarProyectos();
-  await Promise.all([cargarArtefactos(), cargarChats()]);
+  ls.set('so.modo', modo);
+  // La vista se repinta siempre: si una carga falla, se avisa en vez de quedar mostrando el modo anterior.
+  try {
+    await cargarProyectos();
+    await Promise.all([cargarArtefactos(), cargarChats()]);
+  } catch (err) { toast(`No pude cargar ${modo === 'work' ? 'Trabajo' : 'Personal'}: ${err.message || err}.`); }
   if (navegar) { if (location.hash === '#/' || !location.hash) ruta(); else location.hash = '#/'; }
 }
 document.querySelectorAll('.modos button').forEach((b) => { b.onclick = () => cambiarModo(b.dataset.modo); });
