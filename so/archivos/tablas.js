@@ -34,9 +34,15 @@ export function claveComparacion(A, B) {
 export function compararTablas(A, B, { max = 200 } = {}) {
   const lb = (t) => t.columnas.map((c) => canon(c.label));
   const colsA = lb(A), colsB = lb(B);
-  const colAgregadas = B.columnas.filter((c, i) => !colsA.includes(colsB[i])).map((c) => c.label);
-  const colQuitadas = A.columnas.filter((c, i) => !colsB.includes(colsA[i])).map((c) => c.label);
-  const comunes = A.columnas.map((c, i) => ({ c, i, j: colsB.indexOf(colsA[i]) })).filter((x) => x.j >= 0);
+  // Emparejamiento uno a uno: dos columnas con el mismo nombre canónico ("Margen" y "Margen %") no apuntan a la misma.
+  const usadas = new Set();
+  const comunes = A.columnas.map((c, i) => {
+    const j = colsB.findIndex((x, k) => !usadas.has(k) && x === colsA[i] && (B.columnas[k].label === c.label || !B.columnas.some((d, m) => !usadas.has(m) && d.label === c.label)));
+    if (j >= 0) usadas.add(j);
+    return { c, i, j };
+  }).filter((x) => x.j >= 0);
+  const colAgregadas = B.columnas.filter((c, k) => !usadas.has(k)).map((c) => c.label);
+  const colQuitadas = A.columnas.filter((c, i) => !comunes.some((x) => x.i === i)).map((c) => c.label);
   const clave = claveComparacion(A, B);
   const cambios = [];
   let agregadas = 0, quitadas = 0, cambiadas = 0;

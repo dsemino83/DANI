@@ -882,7 +882,7 @@ async function trasImportar(r) {
   const aid = r?.meta?.artifactId || u?.artifactId;
   if (aid) invalidarPreview(aid);
   if (u?.tipo === 'importacion' && u.loteId && artefacto(aid)) {
-    const res = await A.ejecutarAutomatizaciones(artefacto(aid), u.loteId).catch(() => []);
+    const res = await A.ejecutarAutomatizaciones(artefacto(aid), u.loteId).catch((e) => { console.error('automatizaciones', e); return []; });
     for (const x of res) {
       if (!st.chatId) await asegurarChat('Automatizaciones');
       await guardarMensaje('assistant', x.ok ? `Automatización de "${artefacto(aid).name}" completada: ${x.hechos.join(', ') || 'aviso enviado'}.` : `La automatización de "${artefacto(aid).name}" falló: ${x.error}`, { estado: x.ok ? 'verificado' : 'fallo' });
@@ -1894,6 +1894,8 @@ $('paletaInput').addEventListener('keydown', (e) => {
     if (ruta?.tipo === 'NAVIGATE' && ruta.artefactoId && paletaSel === 0 && paletaItems[0]?.tipo === 'pedir') { $('paleta').close(); location.hash = `#/a/${ruta.artefactoId}`; return; }
     if (ruta?.tipo === 'UPLOAD' && paletaSel === 0) { $('paleta').close(); abrirPanel(); $('inpArchivos').click(); return; }
     elegirPaleta(paletaSel);
+  } else if (e.key === 'Escape') {
+    e.preventDefault(); $('paleta').close();   // un input de búsqueda se tragaría el primer Esc (lo usa para borrar)
   }
 });
 $('paleta').addEventListener('close', () => { if (!paletaElegido && $('paletaInput').value.trim()) evento('search_miss'); });

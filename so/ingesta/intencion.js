@@ -100,7 +100,8 @@ export function interpretarEntrada(texto, ctx = {}) {
   if (/\b(usa|usar|suma|sumar|sumale|agrega|agregar|agregale|carga|cargar|cargalo|importa|importar|importalo|actualiza|actualizar|reemplaza|reemplazar|incorpora|incorporar|guarda|guardar|guardalo|subi|subir|meti|pasa)\b/.test(sinReferencia)
       && !/\bque (dice|aparece|hay)\b/.test(n)) {
     if (!trabajo) return { tipo: 'bloqueado', motivo: 'personal' };
-    const art = resolverArtefacto(original, ctx.artefactos, ctx.activoId);
+    // Una superficie fijada (análisis) no tiene datos propios: los datos van al tablero que la alimenta.
+    const art = resolverArtefacto(original, (ctx.artefactos || []).filter((a) => !a.configuration?.surface), ctx.activoId);
     return { tipo: 'archivo_importar', ...base, artefactoId: art?.id || null, texto: original };
   }
   if (imagenes.length && (/\b(foto|imagen|captura|que (aparece|hay|se ve|ves|muestra)|describi|describe|lee la)\b/.test(n) || !/\barchivo\b/.test(n))) {

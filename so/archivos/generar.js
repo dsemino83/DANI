@@ -24,9 +24,11 @@ export function nombreArchivo(titulo, formato) {
 }
 
 const tablas = (doc) => (doc.secciones || []).filter((s) => s.tabla?.columnas?.length);
+// Un CSV lleva una sola tabla: la más completa (el detalle), no el resumen mensual.
+export const tablaCsv = (doc) => tablas(doc).reduce((m, s) => (!m || s.tabla.filas.length >= m.tabla.filas.length ? s : m), null);
 
 function csv(doc) {
-  const t = tablas(doc)[0];
+  const t = tablaCsv(doc);
   if (!t) throw new Error('no hay una tabla para exportar a CSV');
   const q = (v) => { const s = typeof v === 'number' ? String(v).replace('.', ',') : String(v ?? ''); return /[;"\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
   const lineas = [t.tabla.columnas.map((c) => q(c.label)).join(';'), ...t.tabla.filas.map((f) => t.tabla.columnas.map((_, i) => q(f[i])).join(';'))];

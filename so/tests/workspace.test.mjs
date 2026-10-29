@@ -11,6 +11,8 @@ import { entradasZip, crc32 } from '../archivos/zip.js';
 import { compararTablas, compararTextos, interpretarEdicion, aplicarEdicion, consolidar } from '../archivos/tablas.js';
 import { insights, comparar } from '../analisis.js';
 import { EMOCIONES } from '../avatar.js';
+import { resolverArtefacto } from '../intent.js';
+import { interpretarEntrada } from '../ingesta/intencion.js';
 
 const req = createRequire(import.meta.url);
 const V = new URL('../../valo/vendor/', import.meta.url).pathname;
@@ -182,4 +184,27 @@ test('consolidación: columnas con nombres triviales distintos se unifican; dife
 test('avatar: manifiesto completo para las 13 emociones en ambos modos', () => {
   const m = JSON.parse(fs.readFileSync(new URL('../avatar/manifest.json', import.meta.url)));
   for (const modo of ['work', 'personal']) for (const e of EMOCIONES) assert.match(m[modo][e], /^https:\/\/cdn\.openart\.ai\//, `${modo}.${e}`);
+});
+
+test('comparación: columnas de nombre canónico parecido ("Margen" y "Margen %") se emparejan una a una', () => {
+  const cols = [['Producto', 'text'], ['Venta', 'number'], ['Margen', 'number'], ['Margen %', 'number']].map(([label, type], i) => ({ key: `k${i}`, label, type }));
+  const A = { columnas: cols, filas: [['A', '100', '40', '40'], ['B', '200', '50', '25'], ['A', '100', '40', '40']] };
+  const c = compararTablas(A, { columnas: cols, filas: A.filas.slice(0, 2) });
+  assert.deepEqual([c.agregadas, c.quitadas, c.cambiadas], [0, 1, 0]);
+  assert.deepEqual(compararTablas({ columnas: cols.slice(0, 2), filas: [] }, A).colAgregadas, ['Margen', 'Margen %']);
+});
+
+test('CSV de un tablero: lleva el detalle completo (la tabla más grande), no el resumen mensual', async () => {
+  const doc = { titulo: 'T', secciones: [{ titulo: 'Por mes', tabla: { columnas: [{ label: 'Mes' }, { label: 'Total', type: 'number' }], filas: [['Ago', 1], ['Sep', 2]] } },
+    { titulo: 'Detalle', tabla: { columnas: [{ label: 'Fecha' }, { label: 'Monto', type: 'number' }], filas: [['2026-08-01', 1], ['2026-09-01', 1], ['2026-09-02', 1]] } }] };
+  const lineas = new TextDecoder().decode((await generar(doc, 'csv')).bytes).trim().split(/\r?\n/);
+  assert.equal(lineas.length, 4);
+  assert.match(lineas[0], /Fecha;Monto/);
+});
+
+test('destino de datos: "el dashboard de ventas" es el tablero Ventas, no una superficie fijada que lo menciona', () => {
+  const arts = [{ id: 's', name: 'Ventas: Septiembre 2026 vs. Agosto 2026', configuration: { surface: {} } }, { id: 'v', name: 'Ventas', configuration: {} }];
+  assert.equal(resolverArtefacto('sumá esto al dashboard de ventas', arts, null).id, 'v');
+  const acc = interpretarEntrada('Sumá estos datos al dashboard de ventas', { modo: 'work', adjuntos: [{ fileId: 'f', kind: 'table' }], artefactos: [arts[0]], activoId: 's' });
+  assert.notEqual(acc?.artefactoId, 's', 'una superficie nunca recibe datos');
 });

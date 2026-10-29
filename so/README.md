@@ -54,6 +54,9 @@ Recorrido común: `recibir → identificar (firma de bytes) → validar → segu
 | `intencion.js` | "Analizá este archivo", "Creá un dashboard con estos datos", "Sumá esto a Ventas", "Compará con el anterior", "Conectá esta API", "¿De dónde salió este dato?", "el Excel que subí la semana pasada". |
 | `../datos.js` | Adjuntos del chat (+, arrastrar, pegar, cámara), vista previa, panel "Datos y fuentes", vista previa de importación con mapeo editable, alta de APIs con credencial en Vault. |
 | `../supabase/functions/so-api/` | Llamadas a APIs desde el servidor: anti-SSRF, redirecciones revalidadas, tiempo y tamaño máximos, reintentos, historial idempotente. |
+| `../workspace.js` · `../comando.js` · `../genui.js` · `../iconos.js` | Workspace adaptativo (Living Cards con vista previa en caché, Bento S/M/L), CommandRouter de ⌘K, UI generativa validada por registro, íconos únicos. |
+| `../archivos/` | Archivos generados (XLSX, CSV, JSON, PDF, DOCX, PPTX, TXT, MD) validados antes de guardarse, descarga por URL firmada, versiones que nunca sobrescriben, comparación, consolidación, plantillas y automatizaciones al importar. |
+| `../supabase/migrations/20261030120000_so_workspace.sql` | Vista previa y tamaño de tarjetas, origen y resumen de cambio de archivos, plantillas de archivos. |
 | `../supabase/migrations/20261029220000_so_ingesta.sql` | Bucket privado y políticas por carpeta, archivos, fragmentos, DatasetRegistry, entradas de datos, lotes y linaje, fuentes API con secretos en Vault, carga compartida solo si el dueño la habilita, retención. |
 
 ## Verificación
@@ -62,6 +65,7 @@ Recorrido común: `recibir → identificar (firma de bytes) → validar → segu
 npm run test:so                                   # intención, análisis, estado, búsqueda, importación, avatar
 npm run test:so:e2e                               # recorridos A–G en Chromium con Supabase simulado
 npm run test:so:ingesta                           # recorridos de ingesta A–K (archivos reales generados, Storage simulado)
+npm run test:so:workspace                         # Workspace adaptativo + archivos: descargas reales validadas (XLSX/PDF/DOCX/PPTX), versiones, seguridad, móvil, a11y
 psql … -f so/supabase/tests/seguridad.sql         # sobre una base con la migración (nunca producción)
 ```
 

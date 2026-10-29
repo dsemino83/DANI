@@ -75,7 +75,9 @@ export function resolverArtefacto(texto, artefactos, activoId) {
   const de = n.match(/\b(?:el|la|al|del) (?:dashboard |tablero |panel |herramienta |reporte )?de ([a-z0-9 ]+?)(?=\s+(?:con|a|al|y|que|como)\b|[.,;!?]|$)/);
   if (de) {
     const buscado = de[1].trim();
-    const hit = lista.find((a) => normalizar(a.name).includes(buscado));
+    // Varios nombres contienen lo buscado ("Ventas" y "Ventas: sep vs. ago"): exacto, luego el activo, luego el más corto.
+    const hits = lista.filter((a) => normalizar(a.name).includes(buscado));
+    const hit = hits.find((a) => normalizar(a.name) === buscado) || hits.find((a) => a.id === activoId) || [...hits].sort((x, y) => x.name.length - y.name.length)[0];
     if (hit) return hit;
   }
   for (const a of lista) if (n.includes(normalizar(a.name))) return a;

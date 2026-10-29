@@ -27,6 +27,7 @@
     const st = { op: 'select', filters: [], row: null, single: false, maybe: false, order: [], head: false, count: false, upsert: null, limit: null };
     const visible = (r) => !ownerTables.has(table) || (table === 'so_obs' ? true : r.owner_id === user().id) || (table === 'so_user_state' && r.owner_id === user().id);
     const run = () => {
+      (window.__consultas ||= {})[`${table}.${st.op}`] = (window.__consultas[`${table}.${st.op}`] || 0) + 1;   // para medir consultas
       if (fallar(`${table}.${st.op}`)) return { data: null, error: { message: 'Failed to fetch' } };
       if (user().email !== 'd.semino83@gmail.com' && ownerTables.has(table) && table !== 'so_obs') return st.op === 'select' ? { data: st.single ? null : [], error: null, count: 0 } : { data: null, error: { message: 'new row violates row-level security policy' } };
       const match = (r) => visible(r) && st.filters.every((f) => f(r));
@@ -51,6 +52,7 @@
           if (table === 'so_api_sources' && r.auth_ref) return { data: null, error: { message: 'la credencial se guarda solo con so_api_guardar_secreto' } };
           if (table === 'so_api_sources') Object.assign(nuevo, { status: 'draft', auth_scheme: r.auth_scheme || 'none', parameters: {}, headers: {}, response_mapping: {}, retry_policy: { max: 2 }, timeout_ms: 10000, last_sync_at: null, ...r });
           if (table === 'so_menu') Object.assign(nuevo, { favorite: false, open_count: 0, last_opened_at: null, status: 'available', ord: 0, size: 'M', preview: null, ...r });
+          if (table === 'so_automations') Object.assign(nuevo, { enabled: true, ...r });   // default de la columna en la migración
           if (table === 'so_menu' && !['S', 'M', 'L'].includes(nuevo.size)) return { data: null, error: { message: 'violates check constraint so_menu_size_check' } };
           if (table === 'so_tasks') nuevo.checkpoint ||= {};
           if (table === 'so_tasks' && r.idempotency_key && db.so_tasks.some((x) => x.owner_id === nuevo.owner_id && x.idempotency_key === r.idempotency_key)) return { data: null, error: { message: 'duplicate key value violates unique constraint' } };

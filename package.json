@@ -11,7 +11,8 @@
     "test:bastanteo": "node --test valo/tests/bastanteo.test.js valo/tests/bastanteo-estado.test.mjs valo/tests/bastanteo-razonamiento.test.mjs valo/tests/inventarios.test.js",
     "test:so": "node --test so/tests/*.test.mjs",
     "test:so:e2e": "node so/tests/e2e/recorridos.mjs",
-    "test:so:ingesta": "node so/tests/e2e/ingesta.mjs"
+    "test:so:ingesta": "node so/tests/e2e/ingesta.mjs",
+    "test:so:workspace": "node so/tests/e2e/workspace.mjs"
   },
   "devDependencies": {
     "typescript": "5.9.3"

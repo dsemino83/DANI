@@ -2,7 +2,7 @@
 // request → generate → validate → store → register → permission → verify download → attach.
 // También: versiones (editar nunca sobrescribe), restaurar, comparar, consolidar, plantillas y automatizaciones de
 // archivos. Nada se informa como hecho sin verificarlo (estructura del archivo + descarga real desde Storage).
-import { generar, validarArchivo, FORMATOS, nombreArchivo } from './generar.js';
+import { generar, validarArchivo, FORMATOS, nombreArchivo, tablaCsv } from './generar.js';
 import { compararTablas, compararTextos, interpretarEdicion, aplicarEdicion, consolidar } from './tablas.js';
 import { sanearNombre } from '../ingesta/tipos.js';
 import { sha256, BUCKET } from '../ingesta/entrada.js';
@@ -92,7 +92,7 @@ export function crearArchivos(x) {
   async function generarYGuardar(doc, formato, opciones = {}) {
     const g = await generar(doc, formato, await libs(formato));
     const filas = ['xlsx', 'csv'].includes(formato) ? (doc.secciones || []).filter((s) => s.tabla).reduce((s, x) => s + (formato === 'csv' ? 0 : x.tabla.filas.length), 0) : null;
-    const filasCsv = formato === 'csv' ? (doc.secciones || []).find((s) => s.tabla)?.tabla.filas.length ?? null : null;
+    const filasCsv = formato === 'csv' ? tablaCsv(doc)?.tabla.filas.length ?? null : null;
     return guardar({ ...g, ...opciones, filasEsperadas: formato === 'csv' ? filasCsv : filas });
   }
 
