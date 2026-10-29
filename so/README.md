@@ -55,8 +55,9 @@ Recorrido común: `recibir → identificar (firma de bytes) → validar → segu
 | `../datos.js` | Adjuntos del chat (+, arrastrar, pegar, cámara), vista previa, panel "Datos y fuentes", vista previa de importación con mapeo editable, alta de APIs con credencial en Vault. |
 | `../supabase/functions/so-api/` | Llamadas a APIs desde el servidor: anti-SSRF, redirecciones revalidadas, tiempo y tamaño máximos, reintentos, historial idempotente. |
 | `../workspace.js` · `../comando.js` · `../genui.js` · `../iconos.js` | Workspace adaptativo (Living Cards con vista previa en caché, Bento S/M/L), CommandRouter de ⌘K, UI generativa validada por registro, íconos únicos. |
-| `../archivos/` | Archivos generados (XLSX, CSV, JSON, PDF, DOCX, PPTX, TXT, MD) validados antes de guardarse, descarga por URL firmada, versiones que nunca sobrescriben, comparación, consolidación, plantillas y automatizaciones al importar. |
+| `../archivos/` | Archivos generados (XLSX, CSV, JSON, XML, PDF, DOCX, PPTX, RTF, TXT, MD, PNG, JPG, WEBP) validados antes de guardarse, descarga por URL firmada, versiones que nunca sobrescriben, comparación, consolidación, plantillas, automatizaciones al importar, colecciones y paquetes ZIP ("descargar todo"). |
 | `../supabase/migrations/20261030120000_so_workspace.sql` | Vista previa y tamaño de tarjetas, origen y resumen de cambio de archivos, plantillas de archivos. |
+| `../supabase/migrations/20261030140000_so_archivos_formatos.sql` | Formatos nuevos en plantillas y métricas `download` / `pin_to_workspace` permitidas. |
 | `../supabase/migrations/20261029220000_so_ingesta.sql` | Bucket privado y políticas por carpeta, archivos, fragmentos, DatasetRegistry, entradas de datos, lotes y linaje, fuentes API con secretos en Vault, carga compartida solo si el dueño la habilita, retención. |
 
 ## Verificación

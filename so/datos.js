@@ -103,10 +103,12 @@ export function crearDatos(d) {
   }
   async function listaArchivos() {
     if (ultimaListaArchivos && Date.now() - ultimaListaArchivos.t < 30000) return ultimaListaArchivos.f;
-    const f = await q(sb.from('so_files').select('id, original_name, detected_type, kind, created_at, version, status, meta, storage_path, size, artifact_id, checksum').order('created_at', { ascending: false }).limit(300));
+    const f = await q(sb.from('so_files').select('id, original_name, detected_type, kind, created_at, version, status, meta, storage_path, size, artifact_id, checksum, origin, collection, chat_id, change_summary').order('created_at', { ascending: false }).limit(300));
     ultimaListaArchivos = { t: Date.now(), f };
     return f;
   }
+  // Tras cambiar metadatos (colección, estado) la próxima lectura va a la base.
+  function olvidar(ids = []) { for (const id of ids) archivosCache.delete(id); ultimaListaArchivos = null; }
   async function urlFirmada(f, descargar = false) {
     const { data } = await sb.storage.from(BUCKET).createSignedUrl(f.storage_path, 300, descargar ? { download: f.original_name } : undefined);
     return data?.signedUrl || null;
@@ -765,5 +767,5 @@ export function crearDatos(d) {
   }
 
   return { adjuntar, tomarAdjuntos, asociarMensaje, htmlAdjuntos, conectarAdjuntos, vistaPrevia, ejecutarEntrada, esAccionDatos, pintarPanel, abrirImportacion,
-    abrirApi, refrescarAlAbrir, probarYSincronizar, archivo, entrada, listaArchivos, incidenciasDe, reintentarApi, credencial, reanudar };
+    abrirApi, refrescarAlAbrir, probarYSincronizar, archivo, entrada, listaArchivos, olvidar, incidenciasDe, reintentarApi, credencial, reanudar };
 }

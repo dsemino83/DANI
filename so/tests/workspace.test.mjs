@@ -6,8 +6,8 @@ import { createRequire } from 'node:module';
 import { presentacion, calcularPreview, previewVigente, ordenarWorkspace, reordenar, recientesPorUso, continuar, htmlTarjeta, htmlVistazo, accionesMenu, PREVIEW_VERSION } from '../workspace.js';
 import { clasificar, accionesPara } from '../comando.js';
 import { validar, renderUI, specsComparacion, REGISTRO } from '../genui.js';
-import { generar, validarArchivo, formatoPedido, nombreArchivo } from '../archivos/generar.js';
-import { entradasZip, crc32 } from '../archivos/zip.js';
+import { generar, validarArchivo, formatoPedido, nombreArchivo, xmlBienFormado, dibujarImagen, FORMATOS } from '../archivos/generar.js';
+import { entradasZip, crc32, zip } from '../archivos/zip.js';
 import { compararTablas, compararTextos, interpretarEdicion, aplicarEdicion, consolidar } from '../archivos/tablas.js';
 import { insights, comparar } from '../analisis.js';
 import { EMOCIONES } from '../avatar.js';
@@ -207,4 +207,63 @@ test('destino de datos: "el dashboard de ventas" es el tablero Ventas, no una su
   assert.equal(resolverArtefacto('sumá esto al dashboard de ventas', arts, null).id, 'v');
   const acc = interpretarEntrada('Sumá estos datos al dashboard de ventas', { modo: 'work', adjuntos: [{ fileId: 'f', kind: 'table' }], artefactos: [arts[0]], activoId: 's' });
   assert.notEqual(acc?.artefactoId, 's', 'una superficie nunca recibe datos');
+});
+
+const docF = { titulo: 'Ventas ñandú', subtitulo: 'Todos <los> datos', secciones: [
+  { titulo: 'Resumen', metricas: [{ label: 'Total', valor: 1570, delta: -0.31 }], parrafos: ['Texto con {llaves} \\ y "comillas" & <signos>'] },
+  { titulo: 'Por mes', tabla: { columnas: [{ label: 'Mes', type: 'text' }, { label: 'Monto $', type: 'number' }], filas: [['Ago', 2300], ['Sep', 1570]] } }] };
+
+test('RTF: encabezado, grupos balanceados, acentos como \\uN? y tabla', async () => {
+  const g = await generar(docF, 'rtf');
+  const t = new TextDecoder().decode(g.bytes);
+  assert.equal(g.nombre, 'Ventas nandu.rtf');
+  assert.ok(t.startsWith('{\\rtf1'));
+  assert.match(t, /\\u241\?/, 'ñ escapada');
+  assert.match(t, /\\{llaves\\}/);
+  assert.match(t, /\\trowd/);
+  assert.ok(validarArchivo(g.bytes, 'rtf').ok);
+  assert.equal(validarArchivo(new TextEncoder().encode('{\\rtf1 {abierto'), 'rtf').ok, false);
+});
+
+test('XML: bien formado, escapado, columnas como atributo; el validador rechaza XML roto', async () => {
+  const g = await generar(docF, 'xml');
+  const t = new TextDecoder().decode(g.bytes);
+  assert.ok(xmlBienFormado(t));
+  assert.match(t, /<c col="Monto \$" tipo="number">2300<\/c>/);
+  assert.match(t, /&lt;signos&gt;/);
+  assert.ok(validarArchivo(g.bytes, 'xml').ok);
+  for (const roto of ['<a><b></a></b>', '<a/><b/>', '<a>', 'texto', '<a x=1></a>']) assert.equal(xmlBienFormado(roto), false, roto);
+  assert.ok(xmlBienFormado('<?xml version="1.0"?><a><!-- c --><b x="1"/></a>'));
+});
+
+test('imágenes: dibujo sobre cualquier contexto 2D; el formato lo exige el lienzo, nunca se renombra', async () => {
+  const llamadas = [];
+  const ctx = new Proxy({ measureText: (t) => ({ width: t.length * 10 }) }, { get: (o, k) => (k in o ? o[k] : (...a) => llamadas.push([k, ...a])), set: (o, k, v) => { o[k] = v; return true; } });
+  dibujarImagen(ctx, docF);
+  const textos = llamadas.filter((l) => l[0] === 'fillText').map((l) => String(l[1]));
+  assert.ok(textos.includes('Ventas ñandú') && textos.includes('1.570') && textos.includes('Ago') && textos.includes('Sep'), 'título, KPI y etiquetas de la serie');
+  assert.equal(llamadas.filter((l) => l[0] === 'fillRect').length >= 2 && llamadas.filter((l) => l[0] === 'roundRect').length === 2, true, 'fondo, tile y una barra por mes');
+  await assert.rejects(generar(docF, 'png'), /no puede dibujar/);
+  const png = await generar(docF, 'png', { lienzo: () => ({ ctx, codificar: async () => PNG1 }) });
+  assert.equal(png.mime, 'image/png'); assert.equal(png.kind, 'image'); assert.equal(png.nombre, 'Ventas nandu.png');
+  assert.equal((await generar(docF, 'jpg', { lienzo: () => ({ ctx, codificar: async (m) => { assert.equal(m, 'image/jpeg'); return new Uint8Array([0xff, 0xd8, 0xff, 0xd9]); } }) })).nombre, 'Ventas nandu.jpg');
+});
+
+const PNG1 = Uint8Array.from(Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64'));
+test('validación de imágenes y paquetes por firma y estructura', () => {
+  assert.deepEqual(validarArchivo(PNG1, 'png'), { ok: true, detalle: 'PNG 1×1' });
+  assert.equal(validarArchivo(PNG1, 'jpg').ok, false, 'un PNG no pasa como JPG');
+  assert.equal(validarArchivo(new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0, 0]), 'jpg').ok, false, 'JPEG truncado');
+  const riff = (n) => { const b = new Uint8Array(20); b.set(new TextEncoder().encode('RIFF'), 0); new DataView(b.buffer).setUint32(4, n, true); b.set(new TextEncoder().encode('WEBPVP8 '), 8); return b; };
+  assert.ok(validarArchivo(riff(12), 'webp').ok);
+  assert.equal(validarArchivo(riff(400), 'webp').ok, false, 'WEBP incompleto');
+  const z = zip([{ nombre: 'a.csv', datos: 'x;y' }, { nombre: 'b.pdf', datos: new Uint8Array([1, 2]) }]);
+  assert.deepEqual(validarArchivo(z, 'zip', { entradas: 2 }), { ok: true, detalle: '2 archivos' });
+  assert.equal(validarArchivo(z, 'zip', { entradas: 3 }).ok, false);
+  assert.equal(FORMATOS.zip.paquete, true);
+});
+
+test('pedidos de formato nuevos', () => {
+  for (const [t, f] of [['Pasá este tablero a RTF', 'rtf'], ['exportá a xml', 'xml'], ['generame una imagen del tablero', 'png'], ['bajame un jpg', 'jpg'], ['exportalo como webp', 'webp'], ['pasalo a texto enriquecido', 'rtf']]) assert.equal(formatoPedido(t), f, t);
+  assert.equal(formatoPedido('¿por qué bajaron las ventas?'), null);
 });

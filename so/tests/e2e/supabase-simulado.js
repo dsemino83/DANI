@@ -14,6 +14,9 @@
   const ownerTables = new Set(TABLAS.filter((t) => !['so_artifact_versions'].includes(t)));
   const fallar = (k) => (JSON.parse(localStorage.getItem('fake.fallar') || '[]')).includes(k);
   const now = () => new Date().toISOString();
+  // Igual que so_events_name_check (20261030140000_so_archivos_formatos.sql).
+  const EVENTOS = ['time_to_first_value', 'time_to_result', 'task_completed', 'task_failed', 'retry', 'abandonment', 'artifact_reuse', 'search_success', 'search_miss',
+    'share_success', 'recovery_success', 'undo', 'preview_confirmed', 'preview_cancelled', 'download', 'pin_to_workspace'];
   const numericId = new Set(['so_records','so_messages','so_decisions','so_signals','so_obs','so_artifact_versions','so_notifications','so_events','so_file_chunks','so_ingest_log']);
   function snap(a) { db.so_artifact_versions.push({ id: db.__seq++, artifact_id: a.id, owner_id: a.owner_id, version: a.version, snapshot: JSON.parse(JSON.stringify(a)), created_at: now() }); }
   function permiso(aid) {
@@ -58,7 +61,8 @@
           if (table === 'so_tasks' && r.idempotency_key && db.so_tasks.some((x) => x.owner_id === nuevo.owner_id && x.idempotency_key === r.idempotency_key)) return { data: null, error: { message: 'duplicate key value violates unique constraint' } };
           if (table === 'so_files') { nuevo.origin ||= 'upload'; if (!['upload', 'generated', 'export', 'api', 'connector'].includes(nuevo.origin)) return { data: null, error: { message: 'violates check constraint so_files_origin_check' } }; }
           if (table === 'so_files' && !r.version_of) { const prev = db.so_files.filter((f) => f.owner_id === nuevo.owner_id && f.safe_name.toLowerCase() === nuevo.safe_name.toLowerCase() && (f.project_id ?? null) === (nuevo.project_id ?? null) && f.checksum !== nuevo.checksum).sort((x, y) => y.version - x.version)[0]; if (prev) { nuevo.version_of = prev.id; nuevo.version = prev.version + 1; } }
-          if (table === 'so_file_templates' && !['xlsx', 'csv', 'json', 'pdf', 'docx', 'pptx', 'txt', 'md'].includes(r.formato)) return { data: null, error: { message: 'violates check constraint' } };
+          if (table === 'so_file_templates' && !['xlsx', 'csv', 'json', 'xml', 'pdf', 'docx', 'pptx', 'rtf', 'txt', 'md', 'png', 'jpg', 'webp'].includes(r.formato)) return { data: null, error: { message: 'violates check constraint' } };
+          if (table === 'so_events' && !EVENTOS.includes(r.name)) { (window.__eventosRechazados ||= []).push(r.name); return { data: null, error: { message: 'violates check constraint so_events_name_check' } }; }
           db[table].push(nuevo); out.push(nuevo);
           if (table === 'so_artifacts') snap(nuevo);
         }
@@ -94,7 +98,9 @@
       eq(c, v) { st.filters.push((r) => r[c] === v); return b; },
       is(c, v) { st.filters.push((r) => (r[c] ?? null) === v); return b; },
       neq(c, v) { st.filters.push((r) => r[c] !== v); return b; },
-      not(c, op, v) { st.filters.push((r) => (r[c] ?? null) !== v); return b; },
+      not(c, op, v) {   // como PostgREST: not.is.null, not.in.(a,b), not.eq.x
+        const lista = op === 'in' ? String(v).replace(/^\(|\)$/g, '').split(',').map((z) => z.trim()) : null;
+        st.filters.push((r) => (lista ? !lista.includes(String(r[c])) : (r[c] ?? null) !== v)); return b; },
       in(c, v) { st.filters.push((r) => v.includes(r[c])); return b; },
       ilike(c, v) { st.filters.push((r) => String(r[c]).toLowerCase() === v.toLowerCase()); return b; },
       order(c, o) { st.order.push({ c, asc: o?.ascending !== false }); return b; },

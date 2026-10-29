@@ -3,6 +3,7 @@
 // También: versiones (editar nunca sobrescribe), restaurar, comparar, consolidar, plantillas y automatizaciones de
 // archivos. Nada se informa como hecho sin verificarlo (estructura del archivo + descarga real desde Storage).
 import { generar, validarArchivo, FORMATOS, nombreArchivo, tablaCsv } from './generar.js';
+import { zip } from './zip.js';
 import { compararTablas, compararTextos, interpretarEdicion, aplicarEdicion, consolidar } from './tablas.js';
 import { sanearNombre } from '../ingesta/tipos.js';
 import { sha256, BUCKET } from '../ingesta/entrada.js';
@@ -23,7 +24,21 @@ function script(nombre) {
 async function libs(formato) {
   if (formato === 'xlsx') { await script('exceljs.min.js'); await script('xlsx.full.min.js'); return { ExcelJS: window.ExcelJS, XLSX: window.XLSX }; }
   if (formato === 'pdf') { await script('jspdf.umd.min.js'); await script('jspdf.plugin.autotable.min.js'); return { jsPDF: window.jspdf.jsPDF }; }
+  if (FORMATOS[formato]?.imagen) return { lienzo };
   return {};
+}
+
+// Lienzo del navegador para PNG/JPG/WEBP. Si el navegador no sabe codificar el formato pedido (p. ej. WEBP en Safari
+// devuelve PNG), se dice: nunca se entrega otro formato con la extensión cambiada.
+function lienzo(w, h) {
+  const c = typeof OffscreenCanvas === 'function' ? new OffscreenCanvas(w, h) : Object.assign(document.createElement('canvas'), { width: w, height: h });
+  const ctx = c.getContext('2d');
+  const codificar = async (mime, calidad) => {
+    const blob = c.convertToBlob ? await c.convertToBlob({ type: mime, quality: calidad }) : await new Promise((ok) => c.toBlob(ok, mime, calidad));
+    if (!blob || blob.type !== mime) throw new Error(`este navegador no puede generar imágenes ${mime.replace('image/', '').toUpperCase()}`);
+    return new Uint8Array(await blob.arrayBuffer());
+  };
+  return { ctx, codificar };
 }
 
 // Perfil de una tabla leída (ingesta) → Tabla { columnas, filas } con fechas ISO.
@@ -62,10 +77,10 @@ export function crearArchivos(x) {
    * Guarda un archivo generado/exportado: valida → Storage privado → so_files → verificación de descarga.
    * @returns {Promise<object>} fila de so_files + validacion
    */
-  async function guardar({ bytes, nombre, mime, kind, formato, origin = 'generated', artifactId = null, descripcion = null, parent = null, cambio = null, filasEsperadas = null, coleccion = null }) {
+  async function guardar({ bytes, nombre, mime, kind, formato, origin = 'generated', artifactId = null, descripcion = null, parent = null, cambio = null, filasEsperadas = null, coleccion = null, entradas = null, meta = {} }) {
     const t0 = performance.now();
     const XLSX = formato === 'xlsx' ? (await libs('xlsx')).XLSX : null;
-    const v = validarArchivo(bytes, formato, { filasEsperadas, XLSX });
+    const v = validarArchivo(bytes, formato, { filasEsperadas, XLSX, entradas });
     if (!v.ok) { obs('validate', { status: 'failed', size: bytes.length }); throw new Error(`el archivo no pasó la validación: ${v.detalle}`); }
     const { data: ses } = await sb.auth.getSession();
     const id = crypto.randomUUID(), safe = sanearNombre(nombre), path = `${ses.session.user.id}/${id}/${safe}`;
@@ -73,7 +88,7 @@ export function crearArchivos(x) {
     const fila = { id, project_id: E.get().proyectoId ?? null, artifact_id: artifactId, chat_id: st.chatId ?? null, original_name: nombre.slice(0, 255), safe_name: safe,
       mime_type: mime, detected_type: formato, kind, size: bytes.length, storage_path: path, checksum, status: 'uploading', source: artifactId ? 'dashboard' : 'chat', origin,
       security: { generado: true, macros: false, antivirus: 'no aplica: archivo generado por SO' }, retention: 'active', expires_at: null, change_summary: cambio, collection: coleccion,
-      meta: { descripcion, validacion: v.detalle, parent: parent?.id || null, generado_at: new Date().toISOString() } };
+      meta: { ...meta, descripcion, validacion: v.detalle, parent: parent?.id || null, generado_at: new Date().toISOString() } };
     if (parent) Object.assign(fila, { version_of: parent.id, version: (parent.version || 1) + 1 });
     await q(sb.from('so_files').insert(fila));
     try {
@@ -155,7 +170,7 @@ export function crearArchivos(x) {
 
   async function convertirArchivo(f, formato) {
     if (f.kind !== 'table') {
-      if (!['pdf', 'docx', 'txt', 'md'].includes(formato)) return { texto: `${f.original_name} no es una tabla: puedo pasarlo a PDF, Word, texto o Markdown.` };
+      if (!['pdf', 'docx', 'rtf', 'txt', 'md'].includes(formato)) return { texto: `${f.original_name} no es una tabla: puedo pasarlo a PDF, Word, RTF, texto o Markdown.` };
       const frs = await q(sb.from('so_file_chunks').select('ord, content').eq('file_id', f.id).order('ord').limit(200));
       if (!frs.length) return { texto: `No tengo texto extraído de ${f.original_name} para convertirlo.` };
       const doc = { titulo: f.original_name.replace(/\.[^.]+$/, ''), subtitulo: `Convertido de ${f.detected_type.toUpperCase()}`, secciones: [{ titulo: 'Contenido', parrafos: frs.map((x2) => x2.content) }] };
@@ -301,6 +316,53 @@ export function crearArchivos(x) {
     return out;
   }
 
+  // ------------------------------------------------------------------ paquetes ("descargar todo") y colecciones
+  // Paquete = ZIP con los archivos elegidos, leídos de Storage con la sesión del usuario (RLS): solo entra lo propio.
+  // Se guarda como archivo generado y se verifica como cualquier otro (estructura + descarga autorizada).
+  async function paquete(fs, nombre) {
+    const lista = fs.filter((f) => f?.storage_path && f.status !== 'expired' && f.status !== 'blocked');
+    if (!lista.length) return { texto: 'No hay archivos para empaquetar.' };
+    const usados = new Map(); const entradas = [];
+    for (const f of lista) {
+      const base = f.original_name.replace(/[\\/:*?"<>|]+/g, ' ').trim() || 'archivo';
+      const n = usados.get(base) || 0; usados.set(base, n + 1);
+      entradas.push({ nombre: n ? base.replace(/(\.[^.]+)?$/, ` (${n + 1})$1`) : base, datos: await bajar(f) });
+    }
+    const bytes = zip(entradas);
+    const titulo = nombre || `Archivos ${new Date().toISOString().slice(0, 10)}`;
+    const f = await guardar({ bytes, nombre: nombreArchivo(titulo, 'zip'), mime: FORMATOS.zip.mime, kind: 'other', formato: 'zip', origin: 'generated', entradas: entradas.length,
+      descripcion: `Paquete de ${entradas.length} archivos`, meta: { contenido: lista.map((z) => z.id) } });
+    x.evento('download', null, { tipo: 'zip', archivos: entradas.length });
+    return resultado(f, `Armé ${f.original_name} con ${entradas.length} archivos: ${entradas.map((e) => e.nombre).join(', ')}.`);
+  }
+
+  const nombreColeccion = (n) => String(n || '').replace(/\s+/g, ' ').trim().slice(0, 80);
+  async function colecciones() {
+    const fs = await q(sb.from('so_files').select('collection, created_at').not('collection', 'is', null).limit(2000));
+    const m = new Map(); for (const f of fs) { const c = m.get(f.collection) || { nombre: f.collection, archivos: 0, ultimo: f.created_at }; c.archivos++; if (f.created_at > c.ultimo) c.ultimo = f.created_at; m.set(f.collection, c); }
+    return [...m.values()].sort((p, r) => r.ultimo.localeCompare(p.ultimo));
+  }
+  async function archivosDeColeccion(nombre) {
+    return q(sb.from('so_files').select('*').eq('collection', nombreColeccion(nombre)).not('status', 'in', '(expired,blocked,failed)').order('created_at', { ascending: false }).limit(500));
+  }
+  // Mover a una colección es metadato lógico: el archivo, su contenido y sus versiones no cambian.
+  async function aColeccion(fs, nombre) {
+    const c = nombreColeccion(nombre);
+    if (!c) return { texto: '¿Cómo se llama la colección?', meta: { estado: 'propuesta' } };
+    const ids = fs.map((f) => f.id);
+    const hechos = await q(sb.from('so_files').update({ collection: c }).in('id', ids).select('id'));
+    if (hechos.length !== ids.length) throw new Error('no pude mover todos los archivos (¿son tuyos?)');
+    return { texto: `${ids.length === 1 ? `Guardé ${fs[0].original_name}` : `Guardé ${ids.length} archivos`} en la colección "${c}".`,
+      meta: { estado: 'verificado', coleccion: c, undo: { tipo: 'coleccion', ids, anterior: Object.fromEntries(fs.map((f) => [f.id, f.collection ?? null])) } } };
+  }
+  async function quitarDeColeccion(fs) {
+    await q(sb.from('so_files').update({ collection: null }).in('id', fs.map((f) => f.id)).select('id'));
+    return { texto: `Saqué ${fs.length === 1 ? fs[0].original_name : `${fs.length} archivos`} de la colección.`, meta: { estado: 'verificado' } };
+  }
+  async function deshacerColeccion(u) {
+    for (const [id, c] of Object.entries(u.anterior || {})) await q(sb.from('so_files').update({ collection: c }).eq('id', id).select('id'));
+  }
+
   async function descargar(id) {
     const f = await D.archivo(id);
     if (!f) throw new Error('no encontré ese archivo');
@@ -314,5 +376,6 @@ export function crearArchivos(x) {
   }
 
   return { guardar, generarYGuardar, exportarArtefacto, convertirArchivo, editarArchivo, versionesDe, restaurar, compararDos, exportarComparacion, consolidarArchivos,
-    guardarPlantilla, plantillas, usarPlantilla, crearAutomatizacion, ejecutarAutomatizaciones, descargar, tablaDeArchivo, docDeArtefacto, spec, bajar, nombreArchivo };
+    guardarPlantilla, plantillas, usarPlantilla, crearAutomatizacion, ejecutarAutomatizaciones, descargar, tablaDeArchivo, docDeArtefacto, spec, bajar, nombreArchivo,
+    paquete, colecciones, archivosDeColeccion, aColeccion, quitarDeColeccion, deshacerColeccion, nombreColeccion };
 }

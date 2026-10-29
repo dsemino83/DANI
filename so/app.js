@@ -307,7 +307,9 @@ async function ruta() {
   const a = h.match(/^#\/a\/([0-9a-f-]{36})$/);
   const f = h.match(/^#\/f\/([0-9a-f-]{36})$/);
   const c = h.match(/^#\/c\/([0-9a-f-]{36})$/);
-  st.desdeWorkspace = !!(a || f) && st.ultimaRuta === 'home';
+  const col = h.match(/^#\/col\/(.+)$/);
+  st.desdeWorkspace = !!(a || f || col) && st.ultimaRuta === 'home';
+  if (col && E.get().modo === 'work') { st.ultimaRuta = 'coleccion'; pintarMenu(); let nombre = col[1]; try { nombre = decodeURIComponent(col[1]); } catch { /* nombre literal */ } return abrirColeccion(nombre); }
   if (a && E.get().modo === 'work') { st.ultimaRuta = 'artefacto'; pintarMenu(); return abrirArtefacto(a[1]); }
   if (f) { st.ultimaRuta = 'archivo'; pintarMenu(); return abrirArchivo(f[1]); }
   if (c) {
@@ -389,7 +391,9 @@ function pintarWorkspace() {
         ${st.wsVer ? '' : `<button type="button" class="lcard crear" data-ws="crear">${icono('agregar', { tam: 26 })}<strong>Crear</strong><small>Pedile a Francisco un tablero, un análisis o un seguimiento</small></button>`}</div>
       ${lista.length > 1 && !st.wsVer ? '<p class="vacio ayuda-orden">Arrastrá las tarjetas para ordenarlas, o usá ••• → Mover.</p>' : ''}
     </section>
-    ${archivosRec.length && !st.wsVer ? `<section class="ws-sec" aria-labelledby="tArch"><h2 id="tArch" class="ws-tit">Archivos</h2><div class="archivos-fila">${archivosRec.map((f) =>
+    ${(archivosRec.length || st.colecciones?.length) && !st.wsVer ? `<section class="ws-sec" aria-labelledby="tArch"><h2 id="tArch" class="ws-tit">Archivos</h2>
+      ${st.colecciones?.length ? `<div class="colecciones-fila" role="list" aria-label="Colecciones">${st.colecciones.map((c) => `<a role="listitem" class="col-chip" href="#/col/${esc(encodeURIComponent(c.nombre))}">${icono('archivar', { tam: 16 })}<span>${esc(c.nombre)}</span><small>${c.archivos}</small></a>`).join('')}</div>` : ''}
+      <div class="archivos-fila">${archivosRec.map((f) =>
       `<a class="arch-chip" href="#/f/${esc(f.id)}">${icono(f.kind === 'table' ? 'tabla' : f.kind === 'presentation' ? 'pres' : f.kind === 'image' ? 'imagen' : 'doc', { tam: 18 })}<span><strong>${esc(f.original_name)}</strong><small>${esc((f.detected_type || '').toUpperCase())}${f.version > 1 ? ` · v${f.version}` : ''} · ${esc({ generated: 'generado por Francisco', export: 'exportado' }[f.origin] || 'subido')} · ${esc(haceCuanto(f.created_at))}</small></span></a>`).join('')}</div></section>` : ''}
     ${st.compartidos.length && !st.wsVer ? `<section class="ws-sec" aria-labelledby="tComp"><h2 id="tComp" class="ws-tit">Compartidos conmigo</h2><div class="archivos-fila">${st.compartidos.map((a) =>
       `<a class="arch-chip" href="${esc(BASE_SHARED + a.id)}">${icono('compartir', { tam: 18 })}<span><strong>${esc(a.name)}</strong><small>${esc({ VIEW: 'Podés verlo', USE: 'Podés usarlo', EDIT: 'Podés editarlo' }[a.permission])}</small></span></a>`).join('')}</div></section>` : ''}
@@ -397,6 +401,7 @@ function pintarWorkspace() {
   conectarWorkspace(h);
   programarPreviews();
   if (!st.archivosRecientes) D.listaArchivos().then((fs) => { st.archivosRecientes = fs; if (E.get().vista === 'home' && fs.length) pintarWorkspace(); }).catch(() => { st.archivosRecientes = []; });
+  if (!st.colecciones) A.colecciones().then((cs) => { st.colecciones = cs; if (E.get().vista === 'home' && cs.length) pintarWorkspace(); }).catch(() => { st.colecciones = []; });
 }
 
 function pintarHome() { if (E.get().modo === 'work' && E.get().vista === 'home') pintarWorkspace(); }
@@ -839,6 +844,34 @@ async function intencionArchivo(texto, adjuntos) {
       return i > 0 ? A.compararDos(vs[i - 1], vs[i]) : { texto: `${f.original_name} no tiene una versión anterior.` };
     }
   }
+  // Colecciones y paquetes ("descargar todo"): la colección es un metadato lógico y el paquete un ZIP verificado;
+  // ninguno mueve, copia ni cambia el contenido de los archivos.
+  const colM = texto.match(/colecci[oó]n\s+(?:de\s+|llamada\s+)?["“]?([^"”.,;!?]+?)["”]?\s*(?:[.,;!?]|$)/i);
+  const coleccion = colM ? A.nombreColeccion(colM[1]) : null;
+  const paqueteDe = /\b(descarga\w*|baja\w*|zip|paquete|comprimi\w*)\b/.test(n);
+  if (coleccion) {
+    if (paqueteDe) {
+      actividad('creando');
+      const fs = await A.archivosDeColeccion(coleccion);
+      return fs.length ? A.paquete(fs, coleccion) : { texto: `La colección "${coleccion}" está vacía o no existe.` };
+    }
+    if (/\b(guarda\w*|move\w*|agrega\w*|pone\w*|mete\w*|suma\w*|archiva\w*)\b/.test(n)) {
+      const fs = adjuntos.length ? await archivosDe(adjuntos) : /\b(estos|todos los|los archivos)\b/.test(n) ? await generadosDelChat() : st.archivoFoco ? [await D.archivo(st.archivoFoco)].filter(Boolean) : [];
+      if (!fs.length) return { texto: `¿Qué archivo guardo en "${coleccion}"? Abrí uno o adjuntalo y pedímelo de nuevo.` };
+      const r = await A.aColeccion(fs, coleccion);
+      D.olvidar(fs.map((f) => f.id)); st.archivosRecientes = null;
+      return r;
+    }
+    const fs = await A.archivosDeColeccion(coleccion);
+    location.hash = `#/col/${encodeURIComponent(coleccion)}`;
+    return { texto: fs.length ? `La colección "${coleccion}" tiene ${fs.length} ${fs.length === 1 ? 'archivo' : 'archivos'}: ${fs.slice(0, 8).map((f) => f.original_name).join(', ')}${fs.length > 8 ? '…' : ''}.` : `No hay archivos en la colección "${coleccion}".`, meta: { estado: 'ejecutado' } };
+  }
+  if (paqueteDe && /\b(todo|todos|todas|juntos|zip|paquete)\b/.test(n)) {
+    const fs = adjuntos.length >= 2 ? await archivosDe(adjuntos) : await generadosDelChat();
+    if (fs.length < 2) return { texto: 'No hay varios archivos para juntar en esta conversación. Adjuntalos o nombrá una colección ("descargá la colección Cierre").' };
+    actividad('creando');
+    return A.paquete(fs, s.artefactoId && artefacto(s.artefactoId) ? `Archivos ${artefacto(s.artefactoId).name}` : null);
+  }
   const formato = formatoPedido(texto);
   if (formato) {
     actividad('creando');
@@ -856,6 +889,13 @@ async function intencionArchivo(texto, adjuntos) {
     if (f?.kind === 'table') { actividad('actualizando'); const r = await A.editarArchivo(f, texto); if (r) return r; }
   }
   return null;
+}
+
+// Archivos que Francisco generó o exportó en esta conversación (sin paquetes previos).
+async function generadosDelChat() {
+  if (!st.chatId) return [];
+  const fs = await q(sb.from('so_files').select('*').eq('chat_id', st.chatId).in('origin', ['generated', 'export']).eq('status', 'ready').order('created_at').limit(200));
+  return fs.filter((f) => f.detected_type !== 'zip');
 }
 
 async function crearAutomatizacionDesde(texto) {
@@ -898,8 +938,9 @@ async function accionArchivo(accion, id, ancla) {
     if (accion === 'mas') {
       const f = await D.archivo(id);
       return abrirMenuFlotante(ancla, [{ id: 'abrir', texto: 'Abrir en SO' }, { id: 'usar', texto: 'Usar con Francisco' }, { id: 'versiones', texto: 'Ver versiones' },
-        ...(f?.kind === 'table' ? [{ id: 'pdf', texto: 'Convertir a PDF' }, { id: 'pptx', texto: 'Convertir a PowerPoint' }] : [])], async (x) => {
+        ...(f?.kind === 'table' ? [{ id: 'pdf', texto: 'Convertir a PDF' }, { id: 'pptx', texto: 'Convertir a PowerPoint' }] : []), { id: 'coleccion', texto: 'Guardar en una colección' }], async (x) => {
         if (x === 'abrir' || x === 'versiones') location.hash = `#/f/${id}`;
+        if (x === 'coleccion') { st.abrirFormColeccion = true; if (location.hash === `#/f/${id}`) ruta(); else location.hash = `#/f/${id}`; }
         if (x === 'usar') { st.archivoFoco = id; D.prellenar('', [{ fileId: f.id, nombre: f.original_name, kind: f.kind, tipo: f.detected_type }]); }
         if (x === 'pdf' || x === 'pptx') pedirConArchivo(id, x === 'pdf' ? 'Pasalo a PDF' : 'Preparame una presentación con esto');
       });
@@ -964,6 +1005,8 @@ async function abrirArchivo(id) {
       ${acciones.map(([k, t]) => `<button type="button" data-fa="${k}">${esc(t)}</button>`).join('')}</div>
     <dl class="arch-meta"><div><dt>Tipo</dt><dd>${esc((f.detected_type || '').toUpperCase())} · ${esc(tamTxt(f.size))}</dd></div><div><dt>Origen</dt><dd>${esc(origen)}</dd></div>
       <div><dt>Versión</dt><dd>v${f.version || 1}${f.change_summary ? ` — ${esc(f.change_summary)}` : ''}</dd></div><div><dt>Creado</dt><dd>${esc(new Date(f.created_at).toLocaleString('es-AR'))}</dd></div>
+      <div><dt>Colección</dt><dd>${f.collection ? `<a href="#/col/${esc(encodeURIComponent(f.collection))}">${esc(f.collection)}</a> · <button type="button" class="enlace" data-fa="sin-coleccion">Quitar</button>` : '<span class="vacio">Ninguna</span>'} · <button type="button" class="enlace" data-fa="coleccion" aria-expanded="false" aria-controls="formColeccion">${f.collection ? 'Cambiar' : 'Guardar en una colección'}</button>
+        <form class="form-coleccion" id="formColeccion" hidden><input name="c" list="listaColecciones" maxlength="80" required placeholder="Nombre de la colección" aria-label="Nombre de la colección" value="${esc(f.collection || '')}"><datalist id="listaColecciones">${(st.colecciones || []).map((c) => `<option value="${esc(c.nombre)}">`).join('')}</datalist><button class="primario" type="submit">Guardar</button></form></dd></div>
       ${art ? `<div><dt>Tablero</dt><dd><a href="#/a/${esc(art.id)}">${esc(art.name)}</a></dd></div>` : ''}${f.meta?.resumen ? `<div class="ancho"><dt>Contenido</dt><dd>${esc(f.meta.resumen)}</dd></div>` : ''}</dl>
     <section class="tarjeta"><h3>Versiones</h3><ol class="versiones-arch" reversed>${vs.slice().reverse().map((v) => `<li class="${v.id === f.id ? 'actual' : ''}"><span><strong>v${v.version || 1}</strong> — ${esc(v.change_summary || (v.version > 1 ? 'versión nueva' : 'original'))}</span>
       <small>${esc(haceCuanto(v.created_at))}</small>${v.id === f.id ? '<span class="etiqueta">esta</span>' : `<span class="fila-acc"><a class="enlace" href="#/f/${esc(v.id)}">Abrir</a><button type="button" class="enlace" data-cmp="${esc(v.id)}">Comparar</button><button type="button" class="enlace" data-rest="${esc(v.id)}">Restaurar</button></span>`}</li>`).join('')}</ol>
@@ -972,12 +1015,16 @@ async function abrirArchivo(id) {
   c.querySelectorAll('[data-fa]').forEach((b) => b.addEventListener('click', () => {
     const k = b.dataset.fa;
     if (k === 'bajar') return accionArchivo('bajar', f.id);
+    if (k === 'coleccion') { const fm = c.querySelector('#formColeccion'); fm.hidden = !fm.hidden; b.setAttribute('aria-expanded', String(!fm.hidden)); if (!fm.hidden) fm.elements.c.focus(); return; }
+    if (k === 'sin-coleccion') return cambiarColeccion([f], null);
     if (k === 'ver') return D.vistaPrevia(f.id);
     if (k === 'editar' || k === 'preguntar' || k === 'usar') { D.prellenar('', [tf]); $('texto').placeholder = k === 'editar' ? 'Ej: "agregale margen", "sacá duplicados", "ordená por monto"' : 'Preguntá sobre el archivo…'; return; }
     if (k === 'comparar') { const prev = vs[vs.findIndex((v) => v.id === f.id) - 1]; if (prev) return compararVersiones(prev.id, f.id); D.prellenar('Comparalo con ', [tf]); return; }
     const pedido = { analizar: 'Analizá este archivo', resumir: 'Resumí este archivo', tablero: 'Creá un dashboard con estos datos', pdf: 'Pasalo a PDF', pptx: 'Preparame una presentación con esto', docx: 'Pasalo a Word' }[k];
     abrirPanel({ foco: false }); procesar(pedido, { adjuntosDirectos: [tf] });
   }));
+  c.querySelector('#formColeccion').addEventListener('submit', (e) => { e.preventDefault(); cambiarColeccion([f], e.target.elements.c.value); });
+  if (st.abrirFormColeccion) { st.abrirFormColeccion = false; c.querySelector('[data-fa="coleccion"]').click(); }
   c.querySelectorAll('[data-cmp]').forEach((b) => b.addEventListener('click', () => compararVersiones(b.dataset.cmp, f.id)));
   c.querySelectorAll('[data-rest]').forEach((b) => b.addEventListener('click', async () => {
     abrirPanel({ foco: false });
@@ -988,6 +1035,46 @@ async function abrirArchivo(id) {
     if (r.meta?.archivo) location.hash = `#/f/${r.meta.archivo}`;
   }));
 }
+// Colección desde la interfaz (manipulación directa): mismo servicio y mismo deshacer que el pedido a Francisco.
+async function cambiarColeccion(fs, nombre) {
+  try {
+    const r = nombre ? await A.aColeccion(fs, nombre) : await A.quitarDeColeccion(fs);
+    D.olvidar(fs.map((f) => f.id)); st.archivosRecientes = null; st.colecciones = null;
+    const u = r.meta?.undo || { tipo: 'coleccion', ids: fs.map((f) => f.id), anterior: Object.fromEntries(fs.map((f) => [f.id, f.collection ?? null])) };
+    toast(r.texto, { texto: 'Deshacer', fn: async () => { await A.deshacerColeccion(u); D.olvidar(u.ids); st.archivosRecientes = null; st.colecciones = null; ruta(); } });
+    ruta();
+  } catch (err) { toast(`No pude cambiar la colección: ${err.message}.`); }
+}
+
+// Vista de colección: archivos agrupados lógicamente, con "Descargar todo" (ZIP verificado).
+async function abrirColeccion(nombre) {
+  vista('archivo');
+  const c = $('vistaArchivo');
+  c.innerHTML = esqueleto();
+  $('titulo').textContent = nombre; $('meta').textContent = 'Colección';
+  $('tituloIcono').innerHTML = icono('archivar');
+  const fs = await A.archivosDeColeccion(nombre).catch(() => []);
+  const ic = (f) => icono(f.kind === 'table' ? 'tabla' : f.kind === 'presentation' ? 'pres' : f.kind === 'image' ? 'imagen' : f.kind === 'other' ? 'archivo' : 'doc', { tam: 18 });
+  c.innerHTML = `<div class="archivo coleccion">
+    <div class="arch-acc">${fs.length ? `<button type="button" class="primario" data-col="todo">${icono('bajar', { tam: 16 })} Descargar todo (${fs.length})</button>` : ''}</div>
+    ${fs.length ? `<ul class="col-lista">${fs.map((f) => `<li><a class="arch-chip" href="#/f/${esc(f.id)}">${ic(f)}<span><strong>${esc(f.original_name)}</strong><small>${esc((f.detected_type || '').toUpperCase())} · ${esc(tamTxt(f.size))}${f.version > 1 ? ` · v${f.version}` : ''} · ${esc(haceCuanto(f.created_at))}</small></span></a>
+      <button type="button" class="enlace" data-col-quitar="${esc(f.id)}" aria-label="Quitar ${esc(f.original_name)} de la colección">Quitar</button></li>`).join('')}</ul>
+      <p class="vacio">Una colección agrupa archivos sin moverlos ni copiarlos. "Descargar todo" arma un ZIP y verifica que se pueda bajar.</p>`
+      : '<p class="vacio">Esta colección está vacía. Desde un archivo: "Guardar en una colección", o pedile a Francisco "guardá esto en la colección …".</p>'}</div>`;
+  c.querySelector('[data-col="todo"]')?.addEventListener('click', async (e) => {
+    const b = e.currentTarget; b.disabled = true;
+    abrirPanel({ foco: false });
+    if (!st.chatId) await asegurarChat(`Colección ${nombre}`);
+    actividad('creando');
+    const r = await A.paquete(fs, nombre).catch((err) => ({ ok: false, texto: `No pude armar el paquete: ${err.message}.`, meta: { estado: 'fallo', reintentar: `descargá la colección ${nombre}` } }));
+    await guardarMensaje('assistant', r.texto, r.meta || {});
+    actividad(r.ok === false ? 'atencion' : 'listo');
+    if (r.meta?.archivo) { st.archivoFoco = r.meta.archivo; await A.descargar(r.meta.archivo).catch(() => {}); }
+    b.disabled = false;
+  });
+  c.querySelectorAll('[data-col-quitar]').forEach((b) => b.addEventListener('click', () => cambiarColeccion(fs.filter((f) => f.id === b.dataset.colQuitar), null)));
+}
+
 const tamTxt = (b) => (b < 1024 ? `${b} B` : b < 1048576 ? `${Math.round(b / 102.4) / 10} KB` : `${Math.round(b / 104857.6) / 10} MB`);
 async function compararVersiones(idA, idB) {
   abrirPanel({ foco: false });
@@ -1439,6 +1526,7 @@ async function deshacerMensaje(id, { silencioso = false } = {}) {
       case 'revocar': for (const x of u.shares) await q(sb.rpc('so_compartir', { p_artifact: u.artifactId, p_email: x.email, p_permission: x.permission })); break;
       case 'favorito': await q(sb.from('so_menu').update({ favorite: u.valor }).eq('artifact_id', u.artifactId)); break;
       case 'automatizacion': await q(sb.from('so_automations').delete().eq('id', u.id)); break;
+      case 'coleccion': await A.deshacerColeccion(u); D.olvidar(u.ids); st.archivosRecientes = null; st.colecciones = null; break;
       case 'importacion': await q(sb.rpc('so_deshacer_importacion', { p_batch: u.loteId })); break;
       case 'dataset': {
         const a = artefacto(u.artifactId);
@@ -1598,7 +1686,7 @@ function pintarCabecera() {
     const g = a.configuration?.grafico || 'line';
     const items = [{ id: 'editar', texto: 'Editar con Francisco' }, { id: 'datos', texto: 'Datos y fuentes' },
       ...['line', 'bar', 'pie'].filter((x) => x !== g).map((x) => ({ id: `graf-${x}`, texto: `Ver gráfico de ${{ line: 'líneas', bar: 'barras', pie: 'torta' }[x]}` })),
-      { id: 'exp-pdf', texto: 'Exportar a PDF' }, { id: 'exp-xlsx', texto: 'Exportar a Excel' }, { id: 'exp-csv', texto: 'Exportar a CSV' },
+      { id: 'exp-pdf', texto: 'Exportar a PDF' }, { id: 'exp-xlsx', texto: 'Exportar a Excel' }, { id: 'exp-csv', texto: 'Exportar a CSV' }, { id: 'exp-png', texto: 'Exportar como imagen (PNG)' },
       { id: 'versiones', texto: 'Versiones' }, { id: 'duplicar', texto: 'Duplicar' }, { id: 'archivar', texto: 'Archivar' }];
     abrirMenuFlotante(e.currentTarget, items, async (x) => {
       if (x === 'editar') return editarConFrancisco(a.id);
@@ -1819,7 +1907,8 @@ function itemsLocales() {
 }
 function abrirPaleta(inicial = '') {
   paletaElegido = false; remotos = [];
-  if (!st.archivosRecientes) D.listaArchivos().then((fs) => { st.archivosRecientes = fs; }).catch(() => {});
+  // Si la lista de archivos se invalidó (p. ej. al cambiar una colección), se recarga y se vuelve a filtrar lo escrito.
+  if (!st.archivosRecientes) D.listaArchivos().then((fs) => { st.archivosRecientes = fs; if ($('paleta').open && $('paletaInput').value.trim()) filtrarPaleta(false); }).catch(() => {});
   $('paleta').showModal();
   $('paletaInput').value = inicial;
   filtrarPaleta();

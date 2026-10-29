@@ -182,6 +182,18 @@ main { min-width: 0; display: flex; flex-direction: column; height: 100vh; heigh
 .arch-chip small { color: var(--text-secondary); font: var(--t-caption); }
 .rec-chip:hover, .arch-chip:hover { background: var(--surface-interactive); }
 .ayuda-orden { font: var(--t-caption); margin: 0; }
+/* Colecciones: chips en el Workspace, lista en su vista y formulario en la vista de archivo. */
+.colecciones-fila { display: flex; gap: var(--s2); flex-wrap: wrap; margin-bottom: var(--s2); }
+.col-chip { display: inline-flex; align-items: center; gap: 6px; min-height: 32px; padding: 4px 12px; border-radius: var(--r-full); border: 1px solid var(--border-subtle);
+  background: var(--surface-subtle, var(--surface)); color: var(--text-primary); text-decoration: none; font: var(--t-secondary); }
+.col-chip small { color: var(--text-secondary); font: var(--t-caption); }
+.col-chip:hover { background: var(--surface-interactive); }
+.col-lista { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--s2); }
+.col-lista li { display: flex; align-items: center; gap: var(--s2); }
+.col-lista li .arch-chip { flex: 1; min-width: 0; }
+.col-lista .enlace { min-height: 24px; }
+.form-coleccion { display: flex; gap: var(--s2); margin-top: var(--s2); flex-wrap: wrap; }
+.form-coleccion input { flex: 1; min-width: 160px; }
 
 /* Adaptive bento: S / M / L estable (nunca se reordena solo). */
 .bento { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 252px), 1fr)); gap: var(--s4); align-items: stretch; }
@@ -642,3 +654,4 @@ label.radio { display: flex; gap: 8px; align-items: center; margin-top: 10px; }
   .inspector { flex-direction: column; align-items: flex-start; }
 }
 @media (forced-colors: active) { .lcard, .kpi, .pill, .comando { border: 1px solid CanvasText; } .spark path { stroke: CanvasText; } }
+.col-lista { padding-bottom: 88px; }   /* el orbe de Francisco no tapa la última fila */

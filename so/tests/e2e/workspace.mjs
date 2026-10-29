@@ -265,6 +265,71 @@ const cons = XLSX.utils.sheet_to_json(wb.Sheets.Datos, { header: 1 });
 ok(cons.length === 4 && cons[0].includes('Archivo') && cons[3].includes('ventas_febrero.csv'), 'Multi-archivo: cada fila conserva su archivo de origen');
 journey('Consolidar');
 
+// ---------------------------------------------------------------- formatos nuevos (imagen, RTF, XML), paquete y colecciones
+await pg.goto(`${BASE}/so/#/a/${ventasId}`); await pg.waitForSelector('.kpis'); await pg.waitForTimeout(300);
+const esperarArchivo = (re) => pg.waitForFunction((r) => new RegExp(r).test(document.querySelector('#mensajes .msg:last-child')?.textContent || ''), re.source, { timeout: 30000 });
+await pg.click('[data-aa="mas"]'); await pg.click('[data-mi="exp-png"]'); pasos++;
+await esperarArchivo(/Ventas\.png/); await listo();
+dl = await descargarUltimo();
+const pil = py('import sys; from PIL import Image; i=Image.open(sys.argv[1]); i.load(); print(i.format, i.size[0], i.size[1], len(set(i.convert("RGB").getdata())) > 20)', dl.p);
+ok(/\.png$/.test(dl.nombre) && pil === 'PNG 1200 750 True', `Imagen: PNG real del tablero, decodificado fuera del navegador (${pil})`);
+await decir('Exportalo como webp');
+dl = await descargarUltimo();
+ok(/\.webp$/.test(dl.nombre) && py('import sys; from PIL import Image; i=Image.open(sys.argv[1]); i.load(); print(i.format, i.size[0])', dl.p) === 'WEBP 1200', 'Imagen: WEBP real (Chromium lo codifica; si un navegador no puede, se dice)');
+await decir('Bajame un jpg del tablero');
+dl = await descargarUltimo();
+ok(/\.jpg$/.test(dl.nombre) && py('import sys; from PIL import Image; i=Image.open(sys.argv[1]); i.load(); print(i.format)', dl.p) === 'JPEG', 'Imagen: JPG real');
+await decir('Pasá este tablero a RTF');
+dl = await descargarUltimo();
+const rtfDir = fs.mkdtempSync(path.join(tmp, 'rtf-'));
+spawnSync('soffice', ['--headless', '--convert-to', 'txt:Text', '--outdir', rtfDir, dl.p], { timeout: 120000 });
+const rtfTxt = fs.existsSync(path.join(rtfDir, path.basename(dl.p, '.rtf') + '.txt')) ? fs.readFileSync(path.join(rtfDir, path.basename(dl.p, '.rtf') + '.txt'), 'latin1') : '';
+ok(/\.rtf$/.test(dl.nombre) && /Ventas/.test(rtfTxt) && /Detalle/.test(rtfTxt), 'RTF: LibreOffice lo abre y trae el contenido (Resumen, Detalle)');
+await decir('Exportá el tablero a XML');
+dl = await descargarUltimo();
+const xmlPy = py('import sys, xml.etree.ElementTree as E; r=E.parse(sys.argv[1]).getroot(); print(r.tag, max(len(t.findall("fila")) for t in r.iter("tabla")))', dl.p);
+ok(/\.xml$/.test(dl.nombre) && xmlPy === 'documento 9', `XML: bien formado según un parser externo, con las 9 filas (${xmlPy})`);
+journey('Formatos');
+
+await decir('Descargá todo junto en un zip');
+t = await ultimo();
+dl = await descargarUltimo();
+const zipPy = py('import sys, zipfile; z=zipfile.ZipFile(sys.argv[1]); print(z.testzip() is None, len(z.namelist()), ",".join(sorted(n.rsplit(".",1)[-1] for n in z.namelist())))', dl.p);
+ok(/Armé .*\.zip con \d+ archivos/.test(t) && /Verificado/.test(t) && /^True \d+ /.test(zipPy) && /png/.test(zipPy) && /rtf/.test(zipPy) && /xml/.test(zipPy), `Paquete: "descargá todo" arma un ZIP íntegro con lo generado en la conversación (${zipPy})`);
+d = await db();
+const zipFila = d.so_files.find((f) => f.detected_type === 'zip');
+ok(zipFila && !zipPy.split(' ')[2].includes('zip'), 'Paquete: no se incluye a sí mismo ni a paquetes previos');
+journey('Paquete');
+
+// Colecciones: manipulación directa (vista de archivo) y por pedido; misma metadata, sin tocar el contenido.
+const rtfFila = d.so_files.find((f) => f.detected_type === 'rtf');
+await pg.goto(`${BASE}/so/#/f/${rtfFila.id}`); await pg.waitForSelector('[data-fa="coleccion"]');
+await pg.click('[data-fa="coleccion"]'); await pg.fill('#formColeccion input', 'Cierre octubre'); await pg.press('#formColeccion input', 'Enter'); pasos++;
+await pg.waitForFunction((id) => window.__db().so_files.find((f) => f.id === id)?.collection === 'Cierre octubre', rtfFila.id, { timeout: 10000 });
+ok(/Cierre octubre/.test(await pg.textContent('.arch-meta')) && (await db()).so_files.find((f) => f.id === rtfFila.id).checksum === rtfFila.checksum, 'Colecciones: guardar desde la vista del archivo (metadato; el contenido no cambia)');
+await decir('Guardá estos archivos en la colección Cierre octubre');
+ok(/Guardé \d+ archivos en la colección "Cierre octubre"/.test(await ultimo()), 'Colecciones: por pedido a Francisco ("guardá estos archivos en la colección …")');
+const enCol = (await db()).so_files.filter((f) => f.collection === 'Cierre octubre').length;
+await irWorkspace();
+await pg.waitForSelector('.col-chip', { timeout: 10000 });
+ok(new RegExp(`Cierre octubre\\s*${enCol}`).test(await pg.textContent('.colecciones-fila')), `Colecciones: aparecen en el Workspace con su cantidad (${enCol})`);
+await pg.click('.col-chip'); pasos++; await pg.waitForSelector('.col-lista');
+ok(/#\/col\/Cierre%20octubre$/.test(pg.url()) && (await pg.$$eval('.col-lista li', (n) => n.length)) === enCol, 'Colecciones: vista propia con sus archivos y URL estable');
+const [dlCol] = await Promise.all([pg.waitForEvent('download', { timeout: 30000 }), pg.click('[data-col="todo"]')]); pasos++;
+const pCol = path.join(tmp, 'col-' + dlCol.suggestedFilename()); await dlCol.saveAs(pCol);
+const colPy = py('import sys, zipfile; z=zipfile.ZipFile(sys.argv[1]); print(z.testzip() is None, len(z.namelist()))', pCol);
+ok(/Cierre octubre\.zip$/.test(dlCol.suggestedFilename()) && colPy === `True ${enCol}`, `Colecciones: "Descargar todo" baja un ZIP íntegro con los ${enCol} archivos (${colPy})`);
+await pg.keyboard.press('Escape'); await pg.waitForSelector('#panelFrancisco[data-estado="cerrado"]', { state: 'attached' });
+await pg.click('.col-lista [data-col-quitar]'); pasos++;
+await pg.waitForFunction((n) => document.querySelectorAll('.col-lista li').length === n - 1, enCol, { timeout: 10000 });
+ok((await db()).so_files.filter((f) => f.collection === 'Cierre octubre').length === enCol - 1, 'Colecciones: quitar un archivo no lo borra (solo sale de la colección)');
+await pg.click('#toast button'); await pg.waitForFunction((n) => document.querySelectorAll('.col-lista li').length === n, enCol, { timeout: 10000 });
+ok(true, 'Colecciones: deshacer devuelve el archivo a la colección');
+await shot('w8-coleccion.png');
+await decir('Descargá la colección Cierre octubre');
+ok(/Armé Cierre octubre\.zip con \d+ archivos/.test(await ultimo()), 'Colecciones: "descargá la colección …" por pedido');
+journey('Colecciones');
+
 // ---------------------------------------------------------------- búsqueda de archivos
 await pg.keyboard.press('Control+k'); await pg.keyboard.type('margen'); await pg.waitForTimeout(700);
 ok(/Archivos[\s\S]*margen\.csv/.test(await pg.textContent('#paletaLista')), 'Búsqueda: archivos subidos y generados en ⌘K');
@@ -388,6 +453,8 @@ await pg.emulateMedia({ colorScheme: 'light' });
 await pg.emulateMedia({ reducedMotion: 'reduce' });
 ok(await pg.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--m-standard').trim() === '0ms'), 'Movimiento: prefers-reduced-motion anula las transiciones');
 
+const rechazados = await pg.evaluate(() => window.__eventosRechazados || []);
+ok(!rechazados.length, `Métricas: ningún evento rechazado por la base${rechazados.length ? ` (${[...new Set(rechazados)].join(', ')})` : ''}`);
 console.log('PASOS', JSON.stringify(medidas));
 console.log('ERRORES', JSON.stringify(errores));
 console.log(`FALLOS ${fallos.length}`); fallos.forEach((f) => console.log('  - ' + f));
