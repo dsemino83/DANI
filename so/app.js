@@ -226,18 +226,22 @@ async function cargarChats() {
 }
 
 async function cambiarModo(modo, navegar = true) {
-  E.set({ modo, artefactoId: null });
-  document.querySelectorAll('.modos button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.modo === modo)));
-  todosAv().forEach((a) => a.setModo(modo));
-  $('bloqueWorkspace').hidden = modo !== 'work';
-  st.chatId = null; st.mensajes = [];
-  ls.set('so.modo', modo);
-  // La vista se repinta siempre: si una carga falla, se avisa en vez de quedar mostrando el modo anterior.
+  // Todo el cambio está protegido: la vista se repinta siempre y, si algo falla, se muestra el motivo real.
   try {
+    E.set({ modo, artefactoId: null });
+    ls.set('so.modo', modo);
+    document.querySelectorAll('.modos button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.modo === modo)));
+    $('bloqueWorkspace').hidden = modo !== 'work';
+    st.chatId = null; st.mensajes = [];
+    try { todosAv().forEach((a) => a.setModo(modo)); } catch (err) { console.error('avatar', err); }
     await cargarProyectos();
     await Promise.all([cargarArtefactos(), cargarChats()]);
-  } catch (err) { toast(`No pude cargar ${modo === 'work' ? 'Trabajo' : 'Personal'}: ${err.message || err}.`); }
-  if (navegar) { if (location.hash === '#/' || !location.hash) ruta(); else location.hash = '#/'; }
+  } catch (err) {
+    console.error('cambiarModo', err);
+    toast(`No pude cargar ${modo === 'work' ? 'Trabajo' : 'Personal'}: ${err?.message || err}.`);
+  }
+  try { if (navegar) { if (location.hash === '#/' || !location.hash) ruta(); else location.hash = '#/'; } }
+  catch (err) { console.error('ruta', err); toast(`No pude mostrar ${modo === 'work' ? 'Trabajo' : 'Personal'}: ${err?.message || err}.`); }
 }
 document.querySelectorAll('.modos button').forEach((b) => { b.onclick = () => cambiarModo(b.dataset.modo); });
 
