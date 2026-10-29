@@ -673,3 +673,11 @@ label.radio { display: flex; gap: 8px; align-items: center; margin-top: 10px; }
 #formExportar fieldset { border: 1px solid var(--border-subtle); border-radius: var(--r2); padding: 10px 12px; margin: 0 0 12px; display: grid; gap: 6px; }
 #formExportar legend { font-weight: 600; padding: 0 4px; }
 .exp-op { display: flex; align-items: center; gap: 8px; min-height: 28px; }
+
+/* Correo */
+.correo-lista { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--s2); }
+.correo-lista li { border: 1px solid var(--border-subtle); border-radius: var(--r2); padding: 10px 12px; display: grid; gap: 6px; background: var(--surface); }
+.correo-lista small { display: block; color: var(--text-secondary); font: var(--t-caption); }
+.correo-lista p { margin: 4px 0 0; color: var(--text-secondary); font: var(--t-secondary); }
+.correo-lista .responder form { display: grid; gap: 8px; margin-top: 8px; }
+.correo .gu-metric, .correo .gu-chart, .correo .gu-table { margin-bottom: var(--s2); }

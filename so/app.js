@@ -13,6 +13,7 @@ import { crearArchivos } from './archivos/servicio.js';
 import { formatoPedido, FORMATOS } from './archivos/generar.js';
 import { interpretarEdicion } from './archivos/tablas.js';
 import { exportacionDe, nombreApertura } from './archivos/doc.js';
+import { analizarCorreos } from './correo/gmail.js';
 import { interpretarHorario, describirHorario, proximaEjecucion, FORMATOS_SERVIDOR, TZ_POR_DEFECTO } from './archivos/programadas.js';
 import { crearEstado, chips, riesgo, explicarPermiso, paraContinuidad } from './estado.js';
 import { analizar, comparar, mesAnterior, mesesConDatos, nombreMes, totalMes } from './analisis.js';
@@ -220,6 +221,8 @@ function pintarMenu() {
   $('tituloCompartidos').hidden = !st.compartidos.length;
   $('menuCompartidos').innerHTML = st.compartidos.map((a) => `<a href="${esc(BASE_SHARED + a.id)}">${icono('compartir')}<span>${esc(a.name)}</span></a>`).join('');
   $('linkInicio').toggleAttribute('aria-current', !location.hash || location.hash === '#/' || location.hash === '#/work');
+  $('linkCorreo').toggleAttribute('aria-current', location.hash.startsWith('#/correo'));
+  $('linkCorreo').hidden = E.get().modo !== 'work';
 }
 
 async function cargarChats() {
@@ -320,6 +323,8 @@ async function ruta() {
   const f = h.match(/^#\/f\/([0-9a-f-]{36})$/);
   const c = h.match(/^#\/c\/([0-9a-f-]{36})$/);
   const col = h.match(/^#\/col\/(.+)$/);
+  const correo = h.match(/^#\/correo(?:\?(.*))?$/);
+  if (correo && E.get().modo === 'work') { st.ultimaRuta = 'correo'; pintarMenu(); return abrirCorreo(new URLSearchParams(correo[1] || '')); }
   st.desdeWorkspace = !!(a || f || col) && st.ultimaRuta === 'home';
   if (col && E.get().modo === 'work') { st.ultimaRuta = 'coleccion'; pintarMenu(); let nombre = col[1]; try { nombre = decodeURIComponent(col[1]); } catch { /* nombre literal */ } return abrirColeccion(nombre); }
   if (a && E.get().modo === 'work') { st.ultimaRuta = 'artefacto'; pintarMenu(); return abrirArtefacto(a[1]); }
@@ -877,6 +882,8 @@ $('formChat').onsubmit = async (e) => {
 async function intencionArchivo(texto, adjuntos) {
   const n = normalizar(texto);
   const s = E.get();
+  const rc = await intencionCorreo(texto, n);
+  if (rc) return rc;
   if (/\bcada vez que\b/.test(n) && /\b(cargue|cargo|suba|subo|importe|llegue|entre|actualice)\b/.test(n)) return crearAutomatizacionDesde(texto);
   if (/\b(mis|las|que) automatizaciones\b|\bque (tengo |hay )?programad[oa]s?\b|\bautomatizaciones (activas|programadas)\b/.test(n)) return listarAutomatizaciones();
   const pausa = n.match(/\b(pausa\w*|deten\w*|desactiva\w*|frena\w*|reactiva\w*|reanuda\w*|activa\w*)\b.*\b(automatizacion|programad[oa]|envio)/);
@@ -1004,6 +1011,118 @@ async function definirAperturas(texto) {
     meta: { estado: 'verificado', artifactId: a.id, cambios: pedidas.map((p) => `${quitar ? '−' : '+'} ${nombreApertura(p, d?.fields || [])} (al exportar)`),
       undo: { tipo: 'exportacion', artifactId: a.id, anterior },
       porque: 'Lo que se ve y lo que se exporta son configuraciones separadas: podés ver el tablero resumido y exportarlo abierto. También se usa en las plantillas y automatizaciones.' } };
+}
+
+// ---------------------------------------------------------------- Correo (Gmail)
+// La casilla se conecta por OAuth en la función so-correo; la página solo LEE lo suyo (RLS) y pide acciones a la función.
+const correoFn = async (body) => {
+  const { data, error } = await sb.functions.invoke('so-correo', { body });
+  if (error) {
+    let det = null; try { det = await error.context?.json?.(); } catch { /* sin cuerpo */ }
+    throw new Error(det?.mensaje || det?.error || error.message);
+  }
+  return data;
+};
+async function cuentasCorreo() { return q(sb.from('so_mail_accounts').select('id, email, status, last_sync_at, last_error').neq('status', 'desconectada').order('created_at')); }
+async function mailsDe(cuentaId) { return q(sb.from('so_mails').select('id, gmail_id, thread_id, from_addr, from_name, subject, snippet, received_at, labels, unread, outbound').eq('account_id', cuentaId).order('received_at', { ascending: false }).limit(1000)); }
+
+async function conectarCorreo() {
+  const r = await correoFn({ accion: 'iniciar', volver: location.href.split('#')[0] });
+  location.href = r.url;   // pantalla de Google: el usuario aprueba y vuelve a #/correo
+  return { texto: 'Te llevo a Google para que apruebes el acceso de solo lectura (y borradores) a tu Gmail.', meta: { estado: 'ejecutado' } };
+}
+async function sincronizarCorreo() {
+  const r = await correoFn({ accion: 'sincronizar' });
+  return { texto: `Sincronicé ${r.email}: revisé ${r.revisados} mails de los últimos 30 días (${r.nuevos} nuevos).`, meta: { estado: 'verificado' } };
+}
+function uiCorreo(a) {
+  return [
+    { type: 'Metric', props: { label: 'Recibidos', valor: a.entrantes } }, { type: 'Metric', props: { label: 'Sin leer', valor: a.sinLeer } },
+    { type: 'Metric', props: { label: 'Sin responder', valor: a.sinResponder.length, detalle: 'sin contar automáticos' } },
+    ...(a.horasMedianaRespuesta != null ? [{ type: 'Metric', props: { label: 'Respondés en (mediana)', valor: a.horasMedianaRespuesta, detalle: 'horas' } }] : []),
+    { type: 'Chart', props: { titulo: 'Mails recibidos por día', tipo: 'bar', puntos: a.porDia.slice(-30).map((p) => ({ x: p.dia.slice(5), y: p.n })) } },
+    { type: 'Table', props: { titulo: 'Quién te escribe más', columnas: ['Remitente', 'Mails'], filas: a.remitentes.map((r) => [r.nombre ? `${r.nombre} <${r.email}>` : r.email, r.n]) } },
+  ];
+}
+async function analizarCorreoChat() {
+  const [c] = await cuentasCorreo();
+  if (!c) return { texto: 'Primero conectá tu Gmail: decime "conectá mi Gmail" o entrá a Correo.', meta: { estado: 'propuesta' } };
+  const a = analizarCorreos(await mailsDe(c.id));
+  if (!a.total) return { texto: `No tengo mails sincronizados de ${c.email}. Decime "sincronizá mis mails".`, meta: { estado: 'propuesta' } };
+  return { texto: `En ${c.email} recibiste ${a.entrantes} mails desde el ${new Date(a.desde).toLocaleDateString('es-AR')}: ${a.sinLeer} sin leer y ${a.sinResponder.length} esperando respuesta${a.sinResponder[0] ? ` (el más reciente: "${a.sinResponder[0].subject}" de ${a.sinResponder[0].from_name || a.sinResponder[0].from_addr})` : ''}. ${a.automaticos} son automáticos (notificaciones, promociones).`,
+    meta: { estado: 'ejecutado', ui: uiCorreo(a), fuente: { origen: c.email, operacion: 'análisis de la casilla', registros: a.total, at: new Date().toISOString() } } };
+}
+async function borradorCorreo(mailId, texto) {
+  const r = await correoFn({ accion: 'borrador', mail: mailId, texto });
+  return { texto: `Dejé la respuesta a ${r.para} ("${r.asunto}") como borrador en tu Gmail. No se envió: revisala y mandala desde Gmail cuando quieras.`, meta: { estado: 'verificado' } };
+}
+// "Respondé el mail de Ana diciendo que mañana le mando el precio"
+async function responderCorreoChat(texto) {
+  const m = texto.match(/respond\S*\s+(?:el|al|los)?\s*(?:mail|correo|mensaje)?\s*(?:de|a)\s+(.+?)\s+(?:diciendo|diciéndole|que|con)\s+(?:que\s+)?(.+)$/i);
+  if (!m) return { texto: 'Decime a quién y qué responder, por ejemplo: "respondé el mail de Ana diciendo que mañana le mando el precio".', meta: { estado: 'propuesta' } };
+  const [c] = await cuentasCorreo();
+  if (!c) return { texto: 'Primero conectá tu Gmail.', meta: { estado: 'propuesta' } };
+  const quien = normalizar(m[1]);
+  const mail = (await mailsDe(c.id)).find((x) => !x.outbound && (normalizar(x.from_name || '').includes(quien) || normalizar(x.from_addr || '').includes(quien)));
+  if (!mail) return { texto: `No encontré mails recientes de "${m[1]}". Probá con su dirección o sincronizá la casilla.`, meta: { estado: 'propuesta' } };
+  const cuerpo = m[2].trim().replace(/^./, (x) => x.toUpperCase());
+  return borradorCorreo(mail.id, /[.!?]$/.test(cuerpo) ? cuerpo : `${cuerpo}.`);
+}
+async function intencionCorreo(texto, n) {
+  if (!/\b(gmail|correos?|mails?|e-?mails?|casilla|bandeja)\b/.test(n) || E.get().modo !== 'work') return null;
+  try {
+    if (/\b(conecta\w*|vincula\w*|enlaza\w*|agrega\w*)\b/.test(n)) return conectarCorreo();
+    if (/\b(desconecta\w*|desvincula\w*)\b/.test(n)) { const r = await correoFn({ accion: 'desconectar' }); return { texto: `Desconecté ${r.desconectada}: revoqué el permiso en Google y borré los mails que SO tenía guardados.`, meta: { estado: 'verificado' } }; }
+    if (/\b(sincroniza\w*|actualiza\w*|trae\w*|baja\w*)\b/.test(n)) return sincronizarCorreo();
+    if (/\brespond\w*\b/.test(n)) return responderCorreoChat(texto);
+    if (/\b(analiza\w*|resumi\w*|resumen|mostra\w*|cuantos|que tengo|sin responder|pendientes)\b/.test(n)) { location.hash = '#/correo'; return analizarCorreoChat(); }
+  } catch (err) { return { texto: `No pude con el correo: ${err.message}.`, meta: { estado: 'fallo' }, ok: false }; }
+  return null;
+}
+
+// Vista Correo: estado de la casilla, análisis y "Sin responder" con borrador de respuesta.
+async function abrirCorreo(params = new URLSearchParams()) {
+  vista('archivo');
+  const c = $('vistaArchivo');
+  $('titulo').textContent = 'Correo'; $('meta').textContent = ''; $('tituloIcono').innerHTML = icono('campana');
+  c.innerHTML = esqueleto();
+  if (params.get('error')) toast(`No se pudo conectar Gmail: ${params.get('error')}.`);
+  const cuentas = await cuentasCorreo().catch(() => []);
+  const cta = cuentas[0];
+  if (!cta) {
+    c.innerHTML = `<div class="archivo correo-vacio"><h2>Conectá tu Gmail</h2>
+      <p>Francisco analiza tu casilla (volumen, quién te escribe, qué quedó sin responder) y te prepara respuestas como <b>borrador</b>: nunca envía nada solo.</p>
+      <p class="vacio">Acceso de solo lectura + borradores, aprobado por vos en Google. Podés desconectarlo cuando quieras: se revoca el permiso y se borran los mails guardados.</p>
+      <div class="arch-acc"><button type="button" class="primario" data-co="conectar">Conectar Gmail</button></div></div>`;
+    c.querySelector('[data-co="conectar"]').onclick = async (e) => { e.currentTarget.disabled = true; try { await conectarCorreo(); } catch (err) { toast(`No pude iniciar la conexión: ${err.message}.`); e.currentTarget.disabled = false; } };
+    return;
+  }
+  if (params.get('ok')) { toast(`Gmail conectado (${cta.email}). Sincronizando…`); await correoFn({ accion: 'sincronizar' }).catch((err) => toast(`No pude sincronizar: ${err.message}.`)); history.replaceState(null, '', '#/correo'); }
+  const mails = await mailsDe(cta.id).catch(() => []);
+  const a = analizarCorreos(mails);
+  const fecha = (x) => new Date(x).toLocaleString('es-AR', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+  c.innerHTML = `<div class="archivo correo">
+    <div class="arch-acc"><span class="etiqueta">${esc(cta.email)}</span><button type="button" class="primario" data-co="sync">Sincronizar</button><button type="button" data-co="desconectar">Desconectar</button>
+      <span class="vacio">${cta.last_sync_at ? `Actualizado ${esc(haceCuanto(cta.last_sync_at))}` : 'Sin sincronizar'}${cta.last_error ? ` · ${esc(cta.last_error)}` : ''}</span></div>
+    ${a.total ? renderUI(uiCorreo(a)) : '<p class="vacio">Todavía no hay mails sincronizados.</p>'}
+    <section class="tarjeta"><h3>Sin responder (${a.sinResponder.length})</h3>${a.sinResponder.length ? `<ul class="correo-lista">${a.sinResponder.slice(0, 30).map((m) => `<li data-mail="${esc(m.id)}">
+      <div><strong>${esc(m.subject || '(sin asunto)')}</strong><small>${esc(m.from_name || m.from_addr)} · ${esc(fecha(m.received_at))}${m.unread ? ' · sin leer' : ''}</small><p>${esc(m.snippet || '')}</p></div>
+      <details class="responder"><summary>Responder</summary><form><textarea name="t" rows="3" required maxlength="20000" placeholder="Escribí la respuesta. Queda como borrador en Gmail; no se envía."></textarea><button class="primario" type="submit">Crear borrador</button></form></details></li>`).join('')}</ul>`
+      : '<p class="vacio">Nada pendiente. 🎉</p>'}</section>
+    <p class="vacio">SO no envía mails: las respuestas quedan como borrador en tu Gmail para que las revises.</p></div>`;
+  c.querySelector('[data-co="sync"]').onclick = async (e) => { e.currentTarget.disabled = true; try { toast((await sincronizarCorreo()).texto); } catch (err) { toast(`No pude sincronizar: ${err.message}.`); } abrirCorreo(); };
+  c.querySelector('[data-co="desconectar"]').onclick = async () => {
+    if (!confirm(`¿Desconectar ${cta.email}? Se revoca el permiso en Google y se borran los mails guardados en SO.`)) return;
+    try { await correoFn({ accion: 'desconectar' }); toast('Gmail desconectado.'); } catch (err) { toast(`No pude desconectar: ${err.message}.`); }
+    abrirCorreo();
+  };
+  c.querySelectorAll('.correo-lista form').forEach((f) => f.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const b = f.querySelector('button'); b.disabled = true;
+    try { toast((await borradorCorreo(f.closest('[data-mail]').dataset.mail, f.elements.t.value.trim())).texto); f.closest('details').open = false; f.reset(); }
+    catch (err) { toast(`No pude crear el borrador: ${err.message}.`); }
+    b.disabled = false;
+  }));
 }
 
 // Archivos que Francisco generó o exportó en esta conversación (sin paquetes previos).

@@ -2,7 +2,7 @@
 (function () {
   const KEY = 'fake.db';
   const TABLAS = ['so_projects','so_datasources','so_records','so_artifacts','so_artifact_versions','so_menu','so_shares','so_chats','so_messages','so_decisions','so_signals','so_obs','so_tasks','so_notifications','so_user_state','so_events',
-    'so_files','so_file_chunks','so_data_inputs','so_api_sources','so_import_batches','so_ingest_log','so_automations','so_file_templates'];
+    'so_files','so_file_chunks','so_data_inputs','so_api_sources','so_import_batches','so_ingest_log','so_automations','so_file_templates','so_mail_accounts','so_mails','so_mail_drafts'];
   const load = () => { try { return JSON.parse(localStorage.getItem(KEY)) || null; } catch { return null; } };
   let db = load() || Object.fromEntries(TABLAS.map((t) => [t, []]));
   for (const t of TABLAS) db[t] ||= [];
@@ -114,6 +114,40 @@
     };
     return b;
   }
+  // so-correo simulado: "Google" aprueba al instante y la casilla tiene unos mails de ejemplo (como la Edge Function, la
+  // página no escribe estas tablas: lo hace el servidor fijando el dueño).
+  const fnCorreo = async (b = {}) => {
+    await new Promise((r) => setTimeout(r, 5));
+    const u = user(); const ok = (data) => { save(); return { data, error: null }; };
+    const err = (m) => ({ data: null, error: { message: m, context: { json: async () => ({ error: m }) } } });
+    if (b.accion === 'iniciar') {
+      if (!/^http:\/\/localhost/.test(b.volver || '')) return err('origen no permitido');
+      if (!db.so_mail_accounts.some((c) => c.owner_id === u.id && c.status !== 'desconectada')) db.so_mail_accounts.push({ id: crypto.randomUUID(), owner_id: u.id, provider: 'gmail', email: u.email, status: 'conectada', last_sync_at: null, last_error: null, created_at: now(), scopes: [] });
+      return ok({ url: `${b.volver}#/correo?ok=1` });
+    }
+    const c = db.so_mail_accounts.find((x) => x.owner_id === u.id && x.status !== 'desconectada');
+    if (!c) return err('No tenés una casilla conectada.');
+    if (b.accion === 'sincronizar') {
+      const dia = (d, h) => new Date(Date.now() - d * 864e5 + h * 36e5).toISOString();
+      const ej = [['g1', 't1', 'ana@cliente.com', 'Ana Pérez', 'Cotización', dia(3, 0), false, true], ['g2', 't1', u.email, null, 'Re: Cotización', dia(3, 2), true, false],
+        ['g3', 't2', 'luis@cliente.com', 'Luis Gómez', 'Reclamo de entrega', dia(1, 0), false, true], ['g4', 't3', 'no-reply@banco.com', 'Banco', 'Resumen de cuenta', dia(1, 1), false, false],
+        ['g5', 't4', 'ana@cliente.com', 'Ana Pérez', 'Nuevo pedido', dia(0, -2), false, true]];
+      let nuevos = 0;
+      for (const [g, t, de, nom, asu, at, out, unread] of ej) if (!db.so_mails.some((m) => m.account_id === c.id && m.gmail_id === g)) {
+        db.so_mails.push({ id: crypto.randomUUID(), owner_id: u.id, account_id: c.id, gmail_id: g, thread_id: t, message_id: `<${g}@x>`, from_addr: de, from_name: nom, to_addrs: [], subject: asu, snippet: `Texto de ${asu}`, body: '', received_at: at, labels: out ? ['SENT'] : ['INBOX', ...(unread ? ['UNREAD'] : [])], unread, outbound: out, has_attachments: false, created_at: now() }); nuevos++;
+      }
+      c.last_sync_at = now();
+      return ok({ email: c.email, revisados: ej.length, nuevos });
+    }
+    if (b.accion === 'borrador') {
+      const m = db.so_mails.find((x) => x.id === b.mail && x.owner_id === u.id);
+      if (!m) return err('no encontré ese mail');
+      db.so_mail_drafts.push({ id: crypto.randomUUID(), owner_id: u.id, account_id: c.id, mail_id: m.id, to_addr: m.from_addr, subject: m.subject, body: b.texto, status: 'creado', gmail_draft_id: 'd' + db.__seq++, created_at: now() });
+      return ok({ borrador: 'd', para: m.from_addr, asunto: m.subject });
+    }
+    if (b.accion === 'desconectar') { db.so_mails = db.so_mails.filter((m) => m.account_id !== c.id); c.status = 'desconectada'; return ok({ desconectada: c.email }); }
+    return err('acción desconocida');
+  };
   const rpc = async (fn, a = {}) => {
     await new Promise((r) => setTimeout(r, 5));
     const ok = (data) => { save(); return { data: JSON.parse(JSON.stringify(data ?? null)), error: null }; };
@@ -237,7 +271,7 @@
         getSession: async () => ({ data: { session: { user: user(), access_token: user().id } } }), signOut: async () => ({}), signInWithPassword: async () => ({}),
       },
       from: builder, rpc,
-      functions: { invoke: async (nombre, { body } = {}) => (nombre === 'so-api' ? fnApi(body) : { data: null, error: { message: 'x', context: { status: 503 } } }) },
+      functions: { invoke: async (nombre, { body } = {}) => (nombre === 'so-api' ? fnApi(body) : nombre === 'so-correo' ? fnCorreo(body) : { data: null, error: { message: 'x', context: { status: 503 } } }) },
       storage: { from: () => ({
         upload: async (path, body, op = {}) => { const r = await fetch(`${SUPA}/storage/v1/object/so-archivos/${path}`, { method: 'POST', body, headers: { Authorization: `Bearer ${user().id}`, 'x-upsert': String(!!op.upsert) } }); return r.ok ? { data: { path }, error: null } : { data: null, error: { message: String(r.status) } }; },
         download: async (path) => { if (fallar('storage.download')) return { data: null, error: { message: 'no' } }; const r = await fetch(`${SUPA}/storage/v1/object/so-archivos/${path}`, { headers: { Authorization: `Bearer ${user().id}` } }); return r.ok ? { data: await r.blob(), error: null } : { data: null, error: { message: String(r.status) } }; },

@@ -300,4 +300,39 @@ begin
   if (select count(*) from net.llamadas) <> n then raise exception 'disparó sin pendientes'; end if;
   raise notice 'SEGURIDAD AUTOMATIZACIONES OK';
 end $$;
+-- ===================================================== 6) Correo (Gmail)
+-- El usuario solo lee sus cuentas, mails y borradores; no puede escribirlos, ni ver el token, ni usar las funciones del
+-- servidor. El estado OAuth no es visible para nadie salvo service_role.
+do $$
+declare
+  ua uuid := '00000000-0000-0000-0000-00000000000a'; ub uuid := '00000000-0000-0000-0000-00000000000b';
+  ca uuid; ma uuid; n int; tok text;
+begin
+  insert into public.so_mail_accounts (owner_id, email) values (ua, 'a@valo.ar') returning id into ca;
+  insert into public.so_mails (owner_id, account_id, gmail_id, thread_id, from_addr, subject, received_at) values (ua, ca, 'g1', 't1', 'cliente@x.com', 'Hola', now()) returning id into ma;
+  set local role service_role;
+  perform public.so_correo_guardar_token(ca, 'refresh-token-de-prueba-123');
+  tok := public.so_correo_leer_token(ca); if tok <> 'refresh-token-de-prueba-123' then raise exception 'token no guardado en Vault'; end if;
+  insert into public.so_mail_oauth_state (state, owner_id, verifier, volver) values (repeat('s', 40), ua, 'v', 'https://x');
+  reset role;
+  perform pg_temp.como(ua, 'a@valo.ar');
+  select count(*) into n from public.so_mails; if n <> 1 then raise exception 'el dueño no ve sus mails'; end if;
+  select count(*) into n from public.so_mail_accounts; if n <> 1 then raise exception 'el dueño no ve su cuenta'; end if;
+  perform pg_temp.debe_fallar($q$select token_ref from public.so_mail_accounts$q$, 'ver la referencia al token');
+  perform pg_temp.debe_fallar(format($q$insert into public.so_mails (owner_id, account_id, gmail_id, received_at) values (%L, %L, 'g2', now())$q$, ua, ca), 'escribir mails desde la página');
+  perform pg_temp.debe_fallar(format($q$update public.so_mail_accounts set status = 'error' where id = %L$q$, ca), 'modificar la cuenta desde la página');
+  perform pg_temp.debe_fallar(format($q$insert into public.so_mail_drafts (owner_id, account_id, body) values (%L, %L, 'x')$q$, ua, ca), 'crear borradores sin pasar por el servidor');
+  perform pg_temp.debe_fallar(format($q$select public.so_correo_leer_token(%L)$q$, ca), 'leer el token de Gmail');
+  perform pg_temp.debe_fallar(format($q$select public.so_correo_guardar_token(%L, 'robado-123456')$q$, ca), 'reemplazar el token de Gmail');
+  perform pg_temp.debe_fallar($q$select * from public.so_mail_oauth_state$q$, 'ver el estado OAuth');
+  perform pg_temp.como(ub, 'b@valo.ar');
+  select count(*) into n from public.so_mails; if n <> 0 then raise exception 'mails ajenos visibles'; end if;
+  select count(*) into n from public.so_mail_accounts; if n <> 0 then raise exception 'cuenta ajena visible'; end if;
+  reset role;
+  set local role service_role;
+  perform public.so_correo_borrar_token(ca);
+  if public.so_correo_leer_token(ca) is not null then raise exception 'el token sigue en Vault tras desconectar'; end if;
+  reset role;
+  raise notice 'SEGURIDAD CORREO OK';
+end $$;
 rollback;
