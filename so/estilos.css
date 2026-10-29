@@ -159,6 +159,8 @@ main { min-width: 0; display: flex; flex-direction: column; height: 100vh; heigh
   background: var(--surface); box-shadow: var(--e1); color: var(--text-secondary); font: var(--t-body); }
 .comando .ic { color: var(--accent); }
 .comando span { flex: 1; }
+.comando input { flex: 1; min-width: 0; border: 0; background: transparent; font: inherit; color: var(--text-primary); padding: 0; outline: none; }
+.comando:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 20%, transparent); }
 .comando:hover { border-color: var(--border-strong); background: var(--surface); }
 .ws-sec { display: grid; gap: var(--s3); }
 .ws-tit { font: var(--t-section); text-transform: uppercase; letter-spacing: .06em; color: var(--text-secondary); margin: 0; }

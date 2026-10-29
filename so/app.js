@@ -366,7 +366,8 @@ function pintarWorkspace() {
   const ocultos = todos.filter((a) => st.menu.get(a.id)?.status === 'hidden');
   const visibles = todos.filter((a) => st.menu.get(a.id)?.status !== 'hidden');
   const archivados = st.artefactos.filter((a) => a.state === 'archived');
-  const cmd = `<button type="button" class="comando" data-ws="comando" aria-keyshortcuts="Control+K Meta+K">${icono('chispa')}<span>Buscar, abrir o pedirle algo a Francisco…</span><kbd>⌘K</kbd></button>`;
+  // Campo de escritura real (como en Personal): Enter se lo pasa a Francisco, que decide qué hacer.
+  const cmd = `<form class="comando" data-ws="comando" role="search">${icono('chispa')}<input type="text" name="pedido" autocomplete="off" placeholder="Escribile a Francisco: creá, analizá, abrí o buscá lo que necesites…" aria-label="Pedirle algo a Francisco"><kbd title="También con Ctrl+K">⌘K</kbd></form>`;
   avatares.grande = null;
   if (!todos.length && !archivados.length) {
     h.innerHTML = `<div class="ws-vacio"><span id="avatarGrande"></span>
@@ -379,11 +380,11 @@ function pintarWorkspace() {
       </div>
       <p class="vacio">También podés soltar un archivo en cualquier lugar.</p></div>`;
     avatares.grande = crearAvatar(h.querySelector('#avatarGrande'), { modo: 'work' });
-    h.querySelector('[data-ws="comando"]').onclick = () => abrirPaleta();
     h.querySelectorAll('[data-pedido]').forEach((b) => b.addEventListener('click', () => {
       if (b.dataset.pedido === '__archivo') { abrirPanel(); $('inpArchivos').click(); return; }
       pedirAFrancisco(b.dataset.pedido);
     }));
+    conectarComando(h);
     return;
   }
   const cont = continuar({ resume: st.resume, artefactos: todos, tareas: st.tareas, avisos: st.avisos, lastVisit: st.lastVisit });
@@ -419,8 +420,16 @@ function pintarHome() { if (E.get().modo === 'work' && E.get().vista === 'home')
 
 function pedirAFrancisco(texto) { abrirPanel({ foco: false }); $('texto').value = texto; $('formChat').requestSubmit(); }
 
+function conectarComando(h) {
+  h.querySelector('[data-ws="comando"]')?.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const t = e.target.elements.pedido.value.trim();
+    if (t) pedirAFrancisco(t);
+  });
+}
+
 function conectarWorkspace(h) {
-  h.querySelector('[data-ws="comando"]')?.addEventListener('click', () => abrirPaleta());
+  conectarComando(h);
   h.querySelector('[data-ws="crear"]')?.addEventListener('click', () => {
     abrirPanel();
     $('texto').placeholder = 'Ej: "Creá un dashboard de cobranzas", "Necesito seguimiento de clientes"';
