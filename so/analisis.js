@@ -159,3 +159,24 @@ export function insights(records, campo, cat, est = {}, hoy, max = 2) {
   else if (meses.length >= 3 && totales[iA] === Math.min(...totales)) out.push({ id: 'record', tono: 'baja', score: 0.35 * conf, titulo: `Mes más bajo registrado`, texto: `${nombreMes(mesA)} queda por debajo de los otros ${meses.length - 1} meses con datos.` });
   return out.sort((x, y) => y.score - x.score).slice(0, max);
 }
+
+// Agrega por mes la suma de un campo numérico. Pura (se prueba en node).
+export function porMes(records, key) {
+  const m = new Map();
+  for (const r of records) {
+    const v = Number(r.data?.[key]);
+    if (!Number.isFinite(v)) continue;
+    const k = String(r.period).slice(0, 7);
+    m.set(k, (m.get(k) || 0) + v);
+  }
+  return [...m.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([mes, total]) => ({ mes, total }));
+}
+
+export function kpis(records, key) {
+  const vals = records.map((r) => Number(r.data?.[key])).filter(Number.isFinite);
+  const meses = porMes(records, key);
+  const ult = meses.at(-1), ant = meses.at(-2);
+  const variacion = ult && ant && ant.total !== 0 ? (ult.total - ant.total) / Math.abs(ant.total) : null;
+  return { total: vals.reduce((s, v) => s + v, 0), registros: vals.length, ultimoMes: ult || null, variacion };
+}
+

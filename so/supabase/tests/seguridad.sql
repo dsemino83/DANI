@@ -255,4 +255,49 @@ begin
   reset role;
   raise notice 'SEGURIDAD WORKSPACE OK';
 end $$;
+-- ===================================================== 5) Automatizaciones programadas
+-- El usuario solo crea automatizaciones de sus tableros, con horarios válidos, y no puede tocar el estado del ejecutor
+-- ni invocar las funciones del servidor (reclamar turnos, validar el token, disparar, saber si otro está habilitado).
+do $$
+declare
+  ua uuid := '00000000-0000-0000-0000-00000000000a'; ub uuid := '00000000-0000-0000-0000-00000000000b';
+  pid uuid; aid uuid; au uuid; n int; r record; ok boolean;
+begin
+  insert into auth.users (id, email) values (ua, 'a@valo.ar'), (ub, 'b@otra.com') on conflict (id) do update set email = excluded.email;
+  perform pg_temp.como(ua, 'a@valo.ar');
+  insert into public.so_projects (name) values ('Programadas') returning id into pid;
+  insert into public.so_artifacts (project_id, name, route, state) values (pid, 'Cobranzas', '#', 'published') returning id into aid;
+  insert into public.so_automations (artifact_id, name, trigger, action, schedule, next_run_at, runs, last_status)
+  values (aid, 'Cada lunes', '{"tipo":"programada"}', '{"pasos":["pdf","avisar"]}', '{"tipo":"semanal","dias":[1],"hora":"09:00","tz":"America/Argentina/Buenos_Aires"}', now() - interval '1 minute', 99, 'ok')
+  returning id into au;
+  if (select runs from public.so_automations where id = au) <> 0 or (select last_status from public.so_automations where id = au) is not null then raise exception 'el usuario fijó el estado del ejecutor'; end if;
+  update public.so_automations set runs = 50, lease_until = now() + interval '1 day' where id = au;
+  if (select runs from public.so_automations where id = au) <> 0 or (select lease_until from public.so_automations where id = au) is not null then raise exception 'el usuario modificó el estado del ejecutor'; end if;
+  perform pg_temp.debe_fallar(format($q$update public.so_automations set schedule = '{"tipo":"cada_minuto","hora":"09:00"}' where id = %L$q$, au), 'horario inválido');
+  perform pg_temp.debe_fallar(format($q$update public.so_automations set schedule = '{"tipo":"diaria","hora":"25:00"}' where id = %L$q$, au), 'hora inválida');
+  perform pg_temp.debe_fallar($q$select public.so_reclamar_automatizaciones(10)$q$, 'reclamar turnos como usuario');
+  perform pg_temp.debe_fallar($q$select public.so_cron_token_valido('x')$q$, 'validar el token como usuario');
+  perform pg_temp.debe_fallar($q$select public.so_disparar_automatizaciones(true)$q$, 'disparar el ejecutor como usuario');
+  perform pg_temp.debe_fallar(format($q$select public.so_usuario_habilitado(%L)$q$, ub), 'consultar si otro usuario está habilitado');
+  perform pg_temp.debe_fallar(format($q$select public.so_cerrar_turno(%L, now(), 'ok')$q$, au), 'cerrar un turno como usuario');
+  -- Otro usuario: no ve la automatización ni puede colgar una de un tablero ajeno.
+  perform pg_temp.como(ub, 'b@otra.com');
+  select count(*) into n from public.so_automations where id = au; if n <> 0 then raise exception 'automatización ajena visible'; end if;
+  reset role;
+  -- Servidor (service role): reclama una sola vez, respeta el lease y sabe quién está habilitado.
+  set local role service_role;
+  select count(*) into n from public.so_reclamar_automatizaciones(10) x where x.id = au; if n <> 1 then raise exception 'el servidor no reclamó el turno vencido'; end if;
+  select count(*) into n from public.so_reclamar_automatizaciones(10) x where x.id = au; if n <> 0 then raise exception 'el mismo turno se reclamó dos veces'; end if;
+  if not public.so_usuario_habilitado(ua) then raise exception 'usuario habilitado no reconocido'; end if;
+  if public.so_usuario_habilitado(ub) then raise exception 'usuario no habilitado reconocido como habilitado'; end if;
+  if public.so_cron_token_valido(null) or public.so_cron_token_valido('corto') then raise exception 'token inválido aceptado'; end if;
+  perform public.so_cerrar_turno(au, now() + interval '7 days', 'ok');
+  select * into r from public.so_automations where id = au;
+  if r.lease_until is not null or r.runs <> 1 or r.last_status <> 'ok' or r.next_run_at < now() + interval '6 days' then raise exception 'cierre de turno incorrecto'; end if;
+  reset role;
+  -- Sin turnos pendientes, el disparador no llama a la función (no genera tráfico cada 5 minutos).
+  select count(*) into n from net.llamadas; perform public.so_disparar_automatizaciones();
+  if (select count(*) from net.llamadas) <> n then raise exception 'disparó sin pendientes'; end if;
+  raise notice 'SEGURIDAD AUTOMATIZACIONES OK';
+end $$;
 rollback;

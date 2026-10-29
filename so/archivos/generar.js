@@ -25,7 +25,7 @@ const celda = (v) => (typeof v === 'number' ? fmt.format(v) : String(v ?? ''));
 const deltaTxt = (d) => (d == null ? '' : ` (${d >= 0 ? '+' : '-'}${fmt.format(Math.abs(d * 100))}%)`);
 
 export function nombreArchivo(titulo, formato) {
-  const base = String(titulo || 'archivo').normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^A-Za-z0-9 ._-]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 80) || 'archivo';
+  const base = String(titulo || 'archivo').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^A-Za-z0-9 ._-]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 80) || 'archivo';
   return `${base.replace(/^[^A-Za-z0-9]+/, '') || 'archivo'}.${formato}`;
 }
 
@@ -109,7 +109,7 @@ function xml(doc) {
 
 // XML bien formado (sin DOMParser, para validar también en node): etiquetas balanceadas, un solo elemento raíz.
 export function xmlBienFormado(t) {
-  const sinDecl = t.replace(/^﻿?<\?xml[^?]*\?>\s*/, '');
+  const sinDecl = t.replace(/^\uFEFF?<\?xml[^?]*\?>\s*/, '');
   const pila = []; let raices = 0;
   const re = /<(\/?)([A-Za-z_][\w.-]*)((?:\s+[\w:.-]+\s*=\s*(?:"[^"<]*"|'[^'<]*'))*)\s*(\/?)>|<!--[\s\S]*?-->|<([^>]*)>/g;
   let m, ultimo = 0;
@@ -308,6 +308,10 @@ export async function generar(doc, formato, libs = {}) {
 /**
  * Validación estructural real del archivo generado (no del pedido): existe, tiene tamaño, firma y estructura del
  * formato esperado. Devuelve { ok, detalle } con lo comprobado.
+ * @param {Uint8Array} bytes
+ * @param {string} formato
+ * @param {{ filasEsperadas?: number|null, XLSX?: any, entradas?: number|null }} [op]
+ * @returns {{ ok: boolean, detalle: string }}
  */
 export function validarArchivo(bytes, formato, { filasEsperadas = null, XLSX = null, entradas = null } = {}) {
   const fallo = (m) => ({ ok: false, detalle: m });
@@ -339,7 +343,7 @@ export function validarArchivo(bytes, formato, { filasEsperadas = null, XLSX = n
       return n ? { ok: true, detalle: `${n} ${n === 1 ? 'página' : 'páginas'}` } : fallo('el PDF no tiene páginas');
     }
     if (formato === 'csv') {
-      const t = dec().replace(/^﻿/, '').trimEnd();
+      const t = dec().replace(/^\uFEFF/, '').trimEnd();
       const filas = t.split(/\r?\n/).length - 1;
       if (filasEsperadas != null && filas !== filasEsperadas) return fallo(`se esperaban ${filasEsperadas} filas y hay ${filas}`);
       return { ok: true, detalle: `${filas} filas · UTF-8` };
@@ -382,7 +386,7 @@ export function validarArchivo(bytes, formato, { filasEsperadas = null, XLSX = n
 
 // Pedido en lenguaje natural → formato. null si no pide un archivo.
 export function formatoPedido(texto) {
-  const n = String(texto || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+  const n = String(texto || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
   const quiere = /\b(pasame|pasalo|pasa|generame|genera|generar|exporta|exportar|exportame|exportalo|exportala|generalo|generala|descarga|descargar|bajame|armame|arma|preparame|prepara|haceme|converti|convertir|convertilo|en formato|como archivo|guardalo como|dame)\b/.test(n);
   if (!quiere) return null;
   if (/\bexcel|xlsx|planilla|hoja de calculo\b/.test(n)) return 'xlsx';

@@ -7,8 +7,7 @@ import { zip } from './zip.js';
 import { compararTablas, compararTextos, interpretarEdicion, aplicarEdicion, consolidar } from './tablas.js';
 import { sanearNombre } from '../ingesta/tipos.js';
 import { sha256, BUCKET } from '../ingesta/entrada.js';
-import { kpis, porMes } from '../vista.js';
-import { nombreMes, insights, comparar, filtrar as filtrarVista } from '../analisis.js';
+import { docDeDatos } from './doc.js';
 import { tamano } from '../genui.js';
 
 const VENDOR = new URL('../../valo/vendor/', import.meta.url).href;
@@ -117,29 +116,8 @@ export function crearArchivos(x) {
 
   // ------------------------------------------------------------------ contenido: artefacto / tabla → DocSpec
   async function docDeArtefacto(a, { formato } = {}) {
-    const d = await x.datosDe(a.id);
     const s = E.get().artefactoId === a.id ? E.get() : {};
-    const recs = filtrarVista(d.records, s);
-    const num = d.fields.find((f) => f.key === a.configuration?.metrica) || d.fields.find((f) => f.type === 'number');
-    const cat = d.fields.filter((f) => f.type === 'text').map((f) => ({ f, n: new Set(d.records.map((r) => r.data?.[f.key]).filter(Boolean)).size })).filter((z) => z.n >= 2 && z.n <= 20).sort((p, r) => p.n - r.n)[0]?.f || null;
-    const contexto = [s.filtro ? `solo ${s.filtro.label || s.filtro.key}: ${s.filtro.valor}` : '', s.desde ? `desde ${nombreMes(s.desde)}` : '', s.hasta && s.hasta !== s.desde ? `hasta ${nombreMes(s.hasta)}` : ''].filter(Boolean).join(' · ');
-    const secciones = [];
-    if (num) {
-      const k = kpis(recs, num.key);
-      const ins = insights(d.records.filter((r) => !s.filtro || String(r.data?.[s.filtro.key] ?? '').toLowerCase() === String(s.filtro.valor).toLowerCase()), num, cat, s, new Date().toISOString().slice(0, 10), 2);
-      secciones.push({ titulo: 'Resumen', metricas: [{ label: `Total ${num.label}`, valor: k.total }, ...(k.ultimoMes ? [{ label: `${num.label} ${nombreMes(k.ultimoMes.mes)}`, valor: k.ultimoMes.total, delta: k.variacion }] : []), { label: 'Registros', valor: recs.length }],
-        parrafos: ins.map((i) => `${i.titulo}. ${i.texto}`) });
-      if (s.comparar) {
-        const mesA = s.hasta || s.desde; if (mesA) { const c = comparar(recs.length ? d.records : [], num, mesA, s.comparar, cat); secciones.push({ titulo: `Comparación ${nombreMes(mesA)} vs. ${nombreMes(s.comparar)}`, parrafos: [c.texto] }); }
-      }
-      const serie = porMes(recs, num.key);
-      if (serie.length) secciones.push({ titulo: `${num.label} por mes`, tabla: { columnas: [{ label: 'Mes', type: 'text' }, { label: num.label, type: 'number' }], filas: serie.map((p) => [nombreMes(p.mes), p.total]) } });
-    }
-    const max = formato === 'pdf' || formato === 'docx' || formato === 'pptx' ? 500 : 200000;
-    const detalle = recs.slice(-max);
-    secciones.push({ titulo: 'Detalle', parrafos: recs.length > max ? [`Se incluyen los últimos ${max} de ${recs.length} registros; el archivo Excel o CSV trae todos.`] : [],
-      tabla: { columnas: [{ label: 'Fecha', type: 'date' }, ...d.fields.map((f) => ({ label: f.label || f.key, type: f.type }))], filas: detalle.map((r) => [String(r.period).slice(0, 10), ...d.fields.map((f) => r.data?.[f.key] ?? null)]) } });
-    return { doc: { titulo: a.name, subtitulo: `${contexto || 'Todos los datos'} · generado ${new Date().toLocaleDateString('es-AR')}`, secciones }, registros: recs.length };
+    return docDeDatos(a, await x.datosDe(a.id), s, { formato });
   }
 
   const docDeTabla = (titulo, tabla, subtitulo = null) => ({ titulo, subtitulo: subtitulo || `${tabla.filas.length} filas · generado ${new Date().toLocaleDateString('es-AR')}`, secciones: [{ titulo: 'Datos', tabla }] });

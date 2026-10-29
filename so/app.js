@@ -12,6 +12,7 @@ import { renderUI, validar as validarUI, specsComparacion } from './genui.js';
 import { crearArchivos } from './archivos/servicio.js';
 import { formatoPedido, FORMATOS } from './archivos/generar.js';
 import { interpretarEdicion } from './archivos/tablas.js';
+import { interpretarHorario, describirHorario, proximaEjecucion, FORMATOS_SERVIDOR, TZ_POR_DEFECTO } from './archivos/programadas.js';
 import { crearEstado, chips, riesgo, explicarPermiso, paraContinuidad } from './estado.js';
 import { analizar, comparar, mesAnterior, mesesConDatos, nombreMes, totalMes } from './analisis.js';
 import { rankear } from './busqueda.js';
@@ -809,9 +810,11 @@ async function intencionArchivo(texto, adjuntos) {
   const n = normalizar(texto);
   const s = E.get();
   if (/\bcada vez que\b/.test(n) && /\b(cargue|cargo|suba|subo|importe|llegue|entre|actualice)\b/.test(n)) return crearAutomatizacionDesde(texto);
-  if (/\b(cada|todos los|todas las) (lunes|martes|miercoles|jueves|viernes|sabado|domingo|dia|dias|semana|semanas|mes|meses|manana|mananas)\b/.test(n) && /\b(genera|generame|manda|envia|arma|prepara|informe|reporte|excel|pdf)\b/.test(n)) {
-    return { texto: 'Todavía no puedo ejecutar tareas programadas por calendario: las automatizaciones de SO corren cuando se cargan datos (mientras SO está abierto). Puedo generar el informe ahora ("generá el informe en PDF") o dejarlo configurado para que se arme solo cada vez que cargues datos.',
-      meta: { estado: 'ejecutado', confianza: { nivel: 'incompleta', motivo: 'no hay un ejecutor programado en el servidor todavía' } } };
+  if (/\b(mis|las|que) automatizaciones\b|\bque (tengo |hay )?programad[oa]s?\b|\bautomatizaciones (activas|programadas)\b/.test(n)) return listarAutomatizaciones();
+  const pausa = n.match(/\b(pausa\w*|deten\w*|desactiva\w*|frena\w*|reactiva\w*|reanuda\w*|activa\w*)\b.*\b(automatizacion|programad[oa]|envio)/);
+  if (pausa) return pausarAutomatizacion(texto, !/^(reactiva|reanuda|activa)/.test(pausa[1]));
+  if (/\b(cada|todos los|todas las) (lunes|martes|miercoles|jueves|viernes|sabado|domingo|dia|dias|semana|semanas|mes|meses|manana|mananas|\d+ (horas|minutos))\b|\bde lunes a viernes\b|\bde cada mes\b/.test(n) && /\b(genera\w*|manda\w*|envia\w*|arma\w*|prepara\w*|informe|reporte|excel|pdf|word|csv|powerpoint|presentacion|planilla|export\w*)\b/.test(n)) {
+    return programarDesde(texto);
   }
   const pl = texto.match(/guard[aá]\w*\s+(?:esto|este informe|este reporte|el informe|esta exportaci[oó]n|este archivo)?\s*como\s+plantilla(?:\s+(?:de\s+|llamada\s+)?["“]?([^"”.]+)["”]?)?/i);
   if (pl) {
@@ -898,6 +901,53 @@ async function generadosDelChat() {
   return fs.filter((f) => f.detected_type !== 'zip');
 }
 
+// Automatización por calendario: corre en el servidor (Edge Function + pg_cron) aunque SO esté cerrado.
+const fechaLocal = (d, tz) => d.toLocaleString('es-AR', { timeZone: tz, weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' });
+async function programarDesde(texto) {
+  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || TZ_POR_DEFECTO;
+  const h = interpretarHorario(texto, { tz });
+  if (!h) return { texto: 'Puedo programar tareas diarias, semanales o mensuales (por ejemplo "cada lunes a las 9", "de lunes a viernes a las 8" o "el 1 de cada mes"). Intervalos de horas o minutos todavía no.', meta: { estado: 'propuesta' } };
+  const a = resolverArtefacto(texto, publicados().filter((x) => !x.configuration?.surface), E.get().artefactoId);
+  if (!a) return { texto: '¿De qué tablero? Por ejemplo: "Cada lunes a las 9 generá el PDF de ventas".', meta: { estado: 'propuesta' } };
+  const pedido = formatoPedido(`generame ${texto}`);
+  if (pedido && FORMATOS[pedido]?.imagen) return { texto: `Las imágenes (${FORMATOS[pedido].etiqueta}) se dibujan en tu navegador, así que no puedo generarlas en el servidor. Puedo programar PDF, Excel, Word, PowerPoint, CSV, JSON, XML, RTF o Markdown.`, meta: { estado: 'propuesta' } };
+  const formato = pedido && FORMATOS_SERVIDOR.includes(pedido) ? pedido : 'pdf';
+  const pasos = [formato, 'avisar'];   // programada: siempre se avisa (el usuario no está mirando)
+  const proxima = proximaEjecucion(h);
+  const nombre = `${describirHorario(h).replace(/^./, (c) => c.toUpperCase())}: ${FORMATOS[formato].etiqueta} de ${a.name}`.slice(0, 200);
+  const auto = await q(sb.from('so_automations').insert({ artifact_id: a.id, name: nombre, trigger: { tipo: 'programada' }, action: { pasos }, schedule: h, next_run_at: proxima.toISOString() }).select('id, next_run_at').single());
+  const ok = (await q(sb.from('so_automations').select('id, schedule, next_run_at, enabled').eq('id', auto.id))).some((x) => x.enabled && x.schedule?.hora === h.hora);
+  return { texto: `Listo: ${describirHorario(h)} genero el ${FORMATOS[formato].etiqueta} de "${a.name}" con los datos del momento y te aviso. Corre en el servidor, aunque SO esté cerrado. Próxima: ${fechaLocal(proxima, h.tz)}.`,
+    meta: { estado: ok ? 'verificado' : 'ejecutado', artifactId: a.id, undo: { tipo: 'automatizacion', id: auto.id, artifactId: a.id },
+      porque: `Hora de ${h.tz.replace(/_/g, ' ')}. Cada ejecución queda en Actividad y el archivo en Archivos; si algo falla te llega un aviso. Podés pausarla con "pausá la automatización de ${a.name.toLowerCase()}".` } };
+}
+
+async function listarAutomatizaciones() {
+  const autos = await q(sb.from('so_automations').select('id, name, enabled, schedule, next_run_at, last_run_at, last_status, artifact_id, trigger').order('created_at'));
+  if (!autos.length) return { texto: 'No tenés automatizaciones. Probá: "cada lunes a las 9 generá el PDF de ventas" o "cada vez que cargue datos en ventas, avisame".', meta: { estado: 'ejecutado' } };
+  const linea = (x) => `• ${x.name}${x.enabled ? '' : ' (pausada)'}${x.schedule ? ` — próxima: ${x.enabled && x.next_run_at ? fechaLocal(new Date(x.next_run_at), x.schedule.tz) : '—'}${x.last_status ? ` · última: ${x.last_status === 'ok' ? 'bien' : 'falló'}` : ''}` : ' — al cargar datos'}`;
+  const ui = autos.slice(0, 8).map((x) => ({ type: 'Action', props: { label: `${x.enabled ? 'Pausar' : 'Reactivar'}: ${x.name}`.slice(0, 90), accion: x.enabled ? 'pausar_auto' : 'reanudar_auto', datos: { id: x.id } } }));
+  return { texto: `Tus automatizaciones:\n${autos.map(linea).join('\n')}`, meta: { estado: 'ejecutado', ui } };
+}
+
+async function cambiarAutomatizacion(id, activa) {
+  const [x] = await q(sb.from('so_automations').select('id, name, schedule').eq('id', id));
+  if (!x) throw new Error('no encontré esa automatización');
+  const cambio = { enabled: activa, ...(activa && x.schedule ? { next_run_at: proximaEjecucion(x.schedule).toISOString() } : {}) };
+  const hechos = await q(sb.from('so_automations').update(cambio).eq('id', id).select('id, enabled, next_run_at'));
+  if (hechos[0]?.enabled !== activa) throw new Error('no pude guardar el cambio');
+  return { texto: activa ? `Reactivé "${x.name}".${x.schedule ? ` Próxima: ${fechaLocal(new Date(hechos[0].next_run_at), x.schedule.tz)}.` : ''}` : `Pausé "${x.name}". No se ejecuta hasta que la reactives.`, meta: { estado: 'verificado' } };
+}
+
+async function pausarAutomatizacion(texto, pausar) {
+  const autos = await q(sb.from('so_automations').select('id, name, artifact_id, enabled').eq('enabled', pausar));   // pausar: entre las activas; reactivar: entre las pausadas
+  const a = resolverArtefacto(texto, publicados(), E.get().artefactoId);
+  const elegidas = a ? autos.filter((x) => x.artifact_id === a.id) : autos;
+  if (!elegidas.length) return { texto: pausar ? 'No encontré automatizaciones activas para pausar.' : 'No hay automatizaciones pausadas para reactivar.' };
+  if (elegidas.length > 1) return listarAutomatizaciones();
+  return cambiarAutomatizacion(elegidas[0].id, !pausar);
+}
+
 async function crearAutomatizacionDesde(texto) {
   const n = normalizar(texto);
   const a = resolverArtefacto(texto, publicados(), E.get().artefactoId);
@@ -952,6 +1002,11 @@ function pedirConArchivo(fileId, texto) {
 }
 
 async function accionUI(accion, datos) {
+  if (accion === 'pausar_auto' || accion === 'reanudar_auto') {
+    const r = await cambiarAutomatizacion(datos.id, accion === 'reanudar_auto').catch((err) => ({ ok: false, texto: `No pude cambiar la automatización: ${err.message}.`, meta: { estado: 'fallo' } }));
+    await guardarMensaje('assistant', r.texto, r.meta || {});
+    return;
+  }
   if (accion === 'exportar_comparacion') {
     actividad('creando');
     const r = await A.exportarComparacion(datos.a, datos.b).catch((err) => ({ ok: false, texto: `No pude exportar la comparación: ${err.message}.`, meta: { estado: 'fallo' } }));

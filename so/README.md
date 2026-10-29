@@ -66,9 +66,29 @@ Recorrido común: `recibir → identificar (firma de bytes) → validar → segu
 npm run test:so                                   # intención, análisis, estado, búsqueda, importación, avatar
 npm run test:so:e2e                               # recorridos A–G en Chromium con Supabase simulado
 npm run test:so:ingesta                           # recorridos de ingesta A–K (archivos reales generados, Storage simulado)
+npm run test:so:deno                              # ejecutor de automatizaciones programadas en Deno (runtime de la Edge Function)
 npm run test:so:workspace                         # Workspace adaptativo + archivos: descargas reales validadas (XLSX/PDF/DOCX/PPTX), versiones, seguridad, móvil, a11y
-psql … -f so/supabase/tests/seguridad.sql         # sobre una base con la migración (nunca producción)
+psql … -f so/supabase/tests/supabase_local.sql    # solo en un PostgreSQL local: simula auth, storage, vault, cron y net
+psql … -f so/supabase/tests/seguridad.sql         # sobre una base con las migraciones (nunca producción)
 ```
+
+## Automatizaciones programadas ("cada lunes a las 9 generá el PDF de ventas")
+
+Corren en el servidor aunque SO esté cerrado: pg_cron (cada 5 min) → `so_disparar_automatizaciones()` → si hay turnos
+vencidos, pg_net llama a la Edge Function `so-automatizaciones` con un token que vive solo en Vault → la función reclama
+los turnos (lease atómico), genera el archivo con el mismo código que el navegador (`archivos/programadas.js`), lo guarda
+en la carpeta del dueño, verifica la descarga y avisa. Horarios diarios, semanales o mensuales en la zona del usuario.
+Las imágenes (PNG/JPG/WEBP) no se programan: se dibujan con el Canvas del navegador.
+
+Configuración única (ya hecha en el proyecto; para otro proyecto, en el editor SQL):
+`vault.create_secret('https://<ref>.supabase.co', 'so_functions_url')` y
+`vault.create_secret(encode(extensions.gen_random_bytes(32), 'hex'), 'so_cron_token')` (el token no sale de la base).
+
+Despliegue de la función: `index.ts` importa los módulos con el prefijo `so/`. En el repositorio `deno.json` lo apunta a
+`../../../` (pruebas locales); al desplegar, el `deno.json` apunta a
+`https://raw.githubusercontent.com/dsemino83/DANI/<commit>/so/` fijado a un commit (inmutable: lo desplegado es exactamente
+ese código). Autoprueba: `select public.so_disparar_automatizaciones(true)` no ejecuta nada si no hay turnos; con
+`{"autoprueba": true}` y el token, la función devuelve las huellas de cada formato para compararlas con el repositorio.
 
 ## Para conversar libremente
 

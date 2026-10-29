@@ -2,7 +2,8 @@
 // selección para preguntar a Francisco, frescura de datos, carga e importación, e historial.
 // Lo usan el workspace del dueño (app.js) y la ruta compartida (shared/). El estado (período, filtro, comparación,
 // selección) llega de afuera y los cambios se devuelven por onEstado: la UI y Francisco comparten la misma fuente.
-import { filtrar, mesesConDatos, nombreMes, comparar, mesAnterior, insights } from './analisis.js';
+import { filtrar, mesesConDatos, nombreMes, comparar, mesAnterior, insights, porMes, kpis } from './analisis.js';
+export { porMes, kpis };   // viven en analisis.js (puras, también las usa el servidor)
 
 export const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const fmt = new Intl.NumberFormat('es-AR', { maximumFractionDigits: 2 });
@@ -10,18 +11,6 @@ const compacto = new Intl.NumberFormat('es-AR', { notation: 'compact', maximumFr
 const SERIES = ['--series-1', '--series-2', '--series-3', '--series-4', '--series-5', '--series-6', '--series-7', '--series-8'];
 
 export function mesDe(fecha) { return String(fecha).slice(0, 7); }
-
-// Agrega por mes la suma de un campo numérico. Pura (se prueba en node).
-export function porMes(records, key) {
-  const m = new Map();
-  for (const r of records) {
-    const v = Number(r.data?.[key]);
-    if (!Number.isFinite(v)) continue;
-    const k = mesDe(r.period);
-    m.set(k, (m.get(k) || 0) + v);
-  }
-  return [...m.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([mes, total]) => ({ mes, total }));
-}
 
 // Reparte un campo numérico por las categorías de un campo de texto; más de 8 → "Otros".
 export function porCategoria(records, key, cat) {
@@ -36,14 +25,6 @@ export function porCategoria(records, key, cat) {
   if (orden.length <= 8) return orden.map(([nombre, total]) => ({ nombre, total }));
   const resto = orden.slice(7).reduce((s, [, v]) => s + v, 0);
   return [...orden.slice(0, 7).map(([nombre, total]) => ({ nombre, total })), { nombre: 'Otros', total: resto }];
-}
-
-export function kpis(records, key) {
-  const vals = records.map((r) => Number(r.data?.[key])).filter(Number.isFinite);
-  const meses = porMes(records, key);
-  const ult = meses.at(-1), ant = meses.at(-2);
-  const variacion = ult && ant && ant.total !== 0 ? (ult.total - ant.total) / Math.abs(ant.total) : null;
-  return { total: vals.reduce((s, v) => s + v, 0), registros: vals.length, ultimoMes: ult || null, variacion };
 }
 
 export function haceCuanto(fecha, ahora = Date.now()) {

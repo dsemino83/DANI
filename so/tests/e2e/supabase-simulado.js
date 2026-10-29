@@ -55,7 +55,7 @@
           if (table === 'so_api_sources' && r.auth_ref) return { data: null, error: { message: 'la credencial se guarda solo con so_api_guardar_secreto' } };
           if (table === 'so_api_sources') Object.assign(nuevo, { status: 'draft', auth_scheme: r.auth_scheme || 'none', parameters: {}, headers: {}, response_mapping: {}, retry_policy: { max: 2 }, timeout_ms: 10000, last_sync_at: null, ...r });
           if (table === 'so_menu') Object.assign(nuevo, { favorite: false, open_count: 0, last_opened_at: null, status: 'available', ord: 0, size: 'M', preview: null, ...r });
-          if (table === 'so_automations') Object.assign(nuevo, { enabled: true, ...r });   // default de la columna en la migración
+          if (table === 'so_automations') Object.assign(nuevo, { enabled: true, schedule: null, next_run_at: null, runs: 0, ...r });   // defaults de las migraciones
           if (table === 'so_menu' && !['S', 'M', 'L'].includes(nuevo.size)) return { data: null, error: { message: 'violates check constraint so_menu_size_check' } };
           if (table === 'so_tasks') nuevo.checkpoint ||= {};
           if (table === 'so_tasks' && r.idempotency_key && db.so_tasks.some((x) => x.owner_id === nuevo.owner_id && x.idempotency_key === r.idempotency_key)) return { data: null, error: { message: 'duplicate key value violates unique constraint' } };
@@ -81,6 +81,7 @@
         data = db[table].filter(match);
         for (const o of [...st.order].reverse()) data = [...data].sort((a, b) => (a[o.c] > b[o.c] ? 1 : a[o.c] < b[o.c] ? -1 : 0) * (o.asc ? 1 : -1));
         if (st.limit) data = data.slice(0, st.limit);
+        if (st.rango) data = data.slice(st.rango[0], st.rango[1] + 1);
       }
       save();
       const count = Array.isArray(data) ? data.length : null;
@@ -105,6 +106,7 @@
       ilike(c, v) { st.filters.push((r) => String(r[c]).toLowerCase() === v.toLowerCase()); return b; },
       order(c, o) { st.order.push({ c, asc: o?.ascending !== false }); return b; },
       limit(n) { st.limit = n; return b; },
+      range(a, z) { st.rango = [a, z]; return b; },
       single() { st.single = true; return b; },
       maybeSingle() { st.single = true; return b; },
       then(res, rej) { return new Promise((r) => setTimeout(r, 5)).then(run).then(res, rej); },
@@ -117,6 +119,7 @@
     const err = (m) => ({ data: null, error: { message: m } });
     switch (fn) {
       case 'es_valo': return ok(user().email === 'd.semino83@gmail.com');
+      case 'so_usuario_habilitado': return ok(Object.values(USERS).some((u) => u.id === a.p_user && u.email === 'd.semino83@gmail.com'));
       case 'so_shared_list': return ok(db.so_shares.filter((s) => !s.revoked_at && s.grantee_email === user().email).map((s) => { const x = db.so_artifacts.find((y) => y.id === s.artifact_id); return { id: x.id, name: x.name, type: x.type, permission: s.permission }; }));
       case 'so_compartir': {
         if (permiso(a.p_artifact) !== 'OWNER') return err('sin permiso');
@@ -235,6 +238,7 @@
       from: builder, rpc,
       functions: { invoke: async (nombre, { body } = {}) => (nombre === 'so-api' ? fnApi(body) : { data: null, error: { message: 'x', context: { status: 503 } } }) },
       storage: { from: () => ({
+        upload: async (path, body, op = {}) => { const r = await fetch(`${SUPA}/storage/v1/object/so-archivos/${path}`, { method: 'POST', body, headers: { Authorization: `Bearer ${user().id}`, 'x-upsert': String(!!op.upsert) } }); return r.ok ? { data: { path }, error: null } : { data: null, error: { message: String(r.status) } }; },
         download: async (path) => { if (fallar('storage.download')) return { data: null, error: { message: 'no' } }; const r = await fetch(`${SUPA}/storage/v1/object/so-archivos/${path}`, { headers: { Authorization: `Bearer ${user().id}` } }); return r.ok ? { data: await r.blob(), error: null } : { data: null, error: { message: String(r.status) } }; },
         // Como RLS de storage.objects: solo se firma lo que está en la carpeta del usuario. El token expira.
         createSignedUrl: async (path, segundos = 60, op = {}) => {

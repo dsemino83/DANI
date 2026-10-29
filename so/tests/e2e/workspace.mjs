@@ -25,7 +25,7 @@ const py = (codigo, archivo) => { const r = spawnSync('python3', ['-I', '-c', co
 const { srv, BASE } = crearServidor({ puerto: 8770, root, dir, tmp });
 const b = await chromium.launch();
 const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64');
-const nuevoCtx = async (op = {}) => { const c = await b.newContext({ viewport: { width: 1360, height: 860 }, acceptDownloads: true, ...op }); await c.route('https://cdn.openart.ai/**', (r) => r.fulfill({ status: 200, contentType: 'image/webp', body: PNG })); return c; };
+const nuevoCtx = async (op = {}) => { const c = await b.newContext({ viewport: { width: 1360, height: 860 }, acceptDownloads: true, timezoneId: 'America/Argentina/Buenos_Aires', ...op }); await c.route('https://cdn.openart.ai/**', (r) => r.fulfill({ status: 200, contentType: 'image/webp', body: PNG })); return c; };
 const ctx = await nuevoCtx();
 const pg = await ctx.newPage();
 const errores = []; pg.on('pageerror', (e) => errores.push(e.message)); pg.on('console', (m) => m.type() === 'error' && !/Failed to load resource/.test(m.text()) && errores.push(m.text()));
@@ -352,8 +352,33 @@ await decir('Guardá esto como plantilla Informe mensual');
 ok(/Guardé la plantilla "Informe mensual"/.test(await ultimo()), 'Plantillas: proceso repetible guardado');
 await decir('Generá el informe mensual');
 ok(/Generé "Informe mensual"/.test(await ultimo()) && await pg.isVisible('#mensajes .msg:last-child .gu-file'), 'Plantillas: se genera con los datos actuales');
-await decir('Cada lunes generá un informe de cobranzas');
-ok(/Todavía no puedo ejecutar tareas programadas/.test(await ultimo()), 'Honestidad: lo programado por calendario no se simula');
+// Programadas por calendario: se registran con horario y zona, y las ejecuta el servidor (mismo módulo que la Edge Function).
+await decir('Cada lunes a las 9 generá el PDF de cobranzas y avisame');
+t = await ultimo();
+ok(/cada lunes a las 09:00 genero el PDF de "Cobranzas"/.test(t) && /aunque SO esté cerrado/.test(t) && /Próxima: lunes/.test(t) && /Verificado/.test(t), 'Programadas: "cada lunes a las 9…" queda registrada y verificada, con la próxima ejecución');
+d = await db();
+const prog = d.so_automations.find((x) => x.schedule);
+const esperado = await pg.evaluate(async (h) => (await import('/so/archivos/programadas.js')).proximaEjecucion(h).toISOString(), prog.schedule);
+ok(/Buenos_Aires$/.test(prog.schedule.tz) && prog.next_run_at === esperado && new Date(prog.next_run_at).getUTCDay() === 1 && new Date(prog.next_run_at).getUTCHours() === 12,
+  `Programadas: lunes 09:00 en la zona del usuario = 12:00 UTC (${prog.next_run_at})`);
+const ejecutar = (auto) => pg.evaluate(async (au) => (await import('/so/archivos/programadas.js')).ejecutarProgramada({ db: window.supabase.createClient(), auto: au, slot: au.next_run_at, libs: { jsPDF: window.jspdf?.jsPDF } }), auto);
+const corrida = await ejecutar(prog);
+d = await db();
+const pdfProg = d.so_files.find((f) => f.meta?.automatizacion === prog.id);
+ok(corrida.estado === 'ok' && pdfProg?.detected_type === 'pdf' && pdfProg.status === 'ready' && pdfProg.storage_path.startsWith(`${pdfProg.owner_id}/`) && d.so_notifications.some((x) => /^Cobranzas: Cada lunes/.test(x.title)),
+  'Programadas: el ejecutor genera el PDF, lo guarda en la carpeta del dueño, verifica la descarga y avisa');
+ok((await ejecutar(prog)).estado === 'repetida' && (await db()).so_files.filter((f) => f.meta?.automatizacion === prog.id).length === 1, 'Programadas: idempotente por turno (no duplica si el servidor reintenta)');
+await decir('Mostrame mis automatizaciones');
+t = await ultimo();
+ok(/Cada lunes a las 09:00: PDF de Cobranzas — próxima: lunes/.test(t) && /Al cargar datos en Ventas — al cargar datos/.test(t), 'Programadas: listado con próxima ejecución y las que corren al cargar datos');
+await pg.click('#mensajes .msg:last-child [data-gu-accion="pausar_auto"]:has-text("Cobranzas")'); pasos++; await listo(); await pg.waitForTimeout(300);
+ok(/Pausé "Cada lunes/.test(await ultimo()) && (await db()).so_automations.find((x) => x.id === prog.id).enabled === false, 'Programadas: pausar desde el listado');
+await decir('Reactivá la automatización de cobranzas');
+ok(/Reactivé "Cada lunes/.test(await ultimo()) && (await db()).so_automations.find((x) => x.id === prog.id).enabled === true, 'Programadas: reactivar por pedido (recalcula la próxima)');
+await decir('Cada lunes generá una imagen del tablero de ventas');
+ok(/se dibujan en tu navegador/.test(await ultimo()) && (await db()).so_automations.filter((x) => x.schedule).length === 1, 'Honestidad: imágenes programadas no se ofrecen (el servidor no las dibuja)');
+await decir('Cada 3 horas generá el excel de ventas');
+ok(/Intervalos de horas o minutos todavía no/.test(await ultimo()), 'Honestidad: intervalos menores a un día se rechazan con alternativa');
 journey('Automatizar');
 
 // ---------------------------------------------------------------- fallo de generación → recuperación

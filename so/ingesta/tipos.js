@@ -25,7 +25,7 @@ export function extension(nombre) {
 // Nombre seguro: sin rutas, sin caracteres de control, ASCII, sin ".." ni punto inicial. Mantiene la extensión.
 export function sanearNombre(nombre) {
   const base = String(nombre || '').split(/[\\/]/).pop()
-    .normalize('NFKD').replace(/[̀-ͯ]/g, '')
+    .normalize('NFKD').replace(/[\u0300-\u036f]/g, '')
     .replace(/[\u0000-\u001f\u007f]/g, '')
     .replace(/[^A-Za-z0-9._ -]+/g, '_')
     .replace(/\.{2,}/g, '.').replace(/_{2,}/g, '_')

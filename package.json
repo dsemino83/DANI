@@ -12,7 +12,8 @@
     "test:so": "node --test so/tests/*.test.mjs",
     "test:so:e2e": "node so/tests/e2e/recorridos.mjs",
     "test:so:ingesta": "node so/tests/e2e/ingesta.mjs",
-    "test:so:workspace": "node so/tests/e2e/workspace.mjs"
+    "test:so:workspace": "node so/tests/e2e/workspace.mjs",
+    "test:so:deno": "deno test -A --node-modules-dir=none so/tests/deno/automatizaciones.test.ts"
   },
   "devDependencies": {
     "typescript": "5.9.3"
