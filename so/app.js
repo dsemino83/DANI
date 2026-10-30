@@ -1178,7 +1178,7 @@ async function abrirCorreo(params = new URLSearchParams()) {
   const cta = cuentas[0];
   if (!cta) {
     c.innerHTML = `<div class="archivo correo-vacio"><h2>Conectá tu Gmail</h2>
-      <p>Francisco analiza tu casilla (volumen, quién te escribe, qué quedó sin responder)). Solo lee: nunca escribe, responde ni envía nada.</p>
+      <p>Francisco analiza tu casilla (volumen, quién te escribe, qué quedó sin responder). Solo lee: nunca escribe, responde ni envía nada.</p>
       <p class="vacio">Acceso de solo lectura, aprobado por vos en Google. Podés desconectarlo cuando quieras: se revoca el permiso y se borran los mails guardados.</p>
       <div class="arch-acc"><button type="button" class="primario" data-co="conectar">Conectar Gmail</button></div></div>`;
     c.querySelector('[data-co="conectar"]').onclick = async (e) => { e.currentTarget.disabled = true; try { await conectarCorreo(); } catch (err) { toast(`No pude iniciar la conexión: ${err.message}.`); e.currentTarget.disabled = false; } };
