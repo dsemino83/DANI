@@ -2,7 +2,7 @@
 (function () {
   const KEY = 'fake.db';
   const TABLAS = ['so_projects','so_datasources','so_records','so_artifacts','so_artifact_versions','so_menu','so_shares','so_chats','so_messages','so_decisions','so_signals','so_obs','so_tasks','so_notifications','so_user_state','so_events',
-    'so_files','so_file_chunks','so_data_inputs','so_api_sources','so_import_batches','so_ingest_log','so_automations','so_file_templates','so_mail_accounts','so_mails','so_mail_drafts'];
+    'so_files','so_file_chunks','so_data_inputs','so_api_sources','so_import_batches','so_ingest_log','so_automations','so_file_templates','so_mail_accounts','so_mails','so_mail_drafts','perfiles'];
   const load = () => { try { return JSON.parse(localStorage.getItem(KEY)) || null; } catch { return null; } };
   let db = load() || Object.fromEntries(TABLAS.map((t) => [t, []]));
   for (const t of TABLAS) db[t] ||= [];

@@ -15,7 +15,9 @@ const ultimo = () => pg.$eval('#mensajes .msg.assistant:last-of-type', (n) => n.
 const decir = async (t) => { if (!(await pg.isVisible('#texto'))) { await pg.click('#orb'); await pg.waitForSelector('#texto', { state: 'visible' }); } await pg.fill('#texto', t); await pg.press('#texto', 'Enter'); await listo(); return ultimo(); };
 const db = () => pg.evaluate(() => window.__db());
 
-await pg.goto(BASE + '/so/'); await pg.evaluate(() => localStorage.clear()); await pg.goto(BASE + '/so/'); await pg.waitForSelector('#app:not([hidden])');
+await pg.goto(BASE + '/404.html'); await pg.evaluate(() => { localStorage.clear(); localStorage.setItem('fake.db', JSON.stringify({ __seq: 1, perfiles: [{ id: '00000000-0000-0000-0000-00000000000a', owner_id: '00000000-0000-0000-0000-00000000000a', nombre: 'Ana Prueba' }] })); });
+await pg.goto(BASE + '/so/'); await pg.waitForSelector('#app:not([hidden])');
+await pg.waitForSelector('#vistaHome h2'); ok(/¿Qué querés crear, Ana\?/.test(await pg.textContent('#vistaHome')), 'Nombre del perfil: saluda por el nombre de pila');
 await pg.click('#linkCorreo'); await pg.waitForSelector('[data-co="conectar"]');
 ok(/nunca envía nada solo/.test(await pg.textContent('#vistaArchivo')), 'Correo: pantalla inicial explica solo lectura + borradores');
 await pg.click('[data-co="conectar"]');
@@ -28,12 +30,12 @@ await pg.click('.correo-lista li:first-child details summary');
 await pg.fill('.correo-lista li:first-child textarea', 'Gracias Ana, hoy te paso el presupuesto.'); await pg.click('.correo-lista li:first-child button[type="submit"]');
 await pg.waitForFunction(() => window.__db().so_mail_drafts.length === 1, null, { timeout: 10000 });
 let d = await db();
-ok(d.so_mail_drafts[0].to_addr === 'ana@cliente.com' && d.so_mail_drafts[0].status === 'creado' && /borrador/.test(await pg.textContent('#toast')), 'Responder: crea un borrador para Ana (no se envía)');
+ok(d.so_mail_drafts[0].to_addr === 'ana@cliente.com' && d.so_mail_drafts[0].body === 'Gracias Ana, hoy te paso el presupuesto.\n\nSaludos,\nAna Prueba' && d.so_mail_drafts[0].status === 'creado' && /borrador/.test(await pg.textContent('#toast')), 'Responder: crea un borrador para Ana (no se envía)');
 let r = await decir('Analizá mis mails');
 ok(/recibiste 4 mails/.test(r) && /2 esperando respuesta/.test(r) && await pg.isVisible('#mensajes .msg:last-child .gu-chart'), 'Chat: "analizá mis mails" responde con resumen y gráfico');
 r = await decir('Respondé el mail de Luis diciendo que mañana lo resolvemos');
 d = await db();
-ok(/borrador en tu Gmail/.test(r) && d.so_mail_drafts.some((x) => x.to_addr === 'luis@cliente.com' && x.body === 'Mañana lo resolvemos.'), 'Chat: "respondé el mail de Luis diciendo…" deja el borrador');
+ok(/borrador en tu Gmail/.test(r) && d.so_mail_drafts.some((x) => x.to_addr === 'luis@cliente.com' && x.body === 'Mañana lo resolvemos.\n\nSaludos,\nAna Prueba'), 'Chat: "respondé el mail de Luis diciendo…" deja el borrador firmado con el nombre');
 // Aislamiento: otro usuario no ve la casilla ni los mails.
 const otro = await pg.evaluate(async () => { localStorage.setItem('fake.user', 'b'); const c = window.supabase.createClient(); const [m, a] = await Promise.all([c.from('so_mails').select('*'), c.from('so_mail_accounts').select('*')]); localStorage.setItem('fake.user', 'a'); return [m.data.length, a.data.length]; });
 ok(otro[0] === 0 && otro[1] === 0, 'Seguridad: otro usuario no ve la casilla ni los mails');

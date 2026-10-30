@@ -27,6 +27,7 @@ const sb = window.supabase.createClient(cfg.url, cfg.anonKey, { auth: { persistS
 const $ = (id) => document.getElementById(id);
 const BASE_SHARED = new URL('shared/', location.href).href;
 const hoy = () => new Date().toISOString().slice(0, 10);
+const pila = () => (st.nombre ? st.nombre.split(/\s+/)[0] : null);   // nombre de pila para saludar
 const ls = {
   get(k) { try { return JSON.parse(localStorage.getItem(k)); } catch { return null; } },
   set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* sin almacenamiento: seguimos */ } },
@@ -127,6 +128,8 @@ async function iniciar(user) {
   const { data: habilitado } = await sb.rpc('es_valo');
   if (!habilitado) return soloCompartidos();
   await cargarContinuidad();
+  // Nombre del perfil (tabla perfiles): para saludar y firmar los borradores. Si no hay, se sigue sin nombre.
+  try { const p = await q(sb.from('perfiles').select('nombre').eq('id', user.id).maybeSingle()); st.nombre = String(p?.nombre || '').trim() || null; } catch { st.nombre = null; }
   await cambiarModo(E.get().modo, false);
   cargarCentro();
   setInterval(cargarCentro, 60000);
@@ -377,7 +380,7 @@ function pintarWorkspace() {
   avatares.grande = null;
   if (!todos.length && !archivados.length) {
     h.innerHTML = `<div class="ws-vacio"><span id="avatarGrande"></span>
-      <h2>¿Qué querés crear?</h2>
+      <h2>¿Qué querés crear${pila() ? `, ${esc(pila())}` : ''}?</h2>
       <p>Soy Francisco. Decime qué querés conseguir y lo armo: tableros, análisis y seguimientos con su historial guardado. Lo que creemos aparece acá como tarjetas vivas que podés abrir, compartir y actualizar.</p>
       ${cmd}
       <div class="ws-sugerencias" role="group" aria-label="Ideas para empezar">
@@ -786,7 +789,7 @@ async function responderConformidad(id, si) {
 function pintarMensajes() {
   const cont = $('mensajes');
   const bienvenida = !st.mensajes.length && E.get().vista === 'chat';
-  cont.innerHTML = bienvenida ? `<div class="bienvenida"><span id="avatarChat"></span><h2>${E.get().modo === 'work' ? 'Soy Francisco. Decime qué querés conseguir.' : 'Soy Francisco. Acá charlamos tranquilos.'}</h2>
+  cont.innerHTML = bienvenida ? `<div class="bienvenida"><span id="avatarChat"></span><h2>${pila() ? `Hola, ${esc(pila())}. ` : ''}${E.get().modo === 'work' ? 'Soy Francisco. Decime qué querés conseguir.' : 'Soy Francisco. Acá charlamos tranquilos.'}</h2>
     <p class="vacio">${E.get().modo === 'work' ? 'Lo que creemos aparece en el Workspace.' : 'En Personal solo conversamos: no se crean tableros.'}</p></div>` : st.mensajes.map(htmlMensaje).join('');
   if (bienvenida) crearAvatar(cont.querySelector('#avatarChat'), { modo: E.get().modo });
   cont.querySelectorAll('.gu-file[data-file]').forEach((n) => n.querySelectorAll('[data-gf]').forEach((b) => b.addEventListener('click', () => accionArchivo(b.dataset.gf, n.dataset.file, b))));
@@ -1052,8 +1055,15 @@ async function analizarCorreoChat() {
   return { texto: `En ${c.email} recibiste ${a.entrantes} mails desde el ${new Date(a.desde).toLocaleDateString('es-AR')}: ${a.sinLeer} sin leer y ${a.sinResponder.length} esperando respuesta${a.sinResponder[0] ? ` (el más reciente: "${a.sinResponder[0].subject}" de ${a.sinResponder[0].from_name || a.sinResponder[0].from_addr})` : ''}. ${a.automaticos} son automáticos (notificaciones, promociones).`,
     meta: { estado: 'ejecutado', ui: uiCorreo(a), fuente: { origen: c.email, operacion: 'análisis de la casilla', registros: a.total, at: new Date().toISOString() } } };
 }
+// Firma con el nombre del perfil, salvo que el texto ya cierre con un saludo o con el nombre.
+function conFirma(texto) {
+  if (!st.nombre) return texto;
+  const ult = normalizar(texto.trim().split('\n').pop());   // solo la última línea: "Gracias Ana, …" al principio no es un cierre
+  const firmado = new RegExp(`^${normalizar(pila()).replace(/[^a-z0-9]/g, '')}\\b`).test(ult);   // la última línea es el propio nombre
+  return /^(saludos|un saludo|abrazo|atentamente|cordialmente|gracias[.!]?$)/.test(ult) || firmado ? texto : `${texto}\n\nSaludos,\n${st.nombre}`;
+}
 async function borradorCorreo(mailId, texto) {
-  const r = await correoFn({ accion: 'borrador', mail: mailId, texto });
+  const r = await correoFn({ accion: 'borrador', mail: mailId, texto: conFirma(texto) });
   return { texto: `Dejé la respuesta a ${r.para} ("${r.asunto}") como borrador en tu Gmail. No se envió: revisala y mandala desde Gmail cuando quieras.`, meta: { estado: 'verificado' } };
 }
 // "Respondé el mail de Ana diciendo que mañana le mando el precio"
