@@ -171,9 +171,24 @@ begin
   insert into public.so_records (datasource_id, owner_id, period, data, import_batch_id) values (dsid, ua, '2026-11-30', '{"cliente":"Gamma","importe":7}', b3);
   perform public.so_aplicar_estrategia(b3);
   select count(*) into n from public.so_records where datasource_id = dsid and superseded_by is null; if n <> 1 then raise exception 'replace: %', n; end if;
-  perform pg_temp.debe_fallar(format('select public.so_deshacer_importacion(%L)', b2), 'deshacer con dependencias posteriores');
-  j := public.so_deshacer_importacion(b3);
-  select count(*) into n from public.so_records where datasource_id = dsid and superseded_by is null; if n <> 2 then raise exception 'deshacer replace: % %', n, j; end if;
+  -- Anular cualquier subida (aunque haya posteriores), sin borrar filas, y restaurarla.
+  select count(*) into n from public.so_records where datasource_id = dsid; if n <> 4 then raise exception 'filas antes de anular: %', n; end if;
+  j := public.so_anular_importacion(b2);   -- intermedia: lo que reemplazó pasa a la posterior (b3)
+  select count(*) into n from public.so_records where datasource_id = dsid and superseded_by is null; if n <> 1 then raise exception 'anular intermedia: % %', n, j; end if;
+  if (j ->> 'reasignadas')::int <> 1 then raise exception 'reasignadas: %', j; end if;
+  j := public.so_deshacer_importacion(b3);  -- la última: vuelve lo que había reemplazado
+  select count(*) into n from public.so_records where datasource_id = dsid and superseded_by is null; if n <> 2 then raise exception 'anular replace: % %', n, j; end if;
+  select count(*) into n from public.so_records where datasource_id = dsid; if n <> 4 then raise exception 'anular borró filas: %', n; end if;
+  if (select status from public.so_import_batches where id = b3) <> 'undone' then raise exception 'estado anulado'; end if;
+  j := public.so_restaurar_importacion(b3);
+  j := public.so_restaurar_importacion(b2);
+  select count(*) into n from public.so_records where datasource_id = dsid and superseded_by is null; if n <> 1 then raise exception 'restaurar: %', n; end if;
+  if (select superseded_by from public.so_records where import_batch_id = b1 and data ->> 'cliente' = 'ACME') <> b2 then raise exception 'restaurar no devolvió el reemplazo original'; end if;
+  if (select status from public.so_import_batches where id = b2) = 'undone' then raise exception 'estado restaurado'; end if;
+  perform pg_temp.debe_fallar(format('select public.so_restaurar_importacion(%L)', b2), 'restaurar algo no anulado');
+  j := public.so_anular_importacion(b3);
+  insert into public.so_import_batches (dataset_id, artifact_id, strategy, checksum, status, started_at) values (dsid, aid, 'APPEND', repeat('e', 64), 'ready', now() + interval '1 minute');
+  perform pg_temp.debe_fallar(format('select public.so_restaurar_importacion(%L)', b3), 'restaurar pisando una subida posterior');
   -- Compartido: USE sin habilitar no importa; con habilitación sí; duplicado detectado; filas inválidas a revisión
   update public.so_artifacts set permissions = '{}' where id = aid;
   perform public.so_compartir(aid, 'b@test.so', 'USE');
@@ -198,6 +213,8 @@ begin
   select count(*) into n from public.so_api_sources; if n <> 0 then raise exception 'B ve APIs de A'; end if;
   if public.so_origen_registro(rid) is not null then raise exception 'B ve linaje ajeno'; end if;
   perform pg_temp.debe_fallar(format('select public.so_deshacer_importacion(%L)', b1), 'B deshace importación ajena');
+  perform pg_temp.debe_fallar(format('select public.so_anular_importacion(%L)', b1), 'B anula importación ajena');
+  perform pg_temp.debe_fallar(format('select public.so_restaurar_importacion(%L)', b3), 'B restaura importación ajena');
   perform pg_temp.debe_fallar(format('select public.so_api_guardar_secreto(%L, %L)', src, 'x'), 'B cambia secreto ajeno');
   j := public.so_shared_get(aid);
   if (j ->> 'puede_cargar')::boolean then raise exception 'USE sin habilitar figura con carga'; end if;

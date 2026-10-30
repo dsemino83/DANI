@@ -178,6 +178,18 @@ ok(/Registros\s*50/.test(await pg.textContent('.kpis')), 'D: tablero actualizado
 ok(/ventas_octubre\.csv[\s\S]*30 incorporados[\s\S]*2 a revisar/.test(await pg.textContent('#datosCuerpo')), 'D: importación listada con resultado');
 journey('D');
 
+// ---------- Históricos: anular cualquier subida (sin borrar) y restaurarla
+await pg.click('#datosCuerpo [data-tabd="historicos"]');
+ok(await pg.isVisible('#datosCuerpo [data-panel-d="historicos"]') && !(await pg.isVisible('#datosCuerpo [data-subir]')), 'Históricos: solapa propia con todas las subidas');
+const filasAntes = (await db()).so_records.length;
+await pg.click('#datosCuerpo .historicos li:has-text("ventas_octubre.csv") [data-anular-lote]');
+await pg.waitForSelector('#datosCuerpo .historicos li.anulada:has-text("ventas_octubre.csv") [data-restaurar-lote]', { timeout: 10000 }); await pg.waitForTimeout(800);
+ok(/Registros\s*20/.test(await pg.textContent('.kpis')) && (await db()).so_records.length === filasAntes, 'Históricos: anular saca la subida del tablero sin borrar filas');
+await pg.click('#datosCuerpo .historicos li:has-text("ventas_octubre.csv") [data-restaurar-lote]');
+await pg.waitForSelector('#datosCuerpo .historicos li:not(.anulada):has-text("ventas_octubre.csv") [data-anular-lote]', { timeout: 10000 }); await pg.waitForTimeout(800);
+ok(/Registros\s*50/.test(await pg.textContent('.kpis')), 'Históricos: restaurar la devuelve al tablero');
+await pg.click('#datosCuerpo [data-tabd="fuentes"]');
+
 // ---------- I — duplicado
 await pg.setInputFiles('#datosCuerpo [data-subir]', F.oct); pasos++;
 await pg.waitForSelector('#dlgImportar[open] .alerta-txt', { timeout: 20000 });
@@ -215,7 +227,7 @@ await pg.click('#mensajes .msg.assistant >> nth=-3 >> [data-undo]').catch(() => 
 await pg.waitForTimeout(800);
 d = await db();
 const novLote = d.so_import_batches.find((x) => x.source_name === 'ventas_noviembre.csv');
-ok(novLote.status === 'undone' && !d.so_records.some((r) => r.import_batch_id === novLote.id), 'Deshacer importación: lote revertido sin tocar el resto');
+ok(novLote.status === 'undone' && d.so_records.some((r) => r.import_batch_id === novLote.id) && d.so_records.filter((r) => r.import_batch_id === novLote.id).every((r) => r.superseded_by === novLote.id), 'Deshacer importación: lote anulado sin borrar filas ni tocar el resto');
 
 // ---------- F/G — API → historial
 await decir('Este dashboard tiene que traer cotizaciones desde https://api.ejemplo.com/v1/cotizaciones y guardar el histórico');

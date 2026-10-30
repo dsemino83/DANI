@@ -636,13 +636,31 @@ export function crearDatos(d) {
         datasetDe(a),
         q(sb.from('so_data_inputs').select('*').eq('artifact_id', a.id).neq('status', 'removed').order('created_at')),
         q(sb.from('so_api_sources').select('id, name, base_url, status, last_sync_at, last_error, refresh_strategy, auth_scheme, auth_ref, input_id').eq('artifact_id', a.id)),
-        q(sb.from('so_import_batches').select('id, source_name, source_type, strategy, status, rows_accepted, rows_rejected, rows_superseded, started_at, errors').eq('dataset_id', a.datasource_id).order('started_at', { ascending: false }).limit(10)),
+        q(sb.from('so_import_batches').select('id, source_name, source_type, strategy, status, rows_accepted, rows_rejected, rows_superseded, started_at, errors, anulacion').eq('dataset_id', a.datasource_id).order('started_at', { ascending: false }).limit(200)),
         q(sb.from('so_artifacts').select('id, name').eq('datasource_id', a.datasource_id).neq('id', a.id).is('deleted_at', null)),
         contarActivos(a.datasource_id),
       ]);
     } catch (err) { c.innerHTML = `<p class="error">No pude cargar las fuentes: ${esc(err.message)}. <button type="button" class="enlace" data-reintentar-panel>Reintentar</button></p>`; c.querySelector('[data-reintentar-panel]').onclick = () => pintarPanel(artefactoId); return; }
     const compartirCarga = !!a.permissions?.shared_input;
+    const tab = st.tabDatos === 'historicos' ? 'historicos' : 'fuentes';
+    const vigentes = lotes.filter((l) => l.status !== 'undone').length;
+    const fecha = (x) => new Date(x).toLocaleString('es-AR', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
     c.innerHTML = `
+      <div class="tabs-datos" role="tablist" aria-label="Datos del tablero">
+        <button type="button" role="tab" data-tabd="fuentes" aria-selected="${tab === 'fuentes'}">Fuentes</button>
+        <button type="button" role="tab" data-tabd="historicos" aria-selected="${tab === 'historicos'}">Históricos <small>${fmt.format(vigentes)}${lotes.length > vigentes ? ` + ${fmt.format(lotes.length - vigentes)} anuladas` : ''}</small></button>
+      </div>
+      <section data-panel-d="historicos" role="tabpanel"${tab === 'historicos' ? '' : ' hidden'}>
+        <p class="vacio">Cada subida queda en el histórico con su fecha. Anularla saca sus datos del tablero <b>sin borrarlos</b>: si había reemplazado datos anteriores, esos vuelven. Podés restaurarla mientras no haya subidas posteriores.</p>
+        <ul class="lista historicos">${lotes.map((l) => {
+          const anulada = l.status === 'undone';
+          const puedeRestaurar = anulada && l.anulacion && !l.anulacion.restaurada_at;
+          return `<li class="${anulada ? 'anulada' : ''}"><span>${{ file: '📄', api: '🔌', shared: '👥', manual: '✍️' }[l.source_type] || '•'} ${esc(l.source_name || 'importación')}
+            <small>${esc(fecha(l.started_at))} · ${esc(ESTRATEGIAS[l.strategy])} · ${fmt.format(l.rows_accepted)} incorporados${l.rows_rejected ? ` · ${fmt.format(l.rows_rejected)} a revisar` : ''}${l.rows_superseded ? ` · ${fmt.format(l.rows_superseded)} reemplazados` : ''} · ${esc({ ready: 'vigente', partial: 'vigente (parcial)', failed: 'falló', undone: 'anulada', importing: 'en curso', expired: 'vencida' }[l.status])}${anulada && l.anulacion?.at ? ` el ${esc(fecha(l.anulacion.at))}` : ''}</small></span>
+            <span class="fila-acc">${l.rows_rejected ? `<button type="button" data-incid="${l.id}">Ver incidencias</button>` : ''}${anulada ? (puedeRestaurar ? `<button type="button" data-restaurar-lote="${l.id}">Restaurar</button>` : '') : `<button type="button" data-anular-lote="${l.id}">Anular</button>`}</span></li>`;
+        }).join('') || '<li class="vacio">Todavía no hubo subidas.</li>'}</ul>
+      </section>
+      <section data-panel-d="fuentes" role="tabpanel"${tab === 'fuentes' ? '' : ' hidden'}>
       <p class="vacio">Dataset <strong>${esc(ds.name)}</strong> · ${fmt.format(activos)} registros activos · ${ds.fields.length} campos${usan.length ? ` · también lo usan: ${usan.map((x) => esc(x.name)).join(', ')}` : ''}</p>
       <div class="msg-acc"><label class="boton-archivo">Subir archivo<input type="file" data-subir hidden></label>
         <button type="button" data-api>Conectar API</button>
@@ -658,11 +676,14 @@ export function crearDatos(d) {
           <span class="fila-acc">${api ? `<button type="button" data-sync="${api.id}">Actualizar ahora</button><button type="button" data-cred="${api.id}">Credencial</button>` : ''}
           <button type="button" data-quitar-input="${i.id}">Quitar</button></span></li>`;
       }).join('') || '<li class="vacio">Sin fuentes declaradas: los datos se cargan a mano o con Francisco.</li>'}</ul>
-      <h4>Importaciones</h4>
-      <ul class="lista">${lotes.map((l) => `<li><span>${{ file: '📄', api: '🔌', shared: '👥', manual: '✍️' }[l.source_type] || '•'} ${esc(l.source_name || 'importación')} <small>${esc(new Date(l.started_at).toLocaleString('es-AR'))} · ${esc(ESTRATEGIAS[l.strategy])} · ${fmt.format(l.rows_accepted)} incorporados${l.rows_rejected ? ` · ${fmt.format(l.rows_rejected)} a revisar` : ''}${l.rows_superseded ? ` · ${fmt.format(l.rows_superseded)} reemplazados` : ''} · ${esc({ ready: 'lista', partial: 'parcial', failed: 'falló', undone: 'deshecha', importing: 'en curso', expired: 'vencida' }[l.status])}</small></span>
-        <span class="fila-acc">${l.rows_rejected ? `<button type="button" data-incid="${l.id}">Ver incidencias</button>` : ''}${['ready', 'partial'].includes(l.status) ? `<button type="button" data-undo-lote="${l.id}">Deshacer importación</button>` : ''}</span></li>`).join('') || '<li class="vacio">Todavía no hubo importaciones.</li>'}</ul>
       <label class="radio"><input type="checkbox" data-shared-input ${compartirCarga ? 'checked' : ''}> Quienes usan este tablero compartido pueden cargar datos</label>
-      <p class="vacio">${compartirCarga ? 'Las personas con permiso "Usar" pueden cargar filas o archivos (nunca ven tus archivos fuente ni otras fuentes).' : 'Solo vos y quienes pueden modificarlo cargan datos.'}</p>`;
+      <p class="vacio">${compartirCarga ? 'Las personas con permiso "Usar" pueden cargar filas o archivos (nunca ven tus archivos fuente ni otras fuentes).' : 'Solo vos y quienes pueden modificarlo cargan datos.'}</p>
+      </section>`;
+    c.querySelectorAll('[data-tabd]').forEach((b) => b.addEventListener('click', () => {
+      st.tabDatos = b.dataset.tabd;
+      c.querySelectorAll('[data-tabd]').forEach((x) => x.setAttribute('aria-selected', String(x === b)));
+      c.querySelectorAll('[data-panel-d]').forEach((p) => { p.hidden = p.dataset.panelD !== b.dataset.tabd; });
+    }));
     c.querySelector('[data-subir]').onchange = (e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) abrirImportacion(f, a.id); };
     c.querySelector('[data-api]').onclick = () => abrirApi(a.id);
     c.querySelector('[data-dataset]').onclick = () => elegirDataset(a);
@@ -682,12 +703,23 @@ export function crearDatos(d) {
       pintarPanel(a.id);   // los datos ya importados se conservan
     }));
     c.querySelectorAll('[data-incid]').forEach((b) => b.addEventListener('click', () => verIncidencias(lotes.find((l) => l.id === b.dataset.incid))));
-    c.querySelectorAll('[data-undo-lote]').forEach((b) => b.addEventListener('click', async () => {
+    // Anular / restaurar una subida del histórico (no borra filas; ver so_anular_importacion).
+    const recargar = () => { st.datos.delete(a.id); pintarPanel(a.id); d.abrirArtefacto(a.id, { forzar: true }); };
+    c.querySelectorAll('[data-anular-lote]').forEach((b) => b.addEventListener('click', async () => {
+      const l = lotes.find((x) => x.id === b.dataset.anularLote);
+      if (!confirm(`¿Anular "${l.source_name || 'la subida'}" del ${fecha(l.started_at)}? Sus ${fmt.format(l.rows_accepted)} registros dejan de contar en el tablero${l.rows_superseded ? ' y vuelven los datos que había reemplazado' : ''}. No se borra nada: podés restaurarla.`)) return;
       b.disabled = true;
-      try { const r = await q(sb.rpc('so_deshacer_importacion', { p_batch: b.dataset.undoLote })); d.evento('undo', null, { tipo: 'importacion' });
-        d.notificar('info', `Importación deshecha: ${fmt.format(r.quitadas || 0)} registros quitados${r.reactivadas ? `, ${fmt.format(r.reactivadas)} recuperados` : ''}`, null, { artifact_id: a.id }); }
-      catch (err) { d.notificar('action', 'No pude deshacer la importación', err.message, { artifact_id: a.id }); }
-      st.datos.delete(a.id); d.abrirArtefacto(a.id, { forzar: true });
+      try { const r = await q(sb.rpc('so_anular_importacion', { p_batch: l.id })); d.evento('undo', null, { tipo: 'importacion' });
+        d.notificar('info', `Subida anulada: ${fmt.format(r.anuladas || 0)} registros fuera del tablero${r.reactivadas ? `, ${fmt.format(r.reactivadas)} recuperados` : ''}`, 'Podés restaurarla desde Datos y fuentes → Históricos.', { artifact_id: a.id }); }
+      catch (err) { d.notificar('action', 'No pude anular la subida', err.message, { artifact_id: a.id }); }
+      recargar();
+    }));
+    c.querySelectorAll('[data-restaurar-lote]').forEach((b) => b.addEventListener('click', async () => {
+      b.disabled = true;
+      try { const r = await q(sb.rpc('so_restaurar_importacion', { p_batch: b.dataset.restaurarLote }));
+        d.notificar('success', `Subida restaurada: ${fmt.format(r.restauradas || 0)} registros vuelven al tablero`, null, { artifact_id: a.id }); }
+      catch (err) { d.notificar('action', 'No pude restaurar la subida', err.message, { artifact_id: a.id }); }
+      recargar();
     }));
     c.querySelector('[data-shared-input]').onchange = async (e) => {
       await q(sb.from('so_artifacts').update({ permissions: { ...(a.permissions || {}), shared_input: e.target.checked } }).eq('id', a.id));

@@ -687,3 +687,9 @@ label.radio { display: flex; gap: 8px; align-items: center; margin-top: 10px; }
 #formClaude textarea { font: var(--t-caption); resize: vertical; margin: 6px 0; }
 .pasos-claude { margin: 0; padding-left: 20px; display: grid; gap: 8px; }
 .pasos-claude code { overflow-wrap: anywhere; }
+/* Datos y fuentes: solapas Fuentes / Históricos */
+.tabs-datos { display: flex; gap: 4px; border-bottom: 1px solid var(--border-subtle); margin-bottom: 12px; }
+.tabs-datos [role="tab"] { background: none; border: 0; border-bottom: 2px solid transparent; padding: 8px 12px; font: inherit; color: var(--text-secondary); cursor: pointer; }
+.tabs-datos [role="tab"][aria-selected="true"] { color: inherit; border-bottom-color: currentColor; font-weight: 600; }
+.tabs-datos small { color: var(--text-secondary); font-weight: 400; }
+.historicos li.anulada > span:first-child { opacity: .6; }

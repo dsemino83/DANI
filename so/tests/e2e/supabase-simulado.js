@@ -193,11 +193,33 @@
         }
         b.rows_superseded = n; return ok(n);
       }
-      case 'so_deshacer_importacion': {
+      // Anular / restaurar una subida (como la migración so_anular_importacion): no borra filas.
+      case 'so_deshacer_importacion':
+      case 'so_anular_importacion': {
         const b = db.so_import_batches.find((x) => x.id === a.p_batch && x.owner_id === user().id); if (!b) return err('lote inexistente o sin permiso');
-        const antes = db.so_records.length; db.so_records = db.so_records.filter((r) => r.import_batch_id !== b.id);
-        let reac = 0; for (const r of db.so_records) if (r.superseded_by === b.id) { r.superseded_by = null; reac++; }
-        b.status = 'undone'; return ok({ quitadas: antes - db.so_records.length, reactivadas: reac });
+        if (b.status === 'undone') return ok({ ya: true });
+        const inicio = (id) => db.so_import_batches.find((x) => x.id === id)?.started_at || '';
+        const sucesor = db.so_records.filter((r) => r.import_batch_id === b.id && r.superseded_by && r.superseded_by !== b.id).map((r) => r.superseded_by).sort((x, y) => inicio(y).localeCompare(inicio(x)))[0] || null;
+        const previos = db.so_records.filter((r) => r.import_batch_id === b.id && r.superseded_by && r.superseded_by !== b.id).map((r) => [r.id, r.superseded_by]);
+        const tocadas = db.so_records.filter((r) => r.superseded_by === b.id && r.import_batch_id !== b.id);
+        for (const r of tocadas) r.superseded_by = sucesor;
+        let anuladas = 0; for (const r of db.so_records) if (r.import_batch_id === b.id) { r.superseded_by = b.id; anuladas++; }
+        b.anulacion = { at: now(), estado_previo: b.status, sucesor, previos, reactivadas: sucesor ? [] : tocadas.map((r) => r.id), reasignadas: sucesor ? tocadas.map((r) => r.id) : [] };
+        b.status = 'undone';
+        return ok({ anuladas, quitadas: anuladas, reactivadas: b.anulacion.reactivadas.length, reasignadas: b.anulacion.reasignadas.length });
+      }
+      case 'so_restaurar_importacion': {
+        const b = db.so_import_batches.find((x) => x.id === a.p_batch && x.owner_id === user().id); if (!b) return err('lote inexistente o sin permiso');
+        if (b.status !== 'undone' || !b.anulacion || b.anulacion.restaurada_at) return err('esta subida no está anulada');
+        if (db.so_import_batches.some((o) => o.dataset_id === b.dataset_id && o.id !== b.id && o.started_at > b.anulacion.at && ['ready', 'partial', 'importing'].includes(o.status))) return err('hubo subidas posteriores a la anulación: restaurarla pisaría datos más nuevos');
+        let n = 0; for (const r of db.so_records) if (r.import_batch_id === b.id && r.superseded_by === b.id) { r.superseded_by = null; n++; }
+        for (const [id, prev] of b.anulacion.previos) { const r = db.so_records.find((x) => x.id === id); if (r) r.superseded_by = prev; }
+        for (const r of db.so_records) {
+          if (b.anulacion.reactivadas.includes(r.id) && !r.superseded_by) r.superseded_by = b.id;
+          if (b.anulacion.reasignadas.includes(r.id) && r.superseded_by === b.anulacion.sucesor) r.superseded_by = b.id;
+        }
+        b.status = b.anulacion.estado_previo || 'ready'; b.anulacion = { ...b.anulacion, restaurada_at: now() };
+        return ok({ restauradas: n });
       }
       case 'so_origen_registro': {
         const r = db.so_records.find((x) => x.id === a.p_record && x.owner_id === user().id); if (!r) return ok(null);
