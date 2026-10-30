@@ -335,4 +335,38 @@ begin
   reset role;
   raise notice 'SEGURIDAD CORREO OK';
 end $$;
+-- ===================================================== 7) Encargos a Claude
+-- El usuario solo lee sus encargos y su vínculo; no ve la clave del disparador ni el hash de la clave del encargo, no
+-- escribe encargos ni vínculos desde la página y no puede usar las funciones de Vault.
+do $$
+declare
+  ua uuid := '00000000-0000-0000-0000-00000000000a'; ub uuid := '00000000-0000-0000-0000-00000000000b';
+  url text := 'https://api.anthropic.com/v1/claude_code/routines/trig_01ABCDEFGHJKLMNOPQRSTUVW/fire'; n int; r record;
+begin
+  set local role service_role;
+  perform public.so_claude_guardar(ua, url, 'sk-ant-oat01-clave-de-prueba-123456');
+  select * into r from public.so_claude_leer(ua); if r.token <> 'sk-ant-oat01-clave-de-prueba-123456' then raise exception 'clave no guardada en Vault'; end if;
+  insert into public.so_encargos (owner_id, pedido, token_hash) values (ua, 'Traé la planilla de Drive', repeat('a', 64));
+  begin perform public.so_claude_guardar(ua, 'https://evil.com/fire', 'sk-ant-oat01-clave-de-prueba-123456'); raise exception 'aceptó una URL ajena'; exception when check_violation then null; end;
+  reset role;
+  perform pg_temp.como(ua, 'a@valo.ar');
+  select count(*) into n from public.so_encargos; if n <> 1 then raise exception 'el dueño no ve su encargo'; end if;
+  select count(*) into n from public.so_claude_vinculos; if n <> 1 then raise exception 'el dueño no ve su vínculo'; end if;
+  perform pg_temp.debe_fallar($q$select token_hash from public.so_encargos$q$, 'ver el hash de la clave del encargo');
+  perform pg_temp.debe_fallar($q$select token_ref from public.so_claude_vinculos$q$, 'ver la referencia a la clave del disparador');
+  perform pg_temp.debe_fallar(format($q$insert into public.so_encargos (owner_id, pedido) values (%L, 'x')$q$, ua), 'crear encargos sin pasar por el servidor');
+  perform pg_temp.debe_fallar($q$update public.so_encargos set estado = 'listo'$q$, 'cerrar encargos desde la página');
+  perform pg_temp.debe_fallar(format($q$insert into public.so_claude_vinculos (owner_id, routine_url) values (%L, %L)$q$, ua, url), 'vincular sin pasar por el servidor');
+  perform pg_temp.debe_fallar(format($q$select * from public.so_claude_leer(%L)$q$, ua), 'leer la clave del disparador');
+  perform pg_temp.debe_fallar(format($q$select public.so_claude_guardar(%L, %L, 'sk-ant-oat01-robada-12345678901')$q$, ua, url), 'reemplazar la clave del disparador');
+  perform pg_temp.como(ub, 'b@valo.ar');
+  select count(*) into n from public.so_encargos; if n <> 0 then raise exception 'encargos ajenos visibles'; end if;
+  select count(*) into n from public.so_claude_vinculos; if n <> 0 then raise exception 'vínculo ajeno visible'; end if;
+  reset role;
+  set local role service_role;
+  perform public.so_claude_borrar(ua);
+  if exists (select 1 from public.so_claude_leer(ua)) then raise exception 'la clave sigue disponible tras desvincular'; end if;
+  reset role;
+  raise notice 'SEGURIDAD ENCARGOS OK';
+end $$;
 rollback;

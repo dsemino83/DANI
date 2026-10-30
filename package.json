@@ -14,6 +14,7 @@
     "test:so:ingesta": "node so/tests/e2e/ingesta.mjs",
     "test:so:workspace": "node so/tests/e2e/workspace.mjs",
     "test:so:correo": "node so/tests/e2e/correo.mjs",
+    "test:so:encargos": "node so/tests/e2e/encargos.mjs",
     "test:so:deno": "deno test -A --node-modules-dir=none so/tests/deno/automatizaciones.test.ts"
   },
   "devDependencies": {

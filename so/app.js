@@ -14,6 +14,7 @@ import { formatoPedido, FORMATOS } from './archivos/generar.js';
 import { interpretarEdicion } from './archivos/tablas.js';
 import { exportacionDe, nombreApertura } from './archivos/doc.js';
 import { analizarCorreos } from './correo/gmail.js';
+import { necesitaClaude, armarContexto, promptRutina, TARDA_MIN } from './encargos/encargos.js';
 import { interpretarHorario, describirHorario, proximaEjecucion, FORMATOS_SERVIDOR, TZ_POR_DEFECTO } from './archivos/programadas.js';
 import { crearEstado, chips, riesgo, explicarPermiso, paraContinuidad } from './estado.js';
 import { analizar, comparar, mesAnterior, mesesConDatos, nombreMes, totalMes } from './analisis.js';
@@ -104,6 +105,7 @@ function aplicarTema(t) {
 aplicarTema(tema);
 function ciclarTema() { tema = TEMAS[(TEMAS.indexOf(tema) + 1) % 3]; ls.set('so.tema', tema); aplicarTema(tema); }
 $('tema').onclick = ciclarTema;
+$('vincularClaude').onclick = () => abrirVincularClaude();
 
 $('formLogin').onsubmit = async (e) => {
   e.preventDefault();
@@ -133,6 +135,7 @@ async function iniciar(user) {
   await cambiarModo(E.get().modo, false);
   cargarCentro();
   setInterval(cargarCentro, 60000);
+  vigilarEncargos();
   window.addEventListener('hashchange', ruta);
   ruta();
 }
@@ -720,7 +723,7 @@ async function cargarMensajes() {
 }
 
 const ESTADOS = { verificado: ['✓ Verificado', 'ok'], ejecutado: ['Hecho', 'ok'], propuesta: ['Propuesta · esperando tu confirmación', 'aviso'],
-  fallo: ['No se pudo completar', 'mal'], cancelado: ['Cancelado', ''], deshecho: ['Deshecho', ''] };
+  fallo: ['No se pudo completar', 'mal'], encurso: ['Trabajando con Claude…', 'aviso'], cancelado: ['Cancelado', ''], deshecho: ['Deshecho', ''] };
 
 function htmlMensaje(m) {
   const meta = m.meta || {};
@@ -1067,6 +1070,103 @@ async function intencionCorreo(texto, n) {
   return null;
 }
 
+// ---------------------------------------------------------------- Encargos a Claude (por detrás)
+// Lo que necesita los conectores de la cuenta de Claude del usuario (Drive, Calendar, Sheets, Notion…) se deriva a su
+// tarea programada de Claude Code: la función so-encargos la dispara y recibe el resultado, que aparece en el chat.
+// La página nunca ve la clave del disparador: solo lee sus encargos (RLS) y pide acciones a la función.
+const encargosFn = async (body) => {
+  const { data, error } = await sb.functions.invoke('so-encargos', { body });
+  if (error) {
+    let det = null; try { det = await error.context?.json?.(); } catch { /* sin cuerpo */ }
+    throw Object.assign(new Error(det?.mensaje || det?.error || error.message), { codigo: det?.error });
+  }
+  return data;
+};
+async function contextoEncargo() {
+  const s = E.get();
+  let art = null;
+  if (s.artefactoId) {
+    try {
+      const d = await datosDe(s.artefactoId);
+      art = { nombre: d.a.name, campos: (d.fields || []).map((f) => ({ key: f.key, label: f.label || f.key, tipo: f.type || null })),
+        filas: d.records.slice(-200).map((r) => ({ periodo: r.period, ...r.data })) };
+    } catch { /* sin tablero: va el resto del contexto */ }
+  }
+  return armarContexto({ nombre: st.nombre, zona: Intl.DateTimeFormat().resolvedOptions().timeZone, modo: s.modo, mensajes: st.mensajes, artefacto: art });
+}
+async function intencionClaude(texto) {
+  if (!necesitaClaude(texto)) return null;
+  try {
+    const r = await encargosFn({ accion: 'crear', pedido: texto, chat_id: st.chatId, contexto: await contextoEncargo() });
+    vigilarEncargos();
+    return { texto: 'Esto necesita tus conectores de Claude: se lo pasé con el contexto. Sigo acá; cuando termine, el resultado aparece en esta conversación (suele tardar unos minutos).', meta: { estado: 'encurso', encargo: r.encargo } };
+  } catch (err) {
+    if (err.codigo === 'sin_vinculo') return { texto: 'Para eso necesito tus conectores de Claude (Drive, Calendar, Notion…). Vinculá tu cuenta una vez en "Vincular Claude", abajo a la izquierda, y lo hago por detrás.', meta: { estado: 'propuesta' } };
+    return { texto: `No pude pasarle el encargo a Claude: ${err.message}.`, meta: { estado: 'fallo', reintentar: texto }, ok: false };
+  }
+}
+// Mientras haya encargos abiertos, revisa cada 10 s. Al cerrarse, el resultado ya está en su conversación (lo escribe la
+// función): se recarga si es la abierta y se avisa.
+let tEncargos = null;
+const abiertos = new Map();   // id → estado conocido
+async function vigilarEncargos() {
+  clearTimeout(tEncargos);
+  let lista = [];
+  try { lista = await q(sb.from('so_encargos').select('id, chat_id, pedido, estado, error, created_at').order('created_at', { ascending: false }).limit(20)); } catch { tEncargos = setTimeout(vigilarEncargos, 30000); return; }
+  const vivos = lista.filter((e) => ['pendiente', 'enviado', 'en_curso'].includes(e.estado));
+  for (const e of lista) {
+    if (!abiertos.has(e.id) || vivos.includes(e)) continue;
+    abiertos.delete(e.id);
+    if (e.chat_id && e.chat_id === st.chatId) {
+      await cargarMensajes();
+      const aviso = st.mensajes.find((m) => m.meta?.encargo === e.id && m.meta.estado === 'encurso');
+      if (aviso) await actualizarMeta(aviso.id, { estado: e.estado === 'listo' ? 'ejecutado' : 'fallo' }); else pintarMensajes();
+    }
+    fase(e.estado === 'listo' ? 'success' : 'error');
+    toast(e.estado === 'listo' ? 'Claude terminó tu encargo: el resultado está en la conversación.' : `Claude no pudo: ${e.error || 'sin detalle'}.`);
+    cargarCentro();
+  }
+  for (const e of vivos) {
+    abiertos.set(e.id, e.estado);
+    if (Date.now() - Date.parse(e.created_at) > TARDA_MIN * 60000) $('actividad').textContent = 'Claude está tardando más de lo normal';
+  }
+  if (vivos.length) tEncargos = setTimeout(vigilarEncargos, 10000);
+}
+// Vincular la cuenta de Claude: URL y clave del disparador de la tarea programada. La clave va directo a la función y se
+// guarda en Vault; nunca se vuelve a mostrar.
+async function abrirVincularClaude() {
+  const f = $('formClaude');
+  const base = `${cfg.url.replace(/\/$/, '')}/functions/v1/so-encargos`;
+  let vinculado = false;
+  try { vinculado = (await encargosFn({ accion: 'estado' })).vinculado; } catch { /* se muestra el formulario igual */ }
+  f.innerHTML = `<p>Francisco usa los conectores de tu cuenta de Claude (Drive, Calendar, Sheets, Notion…) por detrás, con una tarea programada tuya. Se configura una sola vez.</p>
+    <p class="estado-msg ${vinculado ? 'ok' : 'aviso'}">${vinculado ? '✓ Tu cuenta de Claude está vinculada' : 'Todavía no está vinculada'}</p>
+    <ol class="pasos-claude">
+      <li>Entrá a <a href="https://claude.ai/code/routines" target="_blank" rel="noopener">claude.ai/code/routines</a> → <b>Nueva tarea</b>, nombre "Francisco · encargos". Pegá esta instrucción:
+        <textarea readonly rows="6" id="promptClaude">${esc(promptRutina(base))}</textarea><button type="button" data-cl="copiar">Copiar instrucción</button></li>
+      <li>En <b>Conectores</b> dejá los que quieras que Francisco use. En <b>Entorno → Acceso a la red</b> agregá <code>${esc(new URL(cfg.url).host)}</code>.</li>
+      <li>Agregá un disparador <b>API</b>, copiá la URL y la clave (se muestra una sola vez) y pegalas acá:</li>
+    </ol>
+    <label>URL del disparador<input name="url" type="url" required placeholder="https://api.anthropic.com/v1/claude_code/routines/trig_…/fire" autocomplete="off"></label>
+    <label>Clave<input name="token" type="password" required placeholder="sk-ant-…" autocomplete="off"></label>
+    <p class="error" id="errorClaude" hidden></p>
+    <div class="msg-acc"><button class="primario" type="submit">${vinculado ? 'Actualizar' : 'Vincular'}</button>${vinculado ? '<button type="button" data-cl="desvincular">Desvincular</button>' : ''}</div>`;
+  const err = (m) => { $('errorClaude').textContent = m; $('errorClaude').hidden = false; };
+  f.querySelector('[data-cl="copiar"]').onclick = async () => { try { await navigator.clipboard.writeText($('promptClaude').value); toast('Instrucción copiada.'); } catch { $('promptClaude').select(); } };
+  f.querySelector('[data-cl="desvincular"]')?.addEventListener('click', async () => {
+    if (!confirm('¿Desvincular tu cuenta de Claude? Francisco deja de usar tus conectores hasta que la vuelvas a vincular.')) return;
+    try { await encargosFn({ accion: 'desvincular' }); $('hoja').close(); toast('Cuenta de Claude desvinculada.'); } catch (e) { err(`No pude desvincular: ${e.message}.`); }
+  });
+  f.onsubmit = async (e) => {
+    e.preventDefault();
+    const b = f.querySelector('button[type="submit"]'); b.disabled = true;
+    try { await encargosFn({ accion: 'vincular', url: f.elements.url.value.trim(), token: f.elements.token.value.trim() }); f.reset(); $('hoja').close(); toast('Listo: Francisco ya puede usar tus conectores de Claude.'); }
+    catch (x) { err(x.message); }
+    b.disabled = false;
+  };
+  abrirHoja('claude');
+}
+
 // Vista Correo: estado de la casilla, análisis y lista de "Sin responder" (solo lectura).
 async function abrirCorreo(params = new URLSearchParams()) {
   vista('archivo');
@@ -1378,7 +1478,8 @@ async function procesar(texto, { reintentoDe = null, adjuntosDirectos = null } =
     const s = E.get();
     const previos = adjuntos.length ? adjuntos : reintentoDe ? (st.mensajes.find((x) => x.id === reintentoDe)?.meta?.adjuntos || []) : [];
     if (previos.length === 1 && previos[0].kind === 'table') st.archivoFoco = previos[0].fileId;
-    const archAcc = s.modo === 'work' ? await intencionArchivo(texto, previos) : null;
+    const claudeAcc = previos.length ? null : await intencionClaude(texto);
+    const archAcc = claudeAcc || (s.modo === 'work' ? await intencionArchivo(texto, previos) : null);
     const entradaAcc = archAcc ? null : interpretarEntrada(texto, { modo: s.modo, adjuntos: previos, adjuntosPrevios: ultimosAdjuntos(), artefactos: st.artefactos, activoId: s.artefactoId });
     if (archAcc) r = archAcc;
     else if (entradaAcc && entradaAcc.tipo !== 'bloqueado') { r = await D.ejecutarEntrada(entradaAcc); await trasImportar(r); }
@@ -2028,7 +2129,7 @@ function configurarExportacion(a) {
 function abrirHoja(tipo) {
   const h = $('hoja');
   h.querySelectorAll('[data-hoja]').forEach((n) => { n.hidden = n.dataset.hoja !== tipo; });
-  $('hojaTitulo').textContent = { compartir: 'Compartir', datos: 'Datos y fuentes', versiones: 'Versiones', exportar: 'Exportación' }[tipo];
+  $('hojaTitulo').textContent = { compartir: 'Compartir', datos: 'Datos y fuentes', versiones: 'Versiones', exportar: 'Exportación', claude: 'Vincular Claude' }[tipo];
   if (!h.open) h.showModal();
   if (tipo === 'compartir') $('formCompartir').email.focus();
   else h.querySelector(`[data-hoja="${tipo}"] button, [data-hoja="${tipo}"] input, [data-hoja="${tipo}"] select`)?.focus();

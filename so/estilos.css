@@ -680,3 +680,10 @@ label.radio { display: flex; gap: 8px; align-items: center; margin-top: 10px; }
 .correo-lista small { display: block; color: var(--text-secondary); font: var(--t-caption); }
 .correo-lista p { margin: 4px 0 0; color: var(--text-secondary); font: var(--t-secondary); }
 .correo .gu-metric, .correo .gu-chart, .correo .gu-table { margin-bottom: var(--s2); }
+/* Vincular Claude */
+#formClaude { display: grid; gap: 10px; }
+#formClaude label { display: grid; gap: 4px; font-weight: 600; }
+#formClaude input, #formClaude textarea { width: 100%; font: inherit; font-weight: 400; padding: 8px 10px; border: 1px solid var(--border-subtle); border-radius: var(--r2); background: var(--surface, transparent); color: inherit; }
+#formClaude textarea { font: var(--t-caption); resize: vertical; margin: 6px 0; }
+.pasos-claude { margin: 0; padding-left: 20px; display: grid; gap: 8px; }
+.pasos-claude code { overflow-wrap: anywhere; }

@@ -2,7 +2,7 @@
 (function () {
   const KEY = 'fake.db';
   const TABLAS = ['so_projects','so_datasources','so_records','so_artifacts','so_artifact_versions','so_menu','so_shares','so_chats','so_messages','so_decisions','so_signals','so_obs','so_tasks','so_notifications','so_user_state','so_events',
-    'so_files','so_file_chunks','so_data_inputs','so_api_sources','so_import_batches','so_ingest_log','so_automations','so_file_templates','so_mail_accounts','so_mails','perfiles'];
+    'so_files','so_file_chunks','so_data_inputs','so_api_sources','so_import_batches','so_ingest_log','so_automations','so_file_templates','so_mail_accounts','so_mails','so_claude_vinculos','so_encargos','perfiles'];
   const load = () => { try { return JSON.parse(localStorage.getItem(KEY)) || null; } catch { return null; } };
   let db = load() || Object.fromEntries(TABLAS.map((t) => [t, []]));
   for (const t of TABLAS) db[t] ||= [];
@@ -114,6 +114,20 @@
     };
     return b;
   }
+  // so-encargos simulado: la misma lógica que la Edge Function (encargos/servidor.js) sobre el repositorio en memoria.
+  // "Claude" es window.__claude: las pruebas leen los disparos y entregan como lo haría la tarea programada.
+  window.__claude = { disparos: [] };
+  let modEnc = null;
+  const encargos = async () => (modEnc ||= await import('/so/encargos/servidor.js'));
+  const fnEncargos = async (b = {}) => {
+    const m = await encargos();
+    const fetch = async (url, init) => { window.__claude.disparos.push({ url, payload: JSON.parse(JSON.parse(init.body).text) }); return new Response(JSON.stringify({ claude_code_session_url: 'https://claude.ai/code/session_x' }), { status: 200 }); };
+    const r = await m.accionUsuario(m.repoMemoria(db), { owner: user().id, body: b, fetch });
+    save();
+    return r.status === 200 ? { data: r.body, error: null } : { data: null, error: { message: r.body.error, context: { json: async () => r.body } } };
+  };
+  window.__claude.leer = async (encargo, token) => { const m = await encargos(); const r = await m.leerEncargo(m.repoMemoria(db), { encargo, token }); save(); return r; };
+  window.__claude.entregar = async (body) => { const m = await encargos(); const r = await m.entregarEncargo(m.repoMemoria(db), { body }); save(); return r; };
   // so-correo simulado: "Google" aprueba al instante y la casilla tiene unos mails de ejemplo (como la Edge Function, la
   // página no escribe estas tablas: lo hace el servidor fijando el dueño).
   const fnCorreo = async (b = {}) => {
@@ -265,7 +279,7 @@
         getSession: async () => ({ data: { session: { user: user(), access_token: user().id } } }), signOut: async () => ({}), signInWithPassword: async () => ({}),
       },
       from: builder, rpc,
-      functions: { invoke: async (nombre, { body } = {}) => (nombre === 'so-api' ? fnApi(body) : nombre === 'so-correo' ? fnCorreo(body) : { data: null, error: { message: 'x', context: { status: 503 } } }) },
+      functions: { invoke: async (nombre, { body } = {}) => (nombre === 'so-api' ? fnApi(body) : nombre === 'so-correo' ? fnCorreo(body) : nombre === 'so-encargos' ? fnEncargos(body) : { data: null, error: { message: 'x', context: { status: 503 } } }) },
       storage: { from: () => ({
         upload: async (path, body, op = {}) => { const r = await fetch(`${SUPA}/storage/v1/object/so-archivos/${path}`, { method: 'POST', body, headers: { Authorization: `Bearer ${user().id}`, 'x-upsert': String(!!op.upsert) } }); return r.ok ? { data: { path }, error: null } : { data: null, error: { message: String(r.status) } }; },
         download: async (path) => { if (fallar('storage.download')) return { data: null, error: { message: 'no' } }; const r = await fetch(`${SUPA}/storage/v1/object/so-archivos/${path}`, { headers: { Authorization: `Bearer ${user().id}` } }); return r.ok ? { data: await r.blob(), error: null } : { data: null, error: { message: String(r.status) } }; },
