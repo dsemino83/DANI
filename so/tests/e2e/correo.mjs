@@ -32,7 +32,7 @@ let r = await decir('Analizá mis mails');
 ok(/recibiste 4 mails/.test(r) && /2 esperando respuesta/.test(r) && await pg.isVisible('#mensajes .msg:last-child .gu-chart'), 'Chat: "analizá mis mails" responde con resumen y gráfico');
 r = await decir('Respondé el mail de Luis diciendo que mañana lo resolvemos');
 d = await db();
-ok(/solo analiza tu correo/.test(r) && !('so_mail_drafts' in d), 'Chat: "respondé el mail de Luis…" no prepara respuestas (solo lectura)');
+ok(/Solo analizo tu correo/.test(r) && !('so_mail_drafts' in d), 'Chat: "respondé el mail de Luis…" no prepara respuestas (solo lectura)');
 // Aislamiento: otro usuario no ve la casilla ni los mails.
 const otro = await pg.evaluate(async () => { localStorage.setItem('fake.user', 'b'); const c = window.supabase.createClient(); const [m, a] = await Promise.all([c.from('so_mails').select('*'), c.from('so_mail_accounts').select('*')]); localStorage.setItem('fake.user', 'a'); return [m.data.length, a.data.length]; });
 ok(otro[0] === 0 && otro[1] === 0, 'Seguridad: otro usuario no ve la casilla ni los mails');

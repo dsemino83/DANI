@@ -355,7 +355,7 @@ ok(/Generé "Informe mensual"/.test(await ultimo()) && await pg.isVisible('#mens
 // Programadas por calendario: se registran con horario y zona, y las ejecuta el servidor (mismo módulo que la Edge Function).
 await decir('Cada lunes a las 9 generá el PDF de cobranzas y avisame');
 t = await ultimo();
-ok(/cada lunes a las 09:00 genero el PDF de "Cobranzas"/.test(t) && /aunque SO esté cerrado/.test(t) && /Próxima: lunes/.test(t) && /Verificado/.test(t), 'Programadas: "cada lunes a las 9…" queda registrada y verificada, con la próxima ejecución');
+ok(/cada lunes a las 09:00 genero el PDF de "Cobranzas"/.test(t) && /aunque tengas la página cerrada/.test(t) && /Próxima: lunes/.test(t) && /Verificado/.test(t), 'Programadas: "cada lunes a las 9…" queda registrada y verificada, con la próxima ejecución');
 d = await db();
 const prog = d.so_automations.find((x) => x.schedule);
 const esperado = await pg.evaluate(async (h) => (await import('/so/archivos/programadas.js')).proximaEjecucion(h).toISOString(), prog.schedule);

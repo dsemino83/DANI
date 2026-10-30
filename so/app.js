@@ -124,7 +124,7 @@ sb.auth.getSession().then(({ data }) => { if (!data.session) $('login').hidden =
 async function iniciar(user) {
   st.user = user;
   $('login').hidden = true; $('app').hidden = false;
-  $('usuario').textContent = user.email;
+  document.querySelector('.marca').title = `Conectado como ${user.email}`;
   const { data: habilitado } = await sb.rpc('es_valo');
   if (!habilitado) return soloCompartidos();
   await cargarContinuidad();
@@ -1061,7 +1061,7 @@ async function intencionCorreo(texto, n) {
     if (/\b(conecta\w*|vincula\w*|enlaza\w*|agrega\w*)\b/.test(n)) return conectarCorreo();
     if (/\b(desconecta\w*|desvincula\w*)\b/.test(n)) { const r = await correoFn({ accion: 'desconectar' }); return { texto: `Desconecté ${r.desconectada}: revoqué el permiso en Google y borré los mails que SO tenía guardados.`, meta: { estado: 'verificado' } }; }
     if (/\b(sincroniza\w*|actualiza\w*|trae\w*|baja\w*)\b/.test(n)) return sincronizarCorreo();
-    if (/\brespond\w*\b/.test(n)) return { texto: 'SO solo analiza tu correo: no escribe ni prepara respuestas. Respondé desde Gmail.', meta: { estado: 'propuesta' } };
+    if (/\brespond\w*\b/.test(n)) return { texto: 'Solo analizo tu correo: no escribo ni preparo respuestas. Respondé desde Gmail.', meta: { estado: 'propuesta' } };
     if (/\b(analiza\w*|resumi\w*|resumen|mostra\w*|cuantos|que tengo|sin responder|pendientes)\b/.test(n)) { location.hash = '#/correo'; return analizarCorreoChat(); }
   } catch (err) { return { texto: `No pude con el correo: ${err.message}.`, meta: { estado: 'fallo' }, ok: false }; }
   return null;
@@ -1097,7 +1097,7 @@ async function abrirCorreo(params = new URLSearchParams()) {
       : '<p class="vacio">Nada pendiente. 🎉</p>'}</section></div>`;
   c.querySelector('[data-co="sync"]').onclick = async (e) => { e.currentTarget.disabled = true; try { toast((await sincronizarCorreo()).texto); } catch (err) { toast(`No pude sincronizar: ${err.message}.`); } abrirCorreo(); };
   c.querySelector('[data-co="desconectar"]').onclick = async () => {
-    if (!confirm(`¿Desconectar ${cta.email}? Se revoca el permiso en Google y se borran los mails guardados en SO.`)) return;
+    if (!confirm(`¿Desconectar ${cta.email}? Se revoca el permiso en Google y se borran los mails que guardé.`)) return;
     try { await correoFn({ accion: 'desconectar' }); toast('Gmail desconectado.'); } catch (err) { toast(`No pude desconectar: ${err.message}.`); }
     abrirCorreo();
   };
@@ -1126,7 +1126,7 @@ async function programarDesde(texto) {
   const nombre = `${describirHorario(h).replace(/^./, (c) => c.toUpperCase())}: ${FORMATOS[formato].etiqueta} de ${a.name}`.slice(0, 200);
   const auto = await q(sb.from('so_automations').insert({ artifact_id: a.id, name: nombre, trigger: { tipo: 'programada' }, action: { pasos }, schedule: h, next_run_at: proxima.toISOString() }).select('id, next_run_at').single());
   const ok = (await q(sb.from('so_automations').select('id, schedule, next_run_at, enabled').eq('id', auto.id))).some((x) => x.enabled && x.schedule?.hora === h.hora);
-  return { texto: `Listo: ${describirHorario(h)} genero el ${FORMATOS[formato].etiqueta} de "${a.name}" con los datos del momento y te aviso. Corre en el servidor, aunque SO esté cerrado. Próxima: ${fechaLocal(proxima, h.tz)}.`,
+  return { texto: `Listo: ${describirHorario(h)} genero el ${FORMATOS[formato].etiqueta} de "${a.name}" con los datos del momento y te aviso. Corre en el servidor, aunque tengas la página cerrada. Próxima: ${fechaLocal(proxima, h.tz)}.`,
     meta: { estado: ok ? 'verificado' : 'ejecutado', artifactId: a.id, undo: { tipo: 'automatizacion', id: auto.id, artifactId: a.id },
       porque: `Hora de ${h.tz.replace(/_/g, ' ')}. Cada ejecución queda en Actividad y el archivo en Archivos; si algo falla te llega un aviso. Podés pausarla con "pausá la automatización de ${a.name.toLowerCase()}".` } };
 }
@@ -1172,7 +1172,7 @@ async function crearAutomatizacionDesde(texto) {
   const que = { comparar: 'lo comparo con el mes anterior', pdf: 'genero el PDF', xlsx: 'genero el Excel', avisar: 'te aviso' };
   return { texto: `Listo: cada vez que cargues datos en "${a.name}" (archivo, API o carga manual de un lote), valido e incorporo al histórico, actualizo el tablero y ${pasos.map((p) => que[p]).join(', ')}. Se ejecuta en SO al completarse la importación, una sola vez por carga.`,
     meta: { estado: ok ? 'verificado' : 'ejecutado', artifactId: a.id, undo: { tipo: 'automatizacion', id, artifactId: a.id },
-      porque: 'Por ahora corre en tu sesión de SO al terminar la importación (no en un servidor programado). Cada ejecución queda en el centro de actividad.' } };
+      porque: 'Por ahora corre en tu sesión al terminar la importación (no en un servidor programado). Cada ejecución queda en el centro de actividad.' } };
 }
 
 // Después de cualquier importación (chat, tablero o segundo plano): tarjeta al día + automatizaciones del tablero.
@@ -1196,7 +1196,7 @@ async function accionArchivo(accion, id, ancla) {
     if (accion === 'ver') { st.archivoFoco = id; return D.vistaPrevia(id); }
     if (accion === 'mas') {
       const f = await D.archivo(id);
-      return abrirMenuFlotante(ancla, [{ id: 'abrir', texto: 'Abrir en SO' }, { id: 'usar', texto: 'Usar con Francisco' }, { id: 'versiones', texto: 'Ver versiones' },
+      return abrirMenuFlotante(ancla, [{ id: 'abrir', texto: 'Abrir' }, { id: 'usar', texto: 'Usar con Francisco' }, { id: 'versiones', texto: 'Ver versiones' },
         ...(f?.kind === 'table' ? [{ id: 'pdf', texto: 'Convertir a PDF' }, { id: 'pptx', texto: 'Convertir a PowerPoint' }] : []), { id: 'coleccion', texto: 'Guardar en una colección' }], async (x) => {
         if (x === 'abrir' || x === 'versiones') location.hash = `#/f/${id}`;
         if (x === 'coleccion') { st.abrirFormColeccion = true; if (location.hash === `#/f/${id}`) ruta(); else location.hash = `#/f/${id}`; }
