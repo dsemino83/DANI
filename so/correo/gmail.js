@@ -1,6 +1,6 @@
 // SO · Correo (Gmail). Lógica pura y sin DOM: la usa la Edge Function so-correo (con el fetch del servidor) y las
-// pruebas (con un fetch simulado). OAuth 2.0 con PKCE + state; lectura de mensajes; borradores de respuesta (nunca envía);
-// análisis de la casilla. Los tokens no pasan por acá salvo como parámetros: se guardan en Vault desde la función.
+// pruebas (con un fetch simulado). OAuth 2.0 con PKCE + state; lectura de mensajes y
+// análisis de la casilla. Solo lectura: SO nunca escribe, responde ni envía correos. Los tokens no pasan por acá salvo como parámetros: se guardan en Vault desde la función.
 
 export const GOOGLE = {
   auth: 'https://accounts.google.com/o/oauth2/v2/auth',
@@ -8,8 +8,8 @@ export const GOOGLE = {
   revocar: 'https://oauth2.googleapis.com/revoke',
   api: 'https://gmail.googleapis.com/gmail/v1/users/me',
 };
-// Lectura + borradores. gmail.compose permite crear borradores; SO nunca llama a "send".
-export const SCOPES = ['https://www.googleapis.com/auth/gmail.readonly', 'https://www.googleapis.com/auth/gmail.compose'];
+// Solo lectura: con este permiso Google no deja crear borradores ni enviar.
+export const SCOPES = ['https://www.googleapis.com/auth/gmail.readonly'];
 
 const b64url = (bytes) => btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 export function aleatorio(n = 32) { return b64url(crypto.getRandomValues(new Uint8Array(n))); }
@@ -92,17 +92,6 @@ export function aFila(m, miEmail) {
   };
 }
 export async function leerMensaje(fetch, token, id) { return api(fetch, token, `/messages/${encodeURIComponent(id)}?format=full`); }
-
-// Borrador de respuesta (RFC 822, en el mismo hilo). Nunca se envía: queda en Borradores de Gmail para aprobar.
-export function mimeRespuesta({ de, para, asunto, texto, inReplyTo = null }) {
-  const enc = (s) => (/^[\x20-\x7e]*$/.test(s) ? s : `=?UTF-8?B?${btoa(String.fromCharCode(...new TextEncoder().encode(s)))}?=`);
-  const asuntoRe = /^re:/i.test(asunto) ? asunto : `Re: ${asunto}`;
-  const lineas = [`From: ${de}`, `To: ${para}`, `Subject: ${enc(asuntoRe)}`, 'MIME-Version: 1.0', 'Content-Type: text/plain; charset="UTF-8"', 'Content-Transfer-Encoding: base64'];
-  if (inReplyTo) lineas.push(`In-Reply-To: ${inReplyTo}`, `References: ${inReplyTo}`);
-  const cuerpoB64 = btoa(String.fromCharCode(...new TextEncoder().encode(texto))).replace(/(.{76})/g, '$1\r\n');
-  return b64url(new TextEncoder().encode(`${lineas.join('\r\n')}\r\n\r\n${cuerpoB64}`));
-}
-export const crearBorrador = (fetch, token, { raw, threadId }) => api(fetch, token, '/drafts', { method: 'POST', body: JSON.stringify({ message: { raw, threadId } }) });
 
 export async function revocar(fetch, token) { await fetch(`${GOOGLE.revocar}?token=${encodeURIComponent(token)}`, { method: 'POST' }).catch(() => {}); }
 

@@ -2,7 +2,7 @@
 (function () {
   const KEY = 'fake.db';
   const TABLAS = ['so_projects','so_datasources','so_records','so_artifacts','so_artifact_versions','so_menu','so_shares','so_chats','so_messages','so_decisions','so_signals','so_obs','so_tasks','so_notifications','so_user_state','so_events',
-    'so_files','so_file_chunks','so_data_inputs','so_api_sources','so_import_batches','so_ingest_log','so_automations','so_file_templates','so_mail_accounts','so_mails','so_mail_drafts','perfiles'];
+    'so_files','so_file_chunks','so_data_inputs','so_api_sources','so_import_batches','so_ingest_log','so_automations','so_file_templates','so_mail_accounts','so_mails','perfiles'];
   const load = () => { try { return JSON.parse(localStorage.getItem(KEY)) || null; } catch { return null; } };
   let db = load() || Object.fromEntries(TABLAS.map((t) => [t, []]));
   for (const t of TABLAS) db[t] ||= [];
@@ -138,12 +138,6 @@
       }
       c.last_sync_at = now();
       return ok({ email: c.email, revisados: ej.length, nuevos });
-    }
-    if (b.accion === 'borrador') {
-      const m = db.so_mails.find((x) => x.id === b.mail && x.owner_id === u.id);
-      if (!m) return err('no encontré ese mail');
-      db.so_mail_drafts.push({ id: crypto.randomUUID(), owner_id: u.id, account_id: c.id, mail_id: m.id, to_addr: m.from_addr, subject: m.subject, body: b.texto, status: 'creado', gmail_draft_id: 'd' + db.__seq++, created_at: now() });
-      return ok({ borrador: 'd', para: m.from_addr, asunto: m.subject });
     }
     if (b.accion === 'desconectar') { db.so_mails = db.so_mails.filter((m) => m.account_id !== c.id); c.status = 'desconectada'; return ok({ desconectada: c.email }); }
     return err('acción desconocida');

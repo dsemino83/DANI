@@ -1,5 +1,5 @@
 // Recorrido de Correo (Gmail) en Chromium contra el Supabase simulado: conectar (OAuth simulado), sincronizar, análisis,
-// borrador de respuesta (nunca envío), pedidos por chat, aislamiento entre usuarios y desconexión. La lógica de Gmail se
+// solo lectura (sin respuestas ni borradores), pedidos por chat, aislamiento entre usuarios y desconexión. La lógica de Gmail se
 // prueba aparte (tests/correo.test.mjs) y la función real se verifica desplegada. Uso: npm run test:so:correo
 import { createRequire } from 'node:module'; import path from 'node:path'; import { fileURLToPath } from 'node:url';
 import { crearServidor } from './servidor.mjs';
@@ -19,23 +19,20 @@ await pg.goto(BASE + '/404.html'); await pg.evaluate(() => { localStorage.clear(
 await pg.goto(BASE + '/so/'); await pg.waitForSelector('#app:not([hidden])');
 await pg.waitForSelector('#vistaHome h2'); ok(/¿Qué querés crear, Ana\?/.test(await pg.textContent('#vistaHome')), 'Nombre del perfil: saluda por el nombre de pila');
 await pg.click('#linkCorreo'); await pg.waitForSelector('[data-co="conectar"]');
-ok(/nunca envía nada solo/.test(await pg.textContent('#vistaArchivo')), 'Correo: pantalla inicial explica solo lectura + borradores');
+ok(/nunca escribe, responde ni envía/.test(await pg.textContent('#vistaArchivo')) && !/borrador/i.test(await pg.textContent('#vistaArchivo')), 'Correo: pantalla inicial explica que es solo lectura');
 await pg.click('[data-co="conectar"]');
 await pg.waitForSelector('.correo-lista, .correo .vacio', { timeout: 20000 }); await pg.waitForTimeout(400);
 const t = await pg.textContent('#vistaArchivo');
 ok(/Recibidos\s*4/.test(t) && /Sin responder\s*2/.test(t) && /Sin leer\s*3/.test(t), 'Análisis: recibidos, sin leer y sin responder (sin contar automáticos)');
 ok(/Reclamo de entrega/.test(t) && /Nuevo pedido/.test(t) && !/Resumen de cuenta[\s\S]*Responder/.test(t.split('Sin responder (')[1] || ''), 'Sin responder: incluye clientes, excluye notificaciones del banco');
 ok(/Respondés en \(mediana\)\s*2/.test(t), 'Tiempo de respuesta mediano (2 h)');
-await pg.click('.correo-lista li:first-child details summary');
-await pg.fill('.correo-lista li:first-child textarea', 'Gracias Ana, hoy te paso el presupuesto.'); await pg.click('.correo-lista li:first-child button[type="submit"]');
-await pg.waitForFunction(() => window.__db().so_mail_drafts.length === 1, null, { timeout: 10000 });
-let d = await db();
-ok(d.so_mail_drafts[0].to_addr === 'ana@cliente.com' && d.so_mail_drafts[0].body === 'Gracias Ana, hoy te paso el presupuesto.\n\nSaludos,\nAna Prueba' && d.so_mail_drafts[0].status === 'creado' && /borrador/.test(await pg.textContent('#toast')), 'Responder: crea un borrador para Ana (no se envía)');
+ok(!(await pg.$('.correo-lista textarea, .correo-lista details, .correo-lista form')) && !/borrador/i.test(t), 'Sin responder: solo lista, sin opción de responder');
+let d;
 let r = await decir('Analizá mis mails');
 ok(/recibiste 4 mails/.test(r) && /2 esperando respuesta/.test(r) && await pg.isVisible('#mensajes .msg:last-child .gu-chart'), 'Chat: "analizá mis mails" responde con resumen y gráfico');
 r = await decir('Respondé el mail de Luis diciendo que mañana lo resolvemos');
 d = await db();
-ok(/borrador en tu Gmail/.test(r) && d.so_mail_drafts.some((x) => x.to_addr === 'luis@cliente.com' && x.body === 'Mañana lo resolvemos.\n\nSaludos,\nAna Prueba'), 'Chat: "respondé el mail de Luis diciendo…" deja el borrador firmado con el nombre');
+ok(/solo analiza tu correo/.test(r) && !('so_mail_drafts' in d), 'Chat: "respondé el mail de Luis…" no prepara respuestas (solo lectura)');
 // Aislamiento: otro usuario no ve la casilla ni los mails.
 const otro = await pg.evaluate(async () => { localStorage.setItem('fake.user', 'b'); const c = window.supabase.createClient(); const [m, a] = await Promise.all([c.from('so_mails').select('*'), c.from('so_mail_accounts').select('*')]); localStorage.setItem('fake.user', 'a'); return [m.data.length, a.data.length]; });
 ok(otro[0] === 0 && otro[1] === 0, 'Seguridad: otro usuario no ve la casilla ni los mails');

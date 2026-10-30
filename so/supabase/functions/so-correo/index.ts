@@ -1,9 +1,9 @@
-// SO · Correo (Supabase Edge Function). Conecta Gmail por OAuth (PKCE + state), sincroniza los mensajes recientes,
-// crea borradores de respuesta (nunca envía) y desconecta (revoca el permiso y borra los mails). Autorización: la sesión
+// SO · Correo (Supabase Edge Function). Conecta Gmail por OAuth (PKCE + state) con permiso de solo lectura, sincroniza
+// los mensajes recientes y desconecta (revoca el permiso y borra los mails). Autorización: la sesión
 // del usuario (JWT) para todo salvo la vuelta de Google, que se valida con el state guardado en la base.
 // Secretos de la función (los carga el dueño del proyecto en Supabase): GOOGLE_CLIENT_ID y GOOGLE_CLIENT_SECRET.
 import { createClient } from "npm:@supabase/supabase-js@2";
-import { aleatorio, desafioPkce, urlAutorizacion, canjearCodigo, refrescar, perfil, listarIds, leerMensaje, aFila, mimeRespuesta, crearBorrador, revocar, SCOPES } from "so/correo/gmail.js";
+import { aleatorio, desafioPkce, urlAutorizacion, canjearCodigo, refrescar, perfil, listarIds, leerMensaje, aFila, revocar, SCOPES } from "so/correo/gmail.js";
 
 const URL_BASE = Deno.env.get("SUPABASE_URL")!;
 const REDIRECT = `${URL_BASE}/functions/v1/so-correo`;
@@ -86,18 +86,6 @@ Deno.serve(async (req: Request) => {
       return json(200, { email: cuenta.email, revisados: ids.length, nuevos: guardados });
     }
 
-    if (b.accion === "borrador") {
-      const texto = String(b.texto || "").trim();
-      if (!texto || texto.length > 20000) return json(400, { error: "texto inválido" });
-      const { data: m } = await db.from("so_mails").select("*").eq("id", String(b.mail || "")).eq("owner_id", owner).maybeSingle();
-      if (!m) return json(404, { error: "no encontré ese mail" });
-      const token = await tokenDe(db, cuenta);
-      const raw = mimeRespuesta({ de: cuenta.email, para: m.from_addr, asunto: m.subject || "", texto, inReplyTo: m.message_id });
-      const d = await crearBorrador(fetch, token, { raw, threadId: m.thread_id });
-      await db.from("so_mail_drafts").insert({ owner_id: owner, account_id: cuenta.id, mail_id: m.id, to_addr: m.from_addr, subject: m.subject, body: texto, status: "creado", gmail_draft_id: d.id });
-      return json(200, { borrador: d.id, para: m.from_addr, asunto: m.subject });
-    }
-
     if (b.accion === "desconectar") {
       const { data: refresh } = await db.rpc("so_correo_leer_token", { p_cuenta: cuenta.id });
       if (refresh) await revocar(fetch, refresh);
@@ -109,7 +97,7 @@ Deno.serve(async (req: Request) => {
     return json(400, { error: "acción desconocida" });
   } catch (e) {
     const msg = (e instanceof Error ? e.message : String(e)).slice(0, 300);
-    if (b.accion === "sincronizar" || b.accion === "borrador") await db.from("so_mail_accounts").update({ last_error: msg, ...(/volvé a conectar/.test(msg) ? { status: "error" } : {}) }).eq("owner_id", owner).neq("status", "desconectada");
+    if (b.accion === "sincronizar") await db.from("so_mail_accounts").update({ last_error: msg, ...(/volvé a conectar/.test(msg) ? { status: "error" } : {}) }).eq("owner_id", owner).neq("status", "desconectada");
     return json(502, { error: msg });
   }
 });

@@ -301,7 +301,7 @@ begin
   raise notice 'SEGURIDAD AUTOMATIZACIONES OK';
 end $$;
 -- ===================================================== 6) Correo (Gmail)
--- El usuario solo lee sus cuentas, mails y borradores; no puede escribirlos, ni ver el token, ni usar las funciones del
+-- El usuario solo lee sus cuentas y mails; no puede escribirlos, ni ver el token, ni usar las funciones del
 -- servidor. El estado OAuth no es visible para nadie salvo service_role.
 do $$
 declare
@@ -321,7 +321,7 @@ begin
   perform pg_temp.debe_fallar($q$select token_ref from public.so_mail_accounts$q$, 'ver la referencia al token');
   perform pg_temp.debe_fallar(format($q$insert into public.so_mails (owner_id, account_id, gmail_id, received_at) values (%L, %L, 'g2', now())$q$, ua, ca), 'escribir mails desde la página');
   perform pg_temp.debe_fallar(format($q$update public.so_mail_accounts set status = 'error' where id = %L$q$, ca), 'modificar la cuenta desde la página');
-  perform pg_temp.debe_fallar(format($q$insert into public.so_mail_drafts (owner_id, account_id, body) values (%L, %L, 'x')$q$, ua, ca), 'crear borradores sin pasar por el servidor');
+  if to_regclass('public.so_mail_drafts') is not null then raise exception 'sigue existiendo la tabla de borradores'; end if;
   perform pg_temp.debe_fallar(format($q$select public.so_correo_leer_token(%L)$q$, ca), 'leer el token de Gmail');
   perform pg_temp.debe_fallar(format($q$select public.so_correo_guardar_token(%L, 'robado-123456')$q$, ca), 'reemplazar el token de Gmail');
   perform pg_temp.debe_fallar($q$select * from public.so_mail_oauth_state$q$, 'ver el estado OAuth');

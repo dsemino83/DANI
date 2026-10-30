@@ -1,10 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { desafioPkce, urlAutorizacion, aFila, mimeRespuesta, listarIds, analizarCorreos, direccion, canjearCodigo, SCOPES } from '../correo/gmail.js';
+import { desafioPkce, urlAutorizacion, aFila, listarIds, analizarCorreos, direccion, canjearCodigo, SCOPES } from '../correo/gmail.js';
 
 const b64u = (s) => Buffer.from(s, 'utf8').toString('base64url');
 
-test('PKCE S256 (contra node:crypto) y URL de autorización con state, offline y solo lectura + borradores', async () => {
+test('PKCE S256 (contra node:crypto) y URL de autorización con state, offline y solo lectura', async () => {
   const { createHash } = await import('node:crypto');
   for (const v of ['dBjftJeZ4CVP-mJ92K9KyePCtSJ2hdlyCKZxN_0iyNw', 'x'.repeat(64)]) assert.equal(await desafioPkce(v), createHash('sha256').update(v).digest('base64url'));
   const u = new URL(urlAutorizacion({ clientId: 'cid', redirectUri: 'https://x/functions/v1/so-correo', state: 's'.repeat(40), desafio: 'abc' }));
@@ -12,7 +12,7 @@ test('PKCE S256 (contra node:crypto) y URL de autorización con state, offline y
   assert.equal(u.searchParams.get('access_type'), 'offline');
   assert.equal(u.searchParams.get('state'), 's'.repeat(40));
   assert.deepEqual(u.searchParams.get('scope').split(' '), SCOPES);
-  assert.ok(!SCOPES.some((s) => /gmail\.send|mail\.google\.com/.test(s)), 'nunca pide permiso de envío');
+  assert.deepEqual(SCOPES, ['https://www.googleapis.com/auth/gmail.readonly'], 'solo lectura: ni borradores ni envío');
 });
 
 test('mensaje de Gmail → fila: remitente, asunto, texto plano decodificado (acentos), etiquetas', () => {
@@ -28,15 +28,6 @@ test('mensaje de Gmail → fila: remitente, asunto, texto plano decodificado (ac
   assert.equal(soloHtml.body, 'Hola mundo');
   assert.equal(aFila({ ...m, labelIds: ['SENT'] }, 'yo@valo.ar').outbound, true);
   assert.deepEqual(direccion('sin-nombre@x.com'), { nombre: null, email: 'sin-nombre@x.com' });
-});
-
-test('borrador de respuesta: RFC 822 en el mismo hilo, asunto Re:, UTF-8', () => {
-  const raw = mimeRespuesta({ de: 'yo@valo.ar', para: 'ana@cliente.com', asunto: 'Cotización', texto: 'Gracias, le envío el precio mañana.', inReplyTo: '<abc@mail>' });
-  const txt = Buffer.from(raw, 'base64url').toString('utf8');
-  assert.match(txt, /^From: yo@valo\.ar\r\nTo: ana@cliente\.com\r\nSubject: =\?UTF-8\?B\?/);
-  assert.match(Buffer.from(txt.match(/Subject: =\?UTF-8\?B\?([^?]+)\?=/)[1], 'base64').toString(), /^Re: Cotización$/);
-  assert.match(txt, /In-Reply-To: <abc@mail>\r\nReferences: <abc@mail>/);
-  assert.equal(Buffer.from(txt.split('\r\n\r\n')[1].replace(/\r\n/g, ''), 'base64').toString(), 'Gracias, le envío el precio mañana.');
 });
 
 test('listado paginado con tope y errores de Google legibles', async () => {
