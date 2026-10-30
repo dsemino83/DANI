@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Política de privacidad · Francisco</title>
+<link rel="icon" href="avatar/favicon.svg" type="image/svg+xml">
+<style>
+  :root { --bg: #f6f5f1; --tx: #1d1d1b; --tx2: #55554f; --ac: #1f5fbf; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #161615; --tx: #ecebe6; --tx2: #a9a8a1; --ac: #7aa7ff; } }
+  body { margin: 0; background: var(--bg); color: var(--tx); font: 16px/1.6 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { max-width: 760px; margin: 0 auto; padding: 32px 16px 64px; }
+  h1 { font-size: 1.8rem; margin: 0 0 4px; } h2 { font-size: 1.15rem; margin: 28px 0 6px; }
+  p, li { color: var(--tx); } .meta { color: var(--tx2); margin: 0 0 24px; } a { color: var(--ac); }
+</style>
+</head>
+<body>
+<main>
+  <h1>Política de privacidad</h1>
+  <p class="meta">Francisco · Tu asistente personal — vigente desde el 30 de octubre de 2026</p>
+
+  <p>Francisco es un asistente personal de trabajo (tableros, archivos, análisis y automatizaciones). Esta política explica qué datos usa, para qué y cómo podés controlarlos.</p>
+
+  <h2>Qué datos usamos</h2>
+  <ul>
+    <li><b>Cuenta:</b> tu correo y nombre para iniciar sesión y saludarte.</li>
+    <li><b>Lo que cargás:</b> tableros, registros, archivos, conversaciones y configuraciones que creás en Francisco.</li>
+    <li><b>Gmail (solo si lo conectás):</b> con el permiso de <b>solo lectura</b> (<code>gmail.readonly</code>) leemos los mensajes de los últimos 30 días (hasta 300): remitente, destinatarios, asunto, fecha, etiquetas, un extracto y el texto del mensaje. Francisco <b>nunca envía, responde, borra ni modifica</b> correos.</li>
+    <li><b>Vinculación con Claude (solo si la activás):</b> la dirección y la clave de tu tarea programada de Claude, para que Francisco le pase los pedidos que necesitan tus conectores.</li>
+  </ul>
+
+  <h2>Para qué los usamos</h2>
+  <p>Únicamente para darte las funciones que pedís: mostrar tus tableros, analizar tu casilla (volumen, remitentes, mensajes sin responder, tiempos de respuesta) y responder tus pedidos. No usamos tus datos para publicidad, no los vendemos y no los usamos para entrenar modelos de inteligencia artificial.</p>
+
+  <h2>Uso de datos de Google</h2>
+  <p>El uso y la transferencia de la información recibida de las API de Google por parte de Francisco cumple con la <a href="https://developers.google.com/terms/api-services-user-data-policy" rel="noopener">Política de datos de usuario de los servicios de API de Google</a>, incluidos los requisitos de Uso Limitado. Los datos de Gmail solo se usan para mostrarte el análisis de tu propia casilla; no se transfieren a terceros salvo para operar el servicio (almacenamiento), no se usan para publicidad y ninguna persona los lee, salvo que nos lo pidas para resolver un problema o lo exija la ley.</p>
+
+  <h2>Dónde se guardan y cómo se protegen</h2>
+  <ul>
+    <li>Los datos se guardan en una base de datos de Supabase con acceso restringido: cada usuario solo puede ver lo suyo.</li>
+    <li>El permiso de Google y la clave de Claude se guardan <b>cifrados</b> en el servidor y nunca llegan al navegador.</li>
+    <li>Toda la comunicación viaja cifrada (HTTPS).</li>
+  </ul>
+
+  <h2>Cuánto tiempo los guardamos y cómo borrarlos</h2>
+  <ul>
+    <li>Al tocar <b>Desconectar</b> en la pantalla Correo, revocamos el permiso en Google y <b>borramos los mails guardados</b>.</li>
+    <li>Al <b>desvincular Claude</b>, se invalida la clave guardada.</li>
+    <li>También podés revocar el acceso en cualquier momento desde <a href="https://myaccount.google.com/permissions" rel="noopener">tu cuenta de Google</a>.</li>
+    <li>Podés pedir que borremos tu cuenta y todos tus datos escribiendo al correo de asistencia que aparece en la pantalla de autorización de Google.</li>
+  </ul>
+
+  <h2>Cambios</h2>
+  <p>Si cambiamos esta política, actualizamos esta página y la fecha de vigencia.</p>
+
+  <p><a href="./">Volver a Francisco</a> · <a href="terminos.html">Condiciones del servicio</a></p>
+</main>
+</body>
+</html>
