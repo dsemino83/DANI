@@ -15,8 +15,13 @@ test('detecta pedidos que necesitan los conectores de Claude (y no los demás)',
 test('vínculo: solo la URL oficial del disparador y una clave con formato de Claude', () => {
   assert.ok(validarVinculo({ url: URL_OK, token: TOKEN_OK }).ok);
   assert.ok(!validarVinculo({ url: 'https://evil.com/v1/claude_code/routines/trig_01ABCDEFGHJK/fire', token: TOKEN_OK }).ok);
-  assert.ok(!validarVinculo({ url: URL_OK + '?x=1', token: TOKEN_OK }).ok);
+  assert.equal(validarVinculo({ url: URL_OK + '?x=1', token: TOKEN_OK }).url, URL_OK, 'se queda solo con la URL limpia');
+  assert.ok(!validarVinculo({ url: 'https://api.anthropic.com.evil.com/v1/claude_code/routines/trig_01ABCDEFGHJK/fire', token: TOKEN_OK }).ok);
   assert.ok(!validarVinculo({ url: URL_OK, token: 'abc' }).ok);
+  const curl = `curl -X POST ${URL_OK} \\\n  -H "Authorization: Bearer ${TOKEN_OK}"`;
+  assert.deepEqual(validarVinculo({ url: curl, token: '' }), { ok: true, url: URL_OK, token: TOKEN_OK }, 'acepta el comando curl entero');
+  assert.equal(validarVinculo({ url: 'https://claude.ai/code/routines/trig_01ABCDEFGHJKLMNOPQRSTUVW', token: TOKEN_OK }).url, URL_OK, 'arma la URL desde la página de la tarea');
+  assert.equal(validarVinculo({ url: ` ${URL_OK}\n`, token: `Bearer ${TOKEN_OK} ` }).token, TOKEN_OK, 'tolera espacios y el prefijo Bearer');
 });
 
 test('resultado: exige texto, filtra componentes no aprobados y limita tamaños', () => {

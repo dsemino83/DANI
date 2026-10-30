@@ -27,7 +27,7 @@ await pg.click('#vincularClaude'); await pg.waitForSelector('#formClaude input[n
 const prompt = await pg.inputValue('#promptClaude');
 ok(/\/functions\/v1\/so-encargos\?encargo=/.test(prompt) && /Solo LEÉ/.test(prompt), 'Vincular: muestra la instrucción para la tarea con la URL de Francisco');
 await pg.fill('#formClaude input[name="url"]', 'https://otro.com/fire'); await pg.fill('#formClaude input[name="token"]', TOKEN); await pg.click('#formClaude button[type="submit"]');
-await pg.waitForSelector('#errorClaude:not([hidden])'); ok(/disparador de Claude/.test(await pg.textContent('#errorClaude')), 'Vincular: rechaza una URL que no es de Claude');
+await pg.waitForSelector('#errorClaude:not([hidden])'); ok(/No encontré la URL del disparador/.test(await pg.textContent('#errorClaude')), 'Vincular: rechaza una URL que no es de Claude');
 await pg.fill('#formClaude input[name="url"]', URL_OK); await pg.click('#formClaude button[type="submit"]');
 await pg.waitForFunction(() => !document.getElementById('hoja').open, null, { timeout: 5000 });
 const html = await pg.content();

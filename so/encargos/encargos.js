@@ -5,14 +5,14 @@
 // (Deno) y las pruebas. La clave de la tarea vive en Vault; acá solo pasa como parámetro.
 
 // Endpoint oficial de disparo (research preview): https://code.claude.com/docs/en/routines
-export const RUTINA_URL = /^https:\/\/api\.anthropic\.com\/v1\/claude_code\/routines\/trig_[A-Za-z0-9]{10,64}\/fire$/;
+export const RUTINA_URL = /^https:\/\/api\.anthropic\.com\/v1\/claude_code\/routines\/[A-Za-z0-9_-]{6,128}\/fire$/;
 export const RUTINA_TOKEN = /^sk-ant-[A-Za-z0-9_-]{20,400}$/;
 export const RUTINA_BETA = 'experimental-cc-routine-2026-04-01';
 export const VENCE_MIN = 120;          // la clave de un encargo sirve 2 horas
 export const TARDA_MIN = 20;           // pasado esto la página avisa que está tardando
 export const MAX_EN_CURSO = 5;         // encargos simultáneos por usuario
 
-const sinAcentos = (s) => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+const sinAcentos = (s) => String(s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
 
 // ¿El pedido necesita conectores de Claude? Servicios externos que Francisco no tiene conectados por sí mismo, o el
 // pedido explícito de usar Claude. Gmail lo resuelve Francisco con su propia conexión de solo lectura.
@@ -23,10 +23,16 @@ export function necesitaClaude(texto) {
   return SERVICIOS.test(n) && /\b(trae\w*|busca\w*|arma\w*|crea\w*|cruza\w*|compara\w*|analiza\w*|resumi\w*|lee\w*|mira\w*|revisa\w*|carga\w*|importa\w*|pasa\w*|lista\w*|mostra\w*|agenda\w*|anota\w*|prepara\w*|actualiza\w*|sincroniza\w*|tengo|cuales|cuantos?|hay)\b/.test(n);
 }
 
+// Acepta lo que el usuario copie de Claude: la URL del disparador, el comando curl entero, o la dirección de la página de
+// la tarea (claude.ai/code/routines/<id>), de la que se arma la URL del disparador con el mismo id.
 export function validarVinculo({ url, token }) {
-  const u = String(url || '').trim(), t = String(token || '').trim();
-  if (!RUTINA_URL.test(u)) return { ok: false, error: 'La URL no es la de un disparador de Claude (https://api.anthropic.com/v1/claude_code/routines/trig_…/fire).' };
-  if (!RUTINA_TOKEN.test(t)) return { ok: false, error: 'La clave no tiene el formato de Claude (empieza con sk-ant-).' };
+  const texto = String(url || '');
+  const directa = texto.match(/https:\/\/api\.anthropic\.com\/v1\/claude_code\/routines\/[A-Za-z0-9_-]{6,128}\/fire\b/);
+  const pagina = texto.match(/claude\.ai\/code\/(?:routines|scheduled|schedules?)\/([A-Za-z0-9_-]{6,128})/);
+  const u = directa ? directa[0] : pagina ? `https://api.anthropic.com/v1/claude_code/routines/${pagina[1]}/fire` : '';
+  const t = (String(token || '').match(/sk-ant-[A-Za-z0-9_-]{20,400}/) || String(url || '').match(/sk-ant-[A-Za-z0-9_-]{20,400}/) || [''])[0];
+  if (!RUTINA_URL.test(u)) return { ok: false, error: 'No encontré la URL del disparador. En la tarea de Claude, abrí el disparador API y copiá la URL que termina en /fire (o la dirección de la página de la tarea).' };
+  if (!RUTINA_TOKEN.test(t)) return { ok: false, error: 'No encontré la clave: es el texto que empieza con sk-ant- (Claude la muestra una sola vez; si no la tenés, tocá Regenerar).' };
   return { ok: true, url: u, token: t };
 }
 
