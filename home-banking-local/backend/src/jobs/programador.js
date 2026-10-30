@@ -1,0 +1,93 @@
+// Proceso de tareas programadas (servicio "jobs" del docker-compose).
+import cron from 'node-cron';
+import monitoreoSintetico from './monitoreo-sintetico.js';
+import { config } from '../config.js';
+import { writeFileSync } from 'node:fs';
+import { conciliarDebitos, recuperarEnviando, sincronizarEstados } from './estado-banco.js';
+import { ejecutarPase } from './pase-historico.js';
+import { ejecutarEnviosPendientes, procesarCola } from '../servicios/envios.js';
+import { procesarPagos } from '../servicios/motor-pagos.js';
+import { sincronizarFeriados } from '../servicios/feriados.js';
+import { verificarAuditoria } from '../servicios/integridad.js';
+import { auditarSistema } from '../auditoria.js';
+
+const log = (...a) => console.log(new Date().toISOString(), ...a);
+const seguro = (nombre, fn) => async () => {
+  try { log(nombre, JSON.stringify(await fn())); } catch (e) { console.error(new Date().toISOString(), nombre, 'ERROR', e.message); }
+};
+
+// Estado de transferencias enviadas y vínculo de débitos: cada 5 minutos en horario bancario
+cron.schedule('*/5 8-19 * * 1-5', seguro('estado-banco', async () => ({ ...(await sincronizarEstados()), debitos: await conciliarDebitos() })), { timezone: 'America/Argentina/Buenos_Aires' });
+
+// Transferencias interrumpidas en ENVIANDO: cada 5 minutos, todos los días (nunca reenvía)
+cron.schedule('*/5 * * * *', seguro('recuperar-enviando', async () => ({ recuperadas: await recuperarEnviando() })), { timezone: 'America/Argentina/Buenos_Aires' });
+
+// Pase a la base histórica: día 1 de cada mes a las 02:10
+cron.schedule('10 2 1 * *', seguro('pase-historico', ejecutarPase), { timezone: 'America/Argentina/Buenos_Aires' });
+
+// Envíos programados: cada minuto se ENCOLAN los turnos vencidos (una tarea por cliente)…
+cron.schedule('* * * * *', async () => {
+  try { const r = await ejecutarEnviosPendientes(); if (r.length) log('envios-encolados', JSON.stringify(r)); } // sin ruido si no hay turnos
+  catch (e) { console.error(new Date().toISOString(), 'envios-encolados', 'ERROR', e.message); }
+}, { timezone: 'America/Argentina/Buenos_Aires' });
+// …y un único trabajador procesa la cola de a una tarea cada 15 segundos (si sigue ocupado, no arranca otro)
+cron.schedule('*/15 * * * * *', async () => {
+  try { const r = await procesarCola(); if (r.procesadas) log('cola-envios', JSON.stringify(r)); }
+  catch (e) { console.error(new Date().toISOString(), 'cola-envios', 'ERROR', e.message); }
+});
+
+// Motor de pagos: cada 2 segundos toma las transferencias EN_COLA y las envía (en orden de creación,
+// en paralelo solo entre endpoints distintos). Tiene su propio candado: si sigue ocupado, no arranca otro.
+const logger = { info: log, warn: (...a) => console.error(new Date().toISOString(), ...a) };
+cron.schedule('*/2 * * * * *', async () => {
+  try { await procesarPagos(logger); }
+  catch (e) { console.error(new Date().toISOString(), 'motor-pagos', 'ERROR', e.message); }
+});
+
+// Monitoreo sintético de disponibilidad del banco (solo lectura; apagado por defecto: SYNTHETIC_MONITOR_ENABLED).
+// Log mínimo: resultado y duración. Si falla, deja una línea ALERTA (para el SIEM) y una entrada de auditoría
+// SOLO al cambiar de estado (no una por corrida), sin datos del banco.
+let sinteticoCaido = false;
+if (config.sintetico.habilitado) {
+  if (!cron.validate(config.sintetico.cron)) throw new Error('SYNTHETIC_MONITOR_CRON inválido');
+  cron.schedule(config.sintetico.cron, async () => {
+    try {
+      const r = await monitoreoSintetico();
+      log('monitoreo-sintetico', JSON.stringify(r));
+      if (!r.ok && !sinteticoCaido) {
+        console.error(new Date().toISOString(), 'ALERTA monitoreo-sintetico', JSON.stringify(r));
+        await auditarSistema(null, { tipo: 'Sistema', accion: 'Monitoreo sintético: banco no disponible', api: 'Monitoreo', resultado: 'Error', detalle: `${r.error} · ${r.ms} ms` });
+      } else if (r.ok && sinteticoCaido) {
+        await auditarSistema(null, { tipo: 'Sistema', accion: 'Monitoreo sintético: banco recuperado', api: 'Monitoreo', detalle: `${r.ms} ms` });
+      }
+      sinteticoCaido = !r.ok;
+    } catch (e) { console.error(new Date().toISOString(), 'monitoreo-sintetico', 'ERROR', e.message); }
+  }, { timezone: 'America/Argentina/Buenos_Aires' });
+}
+
+// Feriados de fuentes públicas: todos los días a las 03:20 (año en curso y el siguiente) y al arrancar
+const feriados = seguro('feriados', async () => {
+  const anio = new Date().getFullYear();
+  const r = [await sincronizarFeriados(anio)];
+  try { r.push(await sincronizarFeriados(anio + 1)); } catch { /* el año siguiente puede no estar publicado aún */ }
+  return r;
+});
+cron.schedule('20 3 * * *', feriados, { timezone: 'America/Argentina/Buenos_Aires' });
+feriados();
+
+// Integridad de la auditoría: todos los días a las 03:40 se verifica la cadena de hashes; el resultado queda en la
+// auditoría y, si está rota, también en el log del contenedor (para el SIEM)
+cron.schedule('40 3 * * *', seguro('integridad-auditoria', async () => {
+  const r = await verificarAuditoria();
+  await auditarSistema(null, { tipo: 'Sistema', accion: 'Verificación diaria de integridad de la auditoría', resultado: r.ok ? 'OK' : 'Error',
+    detalle: `${r.filas} registros · ${r.ok ? `cadena íntegra · cabeza ${r.cabeza.slice(0, 16)}…` : r.problemas.map((p) => p.problema).slice(0, 5).join(' · ')}` });
+  if (!r.ok) console.error(new Date().toISOString(), 'ALERTA integridad-auditoria', JSON.stringify(r.problemas));
+  return { ok: r.ok, filas: r.filas, cabeza: r.cabeza };
+}), { timezone: 'America/Argentina/Buenos_Aires' });
+
+// Latido para el healthcheck del contenedor: si el proceso se cuelga, deja de actualizarse.
+const latir = () => { try { writeFileSync('/tmp/latido', new Date().toISOString()); } catch { /* sin disco: el healthcheck lo marca */ } };
+latir();
+cron.schedule('* * * * *', latir);
+
+log('Programador de tareas iniciado');

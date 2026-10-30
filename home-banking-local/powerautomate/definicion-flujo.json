@@ -1,0 +1,116 @@
+{
+  "name": "2fc98e4f-fc61-47bd-8f04-d3881bfe12f5",
+  "id": "/providers/Microsoft.Flow/flows/2fc98e4f-fc61-47bd-8f04-d3881bfe12f5",
+  "type": "Microsoft.Flow/flows",
+  "properties": {
+    "apiId": "/providers/Microsoft.PowerApps/apis/shared_logicflows",
+    "displayName": "Alertas HB a Teams",
+    "definition": {
+      "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+      "contentVersion": "1.0.0.0",
+      "parameters": {
+        "$connections": {
+          "defaultValue": {},
+          "type": "Object"
+        },
+        "$authentication": {
+          "defaultValue": {},
+          "type": "SecureObject"
+        }
+      },
+      "triggers": {
+        "Cuando_se_recibe_una_solicitud_HTTP": {
+          "type": "Request",
+          "kind": "Http",
+          "inputs": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "cliente": {
+                  "type": "string"
+                },
+                "cuit": {
+                  "type": "string"
+                },
+                "asunto": {
+                  "type": "string"
+                },
+                "titulo": {
+                  "type": "string"
+                },
+                "html": {
+                  "type": "string"
+                },
+                "texto": {
+                  "type": "string"
+                },
+                "destinatarios": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              },
+              "required": [
+                "cliente",
+                "asunto",
+                "html",
+                "texto",
+                "destinatarios"
+              ]
+            }
+          }
+        }
+      },
+      "actions": {
+        "Para_cada_destinatario": {
+          "type": "Foreach",
+          "foreach": "@triggerBody()?['destinatarios']",
+          "actions": {
+            "Publicar_mensaje_en_Teams": {
+              "type": "OpenApiConnection",
+              "inputs": {
+                "host": {
+                  "apiId": "/providers/Microsoft.PowerApps/apis/shared_teams",
+                  "connectionName": "shared_teams",
+                  "operationId": "PostMessageToConversation"
+                },
+                "parameters": {
+                  "poster": "Flow bot",
+                  "location": "Chat with Flow bot",
+                  "body/recipient": "@items('Para_cada_destinatario')",
+                  "body/messageBody": "<b>@{triggerBody()?['asunto']}</b><br>Cliente: @{triggerBody()?['cliente']} (CUIT @{triggerBody()?['cuit']})<br>@{triggerBody()?['html']}"
+                },
+                "authentication": "@parameters('$authentication')"
+              },
+              "runAfter": {}
+            }
+          },
+          "runAfter": {}
+        },
+        "Respuesta_200": {
+          "type": "Response",
+          "kind": "Http",
+          "inputs": {
+            "statusCode": 200
+          },
+          "runAfter": {
+            "Para_cada_destinatario": [
+              "Succeeded"
+            ]
+          }
+        }
+      }
+    },
+    "connectionReferences": {
+      "shared_teams": {
+        "connectionName": "shared_teams",
+        "source": "Embedded",
+        "id": "/providers/Microsoft.PowerApps/apis/shared_teams",
+        "tier": "NotSpecified"
+      }
+    },
+    "flowFailureAlertSubscribed": false
+  },
+  "schemaVersion": "1.0.0.0"
+}

@@ -1,0 +1,16 @@
+{
+  "type": "object",
+  "properties": {
+    "cliente": { "type": "string" },
+    "cuit": { "type": "string" },
+    "asunto": { "type": "string" },
+    "titulo": { "type": "string" },
+    "html": { "type": "string" },
+    "texto": { "type": "string" },
+    "destinatarios": {
+      "type": "array",
+      "items": { "type": "string" }
+    }
+  },
+  "required": ["cliente", "asunto", "html", "texto", "destinatarios"]
+}

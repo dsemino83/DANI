@@ -1,0 +1,50 @@
+#!/bin/sh
+# Resguardo cifrado de las dos bases (operativa e histórica), con control de integridad y retención.
+#   sh scripts/resguardo.sh                      → /var/backups/home-banking (o HB_RESGUARDO_DIR)
+# Cada copia: BACKUP DATABASE de SQL Server (comprimido, con CHECKSUM) → cifrado AES-256 (clave en
+# secrets/resguardo_clave.txt, que NO se monta en ningún contenedor) → HMAC-SHA256 del archivo cifrado (detecta cualquier
+# alteración) → manifiesto con SHA-256. El archivo .bak en claro vive solo un instante dentro del contenedor y se borra.
+# Las copias de más de HB_RESGUARDO_DIAS (30) se borran. Para copia fuera del servidor (recomendado, inmutable/WORM):
+#   HB_RESGUARDO_COPIAR='rclone copy {dir} remoto:hb-resguardos'   ({dir} = carpeta de la copia)
+# Restaurar o probar: sh scripts/restaurar-resguardo.sh <carpeta> [--probar]
+set -eu
+cd "$(dirname "$0")/.."
+. scripts/sqlcmd.sh
+CLAVE=secrets/resguardo_clave.txt
+[ -s "$CLAVE" ] || { echo "Falta $CLAVE: correr sh scripts/generar-secretos.sh" >&2; exit 1; }
+BASE="${HB_RESGUARDO_DIR:-/var/backups/home-banking}"
+DIAS="${HB_RESGUARDO_DIAS:-30}"
+SELLO="$(date -u +%Y%m%dT%H%M%SZ)"
+DIR="$BASE/$SELLO"
+umask 077
+mkdir -p "$DIR"
+sql_exec "SELECT 1" >/dev/null || { echo "SQL Server no responde" >&2; exit 3; }
+
+volcar() { # base nombre
+  # sh no tiene pipefail: cada paso se controla por separado y, si algo falla, NO queda una copia "buena" (ni COMPLETO)
+  bak="/var/opt/mssql/backup/hb_$2_$SELLO.bak"
+  sql_contenedor "mkdir -p /var/opt/mssql/backup"
+  sql_exec "BACKUP DATABASE [$1] TO DISK = N'$bak' WITH COMPRESSION, CHECKSUM, INIT, FORMAT, STATS = 100" >/dev/null \
+    || { echo "BACKUP de $1 falló: resguardo incompleto, no se marca COMPLETO" >&2; exit 3; }
+  sql_exec "RESTORE VERIFYONLY FROM DISK = N'$bak' WITH CHECKSUM" >/dev/null \
+    || { sql_contenedor "rm -f '$bak'"; echo "RESTORE VERIFYONLY de $1 falló: resguardo incompleto" >&2; exit 3; }
+  { docker compose exec -T sqlserver cat "$bak" || echo "$?" > "$DIR/.fallo.$2"; } \
+    | openssl enc -aes-256-cbc -pbkdf2 -iter 200000 -salt -pass "file:$CLAVE" > "$DIR/$2.bak.enc"
+  sql_contenedor "rm -f '$bak'"
+  [ ! -e "$DIR/.fallo.$2" ] || { echo "la lectura del backup de $1 falló: resguardo incompleto, no se marca COMPLETO" >&2; exit 3; }
+  openssl dgst -sha256 -hmac "$(cat "$CLAVE")" -r "$DIR/$2.bak.enc" | cut -d' ' -f1 > "$DIR/$2.hmac"
+  echo "ok $2: $(wc -c < "$DIR/$2.bak.enc") bytes cifrados"
+}
+volcar homebanking operativa
+volcar homebanking_hist historica
+( cd "$DIR" && sha256sum ./*.bak.enc > MANIFIESTO.sha256 )
+printf 'creado=%s\nversion=%s\n' "$SELLO" "${HB_VERSION:-local}" > "$DIR/INFO"
+# COMPLETO se crea al final de la generación local: consumidores/simulacros no deben usar copias parciales.
+printf 'ok\n' > "$DIR/COMPLETO"
+
+if [ -n "${HB_RESGUARDO_COPIAR:-}" ]; then
+  sh -c "$(printf '%s' "$HB_RESGUARDO_COPIAR" | sed "s#{dir}#$DIR#g")" && echo "copiado fuera del servidor"
+fi
+# Retención: borra carpetas de copias más viejas que DIAS (solo las con formato de sello)
+find "$BASE" -mindepth 1 -maxdepth 1 -type d -name '20*T*Z' -mtime +"$DIAS" -exec rm -rf {} + 2>/dev/null || true
+echo "Resguardo en $DIR"
