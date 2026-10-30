@@ -1,9 +1,0 @@
-.env
-secrets/*.txt
-frontend/certs/*
-!frontend/certs/.gitkeep
-backend/node_modules/
-!.gitkeep
-.modo
-imagenes-home-banking.tar
-imagenes-home-banking.tar.gz
