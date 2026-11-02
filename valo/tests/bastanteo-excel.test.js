@@ -192,3 +192,26 @@ test('equivalencia de letras: si una misma letra apunta a dos grupos distintos n
   const eq = equivalenciaDeLetras(M.modeloBastanteo(base()), M.modeloBastanteo(esp), M);
   assert.equal(eq.consistente, false);
 });
+
+// Lectura del uso de firma del resumen cuando el texto ocupa varios renglones.
+test('uso del resumen: la letra sola del primer renglón es el grupo aunque el texto siga abajo', () => {
+  const u = M.usoDelResumen('B \r\n*B INDISTINTA H/ USD 12.000.000\r\n* B+C H/ 12.000.000\r\n*B+B SIN LIMITE');
+  assert.equal(u.grupo, 'B');
+  assert.deepEqual(u.combinaciones, ['B+B', 'B+C']);
+  assert.deepEqual(u.tipos, ['INDIVIDUAL', 'CONJUNTA']);
+  assert.equal(u.limite, 12000000);
+});
+
+test('uso del resumen: una combinación es firma conjunta aunque la palabra esté mal escrita', () => {
+  const u = M.usoDelResumen('C\n* C INDISTINTA H/ USD 8.000.000\n* C +D CONJUNTS H/ 5.000.000');
+  assert.equal(u.grupo, 'C');
+  assert.deepEqual(u.combinaciones, ['C+D']);
+  assert.deepEqual(u.tipos, ['INDIVIDUAL', 'CONJUNTA']);
+});
+
+test('uso del resumen: el texto de una sola línea sigue leyéndose como antes', () => {
+  const u = M.usoDelResumen('B CONJUNTA B+B; B+C');
+  assert.equal(u.grupo, 'B');
+  assert.equal(u.tipo, 'CONJUNTA');
+  assert.deepEqual(u.tipos, ['CONJUNTA']);
+});

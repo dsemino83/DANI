@@ -2318,10 +2318,14 @@
     const t = String(texto || '').toUpperCase().trim();
     if (!t) return null;
     const tipos = [...new Set((t.match(/\b(INDIVIDUAL|CONJUNTA|INDISTINTA)\b/g) || []).map(x => (x === 'INDISTINTA' ? 'INDIVIDUAL' : x)))];
-    const tipo = tipos[0] || '';
     const pre = t.split(/\b(?:INDIVIDUAL|CONJUNTA|INDISTINTA)\b/)[0].replace(/^[\s*•\-]+|[\s:*\-]+$/g, '').replace(/^GRUPO\s+/, '').trim();
-    const grupo = /^[A-Z]{1,3}$/.test(pre) ? pre : '';
+    // El grupo es la letra sola que abre el texto. Si el texto sigue en otros renglones ("B ⏎ *B INDISTINTA H/ USD 12.000.000
+    // ⏎ * B+C H/ 12.000.000"), la letra es el primer renglón entero y no lo que hay antes de la primera palabra de uso.
+    const primera = t.split(/\r?\n/)[0].replace(/^[\s*•\-]+|[\s:*\-]+$/g, '').replace(/^GRUPO\s+/, '');
+    const grupo = /^[A-Z]{1,3}$/.test(pre) ? pre : (/\n/.test(t) && /^[A-Z]{1,3}$/.test(primera) ? primera : '');
     const combinaciones = [...new Set((t.match(/\b[A-Z]{1,3}(?:\s*\+\s*[A-Z]{1,3})+\b/g) || []).map(c => c.replace(/\s/g, '').split('+').sort().join('+')))].sort();
+    // Una combinación (B+C) es firma conjunta aunque la palabra falte o esté mal escrita ("CONJUNTS").
+    if (combinaciones.length && !tipos.includes('CONJUNTA')) tipos.push('CONJUNTA');
     // Límite escrito en el texto de la firma individual ("H/ $ 50.000.000", "HASTA USD 50.000").
     let limite = null, limiteTexto = '';
     const ind = t.match(/\b(?:INDIVIDUAL|INDISTINTA)\b([^*;]*?)(?=\bCONJUNTA\b|\b[A-Z]{1,3}\s*\+|\*|;|$)/);
@@ -2329,6 +2333,7 @@
     // Si el texto solo habla de firma individual, el "hasta" puede estar antes ("A) Hasta USD 600.000 de forma indistinta").
     const m = (ind && !/SIN L[IÍ]MITE/.test(ind[1]) && ind[1].match(RE_HASTA)) || (tipos.length === 1 && tipos[0] === 'INDIVIDUAL' && !/SIN L[IÍ]MITE/.test(t) && t.match(RE_HASTA));
     if (m) { limite = Number(m[2].replace(/\.(?=\d{3}\b)/g, '').replace(/,(\d{1,2})$/, '.$1').replace(/,/g, '')) || null; limiteTexto = `${m[1] || ''} ${m[2]}`.trim(); }
+    const tipo = tipos[0] || '';
     return { grupo, tipo, tipos, combinaciones, limite, limiteTexto, texto: String(texto).trim() };
   }
 
