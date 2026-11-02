@@ -1734,6 +1734,17 @@
     if (combos.length) [...d.matchAll(/\b(dos|2|tres|3)\s+(?:del?\s+)?(?:(?:los|las)\s+)?(?:apoderad[oa]s\s+)?(?:(?:del?\s+)?(?:grupo|clase|categor[ií]a)\s+)?([A-Z])\b(?!\s*\+)/gi)]
       .filter(m => /[A-Z]/.test(m[2]) && m[2] === m[2].toUpperCase()).forEach(m => combos.push(combo(Array(/tres|3/i.test(m[1]) ? 3 : 2).fill(m[2]))));
     combos = unicos(combos);
+    // "Tipo de Firma C - Fulano, Mengano (indistinta, con Firma B)": una persona del grupo del título firma con una del grupo B
+    // (C+B). "Indistinta" es cuál de los del grupo C, no que dos del C firmen juntos.
+    if (!combos.length) {
+      const con = unicos([...d.matchAll(/\b[Cc]on\s+(?:[Uu]n[ao]?\s+|[Ee]l\s+|[Ll]a\s+)?(?:[Tt]ipo\s+de\s+)?(?:[Ff]irma|[Gg]rupo|[Cc]lase|[Cc]ategor[ií]a)\s+([A-Z])\b/g)].map(m => m[1]));
+      const titulo = [...d.matchAll(/(?:^|[·\-–]\s*)[Tt]ipo\s+de\s+[Ff]irma\s+([A-Z])\b/g)].map(m => m[1]);
+      const cabeza = unicos([...todas, ...titulo].filter(x => !con.includes(x)));
+      if (con.length && cabeza.length) {
+        const pares = unicos(cabeza.flatMap(c => con.map(o => combo([c, o]))));
+        return { grupo: cabeza[0], grupos: unicos([...cabeza, ...con]), combinaciones: pares };
+      }
+    }
     // 2) Cláusulas.
     if (!combos.length) {
       const RE_INICIO = '(?=(?:dos|tres|cuatro|un|uno|una|ambos|cualquier|al menos|de a|1|2|3|4)\\b)';
