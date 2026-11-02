@@ -2811,6 +2811,7 @@
       if (!personas.has(k)) personas.set(k, { apoderado: a, grupoPoder, grupoDesc, tipo: e.tipo_de_firma, individual: e.firma_individual, conjunta: e.firma_conjunta,
         facultades: Object.fromEntries(BASTANTEO_CLAVES.map(c => [c, false])), limitaciones: new Set(), escrituras: new Set(), estructuras: new Set(), combinaciones: new Set() });
       const p = personas.get(k);
+      if ((j.fecha_emision || '') > (p.fecha || '')) p.fecha = j.fecha_emision;
       // Solo las combinaciones donde aparece el grupo del apoderado (B en "A+A; A+B" → A+B).
       (e.combinaciones || []).filter(c => !grupoPoder || c.split('+').includes(grupoPoder)).forEach(c => p.combinaciones.add(c));
       if (e.con_presidente) p.conPresidente = true;
@@ -2819,13 +2820,18 @@
       if (j.deed_number) p.escrituras.add(String(j.deed_number));
       if (e.estructura_de_firma) p.estructuras.add(e.estructura_de_firma);
     })));
-    // Una persona en varios grupos de los poderes (A, B, C…): vale la primera letra y se descarta la de menos poder.
+    // Una persona en varios grupos de los poderes (A, B, C…): vale la asignación del poder más reciente (por fecha de emisión;
+    // si no la tiene, o hay empate, la primera letra) y se descartan las demás.
     const primera = new Map();
-    personas.forEach(p => { if (!p.grupoPoder) return; const id = p.apoderado.numero_de_identificacion, g = primera.get(id); if (!g || p.grupoPoder < g) primera.set(id, p.grupoPoder); });
+    personas.forEach(p => {
+      if (!p.grupoPoder) return;
+      const id = p.apoderado.numero_de_identificacion, g = primera.get(id);
+      if (!g || (p.fecha || '') > g.fecha || ((p.fecha || '') === g.fecha && p.grupoPoder < g.grupo)) primera.set(id, { grupo: p.grupoPoder, fecha: p.fecha || '' });
+    });
     const descartados = {};
     personas.forEach((p, k) => {
       const id = p.apoderado.numero_de_identificacion;
-      if (p.grupoPoder && p.grupoPoder !== primera.get(id)) { (descartados[id] = descartados[id] || new Set()).add(p.grupoPoder); personas.delete(k); }
+      if (p.grupoPoder && p.grupoPoder !== (primera.get(id) || {}).grupo) { (descartados[id] = descartados[id] || new Set()).add(p.grupoPoder); personas.delete(k); }
     });
     const grupos = new Map();
     personas.forEach(p => {
