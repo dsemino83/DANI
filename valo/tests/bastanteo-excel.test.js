@@ -295,3 +295,20 @@ test('control de lectura: si el texto del uso nombra un grupo que las combinacio
   assert.equal(aviso(['C+C']), true);
   assert.equal(aviso(null), false);
 });
+
+test('documentos onboardeados: un firmante de la planilla sin poder trae su cargo y documento del acta o el estatuto', () => {
+  const actas = [{ razon_social: 'EMPRESA DE PRUEBA SA', fecha: '2024-05-01', autoridades: [{ nombre_completo: 'Luis Emilio FERNANDO', dni: '20123456', rol: 'Director titular' }] },
+    { razon_social: 'EMPRESA DE PRUEBA SA', fecha: '2020-01-01', estatuto: true, autoridades: [{ nombre_completo: 'Luis Emilio FERNANDO', dni: '20123456', rol: 'Director suplente' }] }];
+  const f = { nombre: 'FERNANDO LUIS EMILIO', cuit: '', dni: '20123456' };
+  const o = M.datosOnboarding(f, actas);
+  assert.equal(o.rol, 'Director titular');
+  assert.equal(o.documento, 'Acta de designación de autoridades');
+  assert.match(M.textoOnboarding(o), /Acta de designación.*Director titular.*DNI 20123456/);
+  assert.equal(M.datosOnboarding({ nombre: 'Otra PERSONA', cuit: '', dni: '' }, actas), null);
+  const cliente = { cliente: 'EMPRESA DE PRUEBA SA', cuit: '30111111112', firmantes: [f], escrituras: [], marcas: {}, presidentes: [] };
+  const p = poderOcr('Ana Lopez con cualquiera del grupo B', APOD);
+  const u = M.jsonBastanteoUnico([M.jsonPoder(p, cliente, {})], Object.assign({}, cliente, { sinPoder: [Object.assign({}, f, { onboarding: o })] }));
+  const ap = u.apoderados.find(a => /FERNANDO/i.test(a.nombre_completo));
+  assert.match(ap.advertencia, /no figura en ningún poder.*Director titular/);
+  assert.equal(ap.rol_en_documentos, 'Director titular');
+});

@@ -2499,11 +2499,11 @@
     if (!poderes.length) { fila.estado = 'sinpod'; fila.error = motivoSin; return fila; }
     const jsons = poderes.map(p => M.jsonPoder(p, cliente, { deed_number: p.deed_number || '', board_resolution_power_attorney: p.board_resolution_power_attorney || '',
       power_attorney_type: p.power_attorney_type || 'Poder Especial para Operaciones Bancarias' }));
-    const sinPoder = M.firmantesSinPoder(poderes, cliente.firmantes).filter(f => !f.revocado);
+    const sinPoder = M.firmantesSinPoder(poderes, cliente.firmantes).filter(f => !f.revocado).map(f => Object.assign({}, f, { onboarding: M.datosOnboarding(f, r.actas) }));
     const unico = M.jsonBastanteoUnico(jsons, Object.assign({}, cliente, { sinPoder }));
     fila.control = M.controlResumen(unico, cliente, r.actas, rv, criteriosCtrl.lista);
     fila.diferencias = fila.control.flatMap(f => f.puntos.filter(p => p.ok === false).map(p => Object.assign({ firmante: f.nombre, ident: f.ident, resumenTexto: f.resumen }, p)));
-    fila.sinPoder = sinPoder.map(f => f.nombre);
+    fila.sinPoder = sinPoder.map(f => f.nombre + (f.onboarding ? ` (${M.textoOnboarding(f.onboarding)})` : ''));
     fila.noIncluidos = [...new Set(poderes.flatMap(p => p.apoderados).filter(a => !M.firmanteDe(a, cliente.firmantes)).map(a => a.nombre_completo))];
     fila.estado = fila.diferencias.length ? 'dif' : 'ok';
     // Sin poderes de Complif: se valida al presidente / gerente por acta, estatuto o encabezado del resumen. Si no hay
@@ -2849,9 +2849,9 @@
       otros.map(p => `${esc(p.razon_social || '—')} (CUIT ${esc(M.formatoCuit(p.cuit_empresa) || 'sin dato')}, ${esc(p.fecha_emision || '')})`).join(' · '));
     const sp = hay ? sinPoder() : [];
     if (sp.length) estado += aviso('warn', `<b>${sp.length} firmante${sp.length > 1 ? 's' : ''} de la planilla sin poder en el PDF.</b> Quedan cargados en el JSON único, sin grupo y con una advertencia. Revisá si falta el poder.`) +
-      `<div class="tabla-caja" style="margin-bottom:10px"><table><thead><tr><th>Nombre</th><th>CUIT</th><th>Situación</th></tr></thead><tbody>` +
+      `<div class="tabla-caja" style="margin-bottom:10px"><table><thead><tr><th>Nombre</th><th>CUIT</th><th>Situación</th><th>Documentos onboardeados</th></tr></thead><tbody>` +
       sp.map(f => { const rev = M.revocacionDe(f, { anulados: bast.anulados, quitados: bast.quitados });
-        return `<tr><td>${esc(f.nombre)}</td><td>${f.cuit ? esc(M.formatoCuit(f.cuit)) : 'DNI ' + esc(f.dni) + ' (sin CUIT)'}</td><td>${rev ? `<span class="chip bad">revocado</span> <span style="white-space:normal">${esc(rev)}</span>` : '<span class="chip warn">en la planilla, sin poder</span>'}</td></tr>`; }).join('') + '</tbody></table></div>';
+        return `<tr><td>${esc(f.nombre)}</td><td>${f.cuit ? esc(M.formatoCuit(f.cuit)) : 'DNI ' + esc(f.dni) + ' (sin CUIT)'}</td><td>${rev ? `<span class="chip bad">revocado</span> <span style="white-space:normal">${esc(rev)}</span>` : '<span class="chip warn">en la planilla, sin poder</span>'}</td><td style="white-space:normal">${f.onboarding ? `<span class="chip ok">${esc(f.onboarding.documento)}</span> ${esc(f.onboarding.rol || 'sin cargo')}${f.onboarding.dni ? ' · DNI ' + esc(f.onboarding.dni) : ''}${f.onboarding.fecha ? ' · ' + esc(f.onboarding.fecha) : ''}` : '<span class="chip gris">no figura en actas ni estatuto</span>'}</td></tr>`; }).join('') + '</tbody></table></div>';
     $('bastEstado').innerHTML = estado;
     renderBastUnico();
     renderV1Avisos();
@@ -2932,7 +2932,7 @@
     if (v) { const i = Number(v.dataset.bastVer), pre = $('bastJson' + i); pre.textContent = JSON.stringify(jsonDe(i), null, 2); pre.classList.toggle('oculto'); }
   });
   // Un solo JSON con todos los poderes, agrupando apoderados por tipo de firma y facultades.
-  const sinPoder = () => (bast.cliente ? M.firmantesSinPoder(bast.poderes, bast.cliente.firmantes).filter(f => !f.revocado) : []);
+  const sinPoder = () => (bast.cliente ? M.firmantesSinPoder(bast.poderes, bast.cliente.firmantes).filter(f => !f.revocado).map(f => Object.assign({}, f, { onboarding: M.datosOnboarding(f, bast.actas) })) : []);
   function jsonUnico(todosApoderados = false) { return M.jsonBastanteoUnico(bast.poderes.map((p, i) => jsonDe(i, todosApoderados)), bast.cliente && Object.assign({}, bast.cliente, { sinPoder: sinPoder() })); }
   // Control del resumen (Excel) contra los poderes, firmante por firmante: uso de firma, grupo, conjuntas y límite.
   let ctrlPuntos = [];
