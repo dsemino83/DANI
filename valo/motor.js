@@ -1822,6 +1822,31 @@
       complif: { id: doc.id_document || doc.id || doc.uuid || null, type: doc.type || '', document_type: doc.document_type || '' },
     };
   }
+  // Un uso que nombra a una persona ("Jorge Fernandez Ripoll con cualquiera del grupo B"): el texto solo da la letra del
+  // otro grupo (B+B). La persona firma con el grupo que le asigna el poder: si es A, el uso es A+B, no B+B.
+  // Solo cuando la persona nombrada es de un grupo que el texto no menciona; si no, queda como está.
+  function conPersonasEnUsos(poder) {
+    const palabras = t => normalizar(String(t || '')).replace(/[^a-z0-9 ]/g, ' ').split(/\s+/).filter(Boolean);
+    poder.usos = (poder.usos || []).map(u => {
+      if (!/CONJUNTA/.test(u.tipo || '')) return u;
+      const lista = palabras(sinNumeracion(u.descripcion)), texto = new Set(lista);
+      const nombradas = (poder.apoderados || []).filter(a => { const w = palabras(a.nombre_completo); return w.length >= 2 && w.every(x => texto.has(x)) && letraGrupo(a.grupo); });
+      // Sin ninguna letra en el texto ("Mario Sanchez con cualquiera de: Fernando Roldán, Guido Bossio…"): firma la primera
+      // persona nombrada con cada una de las otras, según el grupo de cada una (C+B), no todas las parejas entre los grupos.
+      if (!(u.grupos || []).length) {
+        if (!/\bcon\s+(cualquiera|alguno|uno)\s+de\b/i.test(String(u.descripcion || '')) || nombradas.length < 2) return u;
+        const pos = a => Math.min(...palabras(a.nombre_completo).map(w => lista.indexOf(w)));
+        const orden = nombradas.slice().sort((x, y) => pos(x) - pos(y)), pivote = letraGrupo(orden[0].grupo);
+        const combinaciones = [...new Set(orden.slice(1).map(a => [pivote, letraGrupo(a.grupo)].sort().join('+')))].sort();
+        return Object.assign({}, u, { grupo: pivote, grupos: [...new Set(combinaciones.flatMap(c => c.split('+')))].sort(), combinaciones });
+      }
+      const letras = [...new Set(nombradas.map(a => letraGrupo(a.grupo)))].filter(l => !u.grupos.includes(l));
+      if (!letras.length) return u;
+      const combinaciones = [...new Set(letras.flatMap(l => u.grupos.map(g => [l, g].sort().join('+'))))].sort();
+      return Object.assign({}, u, { grupo: letras[0], grupos: [...new Set(letras.concat(u.grupos))].sort(), combinaciones });
+    });
+    return poder;
+  }
   function poderDesdeComplif(doc) {
     const simple = poderSimpleComplif(doc);
     if (simple) return simple;
@@ -1837,7 +1862,7 @@
       const u = { descripcion: e.estructura_de_firma || e.descripcion || '', tipo, limitaciones: e.limitaciones || null, limite_de_operacion: e.limite_de_operacion || null, facultades };
       return usoCompleto(u);
     });
-    return {
+    return conPersonasEnUsos({
       razon_social: ocr.razon_social || complifCampo(doc, ['razon_social', 'company_name']) || '',
       cuit_empresa: complifNumero(ocr.cuit_empresa || complifCampo(doc, ['cuit_empresa', 'cuit', 'tax_id'])),
       fecha_emision: ocr.fecha_emision || null,
@@ -1850,7 +1875,7 @@
       usos,
       vencimiento: vencimientoComplif(doc),
       complif: { id: doc.id_document || doc.id || doc.uuid || null, type: doc.type || '', document_type: doc.document_type || '' },
-    };
+    });
   }
   // Acta de designación: lista de autoridades (nombre, identificación, rol / cargo).
   function actaDesdeComplif(doc) {

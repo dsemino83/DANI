@@ -215,3 +215,28 @@ test('uso del resumen: el texto de una sola línea sigue leyéndose como antes',
   assert.equal(u.tipo, 'CONJUNTA');
   assert.deepEqual(u.tipos, ['CONJUNTA']);
 });
+
+// Usos de firma de un poder de Complif que nombran personas en vez de letras (datos inventados).
+const poderOcr = (descripcion, apoderados) => M.poderDesdeComplif({ ocr_data_responses: {
+  razon_social: 'EMPRESA DE PRUEBA SA', cuit_empresa: '30-11111111-2', fecha_emision: '2025-01-01',
+  otorgante: { numero_de_identificacion: 10000001, nombre_completo: 'Otorgante PRUEBA' },
+  apoderados: apoderados.map(([n, id, g]) => ({ numero_de_identificacion: id, nombre_completo: n, grupo: g })),
+  estructuras_de_firma: [{ tipo_de_firma: 'CONJUNTA', estructura_de_firma: descripcion, firma_conjunta: true, firma_individual: false, facultades: { firmar_cheques: true }, limitaciones: 'hasta $1.000.000', limite_de_operacion: 1000000 }],
+} });
+const APOD = [['Ana LOPEZ', 20000001, 'a'], ['Beto RUIZ', 20000002, 'b'], ['Carla DIAZ', 20000003, 'b'], ['Dora SOSA', 20000004, 'c']];
+
+test('poder de Complif: "una persona con cualquiera del grupo B" es A+B (no B+B)', () => {
+  const p = poderOcr('Ana Lopez con cualquiera del grupo B (conjunta e indistinta)', APOD);
+  assert.deepEqual(p.usos[0].combinaciones, ['A+B']);
+  assert.deepEqual(p.usos[0].grupos, ['A', 'B']);
+});
+
+test('poder de Complif: "una persona con cualquiera de: otras personas" es su grupo con el de cada una', () => {
+  const p = poderOcr('Dora Sosa con cualquiera de: Beto Ruiz, Carla Diaz', APOD);
+  assert.deepEqual(p.usos[0].combinaciones, ['B+C']);
+});
+
+test('poder de Complif: si la persona nombrada es del grupo que dice el texto, no se cambia nada', () => {
+  const p = poderOcr('Beto Ruiz con cualquiera del grupo B', APOD);
+  assert.deepEqual(p.usos[0].combinaciones, ['B+B']);
+});
