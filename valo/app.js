@@ -2772,7 +2772,8 @@
       return ed;
     });
     // CUIT de los DNI que la planilla no trae con CUIT: base de entes.
-    const dnis = [...new Set(bast.poderes.flatMap(p => [p.otorgante.dni].concat(p.apoderados.map(a => a.dni))).filter(Boolean))]
+    const dnisSinPoder = bast.cliente ? M.firmantesSinPoder(bast.poderes, bast.cliente.firmantes).filter(f => !f.cuit && f.dni).map(f => String(f.dni).replace(/\D/g, '')) : [];
+    const dnis = [...new Set(bast.poderes.flatMap(p => [p.otorgante.dni].concat(p.apoderados.map(a => a.dni))).concat(dnisSinPoder).filter(Boolean))]
       .filter(d => !M.cuitPorDni(d, bast.cliente && bast.cliente.firmantes) && !(d in bast.cuitsBase));
     if (dnis.length && almacen && typeof almacen.buscarCuitPorDni === 'function') {
       try { Object.assign(bast.cuitsBase, await almacen.buscarCuitPorDni(dnis)); } catch (e) { /* sin base: queda el DNI */ }
@@ -2787,7 +2788,8 @@
   const cuilBuscado = new Set();
   async function buscarCuilesFaltantes() {
     if (!bast.poderes.length || !hayComplif()) return;
-    const faltan = [...new Set(jsonV1().apoderados.map(a => String(a.cuitCuil || '').replace(/\D/g, '')).filter(d => d && d.length <= 8 && !cuilBuscado.has(d)))];
+    const sinCuit = bast.cliente ? M.firmantesSinPoder(bast.poderes, bast.cliente.firmantes).filter(f => !f.cuit && f.dni && !bast.cuitsBase[String(f.dni).replace(/\D/g, '')]).map(f => String(f.dni).replace(/\D/g, '')) : [];
+    const faltan = [...new Set(jsonV1().apoderados.map(a => String(a.cuitCuil || '').replace(/\D/g, '')).concat(sinCuit).filter(d => d && d.length <= 8 && !cuilBuscado.has(d)))];
     if (!faltan.length) return;
     faltan.forEach(d => cuilBuscado.add(d));
     await cuilesDeComplif(faltan);
@@ -2851,7 +2853,7 @@
     if (sp.length) estado += aviso('warn', `<b>${sp.length} firmante${sp.length > 1 ? 's' : ''} de la planilla sin poder en el PDF.</b> Quedan cargados en el JSON único, sin grupo y con una advertencia. Revisá si falta el poder.`) +
       `<div class="tabla-caja" style="margin-bottom:10px"><table><thead><tr><th>Nombre</th><th>CUIT</th><th>Situación</th><th>Documentos onboardeados</th></tr></thead><tbody>` +
       sp.map(f => { const rev = M.revocacionDe(f, { anulados: bast.anulados, quitados: bast.quitados });
-        return `<tr><td>${esc(f.nombre)}</td><td>${f.cuit ? esc(M.formatoCuit(f.cuit)) : 'DNI ' + esc(f.dni) + ' (sin CUIT)'}</td><td>${rev ? `<span class="chip bad">revocado</span> <span style="white-space:normal">${esc(rev)}</span>` : '<span class="chip warn">en la planilla, sin poder</span>'}</td><td style="white-space:normal">${f.onboarding ? `<span class="chip ok">${esc(f.onboarding.documento)}</span> ${esc(f.onboarding.rol || 'sin cargo')}${f.onboarding.dni ? ' · DNI ' + esc(f.onboarding.dni) : ''}${f.onboarding.fecha ? ' · ' + esc(f.onboarding.fecha) : ''}` : '<span class="chip gris">no figura en actas ni estatuto</span>'}</td></tr>`; }).join('') + '</tbody></table></div>';
+        return `<tr><td>${esc(f.nombre)}</td><td>${f.cuit ? esc(M.formatoCuit(f.cuit)) + (f.cuitFuente ? ` <span class="chip gris">${esc(f.cuitFuente)}</span>` : '') : 'DNI ' + esc(f.dni) + ' (sin CUIT)'}</td><td>${rev ? `<span class="chip bad">revocado</span> <span style="white-space:normal">${esc(rev)}</span>` : '<span class="chip warn">en la planilla, sin poder</span>'}</td><td style="white-space:normal">${f.onboarding ? `<span class="chip ok">${esc(f.onboarding.documento)}</span> ${esc(f.onboarding.rol || 'sin cargo')}${f.onboarding.dni ? ' · DNI ' + esc(f.onboarding.dni) : ''}${f.onboarding.fecha ? ' · ' + esc(f.onboarding.fecha) : ''}` : '<span class="chip gris">no figura en actas ni estatuto</span>'}</td></tr>`; }).join('') + '</tbody></table></div>';
     $('bastEstado').innerHTML = estado;
     renderBastUnico();
     renderV1Avisos();
@@ -2932,7 +2934,11 @@
     if (v) { const i = Number(v.dataset.bastVer), pre = $('bastJson' + i); pre.textContent = JSON.stringify(jsonDe(i), null, 2); pre.classList.toggle('oculto'); }
   });
   // Un solo JSON con todos los poderes, agrupando apoderados por tipo de firma y facultades.
-  const sinPoder = () => (bast.cliente ? M.firmantesSinPoder(bast.poderes, bast.cliente.firmantes).filter(f => !f.revocado).map(f => Object.assign({}, f, { onboarding: M.datosOnboarding(f, bast.actas) })) : []);
+  // El CUIT que la planilla no trae (solo DNI) se completa con la base de entes o el dorso del DNI de Complif (mismas fuentes que los apoderados).
+  const sinPoder = () => (bast.cliente ? M.firmantesSinPoder(bast.poderes, bast.cliente.firmantes).filter(f => !f.revocado).map(f => {
+    const d = String(f.dni || '').replace(/\D/g, ''), c = !f.cuit && d ? (bast.cuitsBase[d] || '') : '';
+    return Object.assign({}, f, { onboarding: M.datosOnboarding(f, bast.actas) }, c ? { cuit: c, cuitFuente: bast.fuenteCuit[d] || 'base de entes' } : {});
+  }) : []);
   function jsonUnico(todosApoderados = false) { return M.jsonBastanteoUnico(bast.poderes.map((p, i) => jsonDe(i, todosApoderados)), bast.cliente && Object.assign({}, bast.cliente, { sinPoder: sinPoder() })); }
   // Control del resumen (Excel) contra los poderes, firmante por firmante: uso de firma, grupo, conjuntas y límite.
   let ctrlPuntos = [];
