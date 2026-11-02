@@ -149,3 +149,5 @@ Si un firmante de la planilla no figura en ningún poder, nunca queda solo con "
 - Se muestra en la tabla "sin poder" (columna *Documentos onboardeados*), en el control del resumen (punto Poder), en el chequeo masivo, y en el JSON único (`advertencia`, `rol_en_documentos`, `documento_onboarding`). Si la planilla no tiene DNI ni CUIT, se completa el DNI con el del acta.
 - Que figure en el acta **no le da grupo ni reglas de firma**: es información para revisar. Solo el presidente / gerente validado por acta firma como grupo D (`poderesFirmantesD`).
 - Si no figura ni en poderes ni en actas, se dice "no figura en actas ni estatuto".
+
+**CUIT de un firmante sin poder:** si la planilla trae solo el DNI, el CUIT se busca igual que el de los apoderados: base de entes y, con Complif conectado, el dorso del DNI (CUIL que contiene el DNI y tiene verificador válido). Se muestra con su fuente en la tabla y entra al JSON único. Si no aparece en ninguna, queda "DNI … (sin CUIT)": se carga a mano.
