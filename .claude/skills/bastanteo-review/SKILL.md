@@ -140,3 +140,12 @@ Los errores más caros vienen de leer mal el texto de un uso de firma (por ejemp
 - Si descripción y limitaciones se contradicen ("Un Tipo de Firma B y un Tipo de Firma C conjuntamente"), manda la combinación explícita.
 - Cada caso nuevo de lectura mal hecha se corrige de forma general en `valo/motor.js` (`gruposDelUso`, `conPersonasEnUsos`) y suma un test con datos inventados en `valo/tests/bastanteo-excel.test.js`. Nada de `if (empresa === …)`.
 - Antes de publicar: `npm run test:bastanteo`, subir la versión en `valo/pagina.html`, `python3 construir.py` (desde `valo/`), `git add web/index.html`, y publicar en la rama **SO** (el sitio sale de ahí) y en DANI-V.
+
+## Firmante de la planilla sin poder: datos de los documentos onboardeados
+
+Si un firmante de la planilla no figura en ningún poder, nunca queda solo con "sin poder": se buscan sus datos en los documentos onboardeados (acta de designación y estatuto de Complif o del PDF; `datosOnboarding` / `textoOnboarding` en `valo/motor.js`).
+
+- Se toma el acta más reciente donde aparece (por DNI o nombre, en cualquier orden). Trae cargo, DNI, tipo de documento y fecha.
+- Se muestra en la tabla "sin poder" (columna *Documentos onboardeados*), en el control del resumen (punto Poder), en el chequeo masivo, y en el JSON único (`advertencia`, `rol_en_documentos`, `documento_onboarding`). Si la planilla no tiene DNI ni CUIT, se completa el DNI con el del acta.
+- Que figure en el acta **no le da grupo ni reglas de firma**: es información para revisar. Solo el presidente / gerente validado por acta firma como grupo D (`poderesFirmantesD`).
+- Si no figura ni en poderes ni en actas, se dice "no figura en actas ni estatuto".
