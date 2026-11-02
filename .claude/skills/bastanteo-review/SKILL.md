@@ -104,7 +104,7 @@ Por cada firmante del resumen, cinco puntos con el mismo criterio que `control-r
 - No se suaviza una diferencia: si el resumen dice "sin límite" y el bastanteo tiene tope, es DIF.
 - CUIT o razón social de la empresa distintos entre resumen y bastanteo: aviso.
 
-La lógica está en `contraExcel.js` (a propósito fuera de `valo/motor.js`; si se quiere en la app, se promueve de ahí con sus tests).
+La lógica está en `valo/motor.js` (`compararConExcel`, `equivalenciaDeLetras`, `renombrarGrupos`) y la usan la página (Bastanteo → Vista agrupada → "Control contra la planilla del cliente") y este skill; `contraExcel.js` solo la expone para `revisar.js` y los tests. Una `ConjuntaIndistinta` de una sola firma cuenta como firma individual.
 
 ## Cómo correrlo
 

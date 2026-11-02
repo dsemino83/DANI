@@ -240,3 +240,11 @@ test('poder de Complif: si la persona nombrada es del grupo que dice el texto, n
   const p = poderOcr('Beto Ruiz con cualquiera del grupo B', APOD);
   assert.deepEqual(p.usos[0].combinaciones, ['B+B']);
 });
+
+test('contra el Excel: una ConjuntaIndistinta de una sola firma (una de cualquiera del grupo) es firma individual', () => {
+  const j = json([ap(1, ['A']), ap(2, ['A'])], [regla('ConjuntaIndistinta', 1, ['A'], { monto: 2000000, moneda: 'ARS' })]);
+  const r = compararConExcel(j, excel([[1, 'A INDIVIDUAL H/ $2.000.000']]), M);
+  assert.deepEqual(errores(r, 'ERROR DE REGLA'), []);
+  assert.equal(punto(r, 1, 'uso'), 'ok');
+  assert.equal(punto(r, 1, 'limite'), 'ok');
+});
