@@ -282,3 +282,16 @@ test('JSON único: con la misma fecha (o sin fecha) sigue valiendo la primera le
   const c = poderJson(null, [['Ana LOPEZ', 20000001, 'C']], {}), d = poderJson(null, [['Ana LOPEZ', 20000001, 'A']], {});
   assert.equal(grupoDe(M.jsonBastanteoUnico([c, d], {}), 20000001), 'A');
 });
+
+test('control de lectura: si el texto del uso nombra un grupo que las combinaciones no usan, hay un aviso', () => {
+  const cliente = { cliente: 'X', cuit: '', firmantes: [], escrituras: [], marcas: {}, presidentes: [] };
+  const aviso = comb => {
+    const p = poderOcr('Uso de firma 2 · Tipo de Firma C - Dora Sosa, Elsa PEREZ (indistinta, con Firma B)', [...APOD, ['Elsa PEREZ', 20000005, 'c']]);
+    const j = M.jsonPoder(p, cliente, {});
+    if (comb) j.estructuras_de_firma.forEach(e => { e.combinaciones = comb; });
+    const u = M.jsonBastanteoUnico([j], cliente);
+    return (M.jsonBastanteoV1(u, cliente, { jsons: [j] }).avisos || []).some(a => /nombra el grupo B/.test(a));
+  };
+  assert.equal(aviso(['C+C']), true);
+  assert.equal(aviso(null), false);
+});

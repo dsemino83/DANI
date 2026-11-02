@@ -3240,6 +3240,15 @@
         return !restringida;
       });
     });
+    // Control de lectura: si el texto de un uso conjunto nombra un grupo ("con Firma B", "un Tipo de Firma C") que las
+    // combinaciones leídas no usan, la lectura pudo quedar incompleta: se avisa para revisar (no cambia el resultado).
+    porUso.filter(e => e.firma_conjunta && (e.combinaciones || []).length).forEach(e => {
+      const texto = `${e.estructura_de_firma || ''} ${e.limitaciones || ''}`;
+      const nombrados = new Set([...texto.matchAll(/\b(?:tipo\s+de\s+)?(?:firma|grupo|clase|categor[ií]a)\s+([A-Z])\b/gi)].filter(m => m[1] === m[1].toUpperCase()).map(m => m[1]));
+      const leidos = new Set((e.combinaciones || []).flatMap(c => String(c).split('+')));
+      const faltan = [...nombrados].filter(g => !leidos.has(g)).sort();
+      if (faltan.length) avisos.push(`El texto del uso de firma nombra el grupo ${faltan.join(', ')} pero la lectura (${e.combinaciones.join(', ')}) no lo usa: revisar "${String(e.estructura_de_firma || '').slice(0, 120)}".`);
+    });
     const exacto = porUso.length && porUso.every(e => !e.firma_conjunta || (e.combinaciones || []).length);
     // Apoderados del poder que no están en el JSON único (grupos sin usos de firma, p. ej. un grupo C): van igual.
     if (opciones.jsons) {

@@ -130,3 +130,13 @@ Para el control de un resumen de poder contra los poderes de Complif (Poder, Uso
    - **Regla:** tipo, quorum, límites, monedas o facultades.
 3. Si el problema es de la lógica del motor, la corrección tiene que ser **general**: nada de `if (empresa === …)`, `if (firmante === …)` ni `if (grupo === 'A')`. Cada bug corregido lleva su test en `valo/tests/bastanteo.test.js` (`node --test valo/tests/*.test.js`).
 4. Las correcciones marcadas en la pantalla quedan en la colección `bastanteoCorrecciones` de la base (JSON generado, corregido y comentario). Sirven como casos de ejemplo: compará `generado` contra `corregido` con el script.
+
+## Control de lectura del texto (anti-regresión)
+
+Los errores más caros vienen de leer mal el texto de un uso de firma (por ejemplo "Tipo de Firma C … (indistinta, con Firma B)" leído como C+C en vez de B+C). Reglas fijas:
+
+- **Todo grupo que el texto nombra tiene que aparecer en la lectura.** `jsonBastanteoV1` avisa ("El texto del uso de firma nombra el grupo B pero la lectura (C+C) no lo usa") cuando un uso conjunto no usa un grupo que su descripción o limitaciones nombran. Ese aviso se revisa a mano, no se ignora.
+- "Indistinta" es *cuál* de los del grupo; no significa "dos del mismo grupo". "Con Firma X" agrega el grupo X a la combinación.
+- Si descripción y limitaciones se contradicen ("Un Tipo de Firma B y un Tipo de Firma C conjuntamente"), manda la combinación explícita.
+- Cada caso nuevo de lectura mal hecha se corrige de forma general en `valo/motor.js` (`gruposDelUso`, `conPersonasEnUsos`) y suma un test con datos inventados en `valo/tests/bastanteo-excel.test.js`. Nada de `if (empresa === …)`.
+- Antes de publicar: `npm run test:bastanteo`, subir la versión en `valo/pagina.html`, `python3 construir.py` (desde `valo/`), `git add web/index.html`, y publicar en la rama **SO** (el sitio sale de ahí) y en DANI-V.
