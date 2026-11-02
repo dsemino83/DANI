@@ -78,16 +78,47 @@ Reglas del sistema de destino:
 - Tope y sin tope son reglas distintas. Distintas facultades también.
 - No fusionar reglas con diferencias semánticas. No suponer significado legal que no esté en los datos.
 
+## Letras de grupo equivalentes
+
+Dos fuentes pueden llamar distinto al mismo grupo (el resumen dice A donde el bastanteo dice B). La letra no es el dato: lo es *quiénes* están en el grupo. `contraExcel.js` deduce el renombre por las personas (`equivalenciaDeLetras`, `renombrarGrupos`):
+
+- Si el renombre es consistente (cada letra apunta a un solo grupo y viceversa), se compara con las letras renombradas y se avisa (no es un error).
+- Si una letra apunta a dos grupos o dos letras al mismo grupo, no hay equivalencia: se compara tal cual y las diferencias de grupo quedan como ERROR DE PERTENENCIA.
+
+## Control contra el Excel (resumen de poder)
+
+Por cada firmante del resumen, cinco puntos con el mismo criterio que `control-resumenes-review`:
+
+| Punto | Qué compara |
+|---|---|
+| Pertenencia | ¿está en el bastanteo? ¿figura revocado en el resumen y el bastanteo lo incluye? |
+| Grupo | letra del resumen (con equivalencia de letras) contra el grupo del bastanteo |
+| Uso de firma | INDIVIDUAL / CONJUNTA del resumen contra las reglas en las que participa |
+| Firmas conjuntas | combinaciones del resumen (A+A, A+B…) contra las combinaciones mínimas que habilitan sus reglas |
+| Límite | solo individual: límite y moneda del resumen contra el tope de la regla |
+
+- **OK**: coincide (o no aplica). **REV**: el bastanteo da *más* que el resumen, o el resumen no dice el dato; es un aviso, nunca un error. **DIF**: el resumen pide algo que el bastanteo no da, o se contradicen; es un error.
+- Se encuentra al firmante por CUIT, luego DNI (posiciones 3 a 10 del CUIT) y luego nombre (en cualquier orden).
+- Apoderado del bastanteo que no está en el resumen: aviso. Firmante del resumen que no está en el bastanteo, o revocado e incluido: ERROR DE PERTENENCIA.
+- Las facultades marcadas con "X" en el resumen tienen que estar dadas por alguna regla (ERROR DE REGLA si no). Sin marcas no se controlan facultades. No se controla al revés.
+- No se suaviza una diferencia: si el resumen dice "sin límite" y el bastanteo tiene tope, es DIF.
+- CUIT o razón social de la empresa distintos entre resumen y bastanteo: aviso.
+
+La lógica está en `contraExcel.js` (a propósito fuera de `valo/motor.js`; si se quiere en la app, se promueve de ahí con sus tests).
+
 ## Cómo correrlo
 
 ```
-node .claude/skills/bastanteo-review/revisar.js generado.json             # validar un JSON
-node .claude/skills/bastanteo-review/revisar.js generado.json esperado.json  # comparar con otro
+node .claude/skills/bastanteo-review/revisar.js generado.json                          # validar un JSON
+node .claude/skills/bastanteo-review/revisar.js generado.json esperado.json            # comparar con otro (con equivalencia de letras)
+node .claude/skills/bastanteo-review/revisar.js generado.json --excel resumen.xlsx     # controlar contra el resumen del cliente
 ```
 
-Muestra los errores del modelo de cada JSON, la Vista agrupada y, si hay dos, las diferencias clasificadas.
+Muestra los errores del modelo, la Vista agrupada, las diferencias y, con `--excel`, la tabla firmante por firmante (OK/REV/DIF) y los hallazgos agrupados por tipo con *dónde mirar primero*. Salida: 0 sin diferencias, 1 con errores, 2 si falta un archivo o es inválido.
 
-Para el control de un resumen de poder contra Complif (Poder, Uso de firma, Grupo, Firmas conjuntas, Límite) usar el skill `control-resumenes-review`.
+Tests: `npm run test:bastanteo` (los del Excel están en `valo/tests/bastanteo-excel.test.js`, con datos inventados).
+
+Para el control de un resumen de poder contra los poderes de Complif (Poder, Uso de firma, Grupo, Firmas conjuntas, Límite) usar el skill `control-resumenes-review`. Este skill controla el *resultado* del bastanteo contra el resumen; aquel controla el resumen contra los poderes.
 
 ## Cómo razonar un caso
 
