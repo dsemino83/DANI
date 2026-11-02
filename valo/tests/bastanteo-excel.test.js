@@ -192,3 +192,59 @@ test('equivalencia de letras: si una misma letra apunta a dos grupos distintos n
   const eq = equivalenciaDeLetras(M.modeloBastanteo(base()), M.modeloBastanteo(esp), M);
   assert.equal(eq.consistente, false);
 });
+
+// Lectura del uso de firma del resumen cuando el texto ocupa varios renglones.
+test('uso del resumen: la letra sola del primer renglón es el grupo aunque el texto siga abajo', () => {
+  const u = M.usoDelResumen('B \r\n*B INDISTINTA H/ USD 12.000.000\r\n* B+C H/ 12.000.000\r\n*B+B SIN LIMITE');
+  assert.equal(u.grupo, 'B');
+  assert.deepEqual(u.combinaciones, ['B+B', 'B+C']);
+  assert.deepEqual(u.tipos, ['INDIVIDUAL', 'CONJUNTA']);
+  assert.equal(u.limite, 12000000);
+});
+
+test('uso del resumen: una combinación es firma conjunta aunque la palabra esté mal escrita', () => {
+  const u = M.usoDelResumen('C\n* C INDISTINTA H/ USD 8.000.000\n* C +D CONJUNTS H/ 5.000.000');
+  assert.equal(u.grupo, 'C');
+  assert.deepEqual(u.combinaciones, ['C+D']);
+  assert.deepEqual(u.tipos, ['INDIVIDUAL', 'CONJUNTA']);
+});
+
+test('uso del resumen: el texto de una sola línea sigue leyéndose como antes', () => {
+  const u = M.usoDelResumen('B CONJUNTA B+B; B+C');
+  assert.equal(u.grupo, 'B');
+  assert.equal(u.tipo, 'CONJUNTA');
+  assert.deepEqual(u.tipos, ['CONJUNTA']);
+});
+
+// Usos de firma de un poder de Complif que nombran personas en vez de letras (datos inventados).
+const poderOcr = (descripcion, apoderados) => M.poderDesdeComplif({ ocr_data_responses: {
+  razon_social: 'EMPRESA DE PRUEBA SA', cuit_empresa: '30-11111111-2', fecha_emision: '2025-01-01',
+  otorgante: { numero_de_identificacion: 10000001, nombre_completo: 'Otorgante PRUEBA' },
+  apoderados: apoderados.map(([n, id, g]) => ({ numero_de_identificacion: id, nombre_completo: n, grupo: g })),
+  estructuras_de_firma: [{ tipo_de_firma: 'CONJUNTA', estructura_de_firma: descripcion, firma_conjunta: true, firma_individual: false, facultades: { firmar_cheques: true }, limitaciones: 'hasta $1.000.000', limite_de_operacion: 1000000 }],
+} });
+const APOD = [['Ana LOPEZ', 20000001, 'a'], ['Beto RUIZ', 20000002, 'b'], ['Carla DIAZ', 20000003, 'b'], ['Dora SOSA', 20000004, 'c']];
+
+test('poder de Complif: "una persona con cualquiera del grupo B" es A+B (no B+B)', () => {
+  const p = poderOcr('Ana Lopez con cualquiera del grupo B (conjunta e indistinta)', APOD);
+  assert.deepEqual(p.usos[0].combinaciones, ['A+B']);
+  assert.deepEqual(p.usos[0].grupos, ['A', 'B']);
+});
+
+test('poder de Complif: "una persona con cualquiera de: otras personas" es su grupo con el de cada una', () => {
+  const p = poderOcr('Dora Sosa con cualquiera de: Beto Ruiz, Carla Diaz', APOD);
+  assert.deepEqual(p.usos[0].combinaciones, ['B+C']);
+});
+
+test('poder de Complif: si la persona nombrada es del grupo que dice el texto, no se cambia nada', () => {
+  const p = poderOcr('Beto Ruiz con cualquiera del grupo B', APOD);
+  assert.deepEqual(p.usos[0].combinaciones, ['B+B']);
+});
+
+test('contra el Excel: una ConjuntaIndistinta de una sola firma (una de cualquiera del grupo) es firma individual', () => {
+  const j = json([ap(1, ['A']), ap(2, ['A'])], [regla('ConjuntaIndistinta', 1, ['A'], { monto: 2000000, moneda: 'ARS' })]);
+  const r = compararConExcel(j, excel([[1, 'A INDIVIDUAL H/ $2.000.000']]), M);
+  assert.deepEqual(errores(r, 'ERROR DE REGLA'), []);
+  assert.equal(punto(r, 1, 'uso'), 'ok');
+  assert.equal(punto(r, 1, 'limite'), 'ok');
+});

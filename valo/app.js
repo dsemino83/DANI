@@ -3006,7 +3006,8 @@
   function renderVistaAgrupada() {
     const caja = $('bastVistaAgrupada');
     if (bastVista !== 'agrupada' || !bast.poderes.length) { caja.innerHTML = ''; renderChat(); return; }
-    const modelo = M.modeloBastanteo(jsonV1());
+    const json = jsonV1();
+    const modelo = M.modeloBastanteo(json);
     const filas = M.vistaAgrupada(modelo);
     // Una columna de firmantes por grupo: cada agrupamiento de la fila va en la columna de su grupo.
     const columnas = [...new Set(filas.flatMap(f => f.firmantes.map(a => a.grupo)))].sort();
@@ -3026,7 +3027,27 @@
         `<td style="white-space:normal">${esc(f.condicion)}${f.vencimiento ? `<div class="sub" style="margin:0">vence ${esc(fechaAr(f.vencimiento))}</div>` : ''}</td>` +
         `<td>${esc(f.monedas.join(', ') || '—')}</td><td style="white-space:nowrap">${f.limites.map(esc).join('<br>')}</td>` +
         `<td style="white-space:normal;min-width:260px"><details><summary>${f.facultades.length} facultades</summary>${esc(f.facultades.join(', '))}</details><div class="sub" style="margin:0">${esc(f.reglas.join(', '))}</div></td></tr>`).join('') +
-      '</tbody></table></div>';
+      '</tbody></table></div>' + htmlContraExcel(json);
+  }
+  // Control del bastanteo contra la planilla del cliente (Excel), firmante por firmante: pertenencia, grupo, uso de firma,
+  // firmas conjuntas y límite. OK coincide; REV el bastanteo da más que la planilla o falta el dato (no es un error); DIF la
+  // planilla pide algo que el bastanteo no da. Las letras de grupo de la planilla pueden ser otras si son equivalentes.
+  function htmlContraExcel(json) {
+    if (!bast.cliente || !bast.cliente.firmantes.length) return '';
+    const r = M.compararConExcel(json, bast.cliente);
+    const chip = e => (e === 'dif' ? '<span class="chip bad">DIF</span>' : e === 'rev' ? '<span class="chip warn">REV</span>' : '<span class="chip ok">OK</span>');
+    const errores = r.diferencias.filter(d => d.nivel === 'error'), avisos = r.diferencias.filter(d => d.nivel !== 'error');
+    const porTipo = l => M.ORIGEN_ERROR_EXCEL ? Object.keys(M.ORIGEN_ERROR_EXCEL).map(t => {
+      const ds = l.filter(d => d.tipo === t);
+      return ds.length ? `<div style="margin-bottom:4px"><b>${esc(t)}</b> <span class="sub" style="margin:0">(mirar primero: ${esc(M.ORIGEN_ERROR_EXCEL[t])})</span>${ds.map(d => `<div>${esc(d.detalle)}</div>`).join('')}</div>` : '';
+    }).join('') : '';
+    const P = ['pertenencia', 'grupo', 'uso', 'combinaciones', 'limite'];
+    return '<h3 style="margin:14px 0 6px">Control contra la planilla del cliente</h3>' +
+      '<p class="sub" style="margin:0 0 6px">Cada firmante de la planilla contra el bastanteo generado. OK coincide · REV el bastanteo da más que la planilla o la planilla no dice el dato (revisar, no es un error) · DIF la planilla pide algo que el bastanteo no da.</p>' +
+      (errores.length ? aviso('bad', `<b>${errores.length} diferencia${errores.length > 1 ? 's' : ''} con la planilla</b>${porTipo(errores)}`) : aviso('ok', 'El bastanteo da todo lo que pide la planilla.')) +
+      (avisos.length ? aviso('warn', `<b>Para revisar</b>${porTipo(avisos)}`) : '') +
+      (r.firmantes.length ? '<div class="tabla-caja"><table><thead><tr><th>Firmante</th><th>Pertenencia</th><th>Grupo</th><th>Uso de firma</th><th>Firmas conjuntas</th><th>Límite</th></tr></thead><tbody>' +
+        r.firmantes.map(f => `<tr><td>${esc(f.nombre)}</td>${P.map(p => `<td title="${esc(f.puntos[p].detalle || '')}">${chip(f.puntos[p].estado)}</td>`).join('')}</tr>`).join('') + '</tbody></table></div>' : '');
   }
   // Chat de un agrupamiento: ítems de razonamiento (bastanteo/razonamiento.js) sobre el ChatContext del agrupamiento,
   // armado con el contexto vigente de la máquina de análisis y validado antes de usarlo (si no es válido, no se usa).
