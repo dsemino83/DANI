@@ -248,3 +248,31 @@ test('contra el Excel: una ConjuntaIndistinta de una sola firma (una de cualquie
   assert.equal(punto(r, 1, 'uso'), 'ok');
   assert.equal(punto(r, 1, 'limite'), 'ok');
 });
+
+// Una persona con distinto grupo en dos poderes: vale la asignación del poder más reciente.
+function poderJson(fecha, apoderados, uso) {
+  return {
+    deed_number: null, fecha_emision: fecha, razon_social: 'EMPRESA DE PRUEBA SA', cuit_empresa: '30-11111111-2',
+    otorgante: { numero_de_identificacion: 10000001, nombre_completo: 'Otorgante PRUEBA' },
+    apoderados: apoderados.map(([n, id, g]) => ({ numero_de_identificacion: id, nombre_completo: n, grupo: g })),
+    estructuras_de_firma: [Object.assign({ tipo_de_firma: 'CONJUNTA', estructura_de_firma: 'x', firma_conjunta: true, firma_individual: false,
+      facultades: { firmar_cheques: true }, limitaciones: null, limite_de_operacion: null, combinaciones: ['B+C'] }, uso)],
+  };
+}
+const grupoDe = (u, id) => u.apoderados.find(a => a.numero_de_identificacion === id).grupo;
+
+test('JSON único: si dos poderes dan grupos distintos a una persona, vale el del poder más reciente', () => {
+  const viejo = poderJson('2020-01-01', [['Ana LOPEZ', 20000001, 'A'], ['Beto RUIZ', 20000002, 'B']], { combinaciones: ['A+B'] });
+  const nuevo = poderJson('2024-06-01', [['Ana LOPEZ', 20000001, 'C'], ['Beto RUIZ', 20000002, 'B']], { combinaciones: ['B+C'] });
+  assert.equal(grupoDe(M.jsonBastanteoUnico([viejo, nuevo], {}), 20000001), 'C');
+  // El orden de los poderes no cambia el resultado.
+  assert.equal(grupoDe(M.jsonBastanteoUnico([nuevo, viejo], {}), 20000001), 'C');
+});
+
+test('JSON único: con la misma fecha (o sin fecha) sigue valiendo la primera letra', () => {
+  const a = poderJson('2024-06-01', [['Ana LOPEZ', 20000001, 'C']], {});
+  const b = poderJson('2024-06-01', [['Ana LOPEZ', 20000001, 'A']], {});
+  assert.equal(grupoDe(M.jsonBastanteoUnico([a, b], {}), 20000001), 'A');
+  const c = poderJson(null, [['Ana LOPEZ', 20000001, 'C']], {}), d = poderJson(null, [['Ana LOPEZ', 20000001, 'A']], {});
+  assert.equal(grupoDe(M.jsonBastanteoUnico([c, d], {}), 20000001), 'A');
+});
