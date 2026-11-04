@@ -416,3 +416,15 @@ test('control: presidente o gerente según el acta/estatuto, aunque no sea apode
   assert.equal(filas.find(x => /GERENTE/.test(x.nombre)).puntos[0].ok, true);
   assert.equal(filas.find(x => /VICE/.test(x.nombre)).puntos[0].ok, false, 'el vicepresidente no se acepta solo por el cargo');
 });
+
+test('control: si el CUIT/DNI del renglón es de otro apoderado, se controla por nombre y se avisa del documento (no se compara contra los grupos de otro)', () => {
+  const p = poder([persona(1, 'A'), persona(2, 'B')], [uso('CONJUNTA', ['A+B'], ['firmar_cheques'])]);
+  const unico = M.jsonBastanteoUnico([M.jsonPoder(p, null, { todosApoderados: true })], { cuit: '30000000007', cliente: 'EMPRESA DE PRUEBA SA' });
+  const f = (nombre, n, g) => ({ nombre, cuit: CUIT(n), dni: String(n), ente: '', observacion: '', monto_hasta: null, revocado: false,
+    uso: { grupo: g, tipo: 'CONJUNTA', tipos: ['CONJUNTA'], combinaciones: ['A+B'], texto: `${g} CONJUNTA A+B`, limite: null } });
+  // El renglón de Nombre1 trae el documento de la persona 2 (y al revés): el resumen está mal cargado, el grupo es el del nombre.
+  const filas = M.controlResumen(unico, { firmantes: [f('Nombre1 APELLIDO1', 2, 'A'), f('Nombre2 APELLIDO2', 1, 'B')] }, [], {});
+  const uno = filas.find(x => /Nombre1/.test(x.nombre));
+  assert.ok(uno.puntos.some(x => x.punto === 'Documento' && x.ok === null));
+  assert.ok(!uno.puntos.some(x => x.ok === false), 'sin diferencias de grupo ni de combinaciones');
+});
