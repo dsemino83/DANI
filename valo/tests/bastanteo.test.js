@@ -373,3 +373,13 @@ test('control: un firmante que no figura en los poderes pero se parece a un apod
   const otro = M.controlResumen(unico, { firmantes: [f('ZZZ YYY', 8)] }, [], {}).find(x => x.sinPoder).puntos[0];
   assert.ok(!otro.detalle);
 });
+
+test('Complif: si la estructura es un rótulo con apellidos sueltos, la cláusula de las limitaciones (nombres completos) dice quién firma con quién', () => {
+  const ap = [['Uno', 'Alfa', 1, 'A'], ['Dos', 'Beta', 2, 'A'], ['Tres', 'Gamma', 3, 'B']].map(([n, a, d, g]) => ({ nombre_completo: `${n} ${a}`, numero_de_identificacion: 20000000 + d, grupo: g }));
+  const doc = { type: 'Poder', ocr_data_responses: { otorgante: { nombre_completo: 'Otor Gante', numero_de_identificacion: 1 }, apoderados: ap, razon_social: 'EMPRESA DE PRUEBA SA', fecha_emision: '2025-01-01',
+    estructuras_de_firma: [{ tipo_de_firma: 'CONJUNTA', facultades: { endosar_cheques: true }, estructura_de_firma: 'Grupo 1: ALFA/BETA conjunta - facultades I',
+      limitaciones: 'Uno Alfa y Dos Beta, en forma conjunta con Tres Gamma, ejercen las facultades del punto I.' }] } };
+  const p = M.poderDesdeComplif(doc);
+  const u = p.usos[0];
+  assert.ok(/Tres Gamma/.test(u.descripcion), 'usa la cláusula con nombres completos');
+});

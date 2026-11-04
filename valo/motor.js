@@ -1873,7 +1873,15 @@
       const facultades = {};
       Object.keys(fac).forEach(k => { if (typeof fac[k] !== 'object') facultades[k] = complifSiNo(fac[k]); });
       const tipo = String(e.tipo_de_firma || (e.firma_conjunta ? 'CONJUNTA' : e.firma_individual ? 'INDIVIDUAL' : '')).toUpperCase();
-      const u = { descripcion: e.estructura_de_firma || e.descripcion || '', tipo, limitaciones: e.limitaciones || null, limite_de_operacion: e.limite_de_operacion || null, facultades };
+      // Si la estructura es un rótulo abreviado ("Grupo 1A: BAGO/CASTELLINI conjunta 2…", apellidos sueltos) y las
+      // limitaciones traen la cláusula con los nombres completos, la cláusula es la que dice quién firma con quién.
+      let desc = e.estructura_de_firma || e.descripcion || '';
+      if (e.limitaciones && e.estructura_de_firma) {
+        const aps = (complifJson(ocr.apoderados) || []).map(a => normalizar(a.nombre_completo || a.nombre || '').replace(/[^a-z0-9 ]/g, ' ').split(/\s+/).filter(Boolean)).filter(w => w.length >= 2);
+        const nombrados = t => { const set = new Set(normalizar(String(t)).replace(/[^a-z0-9 ]/g, ' ').split(/\s+/)); return aps.filter(w => w.every(x => set.has(x))).length; };
+        if (nombrados(desc) < 2 && nombrados(e.limitaciones) >= 2) desc = e.limitaciones;
+      }
+      const u = { descripcion: desc, tipo, limitaciones: e.limitaciones || null, limite_de_operacion: e.limite_de_operacion || null, facultades };
       return usoCompleto(u);
     });
     return conPersonasEnUsos({
