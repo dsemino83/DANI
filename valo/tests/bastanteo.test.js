@@ -355,6 +355,16 @@ test('control: el presidente del acta sin uso de firma en los poderes se toma co
   assert.equal(M.poderesFirmantesD(cliente, [p3], actas)[0].usos[0].grupo, 'D');
 });
 
+// Bug: "Dos apoderados A, o A con B/C, o B con A/C, o C con A/B" se leía solo como A+A (las cláusulas que empiezan con
+// la letra del grupo no se separaban) y los grupos B y C quedaban sin uso de firma ("No figura como apoderado").
+// "Grupo B o C con Grupo A" (sin coma) sigue siendo una alternativa de grupos, no otra cláusula.
+test('regresión: cláusulas que empiezan con la letra del grupo ("…, o A con B/C, o B con A/C")', () => {
+  const c = d => M.gruposDelUso({ tipo: 'CONJUNTA', descripcion: d }).combinaciones;
+  assert.deepEqual(c('Dos apoderados A, o A con B/C, o B con A/C, o C con A/B (conjuntamente de a dos)'), ['A+A', 'A+B', 'A+C', 'B+C']);
+  assert.deepEqual(c('Apoderado Grupo B o C con Apoderado Grupo A conjuntamente'), ['A+B', 'A+C']);
+  assert.deepEqual(c('Un integrante de Grupo A, B o C con uno de Grupo D, o dos integrantes del Grupo A'), ['A+A', 'A+D', 'B+D', 'C+D']);
+});
+
 // Criterios aceptados a mano desde la pantalla: una diferencia igual (mismo punto, mismo texto del resumen y del poder) pasa
 // a "a revisar" con el criterio a la vista; no cambia nada más.
 test('control: un criterio aceptado convierte la diferencia igual en "a revisar" y no toca las demás', () => {

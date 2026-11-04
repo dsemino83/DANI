@@ -1767,10 +1767,13 @@
     // 2) Cláusulas.
     if (!combos.length) {
       const RE_INICIO = '(?=(?:dos|tres|cuatro|un|uno|una|ambos|cualquier|al menos|de a|1|2|3|4)\\b)';
+      // También una cláusula que empieza con la letra del grupo, después de una coma: "Dos apoderados A, o A con B/C, o B
+      // con A/C". (Sin coma, "Grupo B o C con …" es una alternativa de grupos, no otra cláusula.)
+      const RE_LETRA = '(?=(?:grupo\\s+|clase\\s+|categor[ií]a\\s+)?[A-Z]\\s+(?:con|junto)\\b)';
       // Cortes fuera de los paréntesis ("Grupo A (2 de A, o 1 de A + 1 de B)" queda entero).
       const clausulas = [];
       let desde = 0;
-      for (const m of d.matchAll(new RegExp(`;|,?\\s+(?:y\\s*\\/\\s*o|o|u|ó)\\s+${RE_INICIO}`, 'gi'))) {
+      for (const m of d.matchAll(new RegExp(`;|,?\\s+(?:y\\s*\\/\\s*o|o|u|ó)\\s+${RE_INICIO}|,\\s+(?:y\\s*\\/\\s*o|o|u|ó)\\s+${RE_LETRA}`, 'gi'))) {
         const antes = d.slice(0, m.index);
         if ((antes.match(/\(/g) || []).length > (antes.match(/\)/g) || []).length) continue;
         clausulas.push(d.slice(desde, m.index)); desde = m.index + m[0].length;
