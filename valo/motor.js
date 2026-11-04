@@ -1730,8 +1730,10 @@
     if (tipo && tipo !== String(u.tipo || '').toUpperCase()) { u.tipoOriginal = u.tipo; u.tipo = tipo; }
     return [Object.assign(u, gruposDelUso(u))];
   }
+  // "actos V", "actos I a IV", "punto C", "inciso b)": numeración de los actos o cláusulas del poder, no un grupo de firma.
+  const sinActos = t => String(t || '').replace(/\b(actos?|puntos?|incisos?|apartados?|art[ií]culos?|cap[ií]tulos?)\s+(?:del?\s+)?(?:[IVX]+|[A-Z]|\d+)\b\)?(?:\s*(?:a|al|y|,|-|–)\s*(?:[IVX]+|[A-Z]|\d+)\b\)?)*/gi, '$1');
   function gruposDelUso(u) {
-    const d = sinNumeracion(u.descripcion), lim = String(u.limitaciones || '');
+    const d = sinActos(sinNumeracion(u.descripcion)), lim = sinActos(u.limitaciones);
     const conjunta = /CONJUNTA/.test(u.tipo || '');
     const combo = l => l.slice().sort().join('+');
     const unicos = l => [...new Set(l)].sort();
@@ -2123,7 +2125,9 @@
     Object.keys(equiv).forEach(g => { if (/^[A-Z]$/.test(g) && Object.keys(equiv).some(h => h !== g && equiv[h] === equiv[g])) delete equiv[g]; });
     // No se traduce a una letra que ya es un grupo propio del poder (sería mezclar dos grupos distintos).
     const gruposPoder = new Set(base.flatMap(x => x.est.map(e => e.grupo)).filter(Boolean));
-    Object.keys(equiv).forEach(g => { if (gruposPoder.has(equiv[g])) delete equiv[g]; });
+    // (Salvo la categoría E: en otro sistema "E" significa otra cosa y el Excel la renombra a otra letra, aunque el poder
+    // también tenga un grupo con esa letra.)
+    Object.keys(equiv).forEach(g => { if (g !== 'E' && gruposPoder.has(equiv[g])) delete equiv[g]; });
     // Grupos que armó la página (el poder no asigna grupos): su letra es arbitraria. Si todos sus integrantes que están en el
     // resumen tienen la misma letra, esa es la del grupo (igual que el bastanteo, que lo renombra con la letra de la planilla).
     const autoLetra = {};
@@ -2234,15 +2238,25 @@
         const como = x => propiosPoder.includes(x) ? grupoComparable(res.grupo) : propioComo[x] || trad(x);
         const podP = !grupoAuto && combos.some(c => c.split('+').some(x => propiosPoder.includes(x) || propioComo[x])) ? [...new Set(combos.map(c => c.split('+').map(como).sort().join('+')))] : null;
         let podC = difs(podD) < difs(podT) ? podD : podT;
+        // Categoría E renombrada en el Excel (en otro sistema "E" significa otra cosa): el E del poder puede ser cualquier letra
+        // del resumen que el poder no explica (E+E del poder = C+C del resumen). Vale la letra que menos diferencias deja.
+        let eComo = '';
+        if (!grupoAuto && combos.some(c => c.split('+').map(grupoComparable).includes('E')) && !resC.some(c => c.split('+').includes('E'))) {
+          [...new Set(resC.filter(c => !podC.includes(c)).flatMap(c => c.split('+')))].filter(x => x !== 'E').forEach(x => {
+            const pe = [...new Set(combos.map(c => c.split('+').map(y => (grupoComparable(y) === 'E' ? x : trad(y))).sort().join('+')))];
+            if (difs(pe) < difs(podC)) { podC = pe; eComo = x; }
+          });
+        }
         const extra = pc => pc.filter(c => !resC.includes(c)).length;
         if (podP && (difs(podP) < difs(podC) || (difs(podP) === difs(podC) && extra(podP) < extra(podC)))) podC = podP;
         // Lo que el poder da aunque hoy no haya firmantes para armarlo (B+C sin nadie del grupo C) no es un "sobrante".
-        const podNo = grupoAuto ? [] : podC === podP ? [] : combosSinFirmantes.map(podC === podD ? comboComparable : tradCombo);
+        const podNo = grupoAuto || eComo ? [] : podC === podP ? [] : combosSinFirmantes.map(podC === podD ? comboComparable : tradCombo);
         const sobran = resC.filter(c => !podC.includes(c) && !podNo.includes(c)), faltan = podC.filter(c => !resC.includes(c));
         // Que el poder dé más combinaciones que las que lista el resumen no es un error: el resumen es más restrictivo.
         fila.puntos.push({ punto: 'Firmas conjuntas', ok: sobran.length ? false : faltan.length ? null : true, resumen: res.combinaciones.join('; ') || '—',
           poder: (combos.join('; ') || '—') + (grupoAuto && combos.length ? ` (${podC.join(', ')}; letra puesta según las facultades)` : ''),
           detalle: [sobran.length ? 'el resumen incluye ' + sobran.join(', ') + ' que el poder no da' : '', faltan.length ? (sobran.length ? 'el poder también da ' : 'el resumen es más restrictivo: el poder también da ') + faltan.join(', ') : '',
+            eComo ? `categoría E del poder = ${eComo} en el resumen (la E se renombra en el Excel para no chocar con otro sistema)` : '',
             podC === podP ? 'grupo de una sola persona leído como el grupo donde la pone el resumen: ' + [...new Set(combos.flatMap(c => c.split('+')).filter(x => propiosPoder.includes(x) || propioComo[x]))].map(x => x + ' = ' + (propiosPoder.includes(x) ? grupoComparable(res.grupo) : propioComo[x])).join(', ') : ''].filter(Boolean).join('; ') });
       }
       // Firma conjunta: el límite del poder es para la firma individual, así que no se controla.

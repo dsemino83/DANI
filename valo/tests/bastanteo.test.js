@@ -365,6 +365,29 @@ test('regresión: cláusulas que empiezan con la letra del grupo ("…, o A con 
   assert.deepEqual(c('Un integrante de Grupo A, B o C con uno de Grupo D, o dos integrantes del Grupo A'), ['A+A', 'A+D', 'B+D', 'C+D']);
 });
 
+// Bug: "Bruno y López Lecube - actos V (conjunta)" (los actos I a IV del poder son individuales y el V conjunto) se leía
+// como grupo V (= E) y daba V+V: el resumen "C CONJUNTA C+C" salía con diferencia. "actos V", "punto I", "inciso b)" son
+// la numeración de los actos del poder, no grupos.
+test('regresión: "actos V" / "punto I" no son grupos de firma', () => {
+  const c = (d, l) => M.gruposDelUso({ tipo: 'CONJUNTA', descripcion: d, limitaciones: l }).combinaciones;
+  assert.deepEqual(c('Bruno y López Lecube - actos V (conjunta)', 'Para los actos enumerados en V los apoderados deberán actuar en forma conjunta'), []);
+  assert.deepEqual(c('Uno de los apoderados del punto I con uno del punto II, conjuntamente'), []);
+  assert.deepEqual(c('Dos del Grupo A, o uno del A con uno del B'), ['A+A', 'A+B']);
+});
+
+// Pedido: la categoría E del poder (también escrita V o 5) significa otra cosa en otro sistema y el Excel la renombra con
+// otra letra. "El resumen incluye C+C que el poder no da; el poder también da E+E" se toma como válido.
+test('control: la categoría E del poder renombrada en el resumen (E+E = C+C) no es diferencia', () => {
+  const p = poder([persona(1, 'A'), persona(2, 'C'), persona(3, 'C'), persona(4, 'E'), persona(5, 'E')],
+    [uso('CONJUNTA', ['A+C', 'C+C'], ['firmar_cheques']), uso('CONJUNTA', ['E+E'], ['transferencias_a_cuentas_de_terceros'], { grupo: 'E' })]);
+  const unico = M.jsonBastanteoUnico([M.jsonPoder(p, null, { todosApoderados: true })], { cuit: '30000000007', cliente: 'EMPRESA DE PRUEBA SA' });
+  const fila = (n, g, combinaciones) => ({ nombre: `Nombre${n} APELLIDO${n}`, cuit: CUIT(n), dni: String(n), ente: '', observacion: '', monto_hasta: null, revocado: false,
+    uso: { grupo: g, tipo: 'CONJUNTA', tipos: ['CONJUNTA'], combinaciones, texto: `${g} CONJUNTA ${combinaciones.join('; ')}`, limite: null } });
+  // El grupo E del poder es el C del resumen, aunque el poder también tenga un grupo C.
+  const cliente = { firmantes: [fila(4, 'C', ['C+C']), fila(5, 'C', ['C+C']), fila(2, 'C', ['A+C', 'C+C'])] };
+  assert.deepEqual(M.controlResumen(unico, cliente, [], {}).flatMap(c => c.puntos.filter(x => x.ok === false).map(x => `${c.nombre}: ${x.punto}`)), []);
+});
+
 // Criterios aceptados a mano desde la pantalla: una diferencia igual (mismo punto, mismo texto del resumen y del poder) pasa
 // a "a revisar" con el criterio a la vista; no cambia nada más.
 test('control: un criterio aceptado convierte la diferencia igual en "a revisar" y no toca las demás', () => {
