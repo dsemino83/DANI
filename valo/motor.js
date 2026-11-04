@@ -1485,15 +1485,31 @@
     }
     return out;
   }
+  // ¿El poder le da al firmante algún uso de firma? Figurar como apoderado sin que ningún uso lo alcance (el uso es de
+  // grupos que no son el suyo) no cuenta: para el control es como no tener poder.
+  function conUsoEnPoder(p, f) {
+    const i = (p.apoderados || []).findIndex(a => firmanteDe(a, [f]));
+    if (i < 0) return false;
+    const j = jsonPoder(p, null, { todosApoderados: true });
+    const id = (j.apoderados[i] || {}).numero_de_identificacion;
+    return j.estructuras_de_firma.some(e => (e.apoderados || []).includes(id));
+  }
   function poderesFirmantesD(cliente, poderes, actas) {
     const pres = presidentesDeActas(actas);
+    ((cliente && cliente.firmantes) || []).forEach(f => { delete f.presidentePorActa; });
+    const aIndividual = (poderes || []).some(p => p.apoderados.some(a => letraGrupo(a.grupo) === 'A') && (p.usos || []).some(u => /INDIVIDUAL|INDISTINTA/.test(u.tipo || '')));
     return ((cliente && cliente.firmantes) || []).filter(f => !f.revocado
       // "D" es el presidente cuando firma individual (o lo dice el texto / el acta). "D CONJUNTA: A+D, B+D…" con varios
       // firmantes es un grupo D de un poder, no el presidente.
       && ((f.uso && f.uso.grupo === 'D' && !(f.uso.tipos || [f.uso.tipo]).every(t => t === 'CONJUNTA')) || /\bpresident[ea]\b|\bsocio\s+gerente\b/i.test(f.observacion || '')
         || pres.some(p => firmanteDe(p, [f])) || ((cliente && cliente.presidentes) || []).some(p => firmanteDe({ nombre_completo: p }, [f])))
-      && !(poderes || []).some(p => p.apoderados.some(a => firmanteDe(a, [f])))).map(f => {
-      const letra = (f.uso && f.uso.grupo) || 'D';
+      && !(poderes || []).some(p => conUsoEnPoder(p, f))).map(f => {
+      // Sin grupo en el resumen: grupo A (firma individual con todas las facultades). Si los poderes ya tienen un grupo A
+      // con firma individual, se usa la D, para no darles las facultades del presidente a los demás de ese grupo.
+      const letra = (f.uso && f.uso.grupo) || (aIndividual ? 'D' : 'A');
+      // Presidente por el acta (no por el resumen): el control lo muestra en el punto "Poder".
+      const porActa = pres.find(p => firmanteDe(p, [f]));
+      if (porActa) f.presidentePorActa = { rol: porActa.rol || 'Presidente', grupo: letra };
       const persona = { nombre_completo: f.nombre, dni: f.dni || '', cuit: f.cuit || '', grupo: letra };
       const u = { tipo: 'INDIVIDUAL', descripcion: 'Presidente: todas las facultades', limitaciones: null, grupo: letra, grupos: [letra], combinaciones: [letra],
         facultades: Object.fromEntries(BASTANTEO_CLAVES.map(k => [k, true])) };
@@ -2138,6 +2154,9 @@
         return fila;
       }
       if (f.revocado) fila.puntos.push({ punto: 'Poder', ok: false, resumen: 'REVOCADO', poder: 'Tiene un poder vigente', detalle: 'el resumen lo da por revocado pero el poder sigue vigente' });
+      // Presidente según el acta, sin uso de firma en los poderes: se toma como apoderado (firma individual, todas las facultades).
+      if (f.presidentePorActa && !f.revocado) { const o = datosOnboarding(f, actas);
+        fila.puntos.push({ punto: 'Poder', ok: true, resumen: res.texto || '—', poder: `${f.presidentePorActa.rol} según el ${o ? o.documento + (o.fecha ? ' del ' + o.fecha : '') : 'acta'}: se toma como apoderado, grupo ${f.presidentePorActa.grupo}, firma individual con todas las facultades` }); }
       // "D" / "(Presidente)" en el resumen: el presidente firma con todas las facultades aunque también sea apoderado.
       const dicePres = /\bpresident[ea]\b/i.test(textoDe(f, res));
       const presActa = presidentes.some(p => firmanteDe(p, [f]));

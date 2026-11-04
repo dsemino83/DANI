@@ -328,6 +328,33 @@ test('regresión: el control encuentra al apoderado por nombre aunque el Excel t
   assert.equal(M.normalizar('A · B'), 'a b');
 });
 
+// Pedido: un firmante del resumen que figura como presidente en el acta de designación y no tiene uso de firma en los
+// poderes vigentes (no está, o está en un poder cuyos usos son de otros grupos) se toma como apoderado: grupo A (si el
+// resumen no da otra letra) y firma individual con todas las facultades. El control ya no da "Poder" como diferencia.
+test('control: el presidente del acta sin uso de firma en los poderes se toma como apoderado, grupo A, firma individual', () => {
+  const p = poder([persona(1, 'B'), persona(2, 'B'), persona(3, 'C')], [uso('CONJUNTA', ['B+B'], ['firmar_cheques'], { grupo: 'B' })]);
+  const actas = [{ razon_social: 'EMPRESA DE PRUEBA SA', fecha: '2023-10-19', autoridades: [{ nombre_completo: 'APELLIDO3 Nombre3', dni: '3', rol: 'Director Titular y Presidente' }] }];
+  const fila = (n, u) => ({ nombre: `APELLIDO${n} Nombre${n}`, cuit: CUIT(n), dni: String(n), ente: '', observacion: '', monto_hasta: null, revocado: false, uso: u });
+  const cliente = { cliente: 'EMPRESA DE PRUEBA SA', cuit: '30000000007', firmantes: [
+    fila(1, { grupo: 'B', tipo: 'CONJUNTA', tipos: ['CONJUNTA'], combinaciones: ['B+B'], texto: 'B CONJUNTA B+B', limite: null }), fila(3, null)] };
+  const pres = M.poderesFirmantesD(cliente, [p], actas);
+  assert.equal(pres.length, 1);
+  assert.equal(pres[0].usos[0].grupo, 'A');
+  assert.equal(pres[0].usos[0].tipo, 'INDIVIDUAL');
+  const unico = M.jsonBastanteoUnico([p].concat(pres).map(x => M.jsonPoder(x, cliente, {})), cliente);
+  const ctl = M.controlResumen(unico, cliente, actas, {});
+  const c3 = ctl.find(c => c.nombre === 'APELLIDO3 Nombre3');
+  assert.ok(!c3.sinPoder);
+  assert.deepEqual(c3.puntos.filter(x => x.ok === false), []);
+  assert.match(c3.puntos.find(x => x.punto === 'Poder').poder, /se toma como apoderado, grupo A, firma individual/);
+  // Si el poder le da un uso de firma, se controla con ese uso (no se agrega la presidencia).
+  const p2 = poder([persona(1, 'B'), persona(3, 'B')], [uso('CONJUNTA', ['B+B'], ['firmar_cheques'], { grupo: 'B' })]);
+  assert.equal(M.poderesFirmantesD(cliente, [p2], actas).length, 0);
+  // Si los poderes ya tienen un grupo A con firma individual, el presidente va en la D (no se mezclan facultades).
+  const p3 = poder([persona(1, 'A'), persona(3, 'C')], [uso('INDIVIDUAL', [], ['firmar_cheques'], { grupo: 'A' })]);
+  assert.equal(M.poderesFirmantesD(cliente, [p3], actas)[0].usos[0].grupo, 'D');
+});
+
 // Criterios aceptados a mano desde la pantalla: una diferencia igual (mismo punto, mismo texto del resumen y del poder) pasa
 // a "a revisar" con el criterio a la vista; no cambia nada más.
 test('control: un criterio aceptado convierte la diferencia igual en "a revisar" y no toca las demás', () => {
