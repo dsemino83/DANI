@@ -130,3 +130,24 @@ Para el control de un resumen de poder contra los poderes de Complif (Poder, Uso
    - **Regla:** tipo, quorum, límites, monedas o facultades.
 3. Si el problema es de la lógica del motor, la corrección tiene que ser **general**: nada de `if (empresa === …)`, `if (firmante === …)` ni `if (grupo === 'A')`. Cada bug corregido lleva su test en `valo/tests/bastanteo.test.js` (`node --test valo/tests/*.test.js`).
 4. Las correcciones marcadas en la pantalla quedan en la colección `bastanteoCorrecciones` de la base (JSON generado, corregido y comentario). Sirven como casos de ejemplo: compará `generado` contra `corregido` con el script.
+
+## Control de lectura del texto (anti-regresión)
+
+Los errores más caros vienen de leer mal el texto de un uso de firma (por ejemplo "Tipo de Firma C … (indistinta, con Firma B)" leído como C+C en vez de B+C). Reglas fijas:
+
+- **Todo grupo que el texto nombra tiene que aparecer en la lectura.** `jsonBastanteoV1` avisa ("El texto del uso de firma nombra el grupo B pero la lectura (C+C) no lo usa") cuando un uso conjunto no usa un grupo que su descripción o limitaciones nombran. Ese aviso se revisa a mano, no se ignora.
+- "Indistinta" es *cuál* de los del grupo; no significa "dos del mismo grupo". "Con Firma X" agrega el grupo X a la combinación.
+- Si descripción y limitaciones se contradicen ("Un Tipo de Firma B y un Tipo de Firma C conjuntamente"), manda la combinación explícita.
+- Cada caso nuevo de lectura mal hecha se corrige de forma general en `valo/motor.js` (`gruposDelUso`, `conPersonasEnUsos`) y suma un test con datos inventados en `valo/tests/bastanteo-excel.test.js`. Nada de `if (empresa === …)`.
+- Antes de publicar: `npm run test:bastanteo`, subir la versión en `valo/pagina.html`, `python3 construir.py` (desde `valo/`), `git add web/index.html`, y publicar en la rama **SO** (el sitio sale de ahí) y en DANI-V.
+
+## Firmante de la planilla sin poder: datos de los documentos onboardeados
+
+Si un firmante de la planilla no figura en ningún poder, nunca queda solo con "sin poder": se buscan sus datos en los documentos onboardeados (acta de designación y estatuto de Complif o del PDF; `datosOnboarding` / `textoOnboarding` en `valo/motor.js`).
+
+- Se toma el acta más reciente donde aparece (por DNI o nombre, en cualquier orden). Trae cargo, DNI, tipo de documento y fecha.
+- Se muestra en la tabla "sin poder" (columna *Documentos onboardeados*), en el control del resumen (punto Poder), en el chequeo masivo, y en el JSON único (`advertencia`, `rol_en_documentos`, `documento_onboarding`). Si la planilla no tiene DNI ni CUIT, se completa el DNI con el del acta.
+- Que figure en el acta **no le da grupo ni reglas de firma**: es información para revisar. Solo el presidente / gerente validado por acta firma como grupo D (`poderesFirmantesD`).
+- Si no figura ni en poderes ni en actas, se dice "no figura en actas ni estatuto".
+
+**CUIT de un firmante sin poder:** si la planilla trae solo el DNI, el CUIT se busca igual que el de los apoderados: base de entes y, con Complif conectado, el dorso del DNI (CUIL que contiene el DNI y tiene verificador válido). Se muestra con su fuente en la tabla y entra al JSON único. Si no aparece en ninguna, queda "DNI … (sin CUIT)": se carga a mano.

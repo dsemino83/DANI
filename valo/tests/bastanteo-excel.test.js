@@ -241,10 +241,74 @@ test('poder de Complif: si la persona nombrada es del grupo que dice el texto, n
   assert.deepEqual(p.usos[0].combinaciones, ['B+B']);
 });
 
+test('poder de Complif: "Tipo de Firma C - personas (indistinta, con Firma B)" es B+C (no C+C)', () => {
+  const p = poderOcr('Uso de firma 2 · Tipo de Firma C - Dora Sosa, Elsa PEREZ (indistinta, con Firma B)', [...APOD, ['Elsa PEREZ', 20000005, 'c']]);
+  assert.deepEqual(p.usos[0].combinaciones, ['B+C']);
+  assert.deepEqual(p.usos[0].grupos, ['B', 'C']);
+});
+
 test('contra el Excel: una ConjuntaIndistinta de una sola firma (una de cualquiera del grupo) es firma individual', () => {
   const j = json([ap(1, ['A']), ap(2, ['A'])], [regla('ConjuntaIndistinta', 1, ['A'], { monto: 2000000, moneda: 'ARS' })]);
   const r = compararConExcel(j, excel([[1, 'A INDIVIDUAL H/ $2.000.000']]), M);
   assert.deepEqual(errores(r, 'ERROR DE REGLA'), []);
   assert.equal(punto(r, 1, 'uso'), 'ok');
   assert.equal(punto(r, 1, 'limite'), 'ok');
+});
+
+// Una persona con distinto grupo en dos poderes: vale la asignación del poder más reciente.
+function poderJson(fecha, apoderados, uso) {
+  return {
+    deed_number: null, fecha_emision: fecha, razon_social: 'EMPRESA DE PRUEBA SA', cuit_empresa: '30-11111111-2',
+    otorgante: { numero_de_identificacion: 10000001, nombre_completo: 'Otorgante PRUEBA' },
+    apoderados: apoderados.map(([n, id, g]) => ({ numero_de_identificacion: id, nombre_completo: n, grupo: g })),
+    estructuras_de_firma: [Object.assign({ tipo_de_firma: 'CONJUNTA', estructura_de_firma: 'x', firma_conjunta: true, firma_individual: false,
+      facultades: { firmar_cheques: true }, limitaciones: null, limite_de_operacion: null, combinaciones: ['B+C'] }, uso)],
+  };
+}
+const grupoDe = (u, id) => u.apoderados.find(a => a.numero_de_identificacion === id).grupo;
+
+test('JSON único: si dos poderes dan grupos distintos a una persona, vale el del poder más reciente', () => {
+  const viejo = poderJson('2020-01-01', [['Ana LOPEZ', 20000001, 'A'], ['Beto RUIZ', 20000002, 'B']], { combinaciones: ['A+B'] });
+  const nuevo = poderJson('2024-06-01', [['Ana LOPEZ', 20000001, 'C'], ['Beto RUIZ', 20000002, 'B']], { combinaciones: ['B+C'] });
+  assert.equal(grupoDe(M.jsonBastanteoUnico([viejo, nuevo], {}), 20000001), 'C');
+  // El orden de los poderes no cambia el resultado.
+  assert.equal(grupoDe(M.jsonBastanteoUnico([nuevo, viejo], {}), 20000001), 'C');
+});
+
+test('JSON único: con la misma fecha (o sin fecha) sigue valiendo la primera letra', () => {
+  const a = poderJson('2024-06-01', [['Ana LOPEZ', 20000001, 'C']], {});
+  const b = poderJson('2024-06-01', [['Ana LOPEZ', 20000001, 'A']], {});
+  assert.equal(grupoDe(M.jsonBastanteoUnico([a, b], {}), 20000001), 'A');
+  const c = poderJson(null, [['Ana LOPEZ', 20000001, 'C']], {}), d = poderJson(null, [['Ana LOPEZ', 20000001, 'A']], {});
+  assert.equal(grupoDe(M.jsonBastanteoUnico([c, d], {}), 20000001), 'A');
+});
+
+test('control de lectura: si el texto del uso nombra un grupo que las combinaciones no usan, hay un aviso', () => {
+  const cliente = { cliente: 'X', cuit: '', firmantes: [], escrituras: [], marcas: {}, presidentes: [] };
+  const aviso = comb => {
+    const p = poderOcr('Uso de firma 2 · Tipo de Firma C - Dora Sosa, Elsa PEREZ (indistinta, con Firma B)', [...APOD, ['Elsa PEREZ', 20000005, 'c']]);
+    const j = M.jsonPoder(p, cliente, {});
+    if (comb) j.estructuras_de_firma.forEach(e => { e.combinaciones = comb; });
+    const u = M.jsonBastanteoUnico([j], cliente);
+    return (M.jsonBastanteoV1(u, cliente, { jsons: [j] }).avisos || []).some(a => /nombra el grupo B/.test(a));
+  };
+  assert.equal(aviso(['C+C']), true);
+  assert.equal(aviso(null), false);
+});
+
+test('documentos onboardeados: un firmante de la planilla sin poder trae su cargo y documento del acta o el estatuto', () => {
+  const actas = [{ razon_social: 'EMPRESA DE PRUEBA SA', fecha: '2024-05-01', autoridades: [{ nombre_completo: 'Luis Emilio FERNANDO', dni: '20123456', rol: 'Director titular' }] },
+    { razon_social: 'EMPRESA DE PRUEBA SA', fecha: '2020-01-01', estatuto: true, autoridades: [{ nombre_completo: 'Luis Emilio FERNANDO', dni: '20123456', rol: 'Director suplente' }] }];
+  const f = { nombre: 'FERNANDO LUIS EMILIO', cuit: '', dni: '20123456' };
+  const o = M.datosOnboarding(f, actas);
+  assert.equal(o.rol, 'Director titular');
+  assert.equal(o.documento, 'Acta de designación de autoridades');
+  assert.match(M.textoOnboarding(o), /Acta de designación.*Director titular.*DNI 20123456/);
+  assert.equal(M.datosOnboarding({ nombre: 'Otra PERSONA', cuit: '', dni: '' }, actas), null);
+  const cliente = { cliente: 'EMPRESA DE PRUEBA SA', cuit: '30111111112', firmantes: [f], escrituras: [], marcas: {}, presidentes: [] };
+  const p = poderOcr('Ana Lopez con cualquiera del grupo B', APOD);
+  const u = M.jsonBastanteoUnico([M.jsonPoder(p, cliente, {})], Object.assign({}, cliente, { sinPoder: [Object.assign({}, f, { onboarding: o })] }));
+  const ap = u.apoderados.find(a => /FERNANDO/i.test(a.nombre_completo));
+  assert.match(ap.advertencia, /no figura en ningún poder.*Director titular/);
+  assert.equal(ap.rol_en_documentos, 'Director titular');
 });

@@ -2499,11 +2499,11 @@
     if (!poderes.length) { fila.estado = 'sinpod'; fila.error = motivoSin; return fila; }
     const jsons = poderes.map(p => M.jsonPoder(p, cliente, { deed_number: p.deed_number || '', board_resolution_power_attorney: p.board_resolution_power_attorney || '',
       power_attorney_type: p.power_attorney_type || 'Poder Especial para Operaciones Bancarias' }));
-    const sinPoder = M.firmantesSinPoder(poderes, cliente.firmantes).filter(f => !f.revocado);
+    const sinPoder = M.firmantesSinPoder(poderes, cliente.firmantes).filter(f => !f.revocado).map(f => Object.assign({}, f, { onboarding: M.datosOnboarding(f, r.actas) }));
     const unico = M.jsonBastanteoUnico(jsons, Object.assign({}, cliente, { sinPoder }));
-    fila.control = M.controlResumen(unico, cliente, r.actas, rv, criteriosCtrl.lista);
+    fila.control = M.controlResumen(unico, Object.assign({}, cliente, { otrosApoderados: poderes.flatMap(p => p.apoderados) }), r.actas, rv, criteriosCtrl.lista);
     fila.diferencias = fila.control.flatMap(f => f.puntos.filter(p => p.ok === false).map(p => Object.assign({ firmante: f.nombre, ident: f.ident, resumenTexto: f.resumen }, p)));
-    fila.sinPoder = sinPoder.map(f => f.nombre);
+    fila.sinPoder = sinPoder.map(f => f.nombre + (f.onboarding ? ` (${M.textoOnboarding(f.onboarding)})` : ''));
     fila.noIncluidos = [...new Set(poderes.flatMap(p => p.apoderados).filter(a => !M.firmanteDe(a, cliente.firmantes)).map(a => a.nombre_completo))];
     fila.estado = fila.diferencias.length ? 'dif' : 'ok';
     // Sin poderes de Complif: se valida al presidente / gerente por acta, estatuto o encabezado del resumen. Si no hay
@@ -2570,8 +2570,10 @@
     finally { mas.corriendo = false; $('btnMasCancelar').disabled = true; renderMasivo(); }
   }
   const ESTADO_MAS = { dif: ['warn', 'Con diferencias'], ok: ['ok', 'Coincide'], sinpod: ['warn', 'Sin poderes en Complif'], err: ['bad', 'Error de lectura'], dup: ['', 'Duplicado descartado'] };
+  let masDifs = [];
   function renderMasivo() {
     const fl = mas.filas;
+    masDifs = [];
     $('btnMasExcel').disabled = !fl.length;
     $('masFiltros').classList.toggle('oculto', !fl.length);
     const cuenta = k => fl.filter(f => f.estado === k).length;
@@ -2585,10 +2587,33 @@
       vis.map(f => `<tr><td><b>${esc(f.empresa)}</b><div class="sub" style="margin:0;font-size:12px">${esc(f.archivo)}</div></td><td>${esc(M.formatoCuit(f.cuit) || '')}</td>` +
         `<td class="num">${fmtEntero(f.firmantes)}</td><td class="num">${fmtEntero(f.poderes)}</td><td><span class="chip ${ESTADO_MAS[f.estado][0]}">${ESTADO_MAS[f.estado][1]}</span></td>` +
         `<td style="white-space:normal;max-width:560px;font-size:13px">${f.error ? esc(f.error) : ''}` +
-        f.diferencias.map(d => `<div>✗ <b>${esc(d.firmante)}</b> · ${esc(d.punto)}: resumen "${esc(d.resumen)}" / poder "${esc(String(d.poder).slice(0, 160))}"${d.detalle ? ` <i>(${esc(d.detalle)})</i>` : ''}</div>`).join('') +
+        f.diferencias.map(d => { const k = masDifs.push(d) - 1; return `<div>✗ <b>${esc(d.firmante)}</b> · ${esc(d.punto)}: resumen "${esc(d.resumen)}" / poder "${esc(String(d.poder).slice(0, 160))}"${d.detalle ? ` <i>(${esc(d.detalle)})</i>` : ''} <a href="#" data-mas-aceptar="${k}" title="Esta diferencia en realidad está bien (validada): queda guardada como criterio y deja de marcarse en todas las empresas">Aceptar este criterio</a></div>`; }).join('') +
         (f.noIncluidos.length ? `<div class="sub" style="margin:0">En Complif y no en el resumen: ${esc(f.noIncluidos.join(', '))}</div>` : '') + '</td></tr>').join('') +
       (vis.length ? '' : '<tr><td colspan="6" class="sub">No hay empresas con ese filtro.</td></tr>') + '</tbody></table>';
   }
+  // "Aceptar este criterio" en el chequeo masivo: se guarda igual que en el control individual y se aplica de inmediato a todas las empresas.
+  $('masTabla').addEventListener('click', async e => {
+    const a = e.target.closest('[data-mas-aceptar]');
+    if (!a) return;
+    e.preventDefault();
+    const d = masDifs[Number(a.dataset.masAceptar)];
+    if (!d) return;
+    const fila = mas.filas.find(f => f.diferencias.includes(d)) || {};
+    try {
+      const c = { cuit: String(fila.cuit || '').replace(/\D/g, ''), razonSocial: fila.empresa || '', firmante: d.firmante, resumenFirmante: d.resumenTexto || '',
+        punto: d.punto, resumen: d.resumen, poder: d.poder, detalle: d.detalle || '', comentario: 'Aceptado desde el chequeo masivo' };
+      c.id = await almacen.guardarCriterioControl(c);
+      criteriosCtrl.lista = [c].concat(criteriosCtrl.lista);
+      const k = M.claveCriterio(d.punto, d.resumen, d.poder);
+      mas.filas.forEach(f => {
+        const antes = f.diferencias.length;
+        f.diferencias = f.diferencias.filter(x => M.claveCriterio(x.punto, x.resumen, x.poder) !== k);
+        if (antes !== f.diferencias.length && f.estado === 'dif' && !f.diferencias.length) f.estado = 'ok';
+      });
+      toast('Criterio guardado: ya no se marca en ninguna empresa');
+      renderMasivo();
+    } catch (err) { informar('No se pudo guardar el criterio', esc(err.message || err)); }
+  });
   $('masFiltro').addEventListener('change', renderMasivo);
   $('masBuscar').addEventListener('input', renderMasivo);
   $('btnMasCancelar').addEventListener('click', () => { mas.cancelar = true; });
@@ -2772,7 +2797,8 @@
       return ed;
     });
     // CUIT de los DNI que la planilla no trae con CUIT: base de entes.
-    const dnis = [...new Set(bast.poderes.flatMap(p => [p.otorgante.dni].concat(p.apoderados.map(a => a.dni))).filter(Boolean))]
+    const dnisSinPoder = bast.cliente ? M.firmantesSinPoder(bast.poderes, bast.cliente.firmantes).filter(f => !f.cuit && f.dni).map(f => String(f.dni).replace(/\D/g, '')) : [];
+    const dnis = [...new Set(bast.poderes.flatMap(p => [p.otorgante.dni].concat(p.apoderados.map(a => a.dni))).concat(dnisSinPoder).filter(Boolean))]
       .filter(d => !M.cuitPorDni(d, bast.cliente && bast.cliente.firmantes) && !(d in bast.cuitsBase));
     if (dnis.length && almacen && typeof almacen.buscarCuitPorDni === 'function') {
       try { Object.assign(bast.cuitsBase, await almacen.buscarCuitPorDni(dnis)); } catch (e) { /* sin base: queda el DNI */ }
@@ -2787,7 +2813,8 @@
   const cuilBuscado = new Set();
   async function buscarCuilesFaltantes() {
     if (!bast.poderes.length || !hayComplif()) return;
-    const faltan = [...new Set(jsonV1().apoderados.map(a => String(a.cuitCuil || '').replace(/\D/g, '')).filter(d => d && d.length <= 8 && !cuilBuscado.has(d)))];
+    const sinCuit = bast.cliente ? M.firmantesSinPoder(bast.poderes, bast.cliente.firmantes).filter(f => !f.cuit && f.dni && !bast.cuitsBase[String(f.dni).replace(/\D/g, '')]).map(f => String(f.dni).replace(/\D/g, '')) : [];
+    const faltan = [...new Set(jsonV1().apoderados.map(a => String(a.cuitCuil || '').replace(/\D/g, '')).concat(sinCuit).filter(d => d && d.length <= 8 && !cuilBuscado.has(d)))];
     if (!faltan.length) return;
     faltan.forEach(d => cuilBuscado.add(d));
     await cuilesDeComplif(faltan);
@@ -2849,9 +2876,9 @@
       otros.map(p => `${esc(p.razon_social || '—')} (CUIT ${esc(M.formatoCuit(p.cuit_empresa) || 'sin dato')}, ${esc(p.fecha_emision || '')})`).join(' · '));
     const sp = hay ? sinPoder() : [];
     if (sp.length) estado += aviso('warn', `<b>${sp.length} firmante${sp.length > 1 ? 's' : ''} de la planilla sin poder en el PDF.</b> Quedan cargados en el JSON único, sin grupo y con una advertencia. Revisá si falta el poder.`) +
-      `<div class="tabla-caja" style="margin-bottom:10px"><table><thead><tr><th>Nombre</th><th>CUIT</th><th>Situación</th></tr></thead><tbody>` +
+      `<div class="tabla-caja" style="margin-bottom:10px"><table><thead><tr><th>Nombre</th><th>CUIT</th><th>Situación</th><th>Documentos onboardeados</th></tr></thead><tbody>` +
       sp.map(f => { const rev = M.revocacionDe(f, { anulados: bast.anulados, quitados: bast.quitados });
-        return `<tr><td>${esc(f.nombre)}</td><td>${f.cuit ? esc(M.formatoCuit(f.cuit)) : 'DNI ' + esc(f.dni) + ' (sin CUIT)'}</td><td>${rev ? `<span class="chip bad">revocado</span> <span style="white-space:normal">${esc(rev)}</span>` : '<span class="chip warn">en la planilla, sin poder</span>'}</td></tr>`; }).join('') + '</tbody></table></div>';
+        return `<tr><td>${esc(f.nombre)}</td><td>${f.cuit ? esc(M.formatoCuit(f.cuit)) + (f.cuitFuente ? ` <span class="chip gris">${esc(f.cuitFuente)}</span>` : '') : 'DNI ' + esc(f.dni) + ' (sin CUIT)'}</td><td>${rev ? `<span class="chip bad">revocado</span> <span style="white-space:normal">${esc(rev)}</span>` : '<span class="chip warn">en la planilla, sin poder</span>'}</td><td style="white-space:normal">${f.onboarding ? `<span class="chip ok">${esc(f.onboarding.documento)}</span> ${esc(f.onboarding.rol || 'sin cargo')}${f.onboarding.dni ? ' · DNI ' + esc(f.onboarding.dni) : ''}${f.onboarding.fecha ? ' · ' + esc(f.onboarding.fecha) : ''}` : '<span class="chip gris">no figura en actas ni estatuto</span>'}</td></tr>`; }).join('') + '</tbody></table></div>';
     $('bastEstado').innerHTML = estado;
     renderBastUnico();
     renderV1Avisos();
@@ -2932,13 +2959,17 @@
     if (v) { const i = Number(v.dataset.bastVer), pre = $('bastJson' + i); pre.textContent = JSON.stringify(jsonDe(i), null, 2); pre.classList.toggle('oculto'); }
   });
   // Un solo JSON con todos los poderes, agrupando apoderados por tipo de firma y facultades.
-  const sinPoder = () => (bast.cliente ? M.firmantesSinPoder(bast.poderes, bast.cliente.firmantes).filter(f => !f.revocado) : []);
+  // El CUIT que la planilla no trae (solo DNI) se completa con la base de entes o el dorso del DNI de Complif (mismas fuentes que los apoderados).
+  const sinPoder = () => (bast.cliente ? M.firmantesSinPoder(bast.poderes, bast.cliente.firmantes).filter(f => !f.revocado).map(f => {
+    const d = String(f.dni || '').replace(/\D/g, ''), c = !f.cuit && d ? (bast.cuitsBase[d] || '') : '';
+    return Object.assign({}, f, { onboarding: M.datosOnboarding(f, bast.actas) }, c ? { cuit: c, cuitFuente: bast.fuenteCuit[d] || 'base de entes' } : {});
+  }) : []);
   function jsonUnico(todosApoderados = false) { return M.jsonBastanteoUnico(bast.poderes.map((p, i) => jsonDe(i, todosApoderados)), bast.cliente && Object.assign({}, bast.cliente, { sinPoder: sinPoder() })); }
   // Control del resumen (Excel) contra los poderes, firmante por firmante: uso de firma, grupo, conjuntas y límite.
   let ctrlPuntos = [];
   function renderControlResumen() {
     if (!bast.poderes.length || !bast.cliente || !bast.cliente.firmantes.length) { $('bastControl').innerHTML = ''; return; }
-    const filas = M.controlResumen(jsonUnico(), bast.cliente, bast.actas, { anulados: bast.anulados, quitados: bast.quitados }, criteriosCtrl.lista);
+    const filas = M.controlResumen(jsonUnico(), Object.assign({}, bast.cliente, { otrosApoderados: bast.poderes.flatMap(p => p.apoderados || []) }), bast.actas, { anulados: bast.anulados, quitados: bast.quitados }, criteriosCtrl.lista);
     ctrlPuntos = [];
     const marca = ok => (ok === true ? '<b style="color:var(--ok)">✓</b>' : ok === false ? '<b style="color:var(--bad)">✗</b>' : '<span class="sub">—</span>');
     const conDif = filas.filter(f => f.puntos.some(p => p.ok === false));

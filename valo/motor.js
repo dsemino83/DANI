@@ -21,9 +21,12 @@
 
   // ---------------------------------------------------------------- utilidades
 
+  // Ñ mal codificada en algunos Excel: "¥" ("VENINI NU¥EZ"), un símbolo suelto entre dos letras ("VICU·A", "VICU�A")
+  // o la Ñ en UTF-8 leída como Windows-1252 ("VICUÃ‘A").
+  const repararEnie = t => String(t == null ? '' : t).replace(/¥/g, 'Ñ').replace(/Ã‘/g, 'Ñ').replace(/Ã±/g, 'ñ')
+    .replace(/(?<=[A-Za-zÁÉÍÓÚáéíóú])[·•∙¤\uFF65\uFFFD](?=[A-Za-zÁÉÍÓÚáéíóú])/g, 'Ñ');
   function normalizar(texto) {
-    // "¥" es una Ñ mal codificada en algunos Excel ("VENINI NU¥EZ").
-    return String(texto == null ? '' : texto).replace(/¥/g, 'Ñ')
+    return repararEnie(texto)
       .normalize('NFD').replace(/[̀-ͯ]/g, '')
       .toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
   }
@@ -1734,6 +1737,22 @@
     if (combos.length) [...d.matchAll(/\b(dos|2|tres|3)\s+(?:del?\s+)?(?:(?:los|las)\s+)?(?:apoderad[oa]s\s+)?(?:(?:del?\s+)?(?:grupo|clase|categor[ií]a)\s+)?([A-Z])\b(?!\s*\+)/gi)]
       .filter(m => /[A-Z]/.test(m[2]) && m[2] === m[2].toUpperCase()).forEach(m => combos.push(combo(Array(/tres|3/i.test(m[1]) ? 3 : 2).fill(m[2]))));
     combos = unicos(combos);
+    // "Tipo de Firma C - Fulano, Mengano (indistinta, con Firma B)": una persona del grupo del título firma con una del grupo B
+    // (C+B). "Indistinta" es cuál de los del grupo C, no que dos del C firmen juntos.
+    if (!combos.length) {
+      const con = unicos([...d.matchAll(/\b[Cc]on\s+(?:[Uu]n[ao]?\s+|[Ee]l\s+|[Ll]a\s+)?(?:[Tt]ipo\s+de\s+)?(?:[Ff]irma|[Gg]rupo|[Cc]lase|[Cc]ategor[ií]a)\s+([A-Z])\b/g)].map(m => m[1]));
+      const titulo = [...d.matchAll(/(?:^|[·\-–]\s*)[Tt]ipo\s+de\s+[Ff]irma\s+([A-Z])\b/g)].map(m => m[1]);
+      const cabeza = unicos([...todas, ...titulo].filter(x => !con.includes(x)));
+      if (con.length && cabeza.length) {
+        const pares = unicos(cabeza.flatMap(c => con.map(o => combo([c, o]))));
+        return { grupo: cabeza[0], grupos: unicos([...cabeza, ...con]), combinaciones: pares };
+      }
+    }
+    // "Cualquier apoderado del Grupo A conjuntamente con cualquier otro apoderado (sea del Grupo A o del Grupo B)": A+A y A+B.
+    if (!combos.length) {
+      const m = `${d} ${lim}`.match(/\bgrupo\s+([A-Z])\b[^.;]*?cualquier\s+otro\s+apoderado\s*\(\s*sea\s+(?:del?\s+)?(?:grupo\s+)?([A-Z])\s+o\s+(?:del?\s+)?(?:grupo\s+)?([A-Z])\s*\)/i);
+      if (m) { const alt = unicos([m[2], m[3]].map(x => x.toUpperCase())); return { grupo: m[1].toUpperCase(), grupos: unicos([m[1].toUpperCase()].concat(alt)), combinaciones: unicos(alt.map(g => combo([m[1].toUpperCase(), g]))) }; }
+    }
     // 2) Cláusulas.
     if (!combos.length) {
       const RE_INICIO = '(?=(?:dos|tres|cuatro|un|uno|una|ambos|cualquier|al menos|de a|1|2|3|4)\\b)';
@@ -2057,6 +2076,30 @@
     }
     return filas;
   }
+  // Un firmante del resumen que no figura en los poderes pero se parece a un apoderado (mismas palabras del nombre, con otro
+  // documento o una letra mal escrita): se muestra cuál para que se vea si es la misma persona y se corrija el dato.
+  function parecidoEnPoderes(f, apoderados) {
+    const pal = t => new Set(normalizar(t).split(' ').filter(w => w.length > 1));
+    const mias = pal(f.nombre);
+    let mejor = null, mejorN = 0;
+    (apoderados || []).forEach(a => {
+      const comunes = [...pal(a.nombre_completo)].filter(w => mias.has(w)).length;
+      if (comunes > mejorN) { mejor = a; mejorN = comunes; }
+    });
+    return mejor && mejorN >= 2 ? `¿Será ${mejor.nombre_completo} (identificación ${mejor.numero_de_identificacion != null ? mejor.numero_de_identificacion : mejor.dni})? El nombre se parece pero el documento o alguna letra no coincide.` : '';
+  }
+  // La misma persona (al menos dos palabras del nombre en común) con un documento que difiere en un solo dígito: error de tipeo.
+  function mismoConDocTipeado(f, apoderados) {
+    const pal = t => new Set(normalizar(t).split(' ').filter(w => w.length > 1));
+    const dniDe = x => { const d = String(x == null ? '' : x).replace(/\D/g, ''); return (d.length === 11 ? d.slice(2, 10) : d).replace(/^0+/, ''); };
+    const mios = [f.dni, f.cuit].filter(Boolean).map(dniDe).filter(d => d.length >= 7);
+    const mias = pal(f.nombre);
+    return (apoderados || []).find(a => {
+      const d = dniDe(a.numero_de_identificacion != null ? a.numero_de_identificacion : a.dni);
+      if (d.length < 7 || [...pal(a.nombre_completo)].filter(w => mias.has(w)).length < 2) return false;
+      return mios.some(m => m.length === d.length && m !== d && [...m].filter((c, i) => c !== d[i]).length === 1);
+    }) || null;
+  }
   function controlResumenBase(unico, cliente, actas, revocados) {
     const firmantes = (cliente && cliente.firmantes) || [];
     const presidentes = (actas ? presidentesDeActas(actas) : []).concat(((cliente && cliente.presidentes) || []).map(n => ({ nombre_completo: n })));
@@ -2116,10 +2159,22 @@
     });
     return base.map(({ f, est, res, apo }) => {
       const fila = { nombre: f.nombre, ident: f.cuit || f.dni, resumen: res.texto || '', monto_hasta: f.monto_hasta, puntos: [] };
+      // Es apoderado de un poder vigente pero ningún uso de firma lo incluye (la estructura del poder nombra solo apellidos o
+      // grupos que no se pudieron leer): no está revocado, hay que revisar cómo lo lee el poder.
+      if (!est.length && !f.revocado && ((cliente && cliente.otrosApoderados) || []).some(a => firmanteDe(a, [f]))) {
+        fila.sinPoder = false;
+        fila.puntos.push({ punto: 'Poder', ok: null, resumen: res.texto || '—', poder: 'Figura como apoderado de un poder vigente, pero ningún uso de firma lo incluye',
+          detalle: 'revisar la estructura de firma del poder: puede nombrar a las personas solo por apellido o con grupos que no se pudieron leer' });
+        return fila;
+      }
       if (!est.length) {
         fila.sinPoder = true;
+        fila.onboarding = datosOnboarding(f, actas);
+        const candidatos = (unico.apoderados || []).filter(a => !a.advertencia).concat((cliente && cliente.otrosApoderados) || []);
+        const tipeo = f.revocado ? null : mismoConDocTipeado(f, candidatos);
         fila.puntos.push(f.revocado ? { punto: 'Poder', ok: true, resumen: 'REVOCADO', poder: 'Sin poder vigente (revocado)' }
-          : { punto: 'Poder', ok: false, resumen: res.texto || '—', poder: (r => r ? `Revocado: ${r}. No figura en los poderes vigentes` : 'No figura como apoderado en los poderes')(revocacionDe(f, revocados)) });
+          : { punto: 'Poder', ok: tipeo ? null : false, resumen: res.texto || '—', poder: (r => r ? `Revocado: ${r}. No figura en los poderes vigentes` : 'No figura como apoderado en los poderes')(revocacionDe(f, revocados)) + (fila.onboarding ? '. ' + textoOnboarding(fila.onboarding) : ''),
+            detalle: tipeo ? `Es ${tipeo.nombre_completo}: el documento del resumen difiere en un solo dígito del de Complif (${tipeo.numero_de_identificacion != null ? tipeo.numero_de_identificacion : tipeo.dni}); corregir el dato en el que esté mal` : parecidoEnPoderes(f, candidatos) });
         return fila;
       }
       if (f.revocado) fila.puntos.push({ punto: 'Poder', ok: false, resumen: 'REVOCADO', poder: 'Tiene un poder vigente', detalle: 'el resumen lo da por revocado pero el poder sigue vigente' });
@@ -2419,7 +2474,7 @@
             // El dato puede estar corrido una columna (filas con una marca adelante): se busca alrededor de la columna.
             const cand = icu < 0 ? [] : [icu, icu + 1, icu - 1].map(k => String(fila[k] == null ? '' : fila[k]).replace(/\D/g, ''));
             const num = cand.find(x => x.length === 11) || cand.find(x => x.length >= 7 && x.length <= 8) || '';
-            const nombre = String(fila[iNom] || fila[iNom + 1] || '').trim();
+            const nombre = repararEnie(fila[iNom] || fila[iNom + 1] || '').trim();
             const enteVal = [iEnte, iEnte + 1].map(k => (k > -1 ? String(fila[k] == null ? '' : fila[k]).trim() : '')).find(x => /^\d{2,7}$/.test(x)) || '';
             // Uso de firma del resumen ("B CONJUNTA B+B; B+C") y monto hasta (puede venir corrido una columna).
             const despues = fila.slice(iNom + 1).map(c => (c == null ? '' : String(c).trim()));
@@ -2669,6 +2724,17 @@
   }
 
   // Firmantes de la planilla que no aparecen como apoderados en ningún poder.
+  // Datos de los documentos onboardeados (acta de designación y estatuto de Complif, o del PDF) de un firmante de la planilla
+  // que no figura en ningún poder: cargo, documento y de qué documento sale. Se toma el acta más reciente en la que aparece.
+  function datosOnboarding(f, actas) {
+    const l = [].concat(actas || []).filter(a => a && a.autoridades).sort((x, y) => String(y.fecha || '').localeCompare(String(x.fecha || '')));
+    for (const a of l) {
+      const au = a.autoridades.find(x => firmanteDe(x, [f]));
+      if (au) return { nombre: au.nombre_completo, rol: au.rol || '', dni: au.dni || '', documento: a.estatuto ? 'Estatuto' : 'Acta de designación de autoridades', fecha: a.fecha || '', presidente: esPresidente(au.rol) };
+    }
+    return null;
+  }
+  const textoOnboarding = o => o ? `Figura en el ${o.documento}${o.fecha ? ' del ' + o.fecha : ''}${o.rol ? ' como ' + o.rol : ''}${o.dni ? ' (DNI ' + o.dni + ')' : ''}` : '';
   function firmantesSinPoder(poderes, firmantes) {
     // Un firmante repetido en la planilla (con CUIT y con DNI) cuenta como usado si cualquiera de sus renglones coincide.
     const aps = poderes.flatMap(p => p.apoderados);
@@ -2811,6 +2877,7 @@
       if (!personas.has(k)) personas.set(k, { apoderado: a, grupoPoder, grupoDesc, tipo: e.tipo_de_firma, individual: e.firma_individual, conjunta: e.firma_conjunta,
         facultades: Object.fromEntries(BASTANTEO_CLAVES.map(c => [c, false])), limitaciones: new Set(), escrituras: new Set(), estructuras: new Set(), combinaciones: new Set() });
       const p = personas.get(k);
+      if ((j.fecha_emision || '') > (p.fecha || '')) p.fecha = j.fecha_emision;
       // Solo las combinaciones donde aparece el grupo del apoderado (B en "A+A; A+B" → A+B).
       (e.combinaciones || []).filter(c => !grupoPoder || c.split('+').includes(grupoPoder)).forEach(c => p.combinaciones.add(c));
       if (e.con_presidente) p.conPresidente = true;
@@ -2819,13 +2886,18 @@
       if (j.deed_number) p.escrituras.add(String(j.deed_number));
       if (e.estructura_de_firma) p.estructuras.add(e.estructura_de_firma);
     })));
-    // Una persona en varios grupos de los poderes (A, B, C…): vale la primera letra y se descarta la de menos poder.
+    // Una persona en varios grupos de los poderes (A, B, C…): vale la asignación del poder más reciente (por fecha de emisión;
+    // si no la tiene, o hay empate, la primera letra) y se descartan las demás.
     const primera = new Map();
-    personas.forEach(p => { if (!p.grupoPoder) return; const id = p.apoderado.numero_de_identificacion, g = primera.get(id); if (!g || p.grupoPoder < g) primera.set(id, p.grupoPoder); });
+    personas.forEach(p => {
+      if (!p.grupoPoder) return;
+      const id = p.apoderado.numero_de_identificacion, g = primera.get(id);
+      if (!g || (p.fecha || '') > g.fecha || ((p.fecha || '') === g.fecha && p.grupoPoder < g.grupo)) primera.set(id, { grupo: p.grupoPoder, fecha: p.fecha || '' });
+    });
     const descartados = {};
     personas.forEach((p, k) => {
       const id = p.apoderado.numero_de_identificacion;
-      if (p.grupoPoder && p.grupoPoder !== primera.get(id)) { (descartados[id] = descartados[id] || new Set()).add(p.grupoPoder); personas.delete(k); }
+      if (p.grupoPoder && p.grupoPoder !== (primera.get(id) || {}).grupo) { (descartados[id] = descartados[id] || new Set()).add(p.grupoPoder); personas.delete(k); }
     });
     const grupos = new Map();
     personas.forEach(p => {
@@ -2893,8 +2965,9 @@
       cuit_empresa: formatoCuit((cliente && cliente.cuit) || (jsons[0] && jsons[0].cuit_empresa)),
       otorgante: otorgantes.length === 1 ? otorgantes[0] : otorgantes,
       apoderados: [...apoderados.values()].map(a => Object.assign(a, { grupo: a.grupo.join(', ') }))
-        .concat(((cliente && cliente.sinPoder) || []).filter(f => !apoderados.has(Number(f.cuit || f.dni))).map(f => ({ numero_de_identificacion: Number(f.cuit || f.dni),
-          nombre_completo: f.nombre, grupo: null, advertencia: 'Está en la planilla del cliente pero no figura en ningún poder' }))),
+        .concat(((cliente && cliente.sinPoder) || []).filter(f => !apoderados.has(Number(f.cuit || f.dni))).map(f => ({ numero_de_identificacion: Number(f.cuit || f.dni || (f.onboarding && f.onboarding.dni) || 0) || null,
+          nombre_completo: f.nombre, grupo: null, advertencia: 'Está en la planilla del cliente pero no figura en ningún poder' + (f.onboarding ? '. ' + textoOnboarding(f.onboarding) : ''),
+          rol_en_documentos: f.onboarding ? (f.onboarding.rol || null) : undefined, documento_onboarding: f.onboarding ? f.onboarding.documento : undefined }))),
       estructuras_de_firma: lista.map(g => Object.defineProperty({
         grupo: g.grupo,
         tipo_de_firma: g.tipo || null,
@@ -3222,6 +3295,15 @@
         if (restringida) avisos.push(`No va como regla la firma individual restringida del poder${j.deed_number ? ' esc. ' + j.deed_number : ''}: "${String(e.estructura_de_firma || e.limitaciones || '').slice(0, 140)}".`);
         return !restringida;
       });
+    });
+    // Control de lectura: si el texto de un uso conjunto nombra un grupo ("con Firma B", "un Tipo de Firma C") que las
+    // combinaciones leídas no usan, la lectura pudo quedar incompleta: se avisa para revisar (no cambia el resultado).
+    porUso.filter(e => e.firma_conjunta && (e.combinaciones || []).length).forEach(e => {
+      const texto = `${e.estructura_de_firma || ''} ${e.limitaciones || ''}`;
+      const nombrados = new Set([...texto.matchAll(/\b(?:tipo\s+de\s+)?(?:firma|grupo|clase|categor[ií]a)\s+([A-Z])\b/gi)].filter(m => m[1] === m[1].toUpperCase()).map(m => m[1]));
+      const leidos = new Set((e.combinaciones || []).flatMap(c => String(c).split('+')));
+      const faltan = [...nombrados].filter(g => !leidos.has(g)).sort();
+      if (faltan.length) avisos.push(`El texto del uso de firma nombra el grupo ${faltan.join(', ')} pero la lectura (${e.combinaciones.join(', ')}) no lo usa: revisar "${String(e.estructura_de_firma || '').slice(0, 120)}".`);
     });
     const exacto = porUso.length && porUso.every(e => !e.firma_conjunta || (e.combinaciones || []).length);
     // Apoderados del poder que no están en el JSON único (grupos sin usos de firma, p. ej. un grupo C): van igual.
@@ -5292,7 +5374,7 @@ try {
     leerTxtMeli, bancoMeliDeTxt, bancosParaMeli,
     sqlExtraccionCartera, bookmarkletCartera, scriptPowerShellCartera, comandoTareaCartera, IMPORTES_CARTERA,
     NO_COBIS, ultimoDiaHabil, fechasNoCobis, FCIC_MELI_INICIAL, FERIADOS_AR, diaHabilAnterior, fechasFcicMeli, leerReporteCupones, armarNoCobisFcic, lineaNoCobis, txtNoCobis, loteApiNoCobis, scriptPowerShellNoCobis, scriptPowerShellProbarNoCobis, scriptPowerShellAgenteNoCobis, cmdEnvioNoCobis,
-    leerCartera, BASTANTEO_CATALOGO, BASTANTEO_CLAVES, BASTANTEO_EXTRA, leerPoderesOcr, leerAutoridadesOcr, COMPLIF_TIPOS, poderDesdeComplif, actaDesdeComplif, complifDeEmpresa, controlResumen, claveCriterio, usoDelResumen, aplicarRevocatorias, claveRevocatoria, poderesFirmantesD, presidentesDeActas, gruposDelUso, usoCompleto, tokensDe, combosDeClausula, poderDelPresidente, leerClienteBastanteo, cuitPorDni, cuitValido, cuilDeDorsoDni, formatoCuit, firmanteDe, firmantesSinPoder, jsonPoder, jsonBastanteoUnico, jsonBastanteoV1, optimizarReglas, montoDeTexto, tcDePlanilla, modeloBastanteo, analizarBastanteo, vistaAgrupada, chatContextBastanteo, condicionDeFirma, compararBastanteos, compararConExcel, equivalenciaDeLetras, renombrarGrupos, ORIGEN_ERROR_EXCEL, firmasMinimasDe, TIPOS_DE_ERROR_BASTANTEO, validarJsonBastanteo, separarNombre, leerInventarioGarantias, leerUsoAcuerdos, leerCadeval, CADEVAL_CUENTAS, armarInventariosCadeval, esEntidadNoFinanciera, leerCuentasPowerBI, clienteDeCuenta, leerPadronDesdeLineasPdf, INVENTARIOS_CONTABLES, INVENTARIO_DENOMINACION, INVENTARIO_FIRMAS, fechaReporteIso, fechaInventarioDesdeReporte, leerPadronDesdeInventarios, leerBaseEntes, unirPadron, armarInventariosContables, leerCom3500, leerTcApiBcra, elegirTipoCambio, numeroEnLetras, daxCarteraPowerBI, daxDiagnosticoPowerBI, daxSaldoDeuda, armarSaldoDeuda, daxSaldoDeudaDetalle, armarDeudaDetalle, leerFilasPowerBI, sugerirColumnaCartera, columnasNumericasCartera, agruparCartera, valoresDistintos, sqlCartera,
+    leerCartera, BASTANTEO_CATALOGO, BASTANTEO_CLAVES, BASTANTEO_EXTRA, leerPoderesOcr, leerAutoridadesOcr, COMPLIF_TIPOS, poderDesdeComplif, actaDesdeComplif, complifDeEmpresa, controlResumen, claveCriterio, usoDelResumen, aplicarRevocatorias, claveRevocatoria, poderesFirmantesD, presidentesDeActas, gruposDelUso, usoCompleto, tokensDe, combosDeClausula, poderDelPresidente, leerClienteBastanteo, cuitPorDni, cuitValido, cuilDeDorsoDni, formatoCuit, firmanteDe, firmantesSinPoder, datosOnboarding, textoOnboarding, jsonPoder, jsonBastanteoUnico, jsonBastanteoV1, optimizarReglas, montoDeTexto, tcDePlanilla, modeloBastanteo, analizarBastanteo, vistaAgrupada, chatContextBastanteo, condicionDeFirma, compararBastanteos, compararConExcel, equivalenciaDeLetras, renombrarGrupos, ORIGEN_ERROR_EXCEL, firmasMinimasDe, TIPOS_DE_ERROR_BASTANTEO, validarJsonBastanteo, separarNombre, leerInventarioGarantias, leerUsoAcuerdos, leerCadeval, CADEVAL_CUENTAS, armarInventariosCadeval, esEntidadNoFinanciera, leerCuentasPowerBI, clienteDeCuenta, leerPadronDesdeLineasPdf, INVENTARIOS_CONTABLES, INVENTARIO_DENOMINACION, INVENTARIO_FIRMAS, fechaReporteIso, fechaInventarioDesdeReporte, leerPadronDesdeInventarios, leerBaseEntes, unirPadron, armarInventariosContables, leerCom3500, leerTcApiBcra, elegirTipoCambio, numeroEnLetras, daxCarteraPowerBI, daxDiagnosticoPowerBI, daxSaldoDeuda, armarSaldoDeuda, daxSaldoDeudaDetalle, armarDeudaDetalle, leerFilasPowerBI, sugerirColumnaCartera, columnasNumericasCartera, agruparCartera, valoresDistintos, sqlCartera,
     leerCsv, encabezadosEjemplo, leerDefinicionInterfaz, sugerirColumna, detectarHojaInterfaz,
     normalizar, provinciaPorNombre, crearBuscadorBancoPorNombre, round2, aNumero, aFechaSerial, aCodigoBanco,
     fechaDDMMYY, fechaYYYYMMDD, fechaLegible, hoyDDMMYY,
