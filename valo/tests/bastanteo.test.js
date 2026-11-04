@@ -310,6 +310,24 @@ test('regresión: el control toma la firma de un grupo armado por la página con
   assert.deepEqual(M.controlResumen(unico, igual, [], {}).flatMap(c => c.puntos.filter(x => x.punto === 'Firmas conjuntas' && x.ok === false)), []);
 });
 
+// Bug: el Excel del chequeo masivo traía la Ñ mal codificada ("VICU·A") y el poder identifica al apoderado con otro
+// documento: el firmante se busca por nombre y, con la Ñ rota, daba "No figura como apoderado en los poderes".
+test('regresión: el control encuentra al apoderado por nombre aunque el Excel traiga la Ñ mal codificada', () => {
+  const apo = { nombre_completo: 'APELLIDO MUÑOZ Nombre', dni: '99999999', cuit: '', grupo: 'A' };
+  const p = poder([apo], [uso('INDIVIDUAL', [], ['firmar_cheques'], { grupo: 'A' })]);
+  const unico = M.jsonBastanteoUnico([M.jsonPoder(p, null, { todosApoderados: true })], { cuit: '30000000007', cliente: 'EMPRESA DE PRUEBA SA' });
+  ['Nombre APELLIDO DE MU·OZ', 'Nombre APELLIDO MU\uFFFDOZ', 'Nombre APELLIDO MUÃ‘OZ', 'Nombre APELLIDO MU¥OZ'].forEach(nombre => {
+    const cliente = { firmantes: [{ nombre, cuit: '20600000009', dni: '60000000', ente: '', observacion: 'A INDIVIDUAL', monto_hasta: null, revocado: false,
+      uso: { grupo: 'A', tipo: 'INDIVIDUAL', tipos: ['INDIVIDUAL'], combinaciones: [], texto: 'A INDIVIDUAL', limite: null } }] };
+    const [c] = M.controlResumen(unico, cliente, [], {});
+    assert.ok(!c.sinPoder, nombre);
+    assert.deepEqual(c.puntos.filter(x => x.punto === 'Poder' && x.ok === false), [], nombre);
+  });
+  assert.equal(M.normalizar('MU·OZ'), M.normalizar('MUÑOZ'));
+  // Un "·" entre palabras (separador) no se toca.
+  assert.equal(M.normalizar('A · B'), 'a b');
+});
+
 // Criterios aceptados a mano desde la pantalla: una diferencia igual (mismo punto, mismo texto del resumen y del poder) pasa
 // a "a revisar" con el criterio a la vista; no cambia nada más.
 test('control: un criterio aceptado convierte la diferencia igual en "a revisar" y no toca las demás', () => {

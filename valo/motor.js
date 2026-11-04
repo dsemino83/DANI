@@ -21,9 +21,12 @@
 
   // ---------------------------------------------------------------- utilidades
 
+  // Ñ mal codificada en algunos Excel: "¥" ("VENINI NU¥EZ"), un símbolo suelto entre dos letras ("VICU·A", "VICU�A")
+  // o la Ñ en UTF-8 leída como Windows-1252 ("VICUÃ‘A").
+  const repararEnie = t => String(t == null ? '' : t).replace(/¥/g, 'Ñ').replace(/Ã‘/g, 'Ñ').replace(/Ã±/g, 'ñ')
+    .replace(/(?<=[A-Za-zÁÉÍÓÚáéíóú])[·•∙¤\uFFFD](?=[A-Za-zÁÉÍÓÚáéíóú])/g, 'Ñ');
   function normalizar(texto) {
-    // "¥" es una Ñ mal codificada en algunos Excel ("VENINI NU¥EZ").
-    return String(texto == null ? '' : texto).replace(/¥/g, 'Ñ')
+    return repararEnie(texto)
       .normalize('NFD').replace(/[̀-ͯ]/g, '')
       .toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
   }
@@ -2431,7 +2434,7 @@
             // El dato puede estar corrido una columna (filas con una marca adelante): se busca alrededor de la columna.
             const cand = icu < 0 ? [] : [icu, icu + 1, icu - 1].map(k => String(fila[k] == null ? '' : fila[k]).replace(/\D/g, ''));
             const num = cand.find(x => x.length === 11) || cand.find(x => x.length >= 7 && x.length <= 8) || '';
-            const nombre = String(fila[iNom] || fila[iNom + 1] || '').trim();
+            const nombre = repararEnie(fila[iNom] || fila[iNom + 1] || '').trim();
             const enteVal = [iEnte, iEnte + 1].map(k => (k > -1 ? String(fila[k] == null ? '' : fila[k]).trim() : '')).find(x => /^\d{2,7}$/.test(x)) || '';
             // Uso de firma del resumen ("B CONJUNTA B+B; B+C") y monto hasta (puede venir corrido una columna).
             const despues = fila.slice(iNom + 1).map(c => (c == null ? '' : String(c).trim()));
