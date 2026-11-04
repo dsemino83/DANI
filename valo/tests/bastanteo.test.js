@@ -374,12 +374,34 @@ test('control: un firmante que no figura en los poderes pero se parece a un apod
   assert.ok(!otro.detalle);
 });
 
-test('Complif: si la estructura es un rótulo con apellidos sueltos, la cláusula de las limitaciones (nombres completos) dice quién firma con quién', () => {
-  const ap = [['Uno', 'Alfa', 1, 'A'], ['Dos', 'Beta', 2, 'A'], ['Tres', 'Gamma', 3, 'B']].map(([n, a, d, g]) => ({ nombre_completo: `${n} ${a}`, numero_de_identificacion: 20000000 + d, grupo: g }));
-  const doc = { type: 'Poder', ocr_data_responses: { otorgante: { nombre_completo: 'Otor Gante', numero_de_identificacion: 1 }, apoderados: ap, razon_social: 'EMPRESA DE PRUEBA SA', fecha_emision: '2025-01-01',
-    estructuras_de_firma: [{ tipo_de_firma: 'CONJUNTA', facultades: { endosar_cheques: true }, estructura_de_firma: 'Grupo 1: ALFA/BETA conjunta - facultades I',
-      limitaciones: 'Uno Alfa y Dos Beta, en forma conjunta con Tres Gamma, ejercen las facultades del punto I.' }] } };
-  const p = M.poderDesdeComplif(doc);
-  const u = p.usos[0];
-  assert.ok(/Tres Gamma/.test(u.descripcion), 'usa la cláusula con nombres completos');
+test('control: apoderado de un poder vigente que ningún uso incluye no figura como revocado: queda para revisar', () => {
+  const p = poder([persona(1, 'A'), persona(2, 'A')], [uso('CONJUNTA', ['A+A'], ['firmar_cheques'])]);
+  const unico = M.jsonBastanteoUnico([M.jsonPoder(p, null, { todosApoderados: true })], { cuit: '30000000007', cliente: 'EMPRESA DE PRUEBA SA' });
+  unico.estructuras_de_firma.forEach(e => { e.apoderados = e.apoderados.filter(x => x !== unico.apoderados[1].numero_de_identificacion); });
+  const f = (nombre, n) => ({ nombre, cuit: CUIT(n), dni: String(n), ente: '', observacion: '', monto_hasta: null, revocado: false,
+    uso: { grupo: 'A', tipo: 'CONJUNTA', tipos: ['CONJUNTA'], combinaciones: ['A+A'], texto: 'A CONJUNTA A+A', limite: null } });
+  const fila = M.controlResumen(unico, { firmantes: [f('Nombre1 APELLIDO1', 1), f('Nombre2 APELLIDO2', 2)], otrosApoderados: p.apoderados }, [], {}).find(x => /Nombre2/.test(x.nombre));
+  assert.equal(fila.puntos[0].ok, null);
+  assert.match(fila.puntos[0].poder, /ningún uso de firma/);
+});
+
+test('control: documento del resumen que difiere en un dígito del de un apoderado del poder → revisar (error de tipeo), no diferencia', () => {
+  const p = poder([persona(1, 'A'), persona(2, 'A')], [uso('CONJUNTA', ['A+A'], ['firmar_cheques'])]);
+  const unico = M.jsonBastanteoUnico([M.jsonPoder(p, null, { todosApoderados: true })], { cuit: '30000000007', cliente: 'EMPRESA DE PRUEBA SA' });
+  const f = (nombre, n) => ({ nombre, cuit: CUIT(n), dni: String(n), ente: '', observacion: '', monto_hasta: null, revocado: false,
+    uso: { grupo: 'A', tipo: 'CONJUNTA', tipos: ['CONJUNTA'], combinaciones: ['A+A'], texto: 'A CONJUNTA A+A', limite: null } });
+  const real = { nombre_completo: 'Zeta Omega PEREZ', dni: '43658993' };
+  const cliente = { firmantes: [f('Nombre1 APELLIDO1', 1), Object.assign(f('OMEGA ZETA', 9), { cuit: '', dni: '43858993' })], otrosApoderados: [real] };
+  const fila = M.controlResumen(unico, cliente, [], {}).find(x => /OMEGA/.test(x.nombre));
+  assert.equal(fila.puntos[0].ok, null);
+  assert.match(fila.puntos[0].detalle, /difiere en un solo dígito/);
+});
+
+test('Complif: "cualquier apoderado del Grupo A con cualquier otro apoderado (sea del Grupo A o del Grupo B)" da A+A y A+B', () => {
+  const doc = { type: 'Poder', ocr_data_responses: { otorgante: { nombre_completo: 'Otor Gante', numero_de_identificacion: 1 }, razon_social: 'EMPRESA DE PRUEBA SA', fecha_emision: '2025-01-01',
+    apoderados: [{ grupo: 'A', nombre_completo: 'Uno Alfa', numero_de_identificacion: 20000001 }, { grupo: 'B', nombre_completo: 'Dos Beta', numero_de_identificacion: 20000002 }],
+    estructuras_de_firma: [{ tipo_de_firma: 'CONJUNTA', facultades: { endosar_cheques: true }, estructura_de_firma: 'Grupo A + cualquier otro apoderado conjuntamente (hasta USD 5.000.000)',
+      limitaciones: 'Cualquier apoderado del Grupo A actuando conjuntamente con cualquier otro apoderado (sea del Grupo A o del Grupo B), para operaciones hasta USD 5.000.000.' }] } };
+  const u = M.poderDesdeComplif(doc).usos[0];
+  assert.deepEqual(u.combinaciones, ['A+A', 'A+B']);
 });

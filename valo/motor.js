@@ -1748,6 +1748,11 @@
         return { grupo: cabeza[0], grupos: unicos([...cabeza, ...con]), combinaciones: pares };
       }
     }
+    // "Cualquier apoderado del Grupo A conjuntamente con cualquier otro apoderado (sea del Grupo A o del Grupo B)": A+A y A+B.
+    if (!combos.length) {
+      const m = `${d} ${lim}`.match(/\bgrupo\s+([A-Z])\b[^.;]*?cualquier\s+otro\s+apoderado\s*\(\s*sea\s+(?:del?\s+)?(?:grupo\s+)?([A-Z])\s+o\s+(?:del?\s+)?(?:grupo\s+)?([A-Z])\s*\)/i);
+      if (m) { const alt = unicos([m[2], m[3]].map(x => x.toUpperCase())); return { grupo: m[1].toUpperCase(), grupos: unicos([m[1].toUpperCase()].concat(alt)), combinaciones: unicos(alt.map(g => combo([m[1].toUpperCase(), g]))) }; }
+    }
     // 2) Cláusulas.
     if (!combos.length) {
       const RE_INICIO = '(?=(?:dos|tres|cuatro|un|uno|una|ambos|cualquier|al menos|de a|1|2|3|4)\\b)';
@@ -1873,15 +1878,7 @@
       const facultades = {};
       Object.keys(fac).forEach(k => { if (typeof fac[k] !== 'object') facultades[k] = complifSiNo(fac[k]); });
       const tipo = String(e.tipo_de_firma || (e.firma_conjunta ? 'CONJUNTA' : e.firma_individual ? 'INDIVIDUAL' : '')).toUpperCase();
-      // Si la estructura es un rótulo abreviado ("Grupo 1A: BAGO/CASTELLINI conjunta 2…", apellidos sueltos) y las
-      // limitaciones traen la cláusula con los nombres completos, la cláusula es la que dice quién firma con quién.
-      let desc = e.estructura_de_firma || e.descripcion || '';
-      if (e.limitaciones && e.estructura_de_firma) {
-        const aps = (complifJson(ocr.apoderados) || []).map(a => normalizar(a.nombre_completo || a.nombre || '').replace(/[^a-z0-9 ]/g, ' ').split(/\s+/).filter(Boolean)).filter(w => w.length >= 2);
-        const nombrados = t => { const set = new Set(normalizar(String(t)).replace(/[^a-z0-9 ]/g, ' ').split(/\s+/)); return aps.filter(w => w.every(x => set.has(x))).length; };
-        if (nombrados(desc) < 2 && nombrados(e.limitaciones) >= 2) desc = e.limitaciones;
-      }
-      const u = { descripcion: desc, tipo, limitaciones: e.limitaciones || null, limite_de_operacion: e.limite_de_operacion || null, facultades };
+      const u = { descripcion: e.estructura_de_firma || e.descripcion || '', tipo, limitaciones: e.limitaciones || null, limite_de_operacion: e.limite_de_operacion || null, facultades };
       return usoCompleto(u);
     });
     return conPersonasEnUsos({
@@ -2089,7 +2086,19 @@
       const comunes = [...pal(a.nombre_completo)].filter(w => mias.has(w)).length;
       if (comunes > mejorN) { mejor = a; mejorN = comunes; }
     });
-    return mejor && mejorN >= 2 ? `¿Será ${mejor.nombre_completo} (identificación ${mejor.numero_de_identificacion})? El nombre se parece pero el documento o alguna letra no coincide.` : '';
+    return mejor && mejorN >= 2 ? `¿Será ${mejor.nombre_completo} (identificación ${mejor.numero_de_identificacion != null ? mejor.numero_de_identificacion : mejor.dni})? El nombre se parece pero el documento o alguna letra no coincide.` : '';
+  }
+  // La misma persona (al menos dos palabras del nombre en común) con un documento que difiere en un solo dígito: error de tipeo.
+  function mismoConDocTipeado(f, apoderados) {
+    const pal = t => new Set(normalizar(t).split(' ').filter(w => w.length > 1));
+    const dniDe = x => { const d = String(x == null ? '' : x).replace(/\D/g, ''); return (d.length === 11 ? d.slice(2, 10) : d).replace(/^0+/, ''); };
+    const mios = [f.dni, f.cuit].filter(Boolean).map(dniDe).filter(d => d.length >= 7);
+    const mias = pal(f.nombre);
+    return (apoderados || []).find(a => {
+      const d = dniDe(a.numero_de_identificacion != null ? a.numero_de_identificacion : a.dni);
+      if (d.length < 7 || [...pal(a.nombre_completo)].filter(w => mias.has(w)).length < 2) return false;
+      return mios.some(m => m.length === d.length && m !== d && [...m].filter((c, i) => c !== d[i]).length === 1);
+    }) || null;
   }
   function controlResumenBase(unico, cliente, actas, revocados) {
     const firmantes = (cliente && cliente.firmantes) || [];
@@ -2150,12 +2159,22 @@
     });
     return base.map(({ f, est, res, apo }) => {
       const fila = { nombre: f.nombre, ident: f.cuit || f.dni, resumen: res.texto || '', monto_hasta: f.monto_hasta, puntos: [] };
+      // Es apoderado de un poder vigente pero ningún uso de firma lo incluye (la estructura del poder nombra solo apellidos o
+      // grupos que no se pudieron leer): no está revocado, hay que revisar cómo lo lee el poder.
+      if (!est.length && !f.revocado && ((cliente && cliente.otrosApoderados) || []).some(a => firmanteDe(a, [f]))) {
+        fila.sinPoder = false;
+        fila.puntos.push({ punto: 'Poder', ok: null, resumen: res.texto || '—', poder: 'Figura como apoderado de un poder vigente, pero ningún uso de firma lo incluye',
+          detalle: 'revisar la estructura de firma del poder: puede nombrar a las personas solo por apellido o con grupos que no se pudieron leer' });
+        return fila;
+      }
       if (!est.length) {
         fila.sinPoder = true;
         fila.onboarding = datosOnboarding(f, actas);
+        const candidatos = (unico.apoderados || []).filter(a => !a.advertencia).concat((cliente && cliente.otrosApoderados) || []);
+        const tipeo = f.revocado ? null : mismoConDocTipeado(f, candidatos);
         fila.puntos.push(f.revocado ? { punto: 'Poder', ok: true, resumen: 'REVOCADO', poder: 'Sin poder vigente (revocado)' }
-          : { punto: 'Poder', ok: false, resumen: res.texto || '—', poder: (r => r ? `Revocado: ${r}. No figura en los poderes vigentes` : 'No figura como apoderado en los poderes')(revocacionDe(f, revocados)) + (fila.onboarding ? '. ' + textoOnboarding(fila.onboarding) : ''),
-            detalle: parecidoEnPoderes(f, unico.apoderados) });
+          : { punto: 'Poder', ok: tipeo ? null : false, resumen: res.texto || '—', poder: (r => r ? `Revocado: ${r}. No figura en los poderes vigentes` : 'No figura como apoderado en los poderes')(revocacionDe(f, revocados)) + (fila.onboarding ? '. ' + textoOnboarding(fila.onboarding) : ''),
+            detalle: tipeo ? `Es ${tipeo.nombre_completo}: el documento del resumen difiere en un solo dígito del de Complif (${tipeo.numero_de_identificacion != null ? tipeo.numero_de_identificacion : tipeo.dni}); corregir el dato en el que esté mal` : parecidoEnPoderes(f, candidatos) });
         return fila;
       }
       if (f.revocado) fila.puntos.push({ punto: 'Poder', ok: false, resumen: 'REVOCADO', poder: 'Tiene un poder vigente', detalle: 'el resumen lo da por revocado pero el poder sigue vigente' });

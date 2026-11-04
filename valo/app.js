@@ -2501,7 +2501,7 @@
       power_attorney_type: p.power_attorney_type || 'Poder Especial para Operaciones Bancarias' }));
     const sinPoder = M.firmantesSinPoder(poderes, cliente.firmantes).filter(f => !f.revocado).map(f => Object.assign({}, f, { onboarding: M.datosOnboarding(f, r.actas) }));
     const unico = M.jsonBastanteoUnico(jsons, Object.assign({}, cliente, { sinPoder }));
-    fila.control = M.controlResumen(unico, cliente, r.actas, rv, criteriosCtrl.lista);
+    fila.control = M.controlResumen(unico, Object.assign({}, cliente, { otrosApoderados: poderes.flatMap(p => p.apoderados) }), r.actas, rv, criteriosCtrl.lista);
     fila.diferencias = fila.control.flatMap(f => f.puntos.filter(p => p.ok === false).map(p => Object.assign({ firmante: f.nombre, ident: f.ident, resumenTexto: f.resumen }, p)));
     fila.sinPoder = sinPoder.map(f => f.nombre + (f.onboarding ? ` (${M.textoOnboarding(f.onboarding)})` : ''));
     fila.noIncluidos = [...new Set(poderes.flatMap(p => p.apoderados).filter(a => !M.firmanteDe(a, cliente.firmantes)).map(a => a.nombre_completo))];
@@ -2969,7 +2969,7 @@
   let ctrlPuntos = [];
   function renderControlResumen() {
     if (!bast.poderes.length || !bast.cliente || !bast.cliente.firmantes.length) { $('bastControl').innerHTML = ''; return; }
-    const filas = M.controlResumen(jsonUnico(), bast.cliente, bast.actas, { anulados: bast.anulados, quitados: bast.quitados }, criteriosCtrl.lista);
+    const filas = M.controlResumen(jsonUnico(), Object.assign({}, bast.cliente, { otrosApoderados: bast.poderes.flatMap(p => p.apoderados || []) }), bast.actas, { anulados: bast.anulados, quitados: bast.quitados }, criteriosCtrl.lista);
     ctrlPuntos = [];
     const marca = ok => (ok === true ? '<b style="color:var(--ok)">✓</b>' : ok === false ? '<b style="color:var(--bad)">✗</b>' : '<span class="sub">—</span>');
     const conDif = filas.filter(f => f.puntos.some(p => p.ok === false));
