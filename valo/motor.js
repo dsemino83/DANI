@@ -2167,6 +2167,16 @@
           detalle: 'revisar la estructura de firma del poder: puede nombrar a las personas solo por apellido o con grupos que no se pudieron leer' });
         return fila;
       }
+      // Presidente o gerente (socio gerente) según el acta o el estatuto: firma individual y representa a la sociedad aunque no
+      // figure como apoderado. Si el resumen lo pone solo en conjunta es más restrictivo (revisar), no una diferencia.
+      const cargo = !est.length && !f.revocado ? datosOnboarding(f, actas) : null;
+      if (cargo && cargo.presidente) {
+        const soloConj = /CONJUNTA/.test(String(res.tipo || '')) && !/INDIVIDUAL|INDISTINTA/.test(String(res.tipo || '') + ' ' + (res.tipos || []).join(' '));
+        fila.sinPoder = false; fila.presidente = true;
+        fila.puntos.push({ punto: 'Poder', ok: soloConj ? null : true, resumen: res.texto || '—', poder: `${textoOnboarding(cargo)}: firma individual`,
+          detalle: soloConj ? 'el resumen lo pone en conjunta; por su cargo podría firmar solo' : '' });
+        return fila;
+      }
       if (!est.length) {
         fila.sinPoder = true;
         fila.onboarding = datosOnboarding(f, actas);

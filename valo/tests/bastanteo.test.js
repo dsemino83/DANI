@@ -405,3 +405,14 @@ test('Complif: "cualquier apoderado del Grupo A con cualquier otro apoderado (se
   const u = M.poderDesdeComplif(doc).usos[0];
   assert.deepEqual(u.combinaciones, ['A+A', 'A+B']);
 });
+
+test('control: presidente o gerente según el acta/estatuto, aunque no sea apoderado, tiene firma individual (no es diferencia)', () => {
+  const p = poder([persona(1, 'A'), persona(2, 'A')], [uso('CONJUNTA', ['A+A'], ['firmar_cheques'])]);
+  const unico = M.jsonBastanteoUnico([M.jsonPoder(p, null, { todosApoderados: true })], { cuit: '30000000007', cliente: 'EMPRESA DE PRUEBA SA' });
+  const f = (nombre, n, tipo) => ({ nombre, cuit: CUIT(n), dni: String(n), ente: '', observacion: '', monto_hasta: null, revocado: false,
+    uso: { grupo: 'A', tipo, tipos: [tipo], combinaciones: [], texto: `A ${tipo}`, limite: null } });
+  const actas = [{ fecha: '2024-01-01', estatuto: true, autoridades: [{ nombre_completo: 'Gerente PRUEBA', dni: '90000009', rol: 'Gerente' }, { nombre_completo: 'Vice PRUEBA', dni: '90000008', rol: 'Vicepresidente' }] }];
+  const filas = M.controlResumen(unico, { firmantes: [f('Nombre1 APELLIDO1', 1, 'CONJUNTA'), f('PRUEBA GERENTE', 90000009, 'INDIVIDUAL'), f('PRUEBA VICE', 90000008, 'INDIVIDUAL')] }, actas, {});
+  assert.equal(filas.find(x => /GERENTE/.test(x.nombre)).puntos[0].ok, true);
+  assert.equal(filas.find(x => /VICE/.test(x.nombre)).puntos[0].ok, false, 'el vicepresidente no se acepta solo por el cargo');
+});
