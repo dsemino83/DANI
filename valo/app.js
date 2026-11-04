@@ -2570,8 +2570,10 @@
     finally { mas.corriendo = false; $('btnMasCancelar').disabled = true; renderMasivo(); }
   }
   const ESTADO_MAS = { dif: ['warn', 'Con diferencias'], ok: ['ok', 'Coincide'], sinpod: ['warn', 'Sin poderes en Complif'], err: ['bad', 'Error de lectura'], dup: ['', 'Duplicado descartado'] };
+  let masDifs = [];
   function renderMasivo() {
     const fl = mas.filas;
+    masDifs = [];
     $('btnMasExcel').disabled = !fl.length;
     $('masFiltros').classList.toggle('oculto', !fl.length);
     const cuenta = k => fl.filter(f => f.estado === k).length;
@@ -2585,10 +2587,33 @@
       vis.map(f => `<tr><td><b>${esc(f.empresa)}</b><div class="sub" style="margin:0;font-size:12px">${esc(f.archivo)}</div></td><td>${esc(M.formatoCuit(f.cuit) || '')}</td>` +
         `<td class="num">${fmtEntero(f.firmantes)}</td><td class="num">${fmtEntero(f.poderes)}</td><td><span class="chip ${ESTADO_MAS[f.estado][0]}">${ESTADO_MAS[f.estado][1]}</span></td>` +
         `<td style="white-space:normal;max-width:560px;font-size:13px">${f.error ? esc(f.error) : ''}` +
-        f.diferencias.map(d => `<div>✗ <b>${esc(d.firmante)}</b> · ${esc(d.punto)}: resumen "${esc(d.resumen)}" / poder "${esc(String(d.poder).slice(0, 160))}"${d.detalle ? ` <i>(${esc(d.detalle)})</i>` : ''}</div>`).join('') +
+        f.diferencias.map(d => { const k = masDifs.push(d) - 1; return `<div>✗ <b>${esc(d.firmante)}</b> · ${esc(d.punto)}: resumen "${esc(d.resumen)}" / poder "${esc(String(d.poder).slice(0, 160))}"${d.detalle ? ` <i>(${esc(d.detalle)})</i>` : ''} <a href="#" data-mas-aceptar="${k}" title="Esta diferencia en realidad está bien (validada): queda guardada como criterio y deja de marcarse en todas las empresas">Aceptar este criterio</a></div>`; }).join('') +
         (f.noIncluidos.length ? `<div class="sub" style="margin:0">En Complif y no en el resumen: ${esc(f.noIncluidos.join(', '))}</div>` : '') + '</td></tr>').join('') +
       (vis.length ? '' : '<tr><td colspan="6" class="sub">No hay empresas con ese filtro.</td></tr>') + '</tbody></table>';
   }
+  // "Aceptar este criterio" en el chequeo masivo: se guarda igual que en el control individual y se aplica de inmediato a todas las empresas.
+  $('masTabla').addEventListener('click', async e => {
+    const a = e.target.closest('[data-mas-aceptar]');
+    if (!a) return;
+    e.preventDefault();
+    const d = masDifs[Number(a.dataset.masAceptar)];
+    if (!d) return;
+    const fila = mas.filas.find(f => f.diferencias.includes(d)) || {};
+    try {
+      const c = { cuit: String(fila.cuit || '').replace(/\D/g, ''), razonSocial: fila.empresa || '', firmante: d.firmante, resumenFirmante: d.resumenTexto || '',
+        punto: d.punto, resumen: d.resumen, poder: d.poder, detalle: d.detalle || '', comentario: 'Aceptado desde el chequeo masivo' };
+      c.id = await almacen.guardarCriterioControl(c);
+      criteriosCtrl.lista = [c].concat(criteriosCtrl.lista);
+      const k = M.claveCriterio(d.punto, d.resumen, d.poder);
+      mas.filas.forEach(f => {
+        const antes = f.diferencias.length;
+        f.diferencias = f.diferencias.filter(x => M.claveCriterio(x.punto, x.resumen, x.poder) !== k);
+        if (antes !== f.diferencias.length && f.estado === 'dif' && !f.diferencias.length) f.estado = 'ok';
+      });
+      toast('Criterio guardado: ya no se marca en ninguna empresa');
+      renderMasivo();
+    } catch (err) { informar('No se pudo guardar el criterio', esc(err.message || err)); }
+  });
   $('masFiltro').addEventListener('change', renderMasivo);
   $('masBuscar').addEventListener('input', renderMasivo);
   $('btnMasCancelar').addEventListener('click', () => { mas.cancelar = true; });
