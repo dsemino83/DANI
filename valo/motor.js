@@ -2106,11 +2106,20 @@
     const textoDe = (f, res) => `${res.texto || ''} ${f.observacion || ''}`;
     const base = firmantes.map(f => {
       const ids = [f.cuit, f.dni].filter(Boolean).map(x => String(Number(String(x).replace(/\D/g, ''))));
-      const apo = (unico.apoderados || []).find(a => ids.includes(String(a.numero_de_identificacion)) || (a.numero_de_identificacion && ids.some(i => i.length <= 8 && String(a.numero_de_identificacion).slice(2, 10).replace(/^0+/, '') === i)))
-        || (unico.apoderados || []).find(a => firmanteDe({ nombre_completo: a.nombre_completo }, [f]));
+      const apoId = (unico.apoderados || []).find(a => ids.includes(String(a.numero_de_identificacion)) || (a.numero_de_identificacion && ids.some(i => i.length <= 8 && String(a.numero_de_identificacion).slice(2, 10).replace(/^0+/, '') === i)));
+      const apoNom = (unico.apoderados || []).find(a => firmanteDe({ nombre_completo: a.nombre_completo }, [f]));
+      // Si el CUIT/DNI del resumen es de otra persona (el nombre no coincide) y por nombre aparece un apoderado,
+      // vale el nombre: el documento del renglón está mal cargado en el resumen.
+      const mismoNombre = a => !!firmanteDe({ nombre_completo: a.nombre_completo }, [f]);
+      const idEquivocado = apoNom && !apoNom.advertencia && apoNom !== apoId && apoId && (apoId.advertencia || !mismoNombre(apoId)) ? apoId : null;
+      // Con ese documento sale otra persona (ni una palabra del nombre en común) y por nombre no hay nadie en los poderes:
+      // no es este firmante; se lo trata como sin poder (no se compara contra los grupos de otro).
+      const palabrasDe = t => new Set(normalizar(t).split(' ').filter(w => w.length > 3));
+      const otraPersona = !idEquivocado && !apoNom && apoId && !apoId.advertencia && ![...palabrasDe(apoId.nombre_completo)].some(w => palabrasDe(f.nombre).has(w));
+      const apo = idEquivocado ? apoNom : otraPersona ? null : (apoId || apoNom);
       const est = apo && !apo.advertencia ? unico.estructuras_de_firma.filter(e => e.apoderados.includes(apo.numero_de_identificacion)) : [];
       const res = f.uso || { grupo: '', tipo: '', tipos: [], combinaciones: [], texto: f.observacion || '' };
-      return { f, est, res, apo };
+      return { f, est, res, apo, idEquivocado: idEquivocado ? { quien: idEquivocado, apo } : null, otraPersona: otraPersona ? apoId : null };
     });
     // Equivalencia de grupos de la empresa: el resumen puede nombrar con otra letra (o con letras donde el poder usa
     // números) el mismo grupo. Se arma con los firmantes que tienen un solo grupo en el poder: números y romanos por
@@ -2157,14 +2166,27 @@
         propioComo[g] = propioComo[g] && propioComo[g] !== grupoComparable(res.grupo) ? null : grupoComparable(res.grupo);
       });
     });
-    return base.map(({ f, est, res, apo }) => {
+    return base.map(({ f, est, res, apo, idEquivocado, otraPersona }) => {
       const fila = { nombre: f.nombre, ident: f.cuit || f.dni, resumen: res.texto || '', monto_hasta: f.monto_hasta, puntos: [] };
+      if (idEquivocado) fila.puntos.push({ punto: 'Documento', ok: null, resumen: String(f.cuit || f.dni || ''),
+        poder: idEquivocado.quien.advertencia ? `No coincide con el documento de ${idEquivocado.apo.nombre_completo} en el poder` : `El documento es de ${idEquivocado.quien.nombre_completo}`,
+        detalle: 'el CUIT/DNI del resumen no corresponde a este nombre: se controló por nombre; corregir el dato en el resumen' });
       // Es apoderado de un poder vigente pero ningún uso de firma lo incluye (la estructura del poder nombra solo apellidos o
       // grupos que no se pudieron leer): no está revocado, hay que revisar cómo lo lee el poder.
-      if (!est.length && !f.revocado && ((cliente && cliente.otrosApoderados) || []).some(a => firmanteDe(a, [f]))) {
+      if (!est.length && !f.revocado && !otraPersona && ((cliente && cliente.otrosApoderados) || []).some(a => firmanteDe(a, [f]))) {
         fila.sinPoder = false;
         fila.puntos.push({ punto: 'Poder', ok: null, resumen: res.texto || '—', poder: 'Figura como apoderado de un poder vigente, pero ningún uso de firma lo incluye',
           detalle: 'revisar la estructura de firma del poder: puede nombrar a las personas solo por apellido o con grupos que no se pudieron leer' });
+        return fila;
+      }
+      // Presidente o gerente (socio gerente) según el acta o el estatuto: firma individual y representa a la sociedad aunque no
+      // figure como apoderado. Si el resumen lo pone solo en conjunta es más restrictivo (revisar), no una diferencia.
+      const cargo = !est.length && !f.revocado ? datosOnboarding(f, actas) : null;
+      if (cargo && cargo.presidente) {
+        const soloConj = /CONJUNTA/.test(String(res.tipo || '')) && !/INDIVIDUAL|INDISTINTA/.test(String(res.tipo || '') + ' ' + (res.tipos || []).join(' '));
+        fila.sinPoder = false; fila.presidente = true;
+        fila.puntos.push({ punto: 'Poder', ok: soloConj ? null : true, resumen: res.texto || '—', poder: `${textoOnboarding(cargo)}: firma individual`,
+          detalle: soloConj ? 'el resumen lo pone en conjunta; por su cargo podría firmar solo' : '' });
         return fila;
       }
       if (!est.length) {
@@ -2174,7 +2196,7 @@
         const tipeo = f.revocado ? null : mismoConDocTipeado(f, candidatos);
         fila.puntos.push(f.revocado ? { punto: 'Poder', ok: true, resumen: 'REVOCADO', poder: 'Sin poder vigente (revocado)' }
           : { punto: 'Poder', ok: tipeo ? null : false, resumen: res.texto || '—', poder: (r => r ? `Revocado: ${r}. No figura en los poderes vigentes` : 'No figura como apoderado en los poderes')(revocacionDe(f, revocados)) + (fila.onboarding ? '. ' + textoOnboarding(fila.onboarding) : ''),
-            detalle: tipeo ? `Es ${tipeo.nombre_completo}: el documento del resumen difiere en un solo dígito del de Complif (${tipeo.numero_de_identificacion != null ? tipeo.numero_de_identificacion : tipeo.dni}); corregir el dato en el que esté mal` : parecidoEnPoderes(f, candidatos) });
+            detalle: otraPersona ? `El CUIT/DNI del resumen es de ${otraPersona.nombre_completo}, que sí figura en el poder: corregir el documento` : tipeo ? `Es ${tipeo.nombre_completo}: el documento del resumen difiere en un solo dígito del de Complif (${tipeo.numero_de_identificacion != null ? tipeo.numero_de_identificacion : tipeo.dni}); corregir el dato en el que esté mal` : parecidoEnPoderes(f, candidatos) });
         return fila;
       }
       if (f.revocado) fila.puntos.push({ punto: 'Poder', ok: false, resumen: 'REVOCADO', poder: 'Tiene un poder vigente', detalle: 'el resumen lo da por revocado pero el poder sigue vigente' });
