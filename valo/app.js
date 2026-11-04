@@ -2984,6 +2984,15 @@
   function renderBastUnico() {
     if (!bast.poderes.length) { $('bastUnico').innerHTML = ''; return; }
     const u = jsonUnico();
+    // Ningún grupo: los firmantes de la planilla están en el poder pero ningún uso de firma los alcanza (el uso es de otros
+    // grupos o no se pudo leer). Se avisa en lugar de dejar la pantalla en blanco.
+    if (!u.estructuras_de_firma.length) {
+      const enPoder = bast.cliente ? bast.cliente.firmantes.filter(f => bast.poderes.some(p => p.apoderados.some(a => M.firmanteDe(a, [f])))).map(f => f.nombre) : [];
+      $('bastUnico').innerHTML = aviso('bad', '<b>JSON único sin grupos de firma.</b> ' + (enPoder.length
+        ? `${esc(enPoder.join(', '))} ${enPoder.length > 1 ? 'figuran' : 'figura'} en el poder, pero ningún uso de firma ${enPoder.length > 1 ? 'los' : 'lo'} alcanza (el uso es de otros grupos o no se pudo leer). Revisá los usos de firma del poder.`
+        : 'Ningún firmante de la planilla tiene un uso de firma en los poderes.'));
+      return;
+    }
     // Diferencia de cada grupo con el primero: qué facultades tiene de más (+) y de menos (−).
     const base = u.estructuras_de_firma[0];
     const nombreFac = k => (nombreCatalogo[k] ? nombreCatalogo[k][1] : M.BASTANTEO_EXTRA[k] || k);
