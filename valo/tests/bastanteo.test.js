@@ -472,7 +472,7 @@ test('control: documento del resumen que difiere en un dígito del de un apodera
   const cliente = { firmantes: [f('Nombre1 APELLIDO1', 1), Object.assign(f('OMEGA ZETA', 9), { cuit: '', dni: '43858993' })], otrosApoderados: [real] };
   const fila = M.controlResumen(unico, cliente, [], {}).find(x => /OMEGA/.test(x.nombre));
   assert.equal(fila.puntos[0].ok, null);
-  assert.match(fila.puntos[0].detalle, /no coincide con el de Complif/);
+  assert.match(fila.puntos[0].detalle, /difiere en un solo dígito/);
 });
 
 test('Complif: "cualquier apoderado del Grupo A con cualquier otro apoderado (sea del Grupo A o del Grupo B)" da A+A y A+B', () => {
@@ -507,7 +507,7 @@ test('control: si el CUIT/DNI del renglón es de otro apoderado, se controla por
   assert.ok(!uno.puntos.some(x => x.ok === false), 'sin diferencias de grupo ni de combinaciones');
 });
 
-test('control: mismo nombre completo (con aclaración entre paréntesis) y otro documento → revisar, no diferencia', () => {
+test('control: mismo nombre completo (con aclaración entre paréntesis) y otro documento sigue siendo diferencia', () => {
   const p = poder([persona(1, 'A'), persona(2, 'A')], [uso('CONJUNTA', ['A+A'], ['firmar_cheques'])]);
   const unico = M.jsonBastanteoUnico([M.jsonPoder(p, null, { todosApoderados: true })], { cuit: '30000000007', cliente: 'EMPRESA DE PRUEBA SA' });
   const f = (nombre, n) => ({ nombre, cuit: '', dni: String(n), ente: '', observacion: '', monto_hasta: null, revocado: false,
@@ -515,5 +515,5 @@ test('control: mismo nombre completo (con aclaración entre paréntesis) y otro 
   const real = { nombre_completo: 'Maria Carolina HERNÁNDEZ GÓNZALEZ', dni: '88465867' };
   const cliente = { firmantes: [f('MA CAROLINA HERNANDEZ GONZALEZ (VENEZ)', 11111111)], otrosApoderados: [real] };
   const fila = M.controlResumen(unico, cliente, [], {})[0];
-  assert.equal(fila.puntos[0].ok, null);
+  assert.equal(fila.puntos[0].ok, false);
 });

@@ -2115,13 +2115,8 @@
     const dniDe = x => { const d = String(x == null ? '' : x).replace(/\D/g, ''); return (d.length === 11 ? d.slice(2, 10) : d).replace(/^0+/, ''); };
     const mios = [f.dni, f.cuit].filter(Boolean).map(dniDe).filter(d => d.length >= 7);
     const mias = pal(f.nombre);
-    // Mismo nombre completo (3 palabras o más, sin acentos ni aclaraciones entre paréntesis, en cualquier orden) con otro documento:
-    // la misma persona con el documento mal cargado ("ANA ROSA FERNANDEZ AVILA (VENEZOLANA)").
-    const completo = t => palabrasNombre(t).sort().join(' ');
-    const miNombre = completo(f.nombre);
     return (apoderados || []).find(a => {
       const d = dniDe(a.numero_de_identificacion != null ? a.numero_de_identificacion : a.dni);
-      if (miNombre.split(' ').length >= 3 && completo(a.nombre_completo) === miNombre && !mios.includes(d)) return true;
       if (d.length < 7 || [...pal(a.nombre_completo)].filter(w => mias.has(w)).length < 2) return false;
       return mios.some(m => m.length === d.length && m !== d && [...m].filter((c, i) => c !== d[i]).length === 1);
     }) || null;
@@ -2224,7 +2219,7 @@
         const tipeo = f.revocado ? null : mismoConDocTipeado(f, candidatos);
         fila.puntos.push(f.revocado ? { punto: 'Poder', ok: true, resumen: 'REVOCADO', poder: 'Sin poder vigente (revocado)' }
           : { punto: 'Poder', ok: tipeo ? null : false, resumen: res.texto || '—', poder: (r => r ? `Revocado: ${r}. No figura en los poderes vigentes` : 'No figura como apoderado en los poderes')(revocacionDe(f, revocados)) + (fila.onboarding ? '. ' + textoOnboarding(fila.onboarding) : ''),
-            detalle: otraPersona ? `El CUIT/DNI del resumen es de ${otraPersona.nombre_completo}, que sí figura en el poder: corregir el documento` : tipeo ? `Es ${tipeo.nombre_completo}: el documento del resumen no coincide con el de Complif (${tipeo.numero_de_identificacion != null ? tipeo.numero_de_identificacion : tipeo.dni}); corregir el dato en el que esté mal` : parecidoEnPoderes(f, candidatos) });
+            detalle: otraPersona ? `El CUIT/DNI del resumen es de ${otraPersona.nombre_completo}, que sí figura en el poder: corregir el documento` : tipeo ? `Es ${tipeo.nombre_completo}: el documento del resumen difiere en un solo dígito del de Complif (${tipeo.numero_de_identificacion != null ? tipeo.numero_de_identificacion : tipeo.dni}); corregir el dato en el que esté mal` : parecidoEnPoderes(f, candidatos) });
         return fila;
       }
       if (f.revocado) fila.puntos.push({ punto: 'Poder', ok: false, resumen: 'REVOCADO', poder: 'Tiene un poder vigente', detalle: 'el resumen lo da por revocado pero el poder sigue vigente' });
