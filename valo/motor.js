@@ -2316,7 +2316,17 @@
         if (podP && (difs(podP) < difs(podC) || (difs(podP) === difs(podC) && extra(podP) < extra(podC)))) podC = podP;
         // Lo que el poder da aunque hoy no haya firmantes para armarlo (B+C sin nadie del grupo C) no es un "sobrante".
         const podNo = grupoAuto || eComo ? [] : podC === podP ? [] : combosSinFirmantes.map(podC === podD ? comboComparable : tradCombo);
-        const sobran = resC.filter(c => !podC.includes(c) && !podNo.includes(c)), faltan = podC.filter(c => !resC.includes(c));
+        // Una persona puede estar en grupos distintos de poderes que siguen vigentes (B en uno, A en otro): lo que le da cada poder
+        // con su propia letra también vale ("B+B" de la escritura donde es grupo B, aunque en el JSON único quede en el A).
+        const propias = new Set();
+        const idsF = [f.cuit, f.dni].filter(Boolean).map(x => String(Number(String(x).replace(/\D/g, ''))));
+        ((cliente && cliente.jsonsPoderes) || []).forEach(j => {
+          const a = (j.apoderados || []).find(x => firmanteDe({ nombre_completo: x.nombre_completo }, [f]) || (x.numero_de_identificacion && idsF.includes(String(x.numero_de_identificacion))));
+          const l = a && letraGrupo(a.grupo);
+          if (!l) return;
+          (j.estructuras_de_firma || []).forEach(e => { if (/CONJUNTA/.test(e.tipo_de_firma || '') && (e.apoderados || []).includes(a.numero_de_identificacion)) (e.combinaciones || []).forEach(c => { if (String(c).split('+').includes(l)) propias.add(c); }); });
+        });
+        const sobran = resC.filter(c => !podC.includes(c) && !podNo.includes(c) && !propias.has(c)), faltan = podC.filter(c => !resC.includes(c));
         // Que el poder dé más combinaciones que las que lista el resumen no es un error: el resumen es más restrictivo.
         fila.puntos.push({ punto: 'Firmas conjuntas', ok: sobran.length ? false : faltan.length ? null : true, resumen: res.combinaciones.join('; ') || '—',
           poder: (combos.join('; ') || '—') + (grupoAuto && combos.length ? ` (${podC.join(', ')}; letra puesta según las facultades)` : ''),
@@ -2751,6 +2761,11 @@
         // Una revocación sin usos de firma que lista apoderados (Complif pone ahí a los revocados) es parcial: solo ellos.
         const listados = !otorga(r) && r.apoderados.length ? p.apoderados.filter(a => r.apoderados.some(x => firmanteDe(x, [{ nombre: a.nombre_completo, dni: a.dni, cuit: a.cuit }]))) : [];
         const nombrados = [...new Set(p.apoderados.filter(a => nombradoEn(a, tr)).concat(listados))];
+        // Una revocatoria que solo lista a otras personas (Complif pone ahí a los revocados) y ninguna es apoderada de este poder
+        // ("Los poderes otorgados a favor de Maximiliano CUNTO quedan sin efecto"): no lo toca, salvo que revoque todos los poderes.
+        const deOtros = !(r.usos || []).some(u => u.tipo) && r.apoderados.length > 0 && !listados.length && !nombrados.length && p.apoderados.length > 0
+          && !/todos\s+los\s+poderes|la\s+totalidad|cualquier\s+poder|sin\s+excepci[oó]n/i.test(tr);
+        if (deOtros) continue;
         const parcial = /parcial|[uú]nicamente\s+(con\s+)?respecto|s[oó]lo\s+(con\s+)?respecto|en\s+cuanto\s+a/i.test(tr) || listados.length > 0 || (nombrados.length && nombrados.length < p.apoderados.length);
         if (parcial) {
           if (!nombrados.length) continue;

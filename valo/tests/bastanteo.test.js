@@ -538,3 +538,14 @@ test('resumen: "REVOCADO. FALTA REVO FISICA" / "REVOCADA ESPERAR REVOCACION" no 
   assert.equal(f('REVOCADA ESPERAR REVOCACION').revocado, false);
   assert.equal(f('REVOCADO').revocado, true);
 });
+
+test('revocatoria: una revocación de los poderes de otra persona (Complif la lista como apoderada) no anula los demás poderes', () => {
+  const mk = (esc, fecha, aps, usos, scope) => ({ type: 'Poder', ocr_data_responses: { otorgante: { nombre_completo: 'Otor Gante', numero_de_identificacion: 1 }, razon_social: 'EMPRESA DE PRUEBA SA', fecha_emision: fecha, deed_number: esc,
+    apoderados: aps.map((n, i) => ({ grupo: 'B', nombre_completo: n, numero_de_identificacion: 20000000 + i + Number(esc) })), power_attorney_scope: scope,
+    estructuras_de_firma: usos.map(([t, d]) => ({ tipo_de_firma: t, facultades: { endosar_cheques: true }, estructura_de_firma: d })) }, relations: [{ name: 'EMPRESA DE PRUEBA SA' }] });
+  const docs = [mk('10', '2008-04-17', ['Uno Alfa', 'Dos Beta'], [['CONJUNTA', 'Dos cualesquiera del grupo B conjuntamente']], { new: true, revoke: false, complementary: false }),
+    mk('11', '2012-05-18', ['Tres Gamma'], [[null, 'Revocación de poderes de Tres GAMMA: los poderes otorgados a su favor (escrituras 10) quedan sin efecto']], { new: false, revoke: true, complementary: false })];
+  const r = M.complifDeEmpresa(docs, '', 'EMPRESA DE PRUEBA SA');
+  const rv = M.aplicarRevocatorias(r.poderes);
+  assert.ok(rv.vigentes.some(p => p.deed_number === '10'), 'el poder 10 sigue vigente');
+});
