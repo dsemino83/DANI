@@ -527,3 +527,14 @@ test('Complif: el número de escritura ("N°257") no es un grupo de firma', () =
   assert.ok(!(u.grupos || []).includes('N'));
   assert.deepEqual(u.combinaciones || [], []);
 });
+
+test('resumen: "REVOCADO. FALTA REVO FISICA" / "REVOCADA ESPERAR REVOCACION" no es una revocación firme: el poder vigente no es diferencia', () => {
+  const hoja = obs => [{ hoja: 'resumen', filas: [['CLIENTE', 'EMPRESA DE PRUEBA SA'], ['CUIT', '30-00000000-7'], ['FIRMANTES'],
+    ['Ente', 'Rol', 'DNI', 'apellido y nombre firmante', 'Fecha de inicio', 'Fecha de Finalización', 'monto desde', 'monto hasta', 'observación'],
+    [1, 'F', 20000001, 'UNO ALFA', '-', 999999999, 'A INDISTINTA', obs]] }];
+  const f = obs => M.leerClienteBastanteo(hoja(obs)).firmantes[0];
+  assert.equal(f('REVOCADO. FALTA REVO FISICA').revocado, false);
+  assert.equal(f('REVOCADO. FALTA REVO FISICA').revocaPendiente, true);
+  assert.equal(f('REVOCADA ESPERAR REVOCACION').revocado, false);
+  assert.equal(f('REVOCADO').revocado, true);
+});

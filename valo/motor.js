@@ -2225,6 +2225,7 @@
         return fila;
       }
       if (f.revocado) fila.puntos.push({ punto: 'Poder', ok: false, resumen: 'REVOCADO', poder: 'Tiene un poder vigente', detalle: 'el resumen lo da por revocado pero el poder sigue vigente' });
+      if (f.revocaPendiente) fila.puntos.push({ punto: 'Poder', ok: null, resumen: f.textoRevocacion || 'revocación pendiente', poder: 'Tiene un poder vigente', detalle: 'el resumen anota una revocación todavía no formalizada: el poder sigue vigente' });
       // Presidente según el acta, sin uso de firma en los poderes: se toma como apoderado (firma individual, todas las facultades).
       if (f.presidentePorActa && !f.revocado) { const o = datosOnboarding(f, actas);
         fila.puntos.push({ punto: 'Poder', ok: true, resumen: res.texto || '—', poder: `${f.presidentePorActa.rol} según el ${o ? o.documento + (o.fecha ? ' del ' + o.fecha : '') : 'acta'}: se toma como apoderado, grupo ${f.presidentePorActa.grupo}, firma individual con todas las facultades` }); }
@@ -2550,8 +2551,11 @@
             vistos.add(clave);
             const montos = (iHasta > -1 ? [fila[iHasta], fila[iHasta + 1], fila[iHasta - 1]] : []).map(c => Number(String(c == null ? '' : c).replace(/[^\d.]/g, ''))).filter(x => x > 0);
             // "REVOCADO" en cualquier celda de la fila: el firmante figura como revocado en el resumen.
-            const revocado = despues.some(c => /\brevoc/i.test(c));
-            const extra = { observacion, monto_hasta: montos.length ? Math.max(...montos) : null, uso: usoDelResumen(observacion), revocado };
+            // ("REVOCADO. FALTA REVO FISICA", "REVOCADA ESPERAR REVOCACION": la revocación todavía no está formalizada, el poder sigue vigente.)
+            const pendiente = c => /\b(?:falta\w*|esperar\w*|espera\w*|pendiente\w*|aguard\w*|a la espera)\b[^.;]{0,30}\brevo/i.test(c) || /\brevoc\w*\s+(?:pendiente|sin\s+formalizar)/i.test(c);
+            const revocado = despues.some(c => /\brevoc/i.test(c) && !pendiente(c));
+            const revocaPendiente = !revocado && despues.some(c => /\brevoc/i.test(c));
+            const extra = { observacion, monto_hasta: montos.length ? Math.max(...montos) : null, uso: usoDelResumen(observacion), revocado, revocaPendiente: revocaPendiente || undefined, textoRevocacion: revocaPendiente ? despues.find(c => /\brevoc/i.test(c)) : undefined };
             r.firmantes.push(Object.assign(num.length === 11 ? { cuit: num, dni: num.slice(2, 10).replace(/^0+/, ''), ente: enteVal, nombre }
               : { cuit: '', dni: num, ente: enteVal, nombre }, extra));
           }
