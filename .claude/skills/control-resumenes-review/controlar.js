@@ -33,7 +33,7 @@ if (!poderes.length) { console.log('Sin poderes: nada para controlar.'); process
 const jsons = poderes.map(p => M.jsonPoder(p, cliente, {}));
 const sinPoder = M.firmantesSinPoder(poderes, cliente.firmantes).filter(f => !f.revocado);
 const unico = M.jsonBastanteoUnico(jsons, Object.assign({}, cliente, { sinPoder }));
-const control = M.controlResumen(unico, cliente, r.actas, rv);
+const control = M.controlResumen(unico, Object.assign({}, cliente, { otrosApoderados: poderes.flatMap(p => p.apoderados) }), r.actas, rv);
 
 const marca = ok => (ok === true ? 'OK ' : ok === false ? 'DIF' : 'REV');
 let dif = 0, rev = 0;

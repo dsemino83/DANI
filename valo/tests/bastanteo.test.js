@@ -424,3 +424,85 @@ test('regresión: no va una regla sin facultades; un grupo sin firmantes se saca
   j.reglasFirma.forEach(r => assert.ok(r.circuitos.length));
   assert.deepEqual(M.modeloBastanteo(j).errores.filter(e => e.nivel === 'error' && e.tipo === 'ERROR DE AGRUPAMIENTO'), []);
 });
+
+// Bug: en el chequeo masivo, un firmante cuyo nombre trae la Ñ mal codificada ("VICU･A": el código 0xA5 del sistema del Banco leído
+// como Shift-JIS) no coincidía con el apoderado del poder, y si el documento era distinto tampoco por nombre parecido: daba
+// "No figura como apoderado en los poderes", mientras que con la misma persona bien escrita el control la encontraba.
+test('regresión: la Ñ mal codificada del Excel (･ o �) no impide encontrar al apoderado por el nombre', () => {
+  assert.equal(M.normalizar('DIEGO HERRERA SAINZ DE VICU･A'), M.normalizar('Diego HERRERA SAINZ DE VICUÑA'));
+  assert.equal(M.normalizar('NU�EZ'), M.normalizar('NUÑEZ'));
+  assert.equal(M.normalizar('A･ B'), 'a b', 'solo entre letras');
+  const apoderado = { nombre_completo: 'Diego HERRERA SAINZ DE VICUÑA', dni: '33000111' };
+  const firmante = { nombre: 'DIEGO HERRERA SAINZ DE VICU･A', cuit: '20604297339', dni: '60429733' };
+  assert.ok(M.firmanteDe(apoderado, [firmante]), 'el mismo nombre con otro documento sigue siendo la misma persona');
+});
+
+test('control: un firmante que no figura en los poderes pero se parece a un apoderado dice cuál (para corregir el dato)', () => {
+  const p = poder([persona(1, 'A'), Object.assign(persona(2, 'A'), { nombre_completo: 'Nombre2 APELLIDO2 GOMEZ' })], [uso('CONJUNTA', ['A+A'], ['firmar_cheques'])]);
+  const unico = M.jsonBastanteoUnico([M.jsonPoder(p, null, { todosApoderados: true })], { cuit: '30000000007', cliente: 'EMPRESA DE PRUEBA SA' });
+  const f = (nombre, n) => ({ nombre, cuit: CUIT(n), dni: String(n), ente: '', observacion: '', monto_hasta: null, revocado: false,
+    uso: { grupo: 'A', tipo: 'CONJUNTA', tipos: ['CONJUNTA'], combinaciones: ['A+A'], texto: 'A CONJUNTA A+A', limite: null } });
+  const cliente = { firmantes: [f('Nombre1 APELLIDO1', 1), f('APELLIDO2 Nombre2 PEREZ', 9)] };
+  const filas = M.controlResumen(unico, cliente, [], {});
+  const sin = filas.find(x => x.sinPoder).puntos[0];
+  assert.equal(sin.ok, false);
+  assert.match(sin.detalle, /¿Será Nombre2 APELLIDO2 GOMEZ \(identificación \d+\)\?/);
+  // Sin parecido, no inventa nada.
+  const otro = M.controlResumen(unico, { firmantes: [f('ZZZ YYY', 8)] }, [], {}).find(x => x.sinPoder).puntos[0];
+  assert.ok(!otro.detalle);
+});
+
+test('control: apoderado de un poder vigente que ningún uso incluye no figura como revocado: queda para revisar', () => {
+  const p = poder([persona(1, 'A'), persona(2, 'A')], [uso('CONJUNTA', ['A+A'], ['firmar_cheques'])]);
+  const unico = M.jsonBastanteoUnico([M.jsonPoder(p, null, { todosApoderados: true })], { cuit: '30000000007', cliente: 'EMPRESA DE PRUEBA SA' });
+  unico.estructuras_de_firma.forEach(e => { e.apoderados = e.apoderados.filter(x => x !== unico.apoderados[1].numero_de_identificacion); });
+  const f = (nombre, n) => ({ nombre, cuit: CUIT(n), dni: String(n), ente: '', observacion: '', monto_hasta: null, revocado: false,
+    uso: { grupo: 'A', tipo: 'CONJUNTA', tipos: ['CONJUNTA'], combinaciones: ['A+A'], texto: 'A CONJUNTA A+A', limite: null } });
+  const fila = M.controlResumen(unico, { firmantes: [f('Nombre1 APELLIDO1', 1), f('Nombre2 APELLIDO2', 2)], otrosApoderados: p.apoderados }, [], {}).find(x => /Nombre2/.test(x.nombre));
+  assert.equal(fila.puntos[0].ok, null);
+  assert.match(fila.puntos[0].poder, /ningún uso de firma/);
+});
+
+test('control: documento del resumen que difiere en un dígito del de un apoderado del poder → revisar (error de tipeo), no diferencia', () => {
+  const p = poder([persona(1, 'A'), persona(2, 'A')], [uso('CONJUNTA', ['A+A'], ['firmar_cheques'])]);
+  const unico = M.jsonBastanteoUnico([M.jsonPoder(p, null, { todosApoderados: true })], { cuit: '30000000007', cliente: 'EMPRESA DE PRUEBA SA' });
+  const f = (nombre, n) => ({ nombre, cuit: CUIT(n), dni: String(n), ente: '', observacion: '', monto_hasta: null, revocado: false,
+    uso: { grupo: 'A', tipo: 'CONJUNTA', tipos: ['CONJUNTA'], combinaciones: ['A+A'], texto: 'A CONJUNTA A+A', limite: null } });
+  const real = { nombre_completo: 'Zeta Omega PEREZ', dni: '43658993' };
+  const cliente = { firmantes: [f('Nombre1 APELLIDO1', 1), Object.assign(f('OMEGA ZETA', 9), { cuit: '', dni: '43858993' })], otrosApoderados: [real] };
+  const fila = M.controlResumen(unico, cliente, [], {}).find(x => /OMEGA/.test(x.nombre));
+  assert.equal(fila.puntos[0].ok, null);
+  assert.match(fila.puntos[0].detalle, /difiere en un solo dígito/);
+});
+
+test('Complif: "cualquier apoderado del Grupo A con cualquier otro apoderado (sea del Grupo A o del Grupo B)" da A+A y A+B', () => {
+  const doc = { type: 'Poder', ocr_data_responses: { otorgante: { nombre_completo: 'Otor Gante', numero_de_identificacion: 1 }, razon_social: 'EMPRESA DE PRUEBA SA', fecha_emision: '2025-01-01',
+    apoderados: [{ grupo: 'A', nombre_completo: 'Uno Alfa', numero_de_identificacion: 20000001 }, { grupo: 'B', nombre_completo: 'Dos Beta', numero_de_identificacion: 20000002 }],
+    estructuras_de_firma: [{ tipo_de_firma: 'CONJUNTA', facultades: { endosar_cheques: true }, estructura_de_firma: 'Grupo A + cualquier otro apoderado conjuntamente (hasta USD 5.000.000)',
+      limitaciones: 'Cualquier apoderado del Grupo A actuando conjuntamente con cualquier otro apoderado (sea del Grupo A o del Grupo B), para operaciones hasta USD 5.000.000.' }] } };
+  const u = M.poderDesdeComplif(doc).usos[0];
+  assert.deepEqual(u.combinaciones, ['A+A', 'A+B']);
+});
+
+test('control: presidente o gerente según el acta/estatuto, aunque no sea apoderado, tiene firma individual (no es diferencia)', () => {
+  const p = poder([persona(1, 'A'), persona(2, 'A')], [uso('CONJUNTA', ['A+A'], ['firmar_cheques'])]);
+  const unico = M.jsonBastanteoUnico([M.jsonPoder(p, null, { todosApoderados: true })], { cuit: '30000000007', cliente: 'EMPRESA DE PRUEBA SA' });
+  const f = (nombre, n, tipo) => ({ nombre, cuit: CUIT(n), dni: String(n), ente: '', observacion: '', monto_hasta: null, revocado: false,
+    uso: { grupo: 'A', tipo, tipos: [tipo], combinaciones: [], texto: `A ${tipo}`, limite: null } });
+  const actas = [{ fecha: '2024-01-01', estatuto: true, autoridades: [{ nombre_completo: 'Gerente PRUEBA', dni: '90000009', rol: 'Gerente' }, { nombre_completo: 'Vice PRUEBA', dni: '90000008', rol: 'Vicepresidente' }] }];
+  const filas = M.controlResumen(unico, { firmantes: [f('Nombre1 APELLIDO1', 1, 'CONJUNTA'), f('PRUEBA GERENTE', 90000009, 'INDIVIDUAL'), f('PRUEBA VICE', 90000008, 'INDIVIDUAL')] }, actas, {});
+  assert.equal(filas.find(x => /GERENTE/.test(x.nombre)).puntos[0].ok, true);
+  assert.equal(filas.find(x => /VICE/.test(x.nombre)).puntos[0].ok, false, 'el vicepresidente no se acepta solo por el cargo');
+});
+
+test('control: si el CUIT/DNI del renglón es de otro apoderado, se controla por nombre y se avisa del documento (no se compara contra los grupos de otro)', () => {
+  const p = poder([persona(1, 'A'), persona(2, 'B')], [uso('CONJUNTA', ['A+B'], ['firmar_cheques'])]);
+  const unico = M.jsonBastanteoUnico([M.jsonPoder(p, null, { todosApoderados: true })], { cuit: '30000000007', cliente: 'EMPRESA DE PRUEBA SA' });
+  const f = (nombre, n, g) => ({ nombre, cuit: CUIT(n), dni: String(n), ente: '', observacion: '', monto_hasta: null, revocado: false,
+    uso: { grupo: g, tipo: 'CONJUNTA', tipos: ['CONJUNTA'], combinaciones: ['A+B'], texto: `${g} CONJUNTA A+B`, limite: null } });
+  // El renglón de Nombre1 trae el documento de la persona 2 (y al revés): el resumen está mal cargado, el grupo es el del nombre.
+  const filas = M.controlResumen(unico, { firmantes: [f('Nombre1 APELLIDO1', 2, 'A'), f('Nombre2 APELLIDO2', 1, 'B')] }, [], {});
+  const uno = filas.find(x => /Nombre1/.test(x.nombre));
+  assert.ok(uno.puntos.some(x => x.punto === 'Documento' && x.ok === null));
+  assert.ok(!uno.puntos.some(x => x.ok === false), 'sin diferencias de grupo ni de combinaciones');
+});

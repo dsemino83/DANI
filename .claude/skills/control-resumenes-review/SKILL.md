@@ -102,3 +102,15 @@ Las filas que desaparecen son diferencias resueltas. Las que **aparecen** (o la 
 ## Relación con el bastanteo
 
 El JSON del bastanteo y el control usan el mismo JSON único de poderes, así que un error de datos (grupos, combinaciones, vencimientos) se ve en los dos. Si el modelo del bastanteo marca un error de AGRUPAMIENTO, buscá el mismo problema en el punto "Firmas conjuntas" del control.
+
+## Casos validados por legales (`controlCasosValidados`)
+
+Legales revisa empresas a mano y avisa en cuáles **no hay diferencias entre Complif y el resumen de poder**. Esos casos son la verdad contra la que se mide el control: si el control marca DIF en una empresa validada, es un **falso positivo** y hay que generalizarlo (no parchear la empresa).
+
+- Están en Supabase, colección `controlCasosValidados` (un documento por empresa; **no** se versionan acá porque tienen nombres de empresas y personas). Leerlos: `select data from docs where coleccion='controlCasosValidados'`.
+- Cada caso tiene `empresa`, `casos[{tipo, personas, nota?}]` y `estado` (`pendiente` → `resuelto`). Categorías de `tipo`:
+  - **vigente**: los apoderados siguen vigentes; si el control los da por revocados o sin poder, mirar `aplicarRevocatorias` (revocatorias que no corresponden: estado REJECTED/PENDING, revoke + complementary, revocación parcial de otras personas, fecha posterior).
+  - **esquema-conforme-resumen**: el esquema (grupo, firmas conjuntas, límite) de las escrituras coincide con el resumen; si hay DIF en Grupo / Firmas conjuntas, mirar la lectura del esquema (`gruposDelUso`, `combosDeClausula`, `autoLetra`, equivalencias de letras).
+  - **actuación-conjunta**: la empresa actúa solo en conjunto; una individual que no existe en el poder no es DIF si vale la conjunta.
+- Procedimiento: correr `controlar.js` / `medir.js` sobre esas empresas, ver qué punto da DIF, decidir si es del Excel, de Complif o de la lógica; si es de la lógica, corregir de forma general con un test sintético (sin datos reales) y medir **antes y después** sobre todas las empresas con `medir.js` (resueltas / nuevas). Al terminar, marcar el caso `resuelto`.
+- En el chequeo masivo y en el control individual, cada DIF tiene **"Aceptar este criterio"**: guarda la diferencia en `controlCriterios` y deja de marcarla en todas las empresas. Los criterios aceptados se generalizan después con este skill (ver *Criterios*).
