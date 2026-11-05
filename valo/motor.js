@@ -1701,7 +1701,9 @@
   // marca INDIVIDUAL "Dos cualesquiera conjunta e indistinta") y separa los usos mixtos ("Grupo A individual, o dos de
   // Grupo B conjuntos, o uno de Grupo B con uno de Grupo C") en uno individual y uno conjunto.
   // "Firma 2: …", "Uso 3 - …": numeración del uso, no una cantidad de firmantes.
-  const sinNumeracion = t => String(t || '').replace(/^\s*(?:firma|uso(?:\s+de\s+firma)?|estructura|esquema)\s+\d+\s*[:\-–.]\s*/i, '');
+  // Tampoco son grupos los números de escritura, acta o folio ("escritura N°257", "Nº 45", "Nro. 12"): la "N" no es una letra de grupo.
+  const sinNumeracion = t => String(t || '').replace(/^\s*(?:firma|uso(?:\s+de\s+firma)?|estructura|esquema)\s+\d+\s*[:\-–.]\s*/i, '')
+    .replace(/\b(?:N\s*[°º˚]|N\.\s*[°º]|Nro\.?|Num\.?|N[úu]mero)\s*\.?\s*(?=\d)/g, '');
   function usoCompleto(u) {
     const d = sinNumeracion(u.descripcion);
     // "conjunta e indistinta" = dos cualesquiera en conjunto; "conjunta o indistinta" / "y/o" = cualquiera de las dos formas.

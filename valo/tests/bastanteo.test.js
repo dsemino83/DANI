@@ -517,3 +517,13 @@ test('control: mismo nombre completo (con aclaración entre paréntesis) y otro 
   const fila = M.controlResumen(unico, cliente, [], {})[0];
   assert.equal(fila.puntos[0].ok, false);
 });
+
+test('Complif: el número de escritura ("N°257") no es un grupo de firma', () => {
+  const doc = { type: 'Poder', ocr_data_responses: { otorgante: { nombre_completo: 'Otor Gante', numero_de_identificacion: 1 }, razon_social: 'EMPRESA DE PRUEBA SA', fecha_emision: '2026-01-01',
+    apoderados: [{ grupo: 'B', nombre_completo: 'Uno Alfa', numero_de_identificacion: 20000001 }],
+    estructuras_de_firma: [{ tipo_de_firma: 'CONJUNTA', facultades: { endosar_cheques: true }, estructura_de_firma: 'Firma conjunta con cualquier apoderado de escritura N°257',
+      limitaciones: 'Deben actuar en forma conjunta con cualesquiera de los apoderados de la escritura N°257 de fecha 18 de junio de 2018.' }] } };
+  const u = M.poderDesdeComplif(doc).usos[0];
+  assert.ok(!(u.grupos || []).includes('N'));
+  assert.deepEqual(u.combinaciones || [], []);
+});
