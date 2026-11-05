@@ -2225,6 +2225,15 @@
         return fila;
       }
       if (f.revocado) fila.puntos.push({ punto: 'Poder', ok: false, resumen: 'REVOCADO', poder: 'Tiene un poder vigente', detalle: 'el resumen lo da por revocado pero el poder sigue vigente' });
+      // Figura solo en poderes anteriores que siguen vigentes aunque un poder posterior (revocatorio en Complif) no lo menciona.
+      {
+        const idsM = [f.cuit, f.dni].filter(Boolean).map(x => String(Number(String(x).replace(/\D/g, ''))));
+        const enPoderes = ((cliente && cliente.jsonsPoderes) || []).filter(j => (j.apoderados || []).some(x => firmanteDe({ nombre_completo: x.nombre_completo }, [f]) || (x.numero_de_identificacion && idsM.includes(String(x.numero_de_identificacion)))));
+        if (enPoderes.length && enPoderes.every(j => (j.mantenidoPese || []).length)) {
+          fila.puntos.push({ punto: 'Poder', ok: null, resumen: res.texto || '—', poder: `Vigente en su poder: el poder del ${enPoderes[0].mantenidoPese[0]}, marcado como revocatorio en Complif, no lo menciona`,
+            detalle: 'revisar si ese poder posterior lo revoca (no figura en su lista de apoderados)' });
+        }
+      }
       if (f.revocaPendiente) fila.puntos.push({ punto: 'Poder', ok: null, resumen: f.textoRevocacion || 'revocación pendiente', poder: 'Tiene un poder vigente', detalle: 'el resumen anota una revocación todavía no formalizada: el poder sigue vigente' });
       // Presidente según el acta, sin uso de firma en los poderes: se toma como apoderado (firma individual, todas las facultades).
       if (f.presidentePorActa && !f.revocado) { const o = datosOnboarding(f, actas);
@@ -2734,6 +2743,7 @@
     poderes.forEach(p => {
       if (!p._apoderadosOriginales) Object.defineProperty(p, '_apoderadosOriginales', { value: (p.apoderados || []).slice(), writable: true, enumerable: false });
       else p.apoderados = p._apoderadosOriginales.slice();
+      if (p.mantenidoPese) p.mantenidoPese.length = 0;
     });
     const ignorados = poderes.filter(p => revocaPoder(p) && ignorar.has(claveRevocatoria(p)));
     const revocan = poderes.filter(p => revocaPoder(p) && !ignorar.has(claveRevocatoria(p)));
@@ -2773,6 +2783,22 @@
           p.apoderados = p.apoderados.filter(a => !nombrados.includes(a));
           if (!p.apoderados.length) { anulados.push({ poder: p, revocante: r, motivo: `revocación parcial del ${r.fecha_emision}: no le quedan apoderados` }); return false; }
           continue;
+        }
+        // Un poder posterior que Complif marca como revocatorio pero que otorga sus propias facultades reemplaza solo a las personas
+        // que vuelve a listar (nombra de nuevo): a las que no menciona no las toca (revisión legal: siguen vigentes en su escritura).
+        // Si no vuelve a listar a ninguna, el poder anterior sigue vigente; si lista a algunas, quedan las demás.
+        if (otorga(r) && p.apoderados.length && !/todos\s+los\s+poderes|la\s+totalidad|cualquier\s+poder|sin\s+excepci[oó]n|todo\s+poder/i.test(tr)) {
+          const relistados = p.apoderados.filter(a => r.apoderados.some(x => firmanteDe(x, [{ nombre: a.nombre_completo, dni: a.dni, cuit: a.cuit }])));
+          if (relistados.length < p.apoderados.length) {
+            if (!Object.getOwnPropertyDescriptor(p, 'mantenidoPese')) Object.defineProperty(p, 'mantenidoPese', { value: [], writable: true, enumerable: false });
+            p.mantenidoPese.push(r);
+            if (relistados.length) {
+              relistados.forEach(a => quitados.push({ apoderado: a, poder: p, revocante: r, motivo: `reemplazado por el poder del ${r.fecha_emision}` }));
+              p.apoderados = p.apoderados.filter(a => !relistados.includes(a));
+            }
+            if (!avisos.some(a => a.poder === p && a.revocante === r)) avisos.push({ poder: p, revocante: r, motivo: `el poder del ${r.fecha_emision} figura como revocatorio en Complif pero no menciona a todos los apoderados de este poder: se mantienen los no mencionados (revisar)` });
+            continue;
+          }
         }
         if (RE_EBANVAL.test(textoPoder(r)) && !RE_EBANVAL.test(textoPoder(p))) continue;
         anulados.push({ poder: p, revocante: r, motivo: `revocado por el poder del ${r.fecha_emision}` });
@@ -2848,7 +2874,7 @@
     // (edicion.todosApoderados: van todos los del poder, también los que no están en la planilla.)
     const apoderados = firmantes && !edicion.todosApoderados ? poder.apoderados.filter(a => firmanteDe(a, firmantes)) : poder.apoderados;
     const marcas = (cliente && cliente.marcas) || {};
-    return {
+    const json = {
       deed_number: edicion.deed_number || null,
       incorporation_date: null,
       incorporation_resolution_number: null,
@@ -2886,6 +2912,9 @@
         };
       })(), 'vencimiento', { value: poder.vencimiento || null, enumerable: false })),
     };
+    // Poder anterior que sigue vigente pese a un poder posterior marcado como revocatorio que no menciona a todos sus apoderados.
+    Object.defineProperty(json, 'mantenidoPese', { value: (poder.mantenidoPese || []).map(r => `${r.fecha_emision || 's/f'}${r.deed_number ? ' (esc. ' + r.deed_number + ')' : ''}`), enumerable: false });
+    return json;
   }
 
   // Un solo JSON con todos los poderes: cada apoderado junta sus facultades (si tiene varios poderes con el mismo tipo de

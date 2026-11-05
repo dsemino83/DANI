@@ -549,3 +549,19 @@ test('revocatoria: una revocación de los poderes de otra persona (Complif la li
   const rv = M.aplicarRevocatorias(r.poderes);
   assert.ok(rv.vigentes.some(p => p.deed_number === '10'), 'el poder 10 sigue vigente');
 });
+
+test('revocatoria: un poder posterior marcado como revocatorio que otorga sus propios facultades reemplaza solo a las personas que vuelve a listar', () => {
+  const mk = (esc, fecha, aps, scope) => ({ type: 'Poder', ocr_data_responses: { otorgante: { nombre_completo: 'Otor Gante', numero_de_identificacion: 1 }, razon_social: 'EMPRESA DE PRUEBA SA', fecha_emision: fecha, deed_number: esc,
+    apoderados: aps.map((n, i) => ({ grupo: 'A', nombre_completo: n, numero_de_identificacion: 20000000 + i * 7 + 3 + (n === 'Dos Beta' ? 0 : i) })), power_attorney_scope: scope,
+    estructuras_de_firma: [{ tipo_de_firma: 'CONJUNTA', facultades: { endosar_cheques: true }, estructura_de_firma: 'Dos del grupo A conjuntamente' }] }, relations: [{ name: 'EMPRESA DE PRUEBA SA' }] });
+  const viejo = mk('10', '2020-01-01', ['Uno Alfa', 'Dos Beta', 'Tres Gamma'], { new: true, revoke: false, complementary: false });
+  // El nuevo lista a Dos Beta con el mismo documento y a otras personas; no menciona a Uno Alfa ni a Tres Gamma.
+  const nuevo = { type: 'Poder', ocr_data_responses: Object.assign({}, mk('11', '2025-01-01', ['Dos Beta', 'Cuatro Delta'], { new: true, revoke: true, complementary: false }).ocr_data_responses), relations: [{ name: 'EMPRESA DE PRUEBA SA' }] };
+  nuevo.ocr_data_responses.apoderados[0].numero_de_identificacion = viejo.ocr_data_responses.apoderados[1].numero_de_identificacion;
+  const r = M.complifDeEmpresa([viejo, nuevo], '', 'EMPRESA DE PRUEBA SA');
+  const rv = M.aplicarRevocatorias(r.poderes);
+  const p10 = rv.vigentes.find(p => p.deed_number === '10');
+  assert.ok(p10, 'el poder viejo sigue vigente para los que el nuevo no menciona');
+  assert.deepEqual(p10.apoderados.map(a => a.nombre_completo).sort(), ['Tres Gamma', 'Uno Alfa']);
+  assert.ok((p10.mantenidoPese || []).length === 1);
+});
