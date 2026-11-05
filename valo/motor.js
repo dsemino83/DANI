@@ -2787,7 +2787,11 @@
         // Un poder posterior que Complif marca como revocatorio pero que otorga sus propias facultades reemplaza solo a las personas
         // que vuelve a listar (nombra de nuevo): a las que no menciona no las toca (revisión legal: siguen vigentes en su escritura).
         // Si no vuelve a listar a ninguna, el poder anterior sigue vigente; si lista a algunas, quedan las demás.
-        if (otorga(r) && p.apoderados.length && !/todos\s+los\s+poderes|la\s+totalidad|cualquier\s+poder|sin\s+excepci[oó]n|todo\s+poder/i.test(tr)) {
+        // (Solo si el poder posterior no trae NINGUNA cláusula de revocación en su texto: "revoca", "deja sin efecto", "anula"… —sin contar
+        // el "revocar autorizaciones de usuarios" de los poderes de banca electrónica—. Con una cláusula de revocación, el anterior queda revocado.)
+        const sinBoiler = String(tr || '').replace(/revocar\s+(?:e\s+informar\s+)?(?:a\s+los\s+bancos\s+)?(?:las\s+)?(?:autorizaci\w+|funcionari\w+|usuari\w+|el\s+nombre)[^.;]*/gi, ' ').replace(/revocaci[oó]n\s+de\s+(?:las\s+)?autorizaci\w+/gi, ' ').replace(/anexo\s*8/gi, ' ');
+        const clausulaRevoca = /revoc(?:a|an|ase|aci[oó]n|ados?|adas?|amos)\b|d[eé]j(?:a|an|ase|amos)\s+sin\s+efecto|sin\s+efecto|quedan?\s+sin\s+valor|anul(?:a|an|ase|aci[oó]n)\b|todos\s+los\s+poderes|la\s+totalidad|cualquier\s+poder|sin\s+excepci[oó]n|todo\s+poder/i.test(sinBoiler);
+        if (otorga(r) && p.apoderados.length && !clausulaRevoca) {
           const relistados = p.apoderados.filter(a => r.apoderados.some(x => firmanteDe(x, [{ nombre: a.nombre_completo, dni: a.dni, cuit: a.cuit }])));
           if (relistados.length < p.apoderados.length) {
             if (!Object.getOwnPropertyDescriptor(p, 'mantenidoPese')) Object.defineProperty(p, 'mantenidoPese', { value: [], writable: true, enumerable: false });

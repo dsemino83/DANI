@@ -565,3 +565,16 @@ test('revocatoria: un poder posterior marcado como revocatorio que otorga sus pr
   assert.deepEqual(p10.apoderados.map(a => a.nombre_completo).sort(), ['Tres Gamma', 'Uno Alfa']);
   assert.ok((p10.mantenidoPese || []).length === 1);
 });
+
+test('revocatoria: si el poder posterior trae una cláusula de revocación, el anterior queda revocado (error), no mantenido', () => {
+  const mk = (esc, fecha, aps, scope, extra) => ({ type: 'Poder', ocr_data_responses: { otorgante: { nombre_completo: 'Otor Gante', numero_de_identificacion: 1 }, razon_social: 'EMPRESA DE PRUEBA SA', fecha_emision: fecha, deed_number: esc,
+    apoderados: aps.map((n, i) => ({ grupo: 'A', nombre_completo: n, numero_de_identificacion: 20000100 + i * 9 })), power_attorney_scope: scope,
+    estructuras_de_firma: [{ tipo_de_firma: 'CONJUNTA', facultades: { endosar_cheques: true }, estructura_de_firma: 'Dos del grupo A conjuntamente', limitaciones: extra || '' }] }, relations: [{ name: 'EMPRESA DE PRUEBA SA' }] });
+  const viejo = mk('10', '2020-01-01', ['Uno Alfa', 'Dos Beta'], { new: true, revoke: false, complementary: false });
+  const con = mk('11', '2025-01-01', ['Cinco Epsilon', 'Seis Zeta'], { new: true, revoke: true, complementary: false }, 'Se deja sin efecto el poder otorgado por la escritura 10.');
+  const sin = mk('11', '2025-01-01', ['Cinco Epsilon', 'Seis Zeta'], { new: true, revoke: true, complementary: false }, 'Podrán revocar autorizaciones de usuarios de banca electrónica.');
+  const rvCon = M.aplicarRevocatorias(M.complifDeEmpresa([viejo, con], '', 'EMPRESA DE PRUEBA SA').poderes);
+  assert.ok(!rvCon.vigentes.some(p => p.deed_number === '10'), 'con cláusula de revocación, el poder anterior queda revocado');
+  const rvSin = M.aplicarRevocatorias(M.complifDeEmpresa([JSON.parse(JSON.stringify(viejo)), sin], '', 'EMPRESA DE PRUEBA SA').poderes);
+  assert.ok(rvSin.vigentes.some(p => p.deed_number === '10'), 'el "revocar autorizaciones" de banca electrónica no es una revocación');
+});
