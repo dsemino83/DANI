@@ -591,3 +591,11 @@ test('Complif: "Grupo X con Grupo X o Grupo Y" incluye X+X, y "Grupo C con Grupo
   // Sigue valiendo: las alternativas antes del "con" y un solo grupo después.
   assert.deepEqual(comb('Un Grupo B o Grupo C con un Grupo A', 'Puede actuar: un apoderado del Grupo B o un apoderado del Grupo C junto con un apoderado del Grupo A'), ['A+B', 'A+C']);
 });
+
+test('Complif: "Grupo B conjunta con Grupo A u otro del Grupo B o Grupo C" da A+B, B+B y B+C; "Grupo C - conjunta con Grupo B o Grupo A" da B+C y A+C', () => {
+  const comb = (d, l) => M.poderDesdeComplif({ type: 'Poder', ocr_data_responses: { otorgante: { nombre_completo: 'Otor Gante', numero_de_identificacion: 1 }, razon_social: 'EMPRESA DE PRUEBA SA', fecha_emision: '2026-01-01',
+    apoderados: ['A', 'B', 'C', 'D'].map((g, i) => ({ grupo: g, nombre_completo: 'Nom' + g + ' Ape' + g, numero_de_identificacion: 20000001 + i })),
+    estructuras_de_firma: [{ tipo_de_firma: 'CONJUNTA', facultades: { endosar_cheques: true }, estructura_de_firma: d, limitaciones: l }] } }).usos[0].combinaciones;
+  assert.deepEqual(comb('Grupo B - conjunta con Grupo A u otro del Grupo B o Grupo C', 'Integrantes del Grupo B actuando en forma conjunta con un integrante del Grupo A, u otro integrante del Grupo B, o un integrante del Grupo C.'), ['A+B', 'B+B', 'B+C']);
+  assert.deepEqual(comb('Grupo C - conjunta con Grupo B o Grupo A', 'Integrantes del Grupo C actuando en forma conjunta con un integrante del Grupo B o un integrante del Grupo A.'), ['A+C', 'B+C']);
+});

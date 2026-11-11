@@ -1735,7 +1735,8 @@
   // "actos V", "actos I a IV", "punto C", "inciso b)": numeración de los actos o cláusulas del poder, no un grupo de firma.
   const sinActos = t => String(t || '').replace(/\b(actos?|puntos?|incisos?|apartados?|art[ií]culos?|cap[ií]tulos?)\s+(?:del?\s+)?(?:[IVX]+|[A-Z]|\d+)\b\)?(?:\s*(?:a|al|y|,|-|–)\s*(?:[IVX]+|[A-Z]|\d+)\b\)?)*/gi, '$1');
   function gruposDelUso(u) {
-    const d = sinActos(sinNumeracion(u.descripcion)), lim = sinActos(u.limitaciones);
+    // "con Grupo A u otro del Grupo B o Grupo C" = con Grupo A, o con otro del Grupo B, o con Grupo C: se lee como "con Grupo A o Grupo B o Grupo C".
+    const d = sinActos(sinNumeracion(u.descripcion)).replace(/\b(?:u|o)\s+otr[oa](?:\s+integrante|\s+apoderad[oa])?\s+(?:del?\s+)?(?=(?:grupo|clase|categor[ií]a)\s+[A-Z]\b)/gi, 'o '), lim = sinActos(u.limitaciones);
     const conjunta = /CONJUNTA/.test(u.tipo || '');
     const combo = l => l.slice().sort().join('+');
     const unicos = l => [...new Set(l)].sort();
@@ -1768,7 +1769,7 @@
       // Grupo A" sí: las alternativas están antes del "con" y solo hay un grupo después.)
       const iCon = d.search(/\bcon\b/i);
       const antesCon = iCon > -1 ? letrasDe(d.slice(0, iCon)) : [], despuesCon = iCon > -1 ? letrasDe(d.slice(iCon)) : [];
-      const grupoConGrupo = /\b(?:grupo|clase|categor[ií]a)\s+[A-Z]\s+(?:\([^)]*\)\s*)?con\s+(?:un[ao]?\s+|el\s+|la\s+|otro\s+)?(?:grupo|clase|categor[ií]a)\s+[A-Z]/i.test(d)
+      const grupoConGrupo = /\b(?:grupo|clase|categor[ií]a)\s+[A-Z]\s*(?:[-–,:]\s*)?(?:\([^)]*\)\s*)?(?:conjunt\w+\s+)?con\s+(?:un[ao]?\s+|el\s+|la\s+|otro\s+)?(?:grupo|clase|categor[ií]a)\s+[A-Z]/i.test(d)
         && (despuesCon.some(x => !con.includes(x)) || antesCon.some(x => con.includes(x)));
       // (También si antes del "con" hay otra alternativa con cantidad: "Dos del Grupo B, o Grupo B con Grupo C".)
       const conOtraAlternativa = iCon > -1 && /\b(?:dos|2|tres|3)\b/i.test(d.slice(0, iCon)) && /\b(?:grupo|clase|categor[ií]a)\s+[A-Z]/i.test(d.slice(0, iCon));
