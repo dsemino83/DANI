@@ -578,3 +578,16 @@ test('revocatoria: si el poder posterior trae una cláusula de revocación, el a
   const rvSin = M.aplicarRevocatorias(M.complifDeEmpresa([JSON.parse(JSON.stringify(viejo)), sin], '', 'EMPRESA DE PRUEBA SA').poderes);
   assert.ok(rvSin.vigentes.some(p => p.deed_number === '10'), 'el "revocar autorizaciones" de banca electrónica no es una revocación');
 });
+
+test('Complif: "Grupo X con Grupo X o Grupo Y" incluye X+X, y "Grupo C con Grupo B o D" firma C con B y C con D', () => {
+  const comb = (d, l) => M.poderDesdeComplif({ type: 'Poder', ocr_data_responses: { otorgante: { nombre_completo: 'Otor Gante', numero_de_identificacion: 1 }, razon_social: 'EMPRESA DE PRUEBA SA', fecha_emision: '2026-01-01',
+    apoderados: ['A', 'B', 'C', 'D'].map((g, i) => ({ grupo: g, nombre_completo: 'Nom' + g + ' Ape' + g, numero_de_identificacion: 20000001 + i })),
+    estructuras_de_firma: [{ tipo_de_firma: 'CONJUNTA', facultades: { endosar_cheques: true }, estructura_de_firma: d, limitaciones: l }] } }).usos[0].combinaciones;
+  assert.deepEqual(comb('Grupo B con Grupo B o Grupo C o Grupo D', 'Un miembro del Grupo B deberá actuar en forma conjunta con otro miembro del Grupo B, o con un miembro del Grupo C, o con un miembro del Grupo D.'), ['B+B', 'B+C', 'B+D']);
+  assert.deepEqual(comb('Grupo A con Grupo A o B o C (conjunta)', 'Cualquier apoderado del Grupo A con otro apoderado del Grupo A o del Grupo B o del Grupo C.'), ['A+A', 'A+B', 'A+C']);
+  assert.deepEqual(comb('Grupo C con Grupo B o Grupo D', 'Un miembro del Grupo C deberá actuar con un miembro del Grupo B o con un miembro del Grupo D.'), ['B+C', 'C+D']);
+  assert.deepEqual(comb('Grupo A con Grupo B o C conjunta', 'Deben actuar junto con un integrante del Grupo B o del Grupo C.'), ['A+B', 'A+C']);
+  assert.deepEqual(comb('Dos del Grupo B conjunta, o Grupo B con Grupo C', 'Actuando conjuntamente dos cualesquiera del Grupo B, o uno del Grupo B con uno del Grupo C.'), ['B+B', 'B+C']);
+  // Sigue valiendo: las alternativas antes del "con" y un solo grupo después.
+  assert.deepEqual(comb('Un Grupo B o Grupo C con un Grupo A', 'Puede actuar: un apoderado del Grupo B o un apoderado del Grupo C junto con un apoderado del Grupo A'), ['A+B', 'A+C']);
+});

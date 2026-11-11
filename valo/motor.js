@@ -1763,7 +1763,16 @@
       const con = unicos([...d.matchAll(/\b[Cc]on\s+(?:[Uu]n[ao]?\s+|[Ee]l\s+|[Ll]a\s+)?(?:[Tt]ipo\s+de\s+)?(?:[Ff]irma|[Gg]rupo|[Cc]lase|[Cc]ategor[ií]a)\s+([A-Z])\b/g)].map(m => m[1]));
       const titulo = [...d.matchAll(/(?:^|[·\-–]\s*)[Tt]ipo\s+de\s+[Ff]irma\s+([A-Z])\b/g)].map(m => m[1]);
       const cabeza = unicos([...todas, ...titulo].filter(x => !con.includes(x)));
-      if (con.length && cabeza.length) {
+      // ("Grupo B con Grupo B o Grupo C o Grupo D", "Grupo A con Grupo B o C": después del "con" hay más grupos que uno, o el grupo del "con"
+      // ya figuraba antes: no es un "Tipo de Firma C … con Firma B"; las lee la gramática de cláusulas. En cambio "Un Grupo B o Grupo C con un
+      // Grupo A" sí: las alternativas están antes del "con" y solo hay un grupo después.)
+      const iCon = d.search(/\bcon\b/i);
+      const antesCon = iCon > -1 ? letrasDe(d.slice(0, iCon)) : [], despuesCon = iCon > -1 ? letrasDe(d.slice(iCon)) : [];
+      const grupoConGrupo = /\b(?:grupo|clase|categor[ií]a)\s+[A-Z]\s+(?:\([^)]*\)\s*)?con\s+(?:un[ao]?\s+|el\s+|la\s+|otro\s+)?(?:grupo|clase|categor[ií]a)\s+[A-Z]/i.test(d)
+        && (despuesCon.some(x => !con.includes(x)) || antesCon.some(x => con.includes(x)));
+      // (También si antes del "con" hay otra alternativa con cantidad: "Dos del Grupo B, o Grupo B con Grupo C".)
+      const conOtraAlternativa = iCon > -1 && /\b(?:dos|2|tres|3)\b/i.test(d.slice(0, iCon)) && /\b(?:grupo|clase|categor[ií]a)\s+[A-Z]/i.test(d.slice(0, iCon));
+      if (con.length && cabeza.length && !grupoConGrupo && !conOtraAlternativa) {
         const pares = unicos(cabeza.flatMap(c => con.map(o => combo([c, o]))));
         return { grupo: cabeza[0], grupos: unicos([...cabeza, ...con]), combinaciones: pares };
       }
