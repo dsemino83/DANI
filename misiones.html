@@ -3680,33 +3680,55 @@
     try { speechSynthesis.resume(); } catch (e) { /* nada */ }
     // 1.º y 2.º intento: la mejor voz que todavía no falló; 3.º: la del sistema.
     const conVoz = intento < 2 ? voz : null;
-    let arranco = false, fallo = false;
+    let arranco = false, fallo = false, terminado = false, desde = 0;
+    let vigia = null;
+    // Algunos navegadores (por ejemplo Edge con sus voces «Natural») hablan pero
+    // no avisan cuándo empiezan o terminan. Por eso, además de los avisos, se
+    // vigila si el navegador está hablando.
+    const empezo = () => { if (arranco) return; arranco = true; desde = Date.now(); estadoVoz.dichos++; if (mio === turno) hablando(true); };
+    const terminar = () => {
+      if (terminado) return; terminado = true; clearInterval(vigia);
+      if (mio !== turno) return;
+      if (alFin) alFin(); else hablando(false);
+    };
     const reintentar = () => {
-      if (fallo || mio !== turno) return;
-      fallo = true;
+      if (fallo || terminado || mio !== turno) return;
+      fallo = true; clearInterval(vigia);
       if (conVoz) vocesMalas.add(conVoz.name);
       try { speechSynthesis.cancel(); } catch (e) { /* nada */ }
       if (intento < 2) setTimeout(() => hablarPartes(partes, mio, intento + 1, alFin), 150);
-      else { hablando(false); avisoVoz('mudo'); if (alFin) alFin(); }
+      else { hablando(false); avisoVoz('mudo'); terminado = true; if (alFin) alFin(); }
     };
     // Se guardan las referencias: si no, Chrome a veces las descarta a mitad de camino.
     enCola = partes.map((p, i) => {
       const u = new SpeechSynthesisUtterance(p);
       u.lang = conVoz ? conVoz.lang : 'es-AR'; if (conVoz) u.voice = conVoz;
-      u.rate = 0.9; u.pitch = conVoz ? tonoVoz() : 1.2; u.volume = 1;
-      u.onstart = () => { arranco = true; estadoVoz.dichos++; if (mio === turno) hablando(true); };
-      if (i === partes.length - 1) u.onend = () => { if (mio !== turno) return; if (alFin) alFin(); else hablando(false); };
+      u.rate = 0.95; u.pitch = conVoz ? tonoVoz() : 1.2; u.volume = 1;
+      u.onstart = empezo;
+      if (i === partes.length - 1) u.onend = terminar;
       u.onerror = (e) => {
         if (mio !== turno || e.error === 'interrupted' || e.error === 'canceled') return;
         estadoVoz.ultimo = 'error: ' + e.error;
-        if (!arranco) reintentar(); else { hablando(false); avisoVoz('error'); if (alFin) alFin(); }
+        if (!arranco) reintentar(); else { avisoVoz('error'); terminar(); }
       };
       speechSynthesis.speak(u);
       return u;
     });
+    vigia = setInterval(() => {
+      if (mio !== turno || fallo || terminado) { clearInterval(vigia); return; }
+      let hablaAhora = false, enEspera = false;
+      try { hablaAhora = speechSynthesis.speaking; enEspera = speechSynthesis.pending; } catch (e) { /* nada */ }
+      if (hablaAhora && !arranco) empezo();
+      if (arranco && !hablaAhora && !enEspera) terminar();
+      if (arranco && Date.now() - desde > 90000) terminar(); // por si queda trabado
+    }, 300);
     // Las voces «en línea» tardan más en arrancar: se les da más tiempo antes de cambiar.
     const espera = conVoz && !conVoz.localService ? 6000 : 3000;
-    setTimeout(() => { if (mio === turno && !arranco && !fallo) reintentar(); }, espera);
+    setTimeout(() => {
+      let hablaAhora = false; try { hablaAhora = speechSynthesis.speaking; } catch (e) { /* nada */ }
+      if (hablaAhora) empezo();
+      if (mio === turno && !arranco && !fallo && !terminado) reintentar();
+    }, espera);
   }
   // ---------- Voz grabada (Fish Audio, voz de mujer latina) ----------
   // Las frases fijas del juego (felicitaciones, saludos, consignas) están
