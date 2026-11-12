@@ -3629,7 +3629,7 @@
     if (latina(v)) p += 40;
     if (esMujer(v)) p += 30; else if (MASCULINAS.test(v.name)) p -= 50;
     if (v.localService) p += 25; // las voces instaladas en el dispositivo casi nunca fallan
-    if (/natural|neural|online \(natural\)/i.test(v.name)) p += 8; // las «naturales» de Edge suenan mejor
+    if (/natural|neural/i.test(v.name)) p += 35; // las voces «Natural» de Edge suenan casi humanas (y ya se detecta bien cuándo terminan)
     return p;
   }
   function elegirVoz() {
