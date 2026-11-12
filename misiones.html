@@ -3722,15 +3722,39 @@
   reproductor.preload = 'auto';
   const SILENCIO = 'data:audio/mpeg;base64,SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjYwLjE2LjEwMAAAAAAAAAAAAAAA//OEwAAAAAAAAAAAAEluZm8AAAAPAAAACQAABCAARUVFRUVFRUVFRUVdXV1dXV1dXV1dXXR0dHR0dHR0dHR0i4uLi4uLi4uLi4uioqKioqKioqKiorq6urq6urq6urq60dHR0dHR0dHR0dHo6Ojo6Ojo6Ojo6P//////////////AAAAAExhdmM2MC4zMQAAAAAAAAAAAAAAACQD8AAAAAAAAAQgDeb0IwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA//NExAAAAANIAAAAAExBTUUzLjEwMFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVTEFNRTMu//NExFMAAANIAAAAADEwMFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVTEFNRTMu//NExKYAAANIAAAAADEwMFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVTEFNRTMu//NExKwAAANIAAAAADEwMFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVTEFNRTMu//NExKwAAANIAAAAADEwMFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVTEFNRTMu//NExKwAAANIAAAAADEwMFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVTEFNRTMu//NExKwAAANIAAAAADEwMFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV//NExKwAAANIAAAAAFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV//NExKwAAANIAAAAAFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV';
   let audioDespierto = false;
+  // Camino principal: Web Audio (el mismo sistema que la música de fondo).
+  // Se habilita con el primer toque y no depende de las reglas de reproducción
+  // automática del navegador para cada frase.
+  let ctxVoz = null, fuenteVoz = null;
+  const buffersVoz = new Map();
+  function bufferDe(src) {
+    if (!buffersVoz.has(src)) {
+      buffersVoz.set(src, fetch(src).then((r) => r.arrayBuffer()).then((ab) => new Promise((ok, mal) => ctxVoz.decodeAudioData(ab, ok, mal))));
+      buffersVoz.get(src).catch(() => buffersVoz.delete(src));
+    }
+    return buffersVoz.get(src);
+  }
   function despertarAudio() {
+    try {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (AC && !ctxVoz) ctxVoz = new AC();
+      if (ctxVoz && ctxVoz.state !== 'running') {
+        ctxVoz.resume().catch(() => {});
+        const b = ctxVoz.createBuffer(1, 1, 22050), s = ctxVoz.createBufferSource();
+        s.buffer = b; s.connect(ctxVoz.destination); s.start(0);
+      }
+    } catch (e) { ctxVoz = null; }
     if (audioDespierto) return;
     audioDespierto = true;
     try { reproductor.src = SILENCIO; const pr = reproductor.play(); if (pr && pr.catch) pr.catch(() => {}); } catch (e) { /* nada */ }
+    // Se preparan todas las frases grabadas en segundo plano para que suenen al instante.
+    if (ctxVoz) setTimeout(() => Object.values(VOZ_GRABADA).forEach((src) => bufferDe(src).catch(() => {})), 300);
   }
   function callar() {
     turno++;
     try { speechSynthesis.cancel(); } catch (e) { /* nada */ }
     try { reproductor.onended = reproductor.onerror = null; reproductor.pause(); } catch (e) { /* nada */ }
+    if (fuenteVoz) { try { fuenteVoz.onended = null; fuenteVoz.stop(); } catch (e) { /* nada */ } fuenteVoz = null; }
     hablando(false);
   }
   function decir(texto) {
@@ -3754,20 +3778,36 @@
       if (it.src) {
         const a = reproductor;
         let listo = false;
+        // 2.º camino: el reproductor de audio común del navegador.
+        const conReproductor = () => {
+          if (listo || mio !== turno) return;
+          a.onended = () => { if (listo || mio !== turno) return; listo = true; paso(k + 1); };
+          a.onerror = aTts;
+          try {
+            a.src = it.src;
+            const pr = a.play();
+            if (pr && pr.then) pr.then(() => { estadoVoz.grabadas = (estadoVoz.grabadas || 0) + 1; estadoVoz.via = 'reproductor'; }, aTts);
+          } catch (e) { aTts(e); }
+        };
         const aTts = (e) => {
           if (listo || mio !== turno) return; listo = true;
           estadoVoz.fallasGrabadas = (estadoVoz.fallasGrabadas || 0) + 1;
           estadoVoz.motivoGrabada = (e && (e.name || e.type)) || 'desconocido';
           items[k] = { tts: [it.texto] }; paso(k);
         };
-        a.onended = () => { if (listo || mio !== turno) return; listo = true; paso(k + 1); };
-        a.onerror = aTts;
         hablando(true);
-        try {
-          a.src = it.src;
-          const pr = a.play();
-          if (pr && pr.then) pr.then(() => { estadoVoz.grabadas = (estadoVoz.grabadas || 0) + 1; }, aTts);
-        } catch (e) { aTts(e); }
+        if (ctxVoz) {
+          const listoCtx = ctxVoz.state === 'running' ? Promise.resolve() : ctxVoz.resume();
+          Promise.all([bufferDe(it.src), listoCtx]).then(([buf]) => {
+            if (listo || mio !== turno) return;
+            if (ctxVoz.state !== 'running') throw new Error('audio suspendido');
+            const f = ctxVoz.createBufferSource();
+            f.buffer = buf; f.connect(ctxVoz.destination);
+            f.onended = () => { if (fuenteVoz === f) fuenteVoz = null; if (listo || mio !== turno) return; listo = true; paso(k + 1); };
+            fuenteVoz = f; f.start(0);
+            estadoVoz.grabadas = (estadoVoz.grabadas || 0) + 1; estadoVoz.via = 'web audio';
+          }).catch((e) => { estadoVoz.motivoWebAudio = (e && (e.name || e.message)) || 'error'; conReproductor(); });
+        } else conReproductor();
         return;
       }
       if (!hayVoz) { avisoVoz('sin'); paso(k + 1); return; }
@@ -4400,7 +4440,7 @@
     const es = vocesEs();
     let total = 0; try { total = speechSynthesis.getVoices().length; } catch (e) { /* nada */ }
     info.innerHTML = `Voces en el dispositivo: <b>${total}</b> · en español: <b>${es.length}</b><br>Voz elegida: <b>${voz ? esc(voz.name + ' (' + voz.lang + (voz.localService ? ', instalada' : ', en línea') + ')') : 'la del sistema'}</b>`
-      + `<br>Frases con voz grabada que sonaron: <b>${estadoVoz.grabadas || 0}</b> · que fallaron: <b>${estadoVoz.fallasGrabadas || 0}</b>${estadoVoz.motivoGrabada ? ` (${esc(estadoVoz.motivoGrabada)})` : ''}`
+      + `<br>Frases con voz grabada que sonaron: <b>${estadoVoz.grabadas || 0}</b> · que fallaron: <b>${estadoVoz.fallasGrabadas || 0}</b>${estadoVoz.motivoGrabada ? ` (${esc(estadoVoz.motivoGrabada)})` : ''}${estadoVoz.via ? ` · por: ${esc(estadoVoz.via)}` : ''}${estadoVoz.motivoWebAudio ? ` · web audio: ${esc(estadoVoz.motivoWebAudio)}` : ''}`
       + `<br>Lecturas que empezaron: <b>${estadoVoz.dichos}</b>${estadoVoz.ultimo ? ` · último problema: <b>${esc(estadoVoz.ultimo)}</b>` : ''}`;
     const sel = $('#elegir-voz');
     sel.innerHTML = '';
