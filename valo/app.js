@@ -3544,6 +3544,15 @@
     const file = files[0];
     try {
       $('motivoBloqueo').textContent = 'Leyendo ' + (files.length > 1 ? files.length + ' archivos' : file.name) + '…';
+      // Archivos de cesión ya generados (Cuotas / Créditos): no son el archivo del cliente, se arma la carta.
+      if (files.every(f => /\.(csv|txt)$/i.test(f.name))) {
+        const cab = await Promise.all(files.map(async f => (await f.slice(0, 20).text()).replace(/^\uFEFF/, '').trim()));
+        if (cab.some(t => /^CAP\b/i.test(t))) {
+          $('motivoBloqueo').textContent = '';
+          await armarCartaDesdeCsv(files);
+          return;
+        }
+      }
       // TXT de cuotas por banco (esquema MELI): todos los archivos empiezan con la cabecera CUOTAS.
       const txts = files.every(f => /\.txt$/i.test(f.name))
         ? await Promise.all(files.map(async f => ({ nombre: f.name, texto: await f.text() }))) : null;
@@ -3883,10 +3892,8 @@
     catch (e) { informar('Copiá el texto', `<p>Seleccioná el texto de la vista previa y copialo (Ctrl+C).</p>`); }
   });
   $('btnCartaCsv').addEventListener('click', () => $('archivoCartaCsv').click());
-  $('archivoCartaCsv').addEventListener('change', async e => {
-    const lista = [...e.target.files];
-    e.target.value = '';
-    if (!lista.length) return;
+  // Arma la carta desde los CSV ya generados (Cuotas + Créditos). Se usa desde la tarjeta 4 y desde "Cargar lote".
+  async function armarCartaDesdeCsv(lista) {
     const textos = await Promise.all(lista.map(async f => ({ nombre: f.name, texto: await f.text() })));
     const cuotas = textos.find(t => /^\uFEFF?CUOTAS/i.test(t.texto.trim()));
     const creditos = textos.find(t => /^\uFEFF?CAP\b/i.test(t.texto.trim()));
@@ -3895,6 +3902,11 @@
     const c = datos().clientes.find(x => String(x.cuit || '') === String(r.cedente)) || (estadoFormulario().cliente || null);
     prepararCarta({ origen: 'csv', cliente: c, errores: r.errores, datos: { secuencia: r.secuencia, tasa: r.tasa, total: r.total, fechasPago: r.fechasPago }, archivoCreditos: creditos.nombre, archivoCuotas: cuotas.nombre });
     $('cardCarta').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+  $('archivoCartaCsv').addEventListener('change', async e => {
+    const lista = [...e.target.files];
+    e.target.value = '';
+    if (lista.length) await armarCartaDesdeCsv(lista);
   });
 
   $('pestanasResultado').addEventListener('click', e => {
