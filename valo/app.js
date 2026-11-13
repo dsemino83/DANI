@@ -3871,6 +3871,49 @@
       secuencia: $('cNumero').value.trim() === '' ? null : Number($('cNumero').value), archivoCreditos: $('cArchCreditos').value.trim(), archivoCuotas: $('cArchCuotas').value.trim(),
       total: d.total, tasa: numeroDeCampo($('cTasa').value), contraprestacion: numeroDeCampo($('cContra').value), fechasPago: d.fechasPago, banco: $('cBanco').value.trim(), domicilioBanco: $('cDomicilio').value.trim() };
   }
+  // Excel con el cálculo del desembolso (mismo esquema que "VA Precio Cesión"): fórmulas vivas, se puede retocar tasa y fecha.
+  function libroDesembolso(fechasPago, o) {
+    const liq = M.aFechaSerial(o.liquidacion), tna = Number(o.tasa) / 100;
+    const n = fechasPago.length, ini = 4, fin = ini + n - 1, tot = fin + 1;
+    const ws = {}, ref = (c, r) => c + r;
+    const num = (c, r, v, z, f) => { ws[ref(c, r)] = Object.assign({ t: 'n', v }, z ? { z } : {}, f ? { f } : {}); };
+    const txt = (c, r, v) => { ws[ref(c, r)] = { t: 's', v }; };
+    const r2 = x => Math.round(x * 100 + 1e-7) / 100;
+    const tea = Math.round((Math.pow(1 + tna * 30 / 365, 365 / 30) - 1) * 10000) / 10000;
+    const M2 = '#,##0.00', FE = 'dd/mm/yyyy';
+    txt('G', 1, 'Liquidación'); num('H', 1, liq, FE); num('K', 1, liq, FE, '+H1');
+    txt('G', 2, 'TEA'); num('H', 2, tea, '0.00%', 'ROUND((1+(H3*30/365))^(365/30)-1,4)');
+    txt('J', 2, 'TNA sellos'); num('K', 2, o.sellosTna, '0.00%');
+    txt('A', 3, 'Vto'); txt('B', 3, 'Importe (cuota)'); txt('D', 3, 'IMPORTE'); txt('E', 3, 'VTO CUOTA');
+    txt('G', 3, 'TNA'); num('H', 3, tna, '0.00%'); txt('J', 3, 'VALOR CESIÓN (sellos)'); txt('K', 3, 'SELLOS');
+    let sB = 0, sG = 0, sH = 0, sJ = 0, sK = 0;
+    fechasPago.forEach((x, i) => {
+      const r = ini + i, vto = M.aFechaSerial(x.serial != null ? x.serial : x.fecha), m = Number(x.monto), d = (vto - liq) / 365;
+      const g = r2(m / Math.pow(1 + tea, d)), j = r2(m / Math.pow(1 + o.sellosTna, d));
+      num('A', r, vto, FE); num('B', r, m, M2); num('D', r, m, M2, '+B' + r); num('E', r, vto, FE, '+A' + r);
+      num('G', r, g, M2, `+ROUND(((D${r})*((1/(1+($H$2))^(($E${r}-H$1)/365)))),2)`); num('H', r, m - g, M2, `+D${r}-G${r}`);
+      num('J', r, j, M2, `+ROUND(((D${r})*((1/(1+($K$2))^(($E${r}-K$1)/365)))),2)`); num('K', r, m - j, M2, `+D${r}-J${r}`);
+      sB += m; sG += g; sH += m - g; sJ += j; sK += m - j;
+    });
+    txt('A', tot, 'Total general');
+    [['B', sB], ['D', sB], ['G', sG], ['H', sH], ['J', sJ], ['K', sK]].forEach(([c, v]) => num(c, tot, v, M2, `SUM(${c}${ini}:${c}${fin})`));
+    const intereses = sB - sG, rv = tot + 3;
+    const fila = (k, etq, v, f, pct, pctVal) => { txt('A', rv + k, etq); if (pct) num('B', rv + k, pctVal, '0.0%'); num('C', rv + k, v, M2, f); };
+    fila(0, 'Valor final de los créditos cedidos', sB, '+D' + tot);
+    fila(2, 'Precio de la Cesión (valor presente)', sG, '+G' + tot);
+    fila(4, 'INT DESCONTADOS', intereses, `+C${rv}-C${rv + 2}`);
+    fila(6, 'IVA sobre Int. Descontados', intereses * o.ivaPct, `+C${rv + 4}*B${rv + 6}`, true, o.ivaPct);
+    fila(8, 'IVA Percepción sobre Int. Descontados', intereses * o.ivaPercPct, `+C${rv + 4}*B${rv + 8}`, true, o.ivaPercPct);
+    fila(10, 'SELLOS OFERTA', sK, '+K' + tot, true, o.sellosTna);
+    fila(12, 'IIBB Percepción CABA', intereses * o.iibbPct, `+C${rv + 4}*B${rv + 12}`, true, o.iibbPct);
+    fila(14, 'IMPORTE A TRANSFERIR (precio neto de impuestos)', sB - intereses - intereses * (o.ivaPct + o.ivaPercPct + o.iibbPct) - sK,
+      `+C${rv}-C${rv + 4}-C${rv + 6}-C${rv + 8}-C${rv + 10}-C${rv + 12}`);
+    ws['!ref'] = `A1:K${rv + 14}`;
+    ws['!cols'] = [{ wch: 44 }, { wch: 18 }, { wch: 18 }, { wch: 12 }, { wch: 12 }, { wch: 3 }, { wch: 13 }, { wch: 16 }, { wch: 3 }, { wch: 22 }, { wch: 14 }];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Desembolso');
+    return wb;
+  }
   // Precio neto de impuestos (modelo de desembolso): se calcula con la tasa y la fecha de liquidación salvo que se escriba a mano.
   function recalcularContra() {
     const d = cartaBase ? cartaBase.datos : null;
@@ -3908,6 +3951,13 @@
     const nombre = 'Carta_Cesion_' + String(dc.cedente || 'cliente').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^A-Za-z0-9]+/g, '') + '_N' + (dc.secuencia != null ? dc.secuencia : '') + '.docx';
     const blob = new Blob([M.docxSimple(M.cartaCesion(dc))], { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' });
     await descargar(nombre, blob, true);
+  });
+  $('btnCartaExcel').addEventListener('click', async () => {
+    const dc = datosCarta();
+    if (!dc || dc.tasa == null || !$('cLiquid').value) { informar('Falta la tasa', '<p>Para calcular el desembolso completá la <b>tasa de descuento</b> y la <b>fecha de liquidación</b>.</p>'); return; }
+    const wb = libroDesembolso(dc.fechasPago, { tasa: dc.tasa, liquidacion: $('cLiquid').value, ivaPct: 0.105, ivaPercPct: 0.015, sellosTna: 0.012, iibbPct: 0.01 });
+    const nombre = 'Desembolso_' + String(dc.cedente || 'cliente').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^A-Za-z0-9]+/g, '') + '_N' + (dc.secuencia != null ? dc.secuencia : '') + '.xlsx';
+    await descargarLibro(nombre, wb);
   });
   $('btnCartaCopiar').addEventListener('click', async () => {
     const dc = datosCarta();
