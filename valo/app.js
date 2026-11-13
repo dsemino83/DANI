@@ -3824,8 +3824,78 @@
     $('controlesResultado').innerHTML = `<h3>Controles antes de usar el archivo</h3><div class="tabla-caja" style="max-height:none"><table><tbody>${
       controles.map(([t, ok, v]) => `<tr><td>${esc(t)}</td><td class="num">${esc(v)}</td><td>${ok ? '<span class="chip ok">OK</span>' : '<span class="chip bad">REVISAR</span>'}</td></tr>`).join('')}</tbody></table></div>`;
     renderTablaResultado('cuotas');
+    prepararCarta({ origen: 'lote', cliente: c, lote, datos: M.datosCartaDesdeLote(cuotas, { secuencia: lote.secuencia, tasa: lote.tasa }),
+      archivoCreditos: lote.nombreCreditos, archivoCuotas: lote.nombreCuotas });
     $('cardResultado').scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
+
+  // --- Carta de cesión (Anexo I): se arma con el lote recién procesado o con los CSV de Cuotas y Créditos ya generados.
+  let cartaBase = null;   // { datos: { secuencia, tasa, total, fechasPago }, clienteId }
+  const cartaPrefs = id => { try { return JSON.parse(localStorage.getItem('valo.carta.' + id) || '{}'); } catch (e) { return {}; } };
+  const guardarCartaPrefs = (id, v) => { try { localStorage.setItem('valo.carta.' + id, JSON.stringify(v)); } catch (e) { /* sin almacenamiento local */ } };
+  const isoHoy = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+  const sinExt = n => String(n || '').replace(/\.(csv|txt)$/i, '');
+  function prepararCarta(o) {
+    cartaBase = { datos: o.datos, clienteId: o.cliente ? o.cliente.id : null };
+    const pref = cartaPrefs(cartaBase.clienteId || '_');
+    const hoy = isoHoy();
+    $('cardCarta').classList.remove('oculto');
+    $('cCedente').value = pref.cedente || (o.cliente ? o.cliente.nombre : '') || '';
+    $('cAlias').value = pref.alias != null ? pref.alias : '';
+    $('cFechaCarta').value = hoy; $('cFechaProp').value = hoy; $('cFechaAcep').value = hoy;
+    $('cNumero').value = o.datos.secuencia != null ? o.datos.secuencia : '';
+    $('cArchCreditos').value = sinExt(o.archivoCreditos); $('cArchCuotas').value = sinExt(o.archivoCuotas);
+    $('cTotal').value = fmtMonto(o.datos.total);
+    $('cTasa').value = o.datos.tasa != null && isFinite(o.datos.tasa) ? String(o.datos.tasa).replace('.', ',') : '';
+    $('cContra').value = '';
+    $('cBanco').value = pref.banco || 'Banco de Valores S.A.'; $('cDomicilio').value = pref.domicilio || 'Sarmiento 310';
+    $('cartaAviso').innerHTML = (o.errores || []).length ? aviso('warn', o.errores.map(esc).join('<br>')) : '';
+    renderCarta();
+  }
+  const numeroDeCampo = t => { const v = String(t || '').trim().replace(/\./g, '').replace(',', '.'); return v === '' || !isFinite(Number(v)) ? null : Number(v); };
+  function datosCarta() {
+    const d = cartaBase ? cartaBase.datos : null;
+    if (!d) return null;
+    return { cedente: $('cCedente').value, alias: $('cAlias').value, fechaCarta: $('cFechaCarta').value, fechaPropuesta: $('cFechaProp').value, fechaAceptacion: $('cFechaAcep').value,
+      secuencia: $('cNumero').value.trim() === '' ? null : Number($('cNumero').value), archivoCreditos: $('cArchCreditos').value.trim(), archivoCuotas: $('cArchCuotas').value.trim(),
+      total: d.total, tasa: numeroDeCampo($('cTasa').value), contraprestacion: numeroDeCampo($('cContra').value), fechasPago: d.fechasPago, banco: $('cBanco').value.trim(), domicilioBanco: $('cDomicilio').value.trim() };
+  }
+  function renderCarta() {
+    const dc = datosCarta();
+    if (!dc) { $('cartaVista').textContent = ''; return; }
+    $('cartaVista').textContent = M.textoCartaCesion(M.cartaCesion(dc));
+  }
+  $('cartaCampos').addEventListener('input', () => {
+    renderCarta();
+    if (cartaBase) guardarCartaPrefs(cartaBase.clienteId || '_', { cedente: $('cCedente').value, alias: $('cAlias').value, banco: $('cBanco').value, domicilio: $('cDomicilio').value });
+  });
+  $('btnCartaWord').addEventListener('click', async () => {
+    const dc = datosCarta();
+    if (!dc) return;
+    const nombre = 'Carta_Cesion_' + String(dc.cedente || 'cliente').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^A-Za-z0-9]+/g, '') + '_N' + (dc.secuencia != null ? dc.secuencia : '') + '.docx';
+    const blob = new Blob([M.docxSimple(M.cartaCesion(dc))], { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' });
+    await descargar(nombre, blob, true);
+  });
+  $('btnCartaCopiar').addEventListener('click', async () => {
+    const dc = datosCarta();
+    if (!dc) return;
+    try { await navigator.clipboard.writeText(M.textoCartaCesion(M.cartaCesion(dc))); toast('Texto de la carta copiado'); }
+    catch (e) { informar('Copiá el texto', `<p>Seleccioná el texto de la vista previa y copialo (Ctrl+C).</p>`); }
+  });
+  $('btnCartaCsv').addEventListener('click', () => $('archivoCartaCsv').click());
+  $('archivoCartaCsv').addEventListener('change', async e => {
+    const lista = [...e.target.files];
+    e.target.value = '';
+    if (!lista.length) return;
+    const textos = await Promise.all(lista.map(async f => ({ nombre: f.name, texto: await f.text() })));
+    const cuotas = textos.find(t => /^\uFEFF?CUOTAS/i.test(t.texto.trim()));
+    const creditos = textos.find(t => /^\uFEFF?CAP\b/i.test(t.texto.trim()));
+    if (!cuotas || !creditos) { informar('Faltan archivos', '<p>Elegí a la vez los dos archivos: el de <b>Cuotas</b> (empieza con CUOTAS) y el de <b>Créditos</b> (empieza con CAP).</p>'); return; }
+    const r = M.leerArchivosCesion(cuotas.texto, creditos.texto);
+    const c = datos().clientes.find(x => String(x.cuit || '') === String(r.cedente)) || (estadoFormulario().cliente || null);
+    prepararCarta({ origen: 'csv', cliente: c, errores: r.errores, datos: { secuencia: r.secuencia, tasa: r.tasa, total: r.total, fechasPago: r.fechasPago }, archivoCreditos: creditos.nombre, archivoCuotas: cuotas.nombre });
+    $('cardCarta').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  });
 
   $('pestanasResultado').addEventListener('click', e => {
     const b = e.target.closest('[data-tabla]');

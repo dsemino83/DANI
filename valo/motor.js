@@ -5376,6 +5376,144 @@ try {
     return (tipo === 'cuotas' ? 'Cuotas' : 'Creditos') + nombre + hoyDDMMYY(hoy) + '.' + (extension || 'csv');
   }
 
+  // ------------------------------------------------- Carta de cesión (Anexo I)
+
+  const MESES_LARGO = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
+  const montoAR = n => Number(n || 0).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  // "16 de diciembre de 2026" (unidad 'de') o "16 de diciembre del 2026" (unidad 'del', como en el modelo de la Propuesta).
+  function fechaEnLetras(v, de) {
+    const serial = aFechaSerial(v);
+    if (serial == null) return '[●]';
+    const q = serialAPartes(serial);
+    return `${q.d} de ${MESES_LARGO[q.m - 1]} ${de === 'del' ? 'del' : 'de'} ${q.y}`;
+  }
+  const porcentajeAR = t => `${Number(t).toLocaleString('es-AR', { maximumFractionDigits: 4 })}%`;
+
+  // Lee los archivos de cesión ya generados (Cuotas y Créditos, CSV): totales, tasa, secuencia y las fechas de cobro con su monto.
+  function leerArchivosCesion(textoCuotas, textoCreditos) {
+    const filas = t => String(t || '').replace(/^﻿/, '').split(/\r?\n/).filter(l => l.trim() !== '').map(l => l.split(','));
+    const res = { errores: [], fechasPago: [], total: null, tasa: null, secuencia: null, lote: null, cantidadCuotas: 0, cantidadCreditos: 0, cedente: '', negocio: '' };
+    const fc = filas(textoCuotas), fr = filas(textoCreditos);
+    if (!fc.length || !/^CUOTAS$/i.test(fc[0][0] || '')) res.errores.push('El archivo de cuotas no empieza con la cabecera CUOTAS.');
+    else {
+      const h = fc[0];
+      res.secuencia = Number(h[3]) || null; res.cedente = h[6] || ''; res.negocio = h[5] || '';
+      res.total = aNumero(h[7]);
+      const porFecha = new Map();
+      fc.slice(1).forEach(f => {
+        const serial = aFechaSerial(f[5]);
+        const monto = aNumero(f[6]);
+        if (serial == null || monto == null) return;
+        porFecha.set(serial, round2((porFecha.get(serial) || 0) + monto));
+      });
+      res.cantidadCuotas = fc.length - 1;
+      res.fechasPago = [...porFecha.entries()].sort((a, b) => a[0] - b[0]).map(([serial, monto]) => ({ serial, monto }));
+      const suma = round2(res.fechasPago.reduce((x, y) => x + y.monto, 0));
+      if (res.total != null && Math.abs(suma - res.total) > 0.005) res.errores.push(`El total de la cabecera de cuotas ($ ${montoAR(res.total)}) no coincide con la suma del detalle ($ ${montoAR(suma)}).`);
+      if (res.total == null) res.total = suma;
+    }
+    if (fr.length < 2 || !/^CAP$/i.test(fr[0][0] || '') || !/^CREDITOS$/i.test(fr[1][0] || '')) res.errores.push('El archivo de créditos no tiene las cabeceras esperadas (CAP… / CREDITOS…).');
+    else {
+      const h = fr[1];
+      res.cantidadCreditos = Number(h[3]) || 0; res.lote = Number(h[6]);
+      res.tasa = aNumero(h[11]);
+      const tc = aNumero(h[10]);
+      if (res.total != null && tc != null && Math.abs(tc - res.total) > 0.005) res.errores.push(`El total de créditos ($ ${montoAR(tc)}) no coincide con el de cuotas ($ ${montoAR(res.total)}).`);
+      if (res.secuencia == null) res.secuencia = Number(h[5]) || null;
+    }
+    return res;
+  }
+
+  // Datos de la carta a partir de las cuotas recién generadas (generarCuotas) y los parámetros del lote.
+  function datosCartaDesdeLote(cuotas, params) {
+    const porFecha = new Map();
+    cuotas.filas.forEach(f => porFecha.set(f.fecha, round2((porFecha.get(f.fecha) || 0) + f.importe)));
+    return {
+      secuencia: params.secuencia, tasa: Number(params.tasa), total: cuotas.encabezado.totalCapital,
+      fechasPago: [...porFecha.entries()].sort((a, b) => a[0] - b[0]).map(([serial, monto]) => ({ serial, monto })),
+    };
+  }
+
+  // Texto de la carta (Anexo I – Modelo de Solicitud de Cesión) como lista de párrafos { texto, negrita, alinear, espacioDespues }.
+  // d: { cedente, alias, fechaCarta, fechaPropuesta, fechaAceptacion, secuencia, archivoCreditos, archivoCuotas, total, tasa,
+  //      contraprestacion (número o null: queda [●]), fechasPago: [{serial|fecha, monto}], banco, domicilioBanco }
+  function cartaCesion(d) {
+    const cedente = String(d.cedente || '[Cedente]').trim();
+    const alias = String(d.alias || '').trim();
+    const nombreCedente = alias && alias !== cedente ? `${cedente} (“${alias}” o el “Cedente”)` : `${cedente} (el “Cedente”)`;
+    const refAlias = alias || cedente;
+    const banco = d.banco || 'Banco de Valores S.A.';
+    const total = montoAR(d.total);
+    const pago = (d.fechasPago || []).map(x => ({ serial: aFechaSerial(x.serial != null ? x.serial : x.fecha), monto: Number(x.monto) }));
+    const contra = d.contraprestacion != null && d.contraprestacion !== '' && isFinite(Number(d.contraprestacion)) ? Number(d.contraprestacion) : null;
+    const archivos = [d.archivoCreditos, d.archivoCuotas].filter(Boolean).map(a => `“${a}”`);
+    const archivosTxt = archivos.length === 2 ? archivos.join(' y ') : archivos[0] || '“[●]”';
+    const P = (texto, o) => Object.assign({ texto, espacioDespues: 160 }, o || {});
+    const out = [
+      P('Anexo I', { negrita: true, alinear: 'centro', espacioDespues: 0 }),
+      P('Modelo de Solicitud de Cesión', { negrita: true, alinear: 'centro' }),
+      P(`Ciudad de Buenos Aires, ${fechaEnLetras(d.fechaCarta, 'de')}`, { alinear: 'derecha' }),
+      P('Sres.', { espacioDespues: 0 }), P(banco, { espacioDespues: 0, negrita: true }), P(d.domicilioBanco || 'Sarmiento 310', { espacioDespues: 0 }), P('Presente'),
+      P(`Ref.: ${refAlias} – ${banco.replace(/\s+S\.?\s?A\.?$/i, '')} - Solicitud de Cesión de Créditos por Cupones N° ${d.secuencia != null ? d.secuencia : '[●]'}`, { negrita: true }),
+      P(`En nuestro carácter de apoderados de ${nombreCedente}, tenemos el agrado de dirigirnos a ${banco} (el “Banco”) en referencia a la Propuesta para la Cesión de los Créditos por Cupones sin recurso remitida por el Cedente al Banco en fecha ${fechaEnLetras(d.fechaPropuesta, 'del')}, y aceptada por el Banco en fecha ${fechaEnLetras(d.fechaAceptacion, 'del')} (la “Propuesta”), a los efectos de hacerles llegar la siguiente Solicitud de Cesión (conforme se define en la Propuesta):`, { alinear: 'justificado' }),
+      P(`a) Créditos por Cupones. En caso de aceptación, el Cedente cede y transfiere, sin recurso, al Banco los Créditos por Cupones que figuran en los archivos enviados vía mail denominados ${archivosTxt}, individualizados por Deudor Cedido, Transacción y demás datos identificatorios conforme el diseño de registro previsto en el Anexo V, por la suma de $ ${total}.`, { alinear: 'justificado' }),
+      P(`b) Tasa de Descuento. Por la presente Solicitud de Cesión, el Banco deberá abonar al Cedente una contraprestación equivalente al monto que corresponda de descontar o deducir del Valor Nominal de los Créditos por Cupones una tasa de descuento de ${d.tasa != null && isFinite(Number(d.tasa)) ? porcentajeAR(d.tasa) : '[●]%'} TNA, así como los gastos e impuestos acordados entre las Partes, es decir, la suma de $ ${contra != null ? montoAR(contra) : '[●]'} (pesos argentinos ${contra != null ? numeroEnLetras(contra).toLowerCase() : '[●]'}).`, { alinear: 'justificado' }),
+      P('c) Detalle de las fechas y montos de pago estimados de las cobranzas de los Créditos por Cupones. A continuación, se detallan las fechas y montos de pago estimados de las cobranzas de los Créditos por Cupones:', { alinear: 'justificado' }),
+    ];
+    pago.forEach(x => out.push(P(`$ ${montoAR(x.monto)} – Fecha ${fechaEnLetras(x.serial, 'del')}`, { espacioDespues: 0 })));
+    out.push(P(`TOTAL $ ${montoAR(pago.length ? round2(pago.reduce((a, b) => a + b.monto, 0)) : d.total)}`, { negrita: true }));
+    out.push(P('Las Partes reconocen que la presente Cesión es “sin recurso” en los términos y con el alcance previsto en la Cláusula Quinta de la Propuesta, y que el pago de los montos indicados en la presente dependerá del cumplimiento de las obligaciones de pago de los Deudores Cedidos, sin perjuicio de las obligaciones del Cedente como Agente de Cobro en los términos de la Cláusula Sexta de la Propuesta.', { alinear: 'justificado' }));
+    out.push(P('d) Aceptación. La presente Solicitud de Cesión se considerará aceptada por el Banco en caso de que éste acredite el Precio de la Cesión en la Cuenta del Cedente.', { alinear: 'justificado' }));
+    out.push(P('e) Términos no definidos. Todos los términos que comienzan en mayúscula no definidos en la presente Solicitud de Cesión tienen el significado que se les asigna en la Propuesta.', { alinear: 'justificado' }));
+    // (El punto f "Autorización" del modelo se eliminó: está aclarado en el acuerdo marco.)
+    out.push(P('', { espacioDespues: 360 }));
+    out.push(P('________________________________', { espacioDespues: 0 }));
+    out.push(P(cedente, { espacioDespues: 0 }));
+    return out;
+  }
+  const textoCartaCesion = parrafos => parrafos.map(p => p.texto).join('\r\n\r\n').replace(/\r\n\r\n(Sres\.|Banco de Valores S\.A\.|Sarmiento 310)/g, '\r\n$1');
+
+  // ---- Word (.docx) mínimo, sin dependencias: un ZIP "sin compresión" con las tres partes imprescindibles.
+  const CRC_TABLA = (() => { const t = []; for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; } return t; })();
+  function crc32(bytes) { let c = 0xFFFFFFFF; for (let i = 0; i < bytes.length; i++) c = CRC_TABLA[(c ^ bytes[i]) & 0xFF] ^ (c >>> 8); return (c ^ 0xFFFFFFFF) >>> 0; }
+  function zipSinCompresion(archivos) {
+    const enc = new TextEncoder();
+    const partes = [], central = [];
+    let desplazamiento = 0;
+    const u16 = n => [n & 255, (n >>> 8) & 255], u32 = n => [n & 255, (n >>> 8) & 255, (n >>> 16) & 255, (n >>> 24) & 255];
+    archivos.forEach(a => {
+      const nombre = enc.encode(a.nombre), datos = typeof a.datos === 'string' ? enc.encode(a.datos) : a.datos, crc = crc32(datos);
+      const cab = [0x50, 0x4B, 3, 4, ...u16(20), ...u16(0x0800), ...u16(0), ...u16(0), ...u16(0x21), ...u32(crc), ...u32(datos.length), ...u32(datos.length), ...u16(nombre.length), ...u16(0)];
+      partes.push(Uint8Array.from(cab), nombre, datos);
+      central.push(Uint8Array.from([0x50, 0x4B, 1, 2, ...u16(20), ...u16(20), ...u16(0x0800), ...u16(0), ...u16(0), ...u16(0x21), ...u32(crc), ...u32(datos.length), ...u32(datos.length),
+        ...u16(nombre.length), ...u16(0), ...u16(0), ...u16(0), ...u16(0), ...u32(0), ...u32(desplazamiento)]), nombre);
+      desplazamiento += cab.length + nombre.length + datos.length;
+    });
+    const tamCentral = central.reduce((s, x) => s + x.length, 0);
+    const fin = Uint8Array.from([0x50, 0x4B, 5, 6, ...u16(0), ...u16(0), ...u16(archivos.length), ...u16(archivos.length), ...u32(tamCentral), ...u32(desplazamiento), ...u16(0)]);
+    const todo = [...partes, ...central, fin];
+    const salida = new Uint8Array(todo.reduce((s, x) => s + x.length, 0));
+    let pos = 0;
+    todo.forEach(x => { salida.set(x, pos); pos += x.length; });
+    return salida;
+  }
+  const xmlEsc = t => String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  // parrafos: [{ texto, negrita, alinear: 'izquierda'|'centro'|'derecha'|'justificado', espacioDespues (en veinteavos de punto) }]
+  function docxSimple(parrafos) {
+    const jc = { centro: 'center', derecha: 'right', justificado: 'both' };
+    const cuerpo = parrafos.map(p => `<w:p><w:pPr>${jc[p.alinear] ? `<w:jc w:val="${jc[p.alinear]}"/>` : ''}<w:spacing w:after="${p.espacioDespues != null ? p.espacioDespues : 160}" w:line="259" w:lineRule="auto"/></w:pPr>`
+      + (p.texto === '' ? '' : `<w:r>${p.negrita ? '<w:rPr><w:b/></w:rPr>' : ''}<w:t xml:space="preserve">${xmlEsc(p.texto)}</w:t></w:r>`) + '</w:p>').join('');
+    const documento = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>${cuerpo}<w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1247" w:right="1417" w:bottom="1134" w:left="1417" w:header="708" w:footer="708" w:gutter="0"/></w:sectPr></w:body></w:document>`;
+    const estilos = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:docDefaults><w:rPrDefault><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial" w:cs="Arial"/><w:sz w:val="21"/><w:lang w:val="es-AR"/></w:rPr></w:rPrDefault></w:docDefaults></w:styles>`;
+    return zipSinCompresion([
+      { nombre: '[Content_Types].xml', datos: '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/><Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/></Types>' },
+      { nombre: '_rels/.rels', datos: '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>' },
+      { nombre: 'word/_rels/document.xml.rels', datos: '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>' },
+      { nombre: 'word/document.xml', datos: documento },
+      { nombre: 'word/styles.xml', datos: estilos },
+    ]);
+  }
+
   // ---------------------------------------------------- Formulario / secuencia
 
   // Reglas de Formulario!C13 y de la numeración por cedente.
@@ -5504,6 +5642,7 @@ try {
     problemasBanco, codigoCreditoPorDefecto, prefijoBanco, numeroCredito, prefijosRepetidos, controlarBancos, controlarReporte,
     generarCuotas, generarCreditos, txtCuotas, txtCreditos, nombreArchivo,
     calcularSecuenciaLote, validarFormulario,
+    leerArchivosCesion, datosCartaDesdeLote, cartaCesion, textoCartaCesion, docxSimple, fechaEnLetras, crc32,
   };
   root.ValoMotor = api;
   if (typeof module !== 'undefined') module.exports = api;
