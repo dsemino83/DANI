@@ -5434,6 +5434,36 @@ try {
     };
   }
 
+  // Precio de la cesión neto de impuestos (modelo "VA Precio Cesión"):
+  //   TEA = ROUND((1 + TNA*30/365)^(365/30) - 1, 4); valor presente de cada cuota = ROUND(importe / (1+TEA)^(días/365), 2)
+  //   intereses descontados = total - precio; IVA 10,5% y percepción de IVA 1,5% sobre esos intereses; IIBB percepción CABA 1%;
+  //   sellos oferta: la misma cuenta por cuota con una tasa anual de 1,2%.
+  //   Importe a transferir = total - intereses - IVA - percepción IVA - sellos - IIBB.
+  // fechasPago: [{serial|fecha, monto}]; opciones: { tasa (TNA en %), liquidacion (fecha), ivaPct, ivaPercPct, sellosTna, iibbPct }
+  function precioCesionNeto(fechasPago, o) {
+    o = o || {};
+    const liq = aFechaSerial(o.liquidacion);
+    const tna = o.tasa == null || o.tasa === '' ? NaN : Number(o.tasa) / 100;
+    if (liq == null || !isFinite(tna)) return null;
+    const ivaPct = o.ivaPct != null ? o.ivaPct : 0.105, ivaPercPct = o.ivaPercPct != null ? o.ivaPercPct : 0.015;
+    const sellosTna = o.sellosTna != null ? o.sellosTna : 0.012, iibbPct = o.iibbPct != null ? o.iibbPct : 0.01;
+    const r2 = n => Math.round(n * 100 + (n >= 0 ? 1e-7 : -1e-7)) / 100;
+    const tea = Math.round(((Math.pow(1 + tna * 30 / 365, 365 / 30)) - 1) * 10000) / 10000;
+    let total = 0, precio = 0, sellos = 0;
+    (fechasPago || []).forEach(x => {
+      const vto = aFechaSerial(x.serial != null ? x.serial : x.fecha);
+      const monto = Number(x.monto);
+      const dias = (vto - liq) / 365;
+      total += monto;
+      precio += r2(monto / Math.pow(1 + tea, dias));
+      sellos += monto - r2(monto / Math.pow(1 + sellosTna, dias));
+    });
+    const intereses = total - precio;
+    const iva = intereses * ivaPct, ivaPerc = intereses * ivaPercPct, iibb = intereses * iibbPct;
+    const neto = total - intereses - iva - ivaPerc - sellos - iibb;
+    return { tea, total: r2(total), precio: r2(precio), intereses: r2(intereses), iva: r2(iva), ivaPerc: r2(ivaPerc), sellos: r2(sellos), iibb: r2(iibb), neto: r2(neto) };
+  }
+
   // Texto de la carta (Anexo I – Modelo de Solicitud de Cesión) como lista de párrafos { texto, negrita, alinear, espacioDespues }.
   // d: { cedente, alias, fechaCarta, fechaPropuesta, fechaAceptacion, secuencia, archivoCreditos, archivoCuotas, total, tasa,
   //      contraprestacion (número o null: queda [●]), fechasPago: [{serial|fecha, monto}], banco, domicilioBanco }
@@ -5642,7 +5672,7 @@ try {
     problemasBanco, codigoCreditoPorDefecto, prefijoBanco, numeroCredito, prefijosRepetidos, controlarBancos, controlarReporte,
     generarCuotas, generarCreditos, txtCuotas, txtCreditos, nombreArchivo,
     calcularSecuenciaLote, validarFormulario,
-    leerArchivosCesion, datosCartaDesdeLote, cartaCesion, textoCartaCesion, docxSimple, fechaEnLetras, crc32,
+    leerArchivosCesion, datosCartaDesdeLote, precioCesionNeto, cartaCesion, textoCartaCesion, docxSimple, fechaEnLetras, crc32,
   };
   root.ValoMotor = api;
   if (typeof module !== 'undefined') module.exports = api;

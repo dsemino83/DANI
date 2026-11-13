@@ -3839,6 +3839,7 @@
   }
 
   // --- Carta de cesión (Anexo I): se arma con el lote recién procesado o con los CSV de Cuotas y Créditos ya generados.
+  let contraManual = false, liquidManual = false;
   let cartaBase = null;   // { datos: { secuencia, tasa, total, fechasPago }, clienteId }
   const cartaPrefs = id => { try { return JSON.parse(localStorage.getItem('valo.carta.' + id) || '{}'); } catch (e) { return {}; } };
   const guardarCartaPrefs = (id, v) => { try { localStorage.setItem('valo.carta.' + id, JSON.stringify(v)); } catch (e) { /* sin almacenamiento local */ } };
@@ -3856,10 +3857,11 @@
     $('cArchCreditos').value = sinExt(o.archivoCreditos); $('cArchCuotas').value = sinExt(o.archivoCuotas);
     $('cTotal').value = fmtMonto(o.datos.total);
     $('cTasa').value = o.datos.tasa != null && isFinite(o.datos.tasa) ? String(o.datos.tasa).replace('.', ',') : '';
-    $('cContra').value = '';
+    $('cContra').value = ''; contraManual = false; liquidManual = false;
+    $('cLiquid').value = hoy;
     $('cBanco').value = pref.banco || 'Banco de Valores S.A.'; $('cDomicilio').value = pref.domicilio || 'Sarmiento 310';
     $('cartaAviso').innerHTML = (o.errores || []).length ? aviso('warn', o.errores.map(esc).join('<br>')) : '';
-    renderCarta();
+    recalcularContra();
   }
   const numeroDeCampo = t => { const v = String(t || '').trim().replace(/\./g, '').replace(',', '.'); return v === '' || !isFinite(Number(v)) ? null : Number(v); };
   function datosCarta() {
@@ -3869,13 +3871,35 @@
       secuencia: $('cNumero').value.trim() === '' ? null : Number($('cNumero').value), archivoCreditos: $('cArchCreditos').value.trim(), archivoCuotas: $('cArchCuotas').value.trim(),
       total: d.total, tasa: numeroDeCampo($('cTasa').value), contraprestacion: numeroDeCampo($('cContra').value), fechasPago: d.fechasPago, banco: $('cBanco').value.trim(), domicilioBanco: $('cDomicilio').value.trim() };
   }
+  // Precio neto de impuestos (modelo de desembolso): se calcula con la tasa y la fecha de liquidación salvo que se escriba a mano.
+  function recalcularContra() {
+    const d = cartaBase ? cartaBase.datos : null;
+    const caja = $('cartaPrecio');
+    if (!d) { caja.innerHTML = ''; renderCarta(); return; }
+    const calc = M.precioCesionNeto(d.fechasPago, { tasa: numeroDeCampo($('cTasa').value), liquidacion: $('cLiquid').value });
+    if (!contraManual) $('cContra').value = calc ? fmtMonto(calc.neto) : '';
+    caja.innerHTML = calc ? `<details style="margin:8px 0"><summary>Cálculo del desembolso${contraManual ? ' (la contraprestación está escrita a mano)' : ''}</summary>
+      <table style="max-width:560px"><tbody>
+      <tr><td>Valor final de los créditos cedidos</td><td class="num">${fmtMonto(calc.total)}</td></tr>
+      <tr><td>Precio de la cesión (valor presente, TEA ${(calc.tea * 100).toFixed(2).replace('.', ',')}%)</td><td class="num">${fmtMonto(calc.precio)}</td></tr>
+      <tr><td>Intereses descontados</td><td class="num">${fmtMonto(calc.intereses)}</td></tr>
+      <tr><td>IVA sobre intereses (10,5%)</td><td class="num">${fmtMonto(calc.iva)}</td></tr>
+      <tr><td>Percepción IVA (1,5%)</td><td class="num">${fmtMonto(calc.ivaPerc)}</td></tr>
+      <tr><td>Sellos oferta (1,2% TNA)</td><td class="num">${fmtMonto(calc.sellos)}</td></tr>
+      <tr><td>Percepción IIBB CABA (1%)</td><td class="num">${fmtMonto(calc.iibb)}</td></tr>
+      <tr><td><b>Importe a transferir (neto de impuestos)</b></td><td class="num"><b>${fmtMonto(calc.neto)}</b></td></tr></tbody></table></details>` : '';
+    renderCarta();
+  }
   function renderCarta() {
     const dc = datosCarta();
     if (!dc) { $('cartaVista').textContent = ''; return; }
     $('cartaVista').textContent = M.textoCartaCesion(M.cartaCesion(dc));
   }
-  $('cartaCampos').addEventListener('input', () => {
-    renderCarta();
+  $('cartaCampos').addEventListener('input', e => {
+    if (e.target.id === 'cContra') contraManual = e.target.value.trim() !== '';
+    if (e.target.id === 'cLiquid') liquidManual = true;
+    if (e.target.id === 'cFechaAcep' && !liquidManual) $('cLiquid').value = e.target.value;
+    recalcularContra();
     if (cartaBase) guardarCartaPrefs(cartaBase.clienteId || '_', { cedente: $('cCedente').value, alias: $('cAlias').value, banco: $('cBanco').value, domicilio: $('cDomicilio').value });
   });
   $('btnCartaWord').addEventListener('click', async () => {
