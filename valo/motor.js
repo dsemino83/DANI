@@ -2148,7 +2148,13 @@
       // Con ese documento sale otra persona (ni una palabra del nombre en común) y por nombre no hay nadie en los poderes:
       // no es este firmante; se lo trata como sin poder (no se compara contra los grupos de otro).
       const palabrasDe = t => new Set(normalizar(t).split(' ').filter(w => w.length > 3));
-      const otraPersona = !idEquivocado && !apoNom && apoId && !apoId.advertencia && ![...palabrasDe(apoId.nombre_completo)].some(w => palabrasDe(f.nombre).has(w));
+      // Tampoco es la misma si, aunque compartan palabras (nombres de pila), cada una tiene palabras propias que la otra no tiene
+      // ("Carlos Alberto HONIG" / "Carlos Alberto GIL", "Julio César BRUNI" / "José César BRUNI"): son personas distintas.
+      const palabrasPropias = (x, y) => { const py = palabrasNombre(y); return palabrasNombre(x).filter(w => !py.some(v => casiIgual(w, v))); };
+      // (Salvo que otro apoderado de los poderes sí tenga el nombre del firmante: entonces el documento está mal cargado en Complif.)
+      const hayConEseNombre = ((cliente && cliente.otrosApoderados) || []).some(x => firmanteDe(x, [f]));
+      const distintas = a => !hayConEseNombre && palabrasPropias(a.nombre_completo, f.nombre).length > 0 && palabrasPropias(f.nombre, a.nombre_completo).length > 0 && !nombresParecidos(a.nombre_completo, f.nombre);
+      const otraPersona = !idEquivocado && !apoNom && apoId && !apoId.advertencia && (![...palabrasDe(apoId.nombre_completo)].some(w => palabrasDe(f.nombre).has(w)) || distintas(apoId));
       const apo = idEquivocado ? apoNom : otraPersona ? null : (apoId || apoNom);
       const est = apo && !apo.advertencia ? unico.estructuras_de_firma.filter(e => e.apoderados.includes(apo.numero_de_identificacion)) : [];
       const res = f.uso || { grupo: '', tipo: '', tipos: [], combinaciones: [], texto: f.observacion || '' };
@@ -2711,9 +2717,16 @@
     const digitos = texto.replace(/(\d)\.(?=\d{3}\b)/g, '$1');
     const dni = String(a.dni || '').replace(/\D/g, '').replace(/^0+/, '');
     if (dni.length >= 7 && new RegExp(`\\b0*${dni}\\b`).test(digitos)) return true;
+    // El nombre completo tiene que estar junto en el texto (en cualquier orden): no vale juntar palabras sueltas de otras personas
+    // ("Carlos Alberto GIL" y "Tomás HONIG" no nombran a Carlos Alberto HONIG; "julio" de una fecha no hace a Julio César Bruni).
     const ps = palabrasNombre(a.nombre_completo);
-    const t = ' ' + normalizar(texto) + ' ';
-    return ps.length >= 2 && ps.every(w => t.includes(' ' + w + ' '));
+    if (ps.length < 2) return false;
+    const tk = palabrasNombre(texto.replace(/\d/g, ' '));
+    for (let i = 0; i + ps.length <= tk.length; i++) {
+      const ventana = tk.slice(i, i + ps.length);
+      if (ps.every(w => ventana.includes(w))) return true;
+    }
+    return false;
   }
   // Una revocatoria solo alcanza a los poderes de la misma empresa (Complif vincula poderes de varias empresas).
   function mismaEmpresa(a, b) {
@@ -2783,10 +2796,13 @@
         const nombrados = [...new Set(p.apoderados.filter(a => nombradoEn(a, tr)).concat(listados))];
         // Una revocatoria que solo lista a otras personas (Complif pone ahí a los revocados) y ninguna es apoderada de este poder
         // ("Los poderes otorgados a favor de Maximiliano CUNTO quedan sin efecto"): no lo toca, salvo que revoque todos los poderes.
-        const deOtros = !(r.usos || []).some(u => u.tipo) && r.apoderados.length > 0 && !listados.length && !nombrados.length && p.apoderados.length > 0
-          && !/todos\s+los\s+poderes|la\s+totalidad|cualquier\s+poder|sin\s+excepci[oó]n/i.test(tr);
+        const todos = /todos\s+los\s+poderes|la\s+totalidad|cualquier\s+poder|sin\s+excepci[oó]n/i.test(tr);
+        // Revocación sin apoderados leídos ni usos de firma que nombra a una persona con su DNI ("REVOCACIÓN de los poderes otorgados a
+        // Diego Martín García Pettinari (DNI 24.496.713)"): es de esa persona; no anula los poderes de las demás.
+        const revocaNombrados = !r.apoderados.length && !(r.usos || []).some(u => u.tipo) && /\bd\.?\s?n\.?\s?i\.?\b|\bc\.?\s?u\.?\s?i\.?\s?[lt]\b/i.test(tr) && !todos;
+        const deOtros = !(r.usos || []).some(u => u.tipo) && (r.apoderados.length > 0 || revocaNombrados) && !listados.length && !nombrados.length && p.apoderados.length > 0 && !todos;
         if (deOtros) continue;
-        const parcial = /parcial|[uú]nicamente\s+(con\s+)?respecto|s[oó]lo\s+(con\s+)?respecto|en\s+cuanto\s+a/i.test(tr) || listados.length > 0 || (nombrados.length && nombrados.length < p.apoderados.length);
+        const parcial = revocaNombrados || /parcial|[uú]nicamente\s+(con\s+)?respecto|s[oó]lo\s+(con\s+)?respecto|en\s+cuanto\s+a/i.test(tr) || listados.length > 0 || (nombrados.length && nombrados.length < p.apoderados.length);
         if (parcial) {
           if (!nombrados.length) continue;
           nombrados.forEach(a => quitados.push({ apoderado: a, poder: p, revocante: r, motivo: `revocado por el poder del ${r.fecha_emision}` }));
@@ -5434,6 +5450,92 @@ try {
     };
   }
 
+  // ---------------------------------------------------------------- Padrones de consulta (alícuotas por CUIT)
+  // Padrón mensual de alícuotas de percepción/retención de IIBB (ARDJU…): texto latin1, una línea por CUIT, separado por ";":
+  //   publicación(ddmmaaaa);vigencia desde;vigencia hasta;CUIT(11);tipo(C|D);marca alta/baja;marca cambio alícuota;
+  //   alícuota percepción (3,00);alícuota retención;grupo percepción;grupo retención;razón social
+  // Pesa ~130 MB (1,6 millones de CUIT): se lee por bytes y se guarda un índice compacto (CUIT ordenados + alícuotas en
+  // centésimas de punto) de ~20 MB, que es lo que se persiste y se consulta con búsqueda binaria.
+  const PADRONES = {
+    iibb: { id: 'iibb', nombre: 'Percepción de IIBB', descripcion: 'Padrón mensual de alícuotas de IIBB (archivo ARDJU…, ARBA): la alícuota de percepción se busca por el CUIT del cliente.' },
+  };
+  function fechaPadron(b, i) {
+    // 8 dígitos ddmmaaaa → aaaa-mm-dd
+    for (let k = 0; k < 8; k++) if (b[i + k] < 48 || b[i + k] > 57) return '';
+    const d = n => b[i + n] - 48;
+    return `${d(4)}${d(5)}${d(6)}${d(7)}-${d(2)}${d(3)}-${d(0)}${d(1)}`;
+  }
+  // bytes: Uint8Array con el TXT del padrón.
+  function indexarPadronAlicuotas(bytes) {
+    let lineas = 0;
+    for (let i = 0; i < bytes.length; i++) if (bytes[i] === 10) lineas++;
+    if (bytes.length && bytes[bytes.length - 1] !== 10) lineas++;
+    let cuits = new Float64Array(lineas), perc = new Uint16Array(lineas), ret = new Uint16Array(lineas), tipo = new Uint8Array(lineas);
+    let n = 0, omitidas = 0, ordenado = true, previo = -1, meta = { publicacion: '', desde: '', hasta: '' };
+    let i = 0;
+    const centesimas = (a, b) => { // "3,00" / "10,5" / "0,00" en bytes a..b-1
+      let v = 0, dec = -1;
+      for (let k = a; k < b; k++) {
+        const c = bytes[k];
+        if (c === 44 || c === 46) { dec = 0; continue; }
+        if (c < 48 || c > 57) return -1;
+        v = v * 10 + (c - 48);
+        if (dec >= 0) dec++;
+      }
+      if (dec < 0) return v * 100;
+      return dec === 0 ? v * 100 : dec === 1 ? v * 10 : dec === 2 ? v : Math.round(v / Math.pow(10, dec - 2));
+    };
+    while (i < bytes.length) {
+      let fin = i;
+      while (fin < bytes.length && bytes[fin] !== 10) fin++;
+      const pc = []; // posiciones de los ";" de la línea
+      for (let k = i; k < fin && pc.length < 9; k++) if (bytes[k] === 59) pc.push(k);
+      if (pc.length >= 9) {
+        let cuit = 0, ok = pc[3] - pc[2] - 1 === 11;
+        for (let k = pc[2] + 1; ok && k < pc[3]; k++) { const c = bytes[k]; if (c < 48 || c > 57) ok = false; else cuit = cuit * 10 + (c - 48); }
+        const p = ok ? centesimas(pc[6] + 1, pc[7]) : -1, r = ok ? centesimas(pc[7] + 1, pc[8]) : -1;
+        if (ok && p >= 0 && r >= 0) {
+          if (!meta.publicacion) meta = { publicacion: fechaPadron(bytes, i), desde: fechaPadron(bytes, pc[0] + 1), hasta: fechaPadron(bytes, pc[1] + 1) };
+          if (cuit < previo) ordenado = false;
+          previo = cuit;
+          cuits[n] = cuit; perc[n] = p; ret[n] = r; tipo[n] = bytes[pc[3] + 1];
+          n++;
+        } else omitidas++;
+      } else if (fin > i && !(fin - i === 1 && bytes[i] === 13)) omitidas++;
+      i = fin + 1;
+    }
+    cuits = cuits.slice(0, n); perc = perc.slice(0, n); ret = ret.slice(0, n); tipo = tipo.slice(0, n);
+    if (!ordenado) {
+      const orden = Array.from({ length: n }, (_, k) => k).sort((a, b) => cuits[a] - cuits[b]);
+      const re = (arr, T) => { const o = new T(n); orden.forEach((k, j) => { o[j] = arr[k]; }); return o; };
+      cuits = re(cuits, Float64Array); perc = re(perc, Uint16Array); ret = re(ret, Uint16Array); tipo = re(tipo, Uint8Array);
+    }
+    return { id: 'iibb', filas: n, omitidas, publicacion: meta.publicacion, desde: meta.desde, hasta: meta.hasta, cuits, perc, ret, tipo };
+  }
+  // Busca un CUIT en el índice. Devuelve { cuit, percepcion, retencion (en %), tipo: 'C'|'D', desde, hasta } o null si no figura.
+  function buscarEnPadron(indice, cuit) {
+    const c = Number(String(cuit == null ? '' : cuit).replace(/\D/g, ''));
+    if (!indice || !indice.cuits || !c || String(c).length !== 11) return null;
+    let a = 0, b = indice.cuits.length - 1;
+    while (a <= b) {
+      const m = (a + b) >> 1, v = indice.cuits[m];
+      if (v === c) return { cuit: c, percepcion: indice.perc[m] / 100, retencion: indice.ret[m] / 100, tipo: String.fromCharCode(indice.tipo[m]), desde: indice.desde, hasta: indice.hasta };
+      if (v < c) a = m + 1; else b = m - 1;
+    }
+    return null;
+  }
+  // Alícuota de percepción de IIBB para el CUIT del cliente: { estado: 'ok'|'sin-padron'|'sin-cuit'|'no-figura'|'fuera-de-vigencia', alicuota (en %), ... }.
+  // fecha: fecha de liquidación (aaaa-mm-dd) para avisar si el padrón no está vigente ese día.
+  function alicuotaPercepcionIIBB(indice, cuit, fecha) {
+    if (!indice) return { estado: 'sin-padron', alicuota: null };
+    const c = String(cuit == null ? '' : cuit).replace(/\D/g, '');
+    if (c.length !== 11) return { estado: 'sin-cuit', alicuota: null };
+    const r = buscarEnPadron(indice, c);
+    if (!r) return { estado: 'no-figura', alicuota: null, desde: indice.desde, hasta: indice.hasta };
+    const fuera = fecha && indice.desde && indice.hasta && (fecha < indice.desde || fecha > indice.hasta);
+    return { estado: fuera ? 'fuera-de-vigencia' : 'ok', alicuota: r.percepcion, tipo: r.tipo, desde: indice.desde, hasta: indice.hasta };
+  }
+
   // Precio de la cesión neto de impuestos (modelo "VA Precio Cesión"):
   //   TEA = ROUND((1 + TNA*30/365)^(365/30) - 1, 4); valor presente de cada cuota = ROUND(importe / (1+TEA)^(días/365), 2)
   //   intereses descontados = total - precio; IVA 10,5% y percepción de IVA 1,5% sobre esos intereses; IIBB percepción CABA 1%;
@@ -5672,6 +5774,7 @@ try {
     problemasBanco, codigoCreditoPorDefecto, prefijoBanco, numeroCredito, prefijosRepetidos, controlarBancos, controlarReporte,
     generarCuotas, generarCreditos, txtCuotas, txtCreditos, nombreArchivo,
     calcularSecuenciaLote, validarFormulario,
+    PADRONES, indexarPadronAlicuotas, buscarEnPadron, alicuotaPercepcionIIBB,
     leerArchivosCesion, datosCartaDesdeLote, precioCesionNeto, cartaCesion, textoCartaCesion, docxSimple, fechaEnLetras, crc32,
   };
   root.ValoMotor = api;

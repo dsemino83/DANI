@@ -599,3 +599,37 @@ test('Complif: "Grupo B conjunta con Grupo A u otro del Grupo B o Grupo C" da A+
   assert.deepEqual(comb('Grupo B - conjunta con Grupo A u otro del Grupo B o Grupo C', 'Integrantes del Grupo B actuando en forma conjunta con un integrante del Grupo A, u otro integrante del Grupo B, o un integrante del Grupo C.'), ['A+B', 'B+B', 'B+C']);
   assert.deepEqual(comb('Grupo C - conjunta con Grupo B o Grupo A', 'Integrantes del Grupo C actuando en forma conjunta con un integrante del Grupo B o un integrante del Grupo A.'), ['A+C', 'B+C']);
 });
+
+test('revocatoria: una revocación de los poderes de una sola persona (con su DNI), sin apoderados leídos, no anula los demás poderes', () => {
+  const mk = (esc, fecha, aps, usos, scope) => ({ type: 'Poder', ocr_data_responses: { otorgante: { nombre_completo: 'Otor Gante', numero_de_identificacion: 1 }, razon_social: 'EMPRESA DE PRUEBA SA', fecha_emision: fecha, deed_number: esc,
+    apoderados: aps.map((n, i) => ({ grupo: 'A', nombre_completo: n, numero_de_identificacion: 20000000 + i * 11 + Number(esc) })), power_attorney_scope: scope,
+    estructuras_de_firma: usos.map(([t, d]) => ({ tipo_de_firma: t, facultades: { endosar_cheques: true }, estructura_de_firma: d })) }, relations: [{ name: 'EMPRESA DE PRUEBA SA' }] });
+  const viejo = mk('10', '2025-02-10', ['Carlos Alberto Honig', 'Juan Perez'], [['CONJUNTA', 'Dos del grupo A conjuntamente']], { new: true, revoke: true, complementary: false });
+  const revoca = mk('85', '2025-04-07', [], [[null, 'REVOCACIÓN de los poderes otorgados a Diego Martín Garcia Pettinari (DNI 24.496.713). No se otorga ninguna facultad.']], { new: false, revoke: true, complementary: false });
+  const rv = M.aplicarRevocatorias(M.complifDeEmpresa([viejo, revoca], '', 'EMPRESA DE PRUEBA SA').poderes);
+  assert.ok(rv.vigentes.some(p => p.deed_number === '10'), 'el poder 10 sigue vigente: la revocación es solo de Pettinari');
+  assert.ok(!rv.anulados.some(a => a.poder.deed_number === '10'));
+});
+
+test('revocatoria: el nombre revocado tiene que estar completo y junto (no palabras sueltas de otras personas ni una fecha)', () => {
+  const mk = (esc, fecha, aps, usos, scope) => ({ type: 'Poder', ocr_data_responses: { otorgante: { nombre_completo: 'Otor Gante', numero_de_identificacion: 1 }, razon_social: 'EMPRESA DE PRUEBA SA', fecha_emision: fecha, deed_number: esc,
+    apoderados: aps.map((n, i) => ({ grupo: 'A', nombre_completo: n, numero_de_identificacion: 20000000 + i * 13 + Number(esc) })), power_attorney_scope: scope,
+    estructuras_de_firma: usos.map(([t, d]) => ({ tipo_de_firma: t, facultades: { endosar_cheques: true }, estructura_de_firma: d })) }, relations: [{ name: 'EMPRESA DE PRUEBA SA' }] });
+  const viejo = mk('10', '2020-01-01', ['Carlos Alberto Honig', 'Tomás Honig', 'Julio César Bruni', 'Ana Lopez'], [['CONJUNTA', 'Dos del grupo A conjuntamente']], { new: true, revoke: false, complementary: false });
+  const parcial = mk('11', '2024-07-02', [], [[null, 'Revocación parcial: únicamente con respecto a Carlos Alberto GIL (DNI 1.111.111), Tomás HONIG (DNI 2.222.222) y José César BRUNI (DNI 3.333.333), el 2 de julio de 2024.']], { new: false, revoke: true, complementary: false });
+  const rv = M.aplicarRevocatorias(M.complifDeEmpresa([viejo, parcial], '', 'EMPRESA DE PRUEBA SA').poderes);
+  const p10 = rv.vigentes.find(p => p.deed_number === '10');
+  assert.deepEqual(p10.apoderados.map(a => a.nombre_completo).sort(), ['Ana Lopez', 'Carlos Alberto Honig', 'Julio César Bruni']);
+});
+
+test('control: mismo documento pero nombre distinto (Honig / Gil, Julio / José César Bruni) no es la misma persona', () => {
+  const ap = (n, nombre, grupo) => Object.assign(persona(n, grupo), { nombre_completo: nombre });
+  const p = poder([ap(8265666, 'Carlos Alberto Honig', 'A'), ap(8627263, 'Julio César Bruni', 'B')],
+    [uso('INDIVIDUAL', ['A'], ['firmar_cheques']), uso('INDIVIDUAL', ['B'], ['firmar_cheques'])]);
+  const unico = M.jsonBastanteoUnico([M.jsonPoder(p, null, { todosApoderados: true })], { cuit: '30000000007', cliente: 'EMPRESA DE PRUEBA SA' });
+  const fila = (nombre, n, grupo) => ({ nombre, cuit: CUIT(n), dni: String(n), ente: '', observacion: '', monto_hasta: null, revocado: false,
+    uso: { grupo, tipo: 'INDIVIDUAL', tipos: ['INDIVIDUAL'], combinaciones: [], texto: grupo + ' INDIVIDUAL', limite: null } });
+  const c = M.controlResumen(unico, { firmantes: [fila('Carlos Alberto Gil', 8265666, 'A'), fila('José César Bruni', 8627263, 'B'), fila('Carlos Alberto Honig', 8265666, 'A'), fila('Julio César Bruni', 8627263, 'B')] }, [], {});
+  assert.equal(c[0].sinPoder, true, 'Gil no es Honig'); assert.equal(c[1].sinPoder, true, 'José César no es Julio César');
+  assert.ok(!c[2].sinPoder, 'Honig sí'); assert.ok(!c[3].sinPoder, 'Julio César Bruni sí');
+});

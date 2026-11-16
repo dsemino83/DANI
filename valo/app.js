@@ -3838,15 +3838,104 @@
     $('cardResultado').scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 
+  // --- Padrones de consulta (IIBB): se suben una vez por mes y reemplazan al anterior. Se guarda el índice compacto en IndexedDB.
+  const padronMem = {};
+  let padronAbierto = null;
+  function padronBD() {
+    if (!padronAbierto) padronAbierto = new Promise((res, rej) => {
+      if (!window.indexedDB) { rej(new Error('Este navegador no permite guardar el padrón.')); return; }
+      const rq = indexedDB.open('valo-padrones', 1);
+      rq.onupgradeneeded = () => rq.result.createObjectStore('padrones', { keyPath: 'id' });
+      rq.onsuccess = () => res(rq.result);
+      rq.onerror = () => rej(rq.error);
+    });
+    return padronAbierto;
+  }
+  const padronOp = (modo, fn) => padronBD().then(db => new Promise((res, rej) => {
+    const tx = db.transaction('padrones', modo), rq = fn(tx.objectStore('padrones'));
+    tx.oncomplete = () => res(rq && rq.result);
+    tx.onerror = () => rej(tx.error);
+    tx.onabort = () => rej(tx.error || new Error('No se pudo guardar el padrón.'));
+  }));
+  const padronListo = (async () => {
+    for (const id of Object.keys(M.PADRONES)) { try { const r = await padronOp('readonly', st => st.get(id)); if (r) padronMem[id] = r; } catch (e) { /* sin almacenamiento */ } }
+    renderPadrones();
+  })();
+  const fechaIsoALegible = iso => iso ? iso.split('-').reverse().join('/') : '—';
+  function renderPadrones() {
+    const caja = $('padronesLista');
+    if (!caja) return;
+    const d0 = new Date(), hoy = `${d0.getFullYear()}-${String(d0.getMonth() + 1).padStart(2, '0')}-${String(d0.getDate()).padStart(2, '0')}`;
+    caja.innerHTML = `<table><thead><tr><th>Padrón</th><th>Estado</th><th></th></tr></thead><tbody>` + Object.values(M.PADRONES).map(pd => {
+      const ind = padronMem[pd.id];
+      const estado = ind
+        ? `Vigencia <b>${fechaIsoALegible(ind.desde)}</b> al <b>${fechaIsoALegible(ind.hasta)}</b> · publicado ${fechaIsoALegible(ind.publicacion)} · ${ind.filas.toLocaleString('es-AR')} CUIT`
+          + `<br><span class="sub" style="margin:0">${esc(ind.archivo || '')}${ind.cargado ? ' · cargado el ' + new Date(ind.cargado).toLocaleString('es-AR') : ''}</span>`
+          + (ind.hasta && ind.hasta < hoy ? `<br><span style="color:var(--bad)">Vencido: subí el padrón del mes.</span>` : '')
+        : '<span style="color:var(--bad)">Sin cargar</span>';
+      return `<tr><td><b>${esc(pd.nombre)}</b><br><span class="sub" style="margin:0">${esc(pd.descripcion)}</span></td><td>${estado}</td>
+        <td style="white-space:nowrap"><button class="btn chico primario" type="button" data-padron-cargar="${pd.id}">${ind ? 'Reemplazar' : 'Cargar'}</button>
+        ${ind ? `<button class="btn chico" type="button" data-padron-quitar="${pd.id}">Quitar</button>` : ''}</td></tr>`;
+    }).join('') + '</tbody></table>';
+  }
+  const pausaUI = () => new Promise(r => setTimeout(r, 30));
+  let padronObjetivo = 'iibb';
+  async function cargarPadron(id, file) {
+    const est = $('padronEstado');
+    try {
+      est.textContent = `Leyendo ${file.name}…`; await pausaUI();
+      let bytes = null;
+      if (/\.rar$/i.test(file.name)) {
+        if (!window.UnrarJs) throw new Error('No se pudo cargar el descompresor de .rar: descomprimí el archivo y subí el .txt.');
+        est.textContent = 'Descomprimiendo el .rar (puede tardar unos segundos)…'; await pausaUI();
+        const ex = await window.UnrarJs.createExtractorFromData({ data: await file.arrayBuffer(), wasmBinary: window.UnrarJs.wasmBinary });
+        for (const f of ex.extract().files) if (!bytes && !f.fileHeader.flags.directory && /\.txt$/i.test(f.fileHeader.name) && f.extraction) bytes = f.extraction;
+        if (!bytes) throw new Error('El .rar no trae ningún .txt.');
+      } else if (/\.zip$/i.test(file.name)) throw new Error('Subí el .rar tal como se descarga o el .txt descomprimido.');
+      else bytes = new Uint8Array(await file.arrayBuffer());
+      est.textContent = 'Indexando el padrón…'; await pausaUI();
+      const ind = M.indexarPadronAlicuotas(bytes);
+      bytes = null;
+      if (!ind.filas) throw new Error('El archivo no tiene el formato del padrón de IIBB (CUIT;alícuotas…): no se encontró ninguna línea válida.');
+      ind.archivo = file.name; ind.cargado = Date.now();
+      padronMem[id] = ind;
+      let guardado = true;
+      try { await padronOp('readwrite', st => st.put(ind)); } catch (e) { guardado = false; }
+      renderPadrones();
+      est.innerHTML = `Padrón cargado: ${ind.filas.toLocaleString('es-AR')} CUIT, vigencia ${fechaIsoALegible(ind.desde)} al ${fechaIsoALegible(ind.hasta)}${ind.omitidas ? ` (${ind.omitidas} líneas omitidas)` : ''}.`
+        + (guardado ? ' Reemplazó al anterior.' : ' <span style="color:var(--bad)">No se pudo guardar en este navegador: queda disponible hasta que cierres la página.</span>');
+      if (cartaBase) recalcularContra();
+      toast('Padrón cargado');
+    } catch (err) {
+      est.innerHTML = `<span style="color:var(--bad)">${esc(err.message || err)}</span>`;
+    }
+  }
+  $('padronesLista').addEventListener('click', async e => {
+    const c = e.target.closest('[data-padron-cargar]'), q = e.target.closest('[data-padron-quitar]');
+    if (c) { padronObjetivo = c.dataset.padronCargar; $('archivoPadron').click(); }
+    if (q && window.confirm('¿Quitar el padrón cargado? El cálculo de la percepción de IIBB va a pedir la alícuota a mano hasta que cargues uno nuevo.')) {
+      delete padronMem[q.dataset.padronQuitar];
+      try { await padronOp('readwrite', st => st.delete(q.dataset.padronQuitar)); } catch (err) { /* sin almacenamiento */ }
+      renderPadrones(); if (cartaBase) recalcularContra();
+    }
+  });
+  $('archivoPadron').addEventListener('change', e => {
+    const f = e.target.files[0];
+    e.target.value = '';
+    if (f) cargarPadron(padronObjetivo, f);
+  });
+  renderPadrones();
+
   // --- Carta de cesión (Anexo I): se arma con el lote recién procesado o con los CSV de Cuotas y Créditos ya generados.
-  let contraManual = false, liquidManual = false;
+  let contraManual = false, liquidManual = false, iibbManual = false;
   let cartaBase = null;   // { datos: { secuencia, tasa, total, fechasPago }, clienteId }
   const cartaPrefs = id => { try { return JSON.parse(localStorage.getItem('valo.carta.' + id) || '{}'); } catch (e) { return {}; } };
   const guardarCartaPrefs = (id, v) => { try { localStorage.setItem('valo.carta.' + id, JSON.stringify(v)); } catch (e) { /* sin almacenamiento local */ } };
   const isoHoy = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
   const sinExt = n => String(n || '').replace(/\.(csv|txt)$/i, '');
-  function prepararCarta(o) {
-    cartaBase = { datos: o.datos, clienteId: o.cliente ? o.cliente.id : null };
+  async function prepararCarta(o) {
+    await padronListo;
+    cartaBase = { datos: o.datos, clienteId: o.cliente ? o.cliente.id : null, cuit: String(o.cuit || (o.cliente && o.cliente.cuit) || '').replace(/\D/g, '') };
     const pref = cartaPrefs(cartaBase.clienteId || '_');
     const hoy = isoHoy();
     $('cardCarta').classList.remove('oculto');
@@ -3857,7 +3946,7 @@
     $('cArchCreditos').value = sinExt(o.archivoCreditos); $('cArchCuotas').value = sinExt(o.archivoCuotas);
     $('cTotal').value = fmtMonto(o.datos.total);
     $('cTasa').value = o.datos.tasa != null && isFinite(o.datos.tasa) ? String(o.datos.tasa).replace('.', ',') : '';
-    $('cContra').value = ''; contraManual = false; liquidManual = false;
+    $('cContra').value = ''; contraManual = false; liquidManual = false; iibbManual = false; $('cIIBB').value = '';
     $('cLiquid').value = hoy;
     $('cBanco').value = pref.banco || 'Banco de Valores S.A.'; $('cDomicilio').value = pref.domicilio || 'Sarmiento 310';
     $('cartaAviso').innerHTML = (o.errores || []).length ? aviso('warn', o.errores.map(esc).join('<br>')) : '';
@@ -3898,14 +3987,14 @@
     txt('A', tot, 'Total general');
     [['B', sB], ['D', sB], ['G', sG], ['H', sH], ['J', sJ], ['K', sK]].forEach(([c, v]) => num(c, tot, v, M2, `SUM(${c}${ini}:${c}${fin})`));
     const intereses = sB - sG, rv = tot + 3;
-    const fila = (k, etq, v, f, pct, pctVal) => { txt('A', rv + k, etq); if (pct) num('B', rv + k, pctVal, '0.0%'); num('C', rv + k, v, M2, f); };
+    const fila = (k, etq, v, f, pct, pctVal) => { txt('A', rv + k, etq); if (pct) num('B', rv + k, pctVal, '0.00%'); num('C', rv + k, v, M2, f); };
     fila(0, 'Valor final de los créditos cedidos', sB, '+D' + tot);
     fila(2, 'Precio de la Cesión (valor presente)', sG, '+G' + tot);
     fila(4, 'INT DESCONTADOS', intereses, `+C${rv}-C${rv + 2}`);
     fila(6, 'IVA sobre Int. Descontados', intereses * o.ivaPct, `+C${rv + 4}*B${rv + 6}`, true, o.ivaPct);
     fila(8, 'IVA Percepción sobre Int. Descontados', intereses * o.ivaPercPct, `+C${rv + 4}*B${rv + 8}`, true, o.ivaPercPct);
     fila(10, 'SELLOS OFERTA', sK, '+K' + tot, true, o.sellosTna);
-    fila(12, 'IIBB Percepción CABA', intereses * o.iibbPct, `+C${rv + 4}*B${rv + 12}`, true, o.iibbPct);
+    fila(12, 'Percepción IIBB (alícuota del padrón)', intereses * o.iibbPct, `+C${rv + 4}*B${rv + 12}`, true, o.iibbPct);
     fila(14, 'IMPORTE A TRANSFERIR (precio neto de impuestos)', sB - intereses - intereses * (o.ivaPct + o.ivaPercPct + o.iibbPct) - sK,
       `+C${rv}-C${rv + 4}-C${rv + 6}-C${rv + 8}-C${rv + 10}-C${rv + 12}`);
     ws['!ref'] = `A1:K${rv + 14}`;
@@ -3915,12 +4004,35 @@
     return wb;
   }
   // Precio neto de impuestos (modelo de desembolso): se calcula con la tasa y la fecha de liquidación salvo que se escriba a mano.
+  // Alícuota de percepción de IIBB: se consulta en el padrón por el CUIT del cliente (salvo que se escriba a mano).
+  function alicuotaCarta() {
+    const info = M.alicuotaPercepcionIIBB(padronMem.iibb, cartaBase ? cartaBase.cuit : '', $('cLiquid').value);
+    const manual = iibbManual ? numeroDeCampo($('cIIBB').value) : null;
+    return { alic: iibbManual ? manual : info.alicuota, info, manual: iibbManual };
+  }
+  function textoInfoIIBB(r) {
+    const f = iso => iso ? iso.split('-').reverse().join('/') : '';
+    const pct = v => String(v).replace('.', ',') + '%';
+    const cuit = cartaBase && cartaBase.cuit ? formatoCuitPadron(cartaBase.cuit) : '';
+    const vig = r.info.desde ? ` (vigencia ${f(r.info.desde)} al ${f(r.info.hasta)})` : '';
+    if (r.manual) return `Escrita a mano${r.info.alicuota != null ? `; en el padrón figura ${pct(r.info.alicuota)}` : ''}.`;
+    if (r.info.estado === 'ok') return `Padrón de IIBB${vig}, CUIT ${cuit}: ${pct(r.info.alicuota)}.`;
+    if (r.info.estado === 'fuera-de-vigencia') return `Padrón de IIBB${vig}, CUIT ${cuit}: ${pct(r.info.alicuota)}. ⚠ La fecha de liquidación está fuera de la vigencia: cargá el padrón del mes en la pestaña Padrones.`;
+    if (r.info.estado === 'no-figura') return `⚠ El CUIT ${cuit} no figura en el padrón${vig}: escribí la alícuota a mano.`;
+    if (r.info.estado === 'sin-cuit') return '⚠ No se encontró el CUIT del cliente: escribí la alícuota a mano.';
+    return '⚠ No hay padrón de IIBB cargado: subilo en la pestaña Padrones o escribí la alícuota a mano.';
+  }
+  const formatoCuitPadron = c => { const d = String(c).replace(/\D/g, ''); return d.length === 11 ? `${d.slice(0, 2)}-${d.slice(2, 10)}-${d.slice(10)}` : d; };
   function recalcularContra() {
     const d = cartaBase ? cartaBase.datos : null;
     const caja = $('cartaPrecio');
     if (!d) { caja.innerHTML = ''; renderCarta(); return; }
-    const calc = M.precioCesionNeto(d.fechasPago, { tasa: numeroDeCampo($('cTasa').value), liquidacion: $('cLiquid').value });
+    const al = alicuotaCarta();
+    if (!iibbManual) $('cIIBB').value = al.alic != null ? String(al.alic).replace('.', ',') : '';
+    $('cIIBBInfo').textContent = textoInfoIIBB(al);
+    const calc = al.alic == null ? null : M.precioCesionNeto(d.fechasPago, { tasa: numeroDeCampo($('cTasa').value), liquidacion: $('cLiquid').value, iibbPct: al.alic / 100 });
     if (!contraManual) $('cContra').value = calc ? fmtMonto(calc.neto) : '';
+    const pctTxt = v => (v * 100).toFixed(2).replace('.', ',') + '%';
     caja.innerHTML = calc ? `<details style="margin:8px 0"><summary>Cálculo del desembolso${contraManual ? ' (la contraprestación está escrita a mano)' : ''}</summary>
       <table style="max-width:560px"><tbody>
       <tr><td>Valor final de los créditos cedidos</td><td class="num">${fmtMonto(calc.total)}</td></tr>
@@ -3929,8 +4041,9 @@
       <tr><td>IVA sobre intereses (10,5%)</td><td class="num">${fmtMonto(calc.iva)}</td></tr>
       <tr><td>Percepción IVA (1,5%)</td><td class="num">${fmtMonto(calc.ivaPerc)}</td></tr>
       <tr><td>Sellos oferta (1,2% TNA)</td><td class="num">${fmtMonto(calc.sellos)}</td></tr>
-      <tr><td>Percepción IIBB CABA (1%)</td><td class="num">${fmtMonto(calc.iibb)}</td></tr>
-      <tr><td><b>Importe a transferir (neto de impuestos)</b></td><td class="num"><b>${fmtMonto(calc.neto)}</b></td></tr></tbody></table></details>` : '';
+      <tr><td>Percepción IIBB (${pctTxt(al.alic / 100)}, ${al.manual ? 'a mano' : 'padrón'})</td><td class="num">${fmtMonto(calc.iibb)}</td></tr>
+      <tr><td><b>Importe a transferir (neto de impuestos)</b></td><td class="num"><b>${fmtMonto(calc.neto)}</b></td></tr></tbody></table></details>`
+      : (al.alic == null ? aviso('warn', 'Sin la alícuota de percepción de IIBB no se calcula el importe neto: la contraprestación queda en [●].') : '');
     renderCarta();
   }
   function renderCarta() {
@@ -3940,6 +4053,7 @@
   }
   $('cartaCampos').addEventListener('input', e => {
     if (e.target.id === 'cContra') contraManual = e.target.value.trim() !== '';
+    if (e.target.id === 'cIIBB') iibbManual = e.target.value.trim() !== '';
     if (e.target.id === 'cLiquid') liquidManual = true;
     if (e.target.id === 'cFechaAcep' && !liquidManual) $('cLiquid').value = e.target.value;
     recalcularContra();
@@ -3955,7 +4069,9 @@
   $('btnCartaExcel').addEventListener('click', async () => {
     const dc = datosCarta();
     if (!dc || dc.tasa == null || !$('cLiquid').value) { informar('Falta la tasa', '<p>Para calcular el desembolso completá la <b>tasa de descuento</b> y la <b>fecha de liquidación</b>.</p>'); return; }
-    const wb = libroDesembolso(dc.fechasPago, { tasa: dc.tasa, liquidacion: $('cLiquid').value, ivaPct: 0.105, ivaPercPct: 0.015, sellosTna: 0.012, iibbPct: 0.01 });
+    const al = alicuotaCarta();
+    if (al.alic == null) { informar('Falta la alícuota de IIBB', '<p>' + esc(textoInfoIIBB(al)) + '</p>'); return; }
+    const wb = libroDesembolso(dc.fechasPago, { tasa: dc.tasa, liquidacion: $('cLiquid').value, ivaPct: 0.105, ivaPercPct: 0.015, sellosTna: 0.012, iibbPct: al.alic / 100 });
     const nombre = 'Desembolso_' + String(dc.cedente || 'cliente').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^A-Za-z0-9]+/g, '') + '_N' + (dc.secuencia != null ? dc.secuencia : '') + '.xlsx';
     await descargarLibro(nombre, wb);
   });
@@ -3974,7 +4090,7 @@
     if (!cuotas || !creditos) { informar('Faltan archivos', '<p>Elegí a la vez los dos archivos: el de <b>Cuotas</b> (empieza con CUOTAS) y el de <b>Créditos</b> (empieza con CAP).</p>'); return; }
     const r = M.leerArchivosCesion(cuotas.texto, creditos.texto);
     const c = datos().clientes.find(x => String(x.cuit || '') === String(r.cedente)) || (estadoFormulario().cliente || null);
-    prepararCarta({ origen: 'csv', cliente: c, errores: r.errores, datos: { secuencia: r.secuencia, tasa: r.tasa, total: r.total, fechasPago: r.fechasPago }, archivoCreditos: creditos.nombre, archivoCuotas: cuotas.nombre });
+    prepararCarta({ origen: 'csv', cliente: c, cuit: r.cedente, errores: r.errores, datos: { secuencia: r.secuencia, tasa: r.tasa, total: r.total, fechasPago: r.fechasPago }, archivoCreditos: creditos.nombre, archivoCuotas: cuotas.nombre });
     $('cardCarta').scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
   $('archivoCartaCsv').addEventListener('change', async e => {

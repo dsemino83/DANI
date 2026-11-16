@@ -96,3 +96,34 @@ test('cesión: precio neto de impuestos replica el modelo de desembolso (TNA 29,
   assert.equal(r.neto, 367943188.14);
   assert.equal(M.precioCesionNeto(vtos, { tasa: null, liquidacion: '2026-10-22' }), null);
 });
+
+test('padrón de IIBB: indexa el TXT por bytes, busca por CUIT y valida la vigencia', () => {
+  const lineas = ['27102026;01112026;30112026;30000000007;D;S;N;3,00;2,50;00;00;EMPRESA UNO SA',
+    '27102026;01112026;30112026;20111111112;C;S;N;0,00;0,00;00;00;',
+    '27102026;01112026;30112026;30999999991;D;S;N;10,5;1,00;00;00;PRUEBA Ñ SRL', // fuera de orden a propósito
+    '27102026;01112026;30112026;30500000003;D;S;N;1,50;1,50;00;00;OTRA SA',
+    'línea rota', '27102026;01112026;30112026;123;D;S;N;1,00;1,00;00;00;CUIT CORTO'];
+  const bytes = new Uint8Array(Buffer.from(lineas.join('\r\n') + '\r\n', 'latin1'));
+  const ind = M.indexarPadronAlicuotas(bytes);
+  assert.equal(ind.filas, 4);
+  assert.equal(ind.omitidas, 2);
+  assert.deepEqual([ind.publicacion, ind.desde, ind.hasta], ['2026-10-27', '2026-11-01', '2026-11-30']);
+  assert.equal(M.buscarEnPadron(ind, '30-00000000-7').percepcion, 3);
+  assert.equal(M.buscarEnPadron(ind, '30000000007').retencion, 2.5);
+  assert.equal(M.buscarEnPadron(ind, '30999999991').percepcion, 10.5);
+  assert.equal(M.buscarEnPadron(ind, '20111111112').percepcion, 0);
+  assert.equal(M.buscarEnPadron(ind, '30111111111'), null);
+  assert.equal(M.alicuotaPercepcionIIBB(ind, '30000000007', '2026-11-15').estado, 'ok');
+  assert.equal(M.alicuotaPercepcionIIBB(ind, '30000000007', '2026-12-15').estado, 'fuera-de-vigencia');
+  assert.equal(M.alicuotaPercepcionIIBB(ind, '30111111111', '2026-11-15').estado, 'no-figura');
+  assert.equal(M.alicuotaPercepcionIIBB(ind, '', '2026-11-15').estado, 'sin-cuit');
+  assert.equal(M.alicuotaPercepcionIIBB(null, '30000000007', '2026-11-15').estado, 'sin-padron');
+});
+
+test('cesión: la percepción de IIBB del desembolso usa la alícuota del padrón', () => {
+  const pagos = [{ fecha: '2026-12-16', monto: 1000000 }];
+  const con1 = M.precioCesionNeto(pagos, { tasa: 28, liquidacion: '2026-11-13', iibbPct: 0.01 });
+  const con3 = M.precioCesionNeto(pagos, { tasa: 28, liquidacion: '2026-11-13', iibbPct: 0.03 });
+  assert.ok(con3.iibb > con1.iibb && Math.abs(con3.iibb - con1.intereses * 0.03) < 0.01);
+  assert.ok(con3.neto < con1.neto);
+});
