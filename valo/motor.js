@@ -3454,6 +3454,42 @@
         planillaDe.set(a.numero_de_identificacion, firmanteDeId(a));
       });
     }
+    // Facultades distintas dentro de un mismo grupo: personas de la misma letra cuya firma individual sale de poderes con distintas
+    // facultades (Marsilio en la esc. 46 puede tomar préstamos; Rivera y Dias, en la esc. 296, no). Una regla vale para todo el grupo,
+    // así que no se juntan: cada conjunto de facultades va en su propio grupo (letra libre) y se avisa.
+    const reasignado = new Map();
+    {
+      const circuitosDe = e => [...new Set(Object.entries(e.facultades || {}).filter(([k, v]) => v && CIRCUITO_DE_CLAVE[k])
+        .flatMap(([k]) => [CIRCUITO_DE_CLAVE[k]].concat(CIRCUITOS_GEMELOS[CIRCUITO_DE_CLAVE[k]] || [])))].sort();
+      const letraDe = id => { const f = planillaDe.get(id), a = apoderadosU.find(x => x.numero_de_identificacion === id);
+        return (fuente === 'planilla' && f && f.uso && f.uso.grupo) || (a && ren(String(a.grupo).split(',')[0].trim())) || ''; };
+      const porPersona = new Map();
+      (exacto ? porUso : unico.estructuras_de_firma || []).filter(e => e.firma_individual && !e.firma_conjunta).forEach(e => {
+        const c = circuitosDe(e);
+        (e.apoderados || []).forEach(id => { if (letraDe(id)) porPersona.set(id, [...new Set((porPersona.get(id) || []).concat(c))].sort()); });
+      });
+      const porLetra = {};
+      porPersona.forEach((c, id) => { (porLetra[letraDe(id)] = porLetra[letraDe(id)] || []).push([id, c]); });
+      const usadas = new Set(apoderadosU.flatMap(a => String(a.grupo).split(',').map(x => ren(x.trim()))).concat(firmantes.map(f => f.uso && f.uso.grupo)).filter(Boolean));
+      Object.entries(porLetra).forEach(([letra, personas]) => {
+        const firmas = new Map();
+        personas.forEach(([id, c]) => { const k = c.join(','); if (!firmas.has(k)) firmas.set(k, []); firmas.get(k).push([id, c]); });
+        if (firmas.size < 2) return;
+        const subgrupos = [...firmas.values()].sort((a, b) => b.length - a.length);
+        const base = new Set(subgrupos[0][0][1]);
+        subgrupos.slice(1).forEach(sg => {
+          // Subgrupo de la misma letra de la planilla: A2, A3… (el control contra el resumen lo toma como la letra A).
+          let n = 2;
+          while (usadas.has(letra + n)) n++;
+          const nueva = letra + n;
+          usadas.add(nueva);
+          sg.forEach(([id]) => reasignado.set(id, nueva));
+          const quita = [...base].filter(c => !sg[0][1].includes(c)), suma = sg[0][1].filter(c => !base.has(c));
+          const nombres = sg.map(([id]) => { const a = apoderadosU.find(x => x.numero_de_identificacion === id); return a ? a.nombre_completo : String(id); });
+          avisos.push(`${nombres.join(', ')} tiene${sg.length > 1 ? 'n' : ''} facultades distintas al resto del grupo ${letra} según sus poderes${quita.length ? ` (sin: ${quita.join(', ')})` : ''}${suma.length ? ` (con: ${suma.join(', ')})` : ''}: va${sg.length > 1 ? 'n' : ''} en el grupo ${nueva}.`);
+        });
+      });
+    }
     (exacto ? porUso : unico.estructuras_de_firma || []).forEach(e => {
       const circuitos = [...new Set(Object.entries(e.facultades || {}).filter(([k, v]) => v && CIRCUITO_DE_CLAVE[k])
         .flatMap(([k]) => [CIRCUITO_DE_CLAVE[k]].concat(CIRCUITOS_GEMELOS[CIRCUITO_DE_CLAVE[k]] || [])))].sort();
@@ -3467,6 +3503,7 @@
         // de "A+A, A+C, B+C" la regla A+C no lleva a los del grupo B.
         const participantes = participantesDe(grupos.length ? (ids || []).filter(id => {
           const a = apoderadosU.find(x => x.numero_de_identificacion === id), f = planillaDe.get(id);
+          if (reasignado.has(id)) return grupos.includes(reasignado.get(id));
           const delPoder = a ? String(a.grupo).split(',').map(x => ren(x.trim())) : [];
           return delPoder.some(g => grupos.includes(g)) || (fuente === 'planilla' && f && f.uso && grupos.includes(f.uso.grupo));
         }) : ids);
@@ -3485,7 +3522,7 @@
         // Firma individual de un grupo: ConjuntaIndistinta con quorum 1 (una firma de cualquiera del grupo). Las personas
         // sin grupo van como Individual con su CUIT (el sistema pide un firmante en la regla individual).
         const grupoDe = id => { const f = planillaDe.get(id), a = apoderadosU.find(x => x.numero_de_identificacion === id);
-          return (fuente === 'planilla' && f && f.uso && f.uso.grupo) || (a && ren(String(a.grupo).split(',')[0].trim())) || ''; };
+          return reasignado.get(id) || (fuente === 'planilla' && f && f.uso && f.uso.grupo) || (a && ren(String(a.grupo).split(',')[0].trim())) || ''; };
         const conGrupo = [...new Set((e.apoderados || []).map(grupoDe).filter(Boolean))].sort();
         if (conGrupo.length) agregar('ConjuntaIndistinta', 1, conGrupo, extra, 'individual', [], (e.apoderados || []).filter(id => grupoDe(id)));
         (e.apoderados || []).filter(id => !grupoDe(id)).forEach(id => {
@@ -3536,7 +3573,7 @@
       const id = idTexto(a.numero_de_identificacion) || idTexto(f && f.cuit);
       if (!id) avisos.push(`${a.nombre_completo}: sin CUIT/CUIL.`);
       // Con la planilla, la letra que le da a la persona manda; si no tiene, la del poder (o la del agrupamiento).
-      const propia = fuente === 'planilla' && f && f.uso && f.uso.grupo;
+      const propia = reasignado.get(a.numero_de_identificacion) || (fuente === 'planilla' && f && f.uso && f.uso.grupo);
       return { cuitCuil: id.length === 11 ? formatoCuit(id) : id, nombre: n.nombre, apellido: n.apellido, estado: 'Activa',
         grupos: propia ? [propia] : [...new Set(String(a.grupo).split(',').map(x => ren(x.trim())).filter(Boolean))].sort() };
     });
@@ -3971,7 +4008,7 @@
       if (!L) {
         puntos.grupo = P('rev', 'el resumen no indica el grupo');
         aviso('ERROR DE PERTENENCIA', `El resumen no indica el grupo de ${nombre}.`, nombre);
-      } else if (dat.grupos.includes(aL(L))) puntos.grupo = P('ok');
+      } else if (dat.grupos.some(g => g === aL(L) || g.replace(/^([A-Z])\d$/, '$1') === aL(L))) puntos.grupo = P('ok'); // A2 = subgrupo de A por facultades distintas
       else {
         puntos.grupo = P('dif', `grupo ${L} en el resumen y ${dat.grupos.join('/') || '—'} en el bastanteo`);
         error('ERROR DE PERTENENCIA', `${nombre}: grupo ${L} en el resumen y ${dat.grupos.join('/') || '—'} en el bastanteo.`, nombre);
@@ -4022,7 +4059,7 @@
       const indivs = dat.reglas.filter(rg => esIndividual(rg.regla)).map(rg => rg.regla);
       if (!tiposEx.includes('INDIVIDUAL') || !indivs.length) puntos.limite = P('ok', 'no aplica');
       else {
-        const exLim = uso.limite != null ? uso.limite : (x.monto_hasta > 0 ? x.monto_hasta : null);
+        const exLim = uso.limite != null ? uso.limite : (x.monto_hasta > 0 && x.monto_hasta < 99999999 ? x.monto_hasta : null); // 999.999.999.999.999 = sin límite
         const txt = uso.limiteTexto || '';
         const exMon = /U\$S|USD|US\$/i.test(txt) ? 'USD' : /\$/.test(txt) ? 'ARS' : null;
         const topes = indivs.filter(r => r.monto != null);

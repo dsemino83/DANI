@@ -633,3 +633,19 @@ test('control: mismo documento pero nombre distinto (Honig / Gil, Julio / José 
   assert.equal(c[0].sinPoder, true, 'Gil no es Honig'); assert.equal(c[1].sinPoder, true, 'José César no es Julio César');
   assert.ok(!c[2].sinPoder, 'Honig sí'); assert.ok(!c[3].sinPoder, 'Julio César Bruni sí');
 });
+
+test('bastanteo: personas del mismo grupo con facultades distintas según su poder no se juntan en una regla con la unión de facultades', () => {
+  // Poder 1: Nombre1 (grupo A) puede tomar crédito; poder 2: Nombre2 y Nombre3 (también grupo A) no.
+  const p1 = poder([persona(1, 'A')], [uso('INDIVIDUAL', [], ['firmar_cheques', 'tomar_credito_en_pesos'], { grupo: 'A' })], { deed_number: '46', fecha_emision: '2020-03-09' });
+  const p2 = poder([persona(2, 'A'), persona(3, 'A')], [uso('INDIVIDUAL', [], ['firmar_cheques'], { grupo: 'A' })], { deed_number: '296', fecha_emision: '2025-09-02' });
+  const j = armar([p1, p2]);
+  const gruposDe = n => j.apoderados.find(a => a.apellido === `APELLIDO${n}`).grupos;
+  assert.deepEqual(gruposDe(2), gruposDe(3), 'los que no pueden tomar crédito van juntos');
+  assert.notDeepEqual(gruposDe(1), gruposDe(2), 'el que sí puede va en otro grupo');
+  const conCredito = j.reglasFirma.filter(r => r.circuitos.includes('CG_CREDITO_PESOS'));
+  assert.equal(conCredito.length, 1);
+  assert.deepEqual(conCredito[0].grupos, gruposDe(1), 'la regla con crédito es solo del grupo de Nombre1');
+  const sinCredito = j.reglasFirma.find(r => !r.circuitos.includes('CG_CREDITO_PESOS'));
+  assert.deepEqual(sinCredito.grupos, gruposDe(2));
+  assert.ok(M.modeloBastanteo(j).errores.filter(e => e.nivel === 'error').length === 0);
+});
