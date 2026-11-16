@@ -4125,7 +4125,7 @@
         <th class="num">TNA</th><th class="num">TNA pun.</th><th class="num">Importe cuota</th><th>Alta</th><th>1er vto.</th><th>1er vto. impago</th><th class="num">Cuotas rest.</th>
         <th class="num">Monto cedido</th><th class="num">Sucursal</th><th class="num">Saldo capital</th><th class="num">Valor actual</th><th class="num">Interés desc.</th></tr></thead><tbody>
         <tr class="enc"><td>${e.tipoArchivo}</td><td>${e.tipoAccion}</td><td>Motivo ${e.motivo}</td><td>${e.cantidad} registros · Periodo ${e.periodo}</td><td>Sec. ${e.secuencia}</td><td>Lote ${e.lote}</td>
-        <td>${e.cesionario}</td><td>Neg. ${esc(e.negocio)}</td><td colspan="2">Ced. ${esc(e.cedente)}</td><td class="num" colspan="2">$ ${fmtMonto(e.totalCapital)}</td><td class="num">Tasa ${e.tasa}</td>
+        <td>${e.cesionario}</td><td>Neg. ${esc(e.negocio)}</td><td colspan="2">Ced. ${esc(e.cedente)}</td><td class="num" colspan="2">$ ${fmtMonto(e.totalCapital)}</td><td class="num">Tasa (TEA) ${e.tasa}</td>
         <td class="num" colspan="2">${fmtMonto(e.totalValor)}</td><td class="num" colspan="3">${fmtMonto(e.totalInteres)}</td></tr>
         ${creditos.filas.slice(0, LIMITE).map(f => `<tr><td>${esc(f.credito)}</td><td>${f.tipo}</td><td>${esc(f.cuit)}</td><td>${esc(f.nombre)}</td><td class="num">${fmtMonto(f.capital)}</td>
         <td class="num">${f.plan}</td><td class="num">${f.tna}</td><td class="num">${f.tnaPunitorio}</td><td class="num">${fmtMonto(f.importe)}</td><td>${M.fechaDDMMYY(f.fechaAlta)}</td>

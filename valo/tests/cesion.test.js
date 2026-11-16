@@ -5,7 +5,7 @@ const assert = require('node:assert/strict');
 const M = require('../motor.js');
 
 const CUOTAS = 'CUOTAS,ALTA,3,2,198,1111,30000000007,3000.50,3000.50,0,,,\n1,8,30500003193,17000001,1,2027/01/15,1000.25,1,1000.25,1000.25,0,,\n1,8,33999242109,14000001,1,2027/01/15,1500.00,1,1500.00,1500.00,0,,\n11,8,30500012516,93000001,1,2027/01/20,500.25,1,500.25,500.25,0,,\n';
-const CREDITOS = 'CAP,TD,CAPADESC,INTADESC,,,,,,,,,,,,,,\nCREDITOS,ALTA,1,3,202701,2,2,198,1111,30000000007,3000.50,28.00,3000.50,0,,,,\n17000001,8,30500003193,Banco Uno,1000.25,1,0,0,1000.25,150127,150127,150127,1,1000.25,1,1000.25,1000.25,0\n';
+const CREDITOS = 'CAP,TD,CAPADESC,INTADESC,,,,,,,,,,,,,,\nCREDITOS,ALTA,1,3,202701,2,2,198,1111,30000000007,3000.50,31.89,3000.50,0,,,,\n17000001,8,30500003193,Banco Uno,1000.25,1,0,0,1000.25,150127,150127,150127,1,1000.25,1,1000.25,1000.25,0\n';
 
 test('cesión: lee los archivos de Cuotas y Créditos (totales, tasa, secuencia y fechas de cobro)', () => {
   const r = M.leerArchivosCesion(CUOTAS, CREDITOS);
@@ -126,4 +126,16 @@ test('cesión: la percepción de IIBB del desembolso usa la alícuota del padró
   const con3 = M.precioCesionNeto(pagos, { tasa: 28, liquidacion: '2026-11-13', iibbPct: 0.03 });
   assert.ok(con3.iibb > con1.iibb && Math.abs(con3.iibb - con1.intereses * 0.03) < 0.01);
   assert.ok(con3.neto < con1.neto);
+});
+
+test('cesión: la tasa del archivo de Créditos va en TEA (28% TNA = 31,89% TEA) y la carta la lee de vuelta como TNA', () => {
+  assert.equal(M.tnaATea(28), 31.89);
+  assert.equal(M.tnaATea(29.5), 33.84);
+  for (const t of [0, 5, 12.5, 28, 28.5, 33.33, 45.75, 60, 80]) assert.equal(M.teaATna(M.tnaATea(t)), t, 'ida y vuelta de ' + t);
+  const f = (y, m, d) => M.aFechaSerial(`${y}-${m}-${d}`);
+  const reporte = [{ COD_BANCO: 17, NOMBRE_BANCO: 'Banco Uno', FECHA_VENCIMIENTO: f(2027, 1, 15), MONTO: 1000 }];
+  const bancos = [{ codigo: 17, nombre: 'Banco Uno', cuit: '30500003193', sucursal: 1, codCredito: '17' }];
+  const params = { tipoAccion: 'Alta', secuencia: 1, lote: 1, periodo: 202701, tasa: 28, negocio: '1111', cedente: '30000000007' };
+  const cuotas = M.generarCuotas(reporte, bancos, params, new Date(2026, 10, 16));
+  assert.equal(M.generarCreditos(cuotas, bancos, params).encabezado.tasa, 31.89);
 });

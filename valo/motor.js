@@ -5294,6 +5294,17 @@ try {
     return { encabezado, filas };
   }
 
+  // Tasa de descuento: el formulario trae la TNA; el archivo de Créditos lleva la TEA (mismo cálculo que el modelo de desembolso:
+  // TEA = ROUND((1 + TNA*30/365)^(365/30) - 1, 4)). Ambas en %, con 2 decimales.
+  function tnaATea(tna) {
+    const t = Number(tna) / 100;
+    return isFinite(t) ? Math.round((Math.pow(1 + t * 30 / 365, 365 / 30) - 1) * 10000) / 100 : NaN;
+  }
+  function teaATna(tea) {
+    const e = Number(tea) / 100;
+    return isFinite(e) ? Math.round(((Math.pow(1 + e, 30 / 365) - 1) * 365 / 30) * 10000) / 100 : NaN;
+  }
+
   // ---------------------------------------------------------------- Creditos
 
   // opciones.nombre: 'recortado' (GetNet: LEFT(nombre,30)) o 'sinComas' (MELI: SUBSTITUTE(nombre,",","")); siempre máx. 30 caracteres.
@@ -5334,7 +5345,7 @@ try {
       negocio: String(params.negocio),
       cedente: String(params.cedente),
       totalCapital: round2(filas.reduce((s, f) => s + f.saldoCapital, 0)),
-      tasa: round2(Number(params.tasa)),
+      tasa: tnaATea(params.tasa), // en TEA (el formulario trae la TNA)
       totalValor: round2(filas.reduce((s, f) => s + f.valorActual, 0)),
       totalInteres: round2(filas.reduce((s, f) => s + f.interes, 0)),
     };
@@ -5432,7 +5443,8 @@ try {
     else {
       const h = fr[1];
       res.cantidadCreditos = Number(h[3]) || 0; res.lote = Number(h[6]);
-      res.tasa = aNumero(h[11]);
+      res.tasaTea = aNumero(h[11]);
+      res.tasa = res.tasaTea == null ? null : teaATna(res.tasaTea); // el archivo lleva la TEA; la carta habla de TNA
       const tc = aNumero(h[10]);
       if (res.total != null && tc != null && Math.abs(tc - res.total) > 0.005) res.errores.push(`El total de créditos ($ ${montoAR(tc)}) no coincide con el de cuotas ($ ${montoAR(res.total)}).`);
       if (res.secuencia == null) res.secuencia = Number(h[5]) || null;
@@ -5774,7 +5786,7 @@ try {
     problemasBanco, codigoCreditoPorDefecto, prefijoBanco, numeroCredito, prefijosRepetidos, controlarBancos, controlarReporte,
     generarCuotas, generarCreditos, txtCuotas, txtCreditos, nombreArchivo,
     calcularSecuenciaLote, validarFormulario,
-    PADRONES, indexarPadronAlicuotas, buscarEnPadron, alicuotaPercepcionIIBB,
+    tnaATea, teaATna, PADRONES, indexarPadronAlicuotas, buscarEnPadron, alicuotaPercepcionIIBB,
     leerArchivosCesion, datosCartaDesdeLote, precioCesionNeto, cartaCesion, textoCartaCesion, docxSimple, fechaEnLetras, crc32,
   };
   root.ValoMotor = api;
