@@ -679,3 +679,20 @@ test('bastanteo: los subgrupos por facultades distintas toman la letra siguiente
   const j2 = armar([p1, p2, pB]);
   assert.equal(j2.apoderados.find(a => a.apellido === 'APELLIDO1').grupos[0], 'C', 'B ya es otro grupo: el subgrupo toma la C');
 });
+
+test('bastanteo: poderes superpuestos con distintos montos toman el más reciente, y un poder complementario vale para todo el grupo', () => {
+  const lim = t => ({ limitaciones: t });
+  // Poder viejo: B+B hasta $350.000.000 (Nombre1 y Nombre2 son del grupo B).
+  const viejo = poder([persona(1, 'B'), persona(2, 'B')], [uso('CONJUNTA', ['B+B'], ['firmar_cheques'], Object.assign({ grupo: 'B' }, lim('Dos del grupo B hasta $350.000.000')))],
+    { deed_number: '283', fecha_emision: '2021-12-15' });
+  // Poder complementario nuevo: incorpora a Nombre3 al grupo B y fija B+B en $3.800.000.000.
+  const nuevo = poder([persona(3, 'B')], [uso('CONJUNTA', ['B+B'], ['firmar_cheques'], Object.assign({ grupo: 'B' }, lim('Dos del grupo B hasta $3.800.000.000')))],
+    { deed_number: '199', fecha_emision: '2024-09-19', alcance: { new: false, revoke: false, complementary: true } });
+  const j = armar([viejo, nuevo]);
+  const bb = j.reglasFirma.filter(r => r.grupos.join() === 'B');
+  assert.equal(bb.length, 1, 'una sola regla B+B');
+  assert.equal(bb[0].monto, 3800000000, 'toma el monto del poder más reciente');
+  assert.ok(j.avisos.some(a => /más reciente/.test(a)), j.avisos.join(' | '));
+  const m = M.modeloBastanteo(j);
+  assert.deepEqual(m.errores.filter(e => /AGRUPAMIENTO/.test(e.tipo)), [], 'sin error de agrupamiento: la regla vale para los tres del grupo B');
+});

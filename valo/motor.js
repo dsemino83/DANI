@@ -2892,6 +2892,8 @@
   }
 
   // Arma el JSON de un poder. edicion: { deed_number, board_resolution_power_attorney, power_attorney_type, cuits: {dni: cuit} }.
+  // Poder complementario: Complif lo marca (complementary) o el texto dice que incorpora personas "con las mismas facultades".
+  const esComplementario = p => !!(p && ((p.alcance && p.alcance.complementary === true) || /\bincorporad[oa]s?\b|\bse\s+incorpora|mismas\s+facultades/i.test(textoPoder(p))));
   function jsonPoder(poder, cliente, edicion = {}) {
     const cuits = edicion.cuits || {};
     const firmantes = cliente && cliente.firmantes && cliente.firmantes.length ? cliente.firmantes : null;
@@ -2944,6 +2946,8 @@
     };
     // Poder anterior que sigue vigente pese a un poder posterior marcado como revocatorio que no menciona a todos sus apoderados.
     Object.defineProperty(json, 'mantenidoPese', { value: (poder.mantenidoPese || []).map(r => `${r.fecha_emision || 's/f'}${r.deed_number ? ' (esc. ' + r.deed_number + ')' : ''}`), enumerable: false });
+    // Poder complementario (incorpora personas a grupos de un poder anterior): sus usos de firma valen para todo el grupo.
+    Object.defineProperty(json, 'complementario', { value: esComplementario(poder), enumerable: false });
     return json;
   }
 
@@ -3432,7 +3436,7 @@
         const restringida = conConjunta && e.firma_individual && !e.firma_conjunta && USO_RESTRINGIDO.test(`${e.estructura_de_firma || ''} ${e.limitaciones || ''}`);
         if (restringida) avisos.push(`No va como regla la firma individual restringida del poder${j.deed_number ? ' esc. ' + j.deed_number : ''}: "${String(e.estructura_de_firma || e.limitaciones || '').slice(0, 140)}".`);
         return !restringida;
-      });
+      }).map(e => Object.assign({}, e, { _fecha: j.fecha_emision || '', _deed: j.deed_number || '', _complementario: !!j.complementario }));
     });
     // Control de lectura: si el texto de un uso conjunto nombra un grupo ("con Firma B", "un Tipo de Firma C") que las
     // combinaciones leídas no usan, la lectura pudo quedar incompleta: se avisa para revisar (no cambia el resultado).
@@ -3506,6 +3510,8 @@
         const extra = Object.assign({}, delTexto, extra0);
         // Una combinación toma solo a los apoderados del uso cuyo grupo (el del poder o el de la planilla) está en ella:
         // de "A+A, A+C, B+C" la regla A+C no lleva a los del grupo B.
+        // Un uso de un poder complementario vale para todos los del grupo, no solo para quienes ese poder incorpora.
+        if (e._complementario && grupos.length) ids = apoderadosU.map(a => a.numero_de_identificacion);
         const participantes = participantesDe(grupos.length ? (ids || []).filter(id => {
           const a = apoderadosU.find(x => x.numero_de_identificacion === id), f = planillaDe.get(id);
           if (reasignado.has(id)) return grupos.includes(reasignado.get(id));
@@ -3515,10 +3521,10 @@
         // Misma regla (tipo, quorum, grupos, firmante, monto y vencimiento del poder) desde varios usos: se juntan los circuitos.
         const vto = e.vencimiento || '';
         const k = [tipo, quorum, grupos.join(','), firmantes.join(','), extra.monto || '', extra.moneda || '', vto].join('|');
-        if (reglas.has(k)) { const r = reglas.get(k); r.circuitos = [...new Set(r.circuitos.concat(circuitos))].sort(); r._participantes = [...new Set(r._participantes.concat(participantes))].sort(); return; }
+        if (reglas.has(k)) { const r = reglas.get(k); r.circuitos = [...new Set(r.circuitos.concat(circuitos))].sort(); r._participantes = [...new Set(r._participantes.concat(participantes))].sort(); if ((e._fecha || '') > (r._fecha || '')) { r._fecha = e._fecha; r._deed = e._deed; } return; }
         const descripcion = tipo === 'Individual' ? `Firma individual - ${combo}`
           : tipo === 'ConjuntaIndistinta' ? (combo === 'individual' ? `Grupo ${grupos.join(' y/o ')} - firma individual` : grupos.length > 1 ? `Firma conjunta: ${combo}` : `Grupo ${grupos[0]} - firma conjunta ${combo}`) : `Firma conjunta ${combo}`;
-        reglas.set(k, ocultarEnRegla(Object.assign({ tipo, quorum, moneda: null, monto: null, descripcion, circuitos, grupos, firmantes }, extra), { _vto: vto, _participantes: participantes, _gemelaDe: null }));
+        reglas.set(k, ocultarEnRegla(Object.assign({ tipo, quorum, moneda: null, monto: null, descripcion, circuitos, grupos, firmantes }, extra), { _vto: vto, _participantes: participantes, _gemelaDe: null, _fecha: e._fecha || '', _deed: e._deed || '' }));
       };
       if (e.firma_individual && !e.firma_conjunta) {
         // Límite de la firma individual escrito en la planilla ("H/ $ 50.000.000"), si es el mismo para todo el grupo.
@@ -3590,6 +3596,21 @@
       const part = new Set(r._participantes), n = r.grupos.map(g => [...miembrosDe(g)].filter(c => part.has(c)).length);
       return { ok: r.tipo === 'ConjuntaIndistinta' ? n.reduce((t, x) => t + x, 0) >= r.quorum : n.every(x => x >= r.quorum), n };
     };
+    // Superposición de poderes: la misma combinación de firma (tipo, quórum, grupos) en poderes de distinta fecha con distintos montos:
+    // se toma la del poder más reciente.
+    {
+      const porCombo = new Map();
+      [...reglas.entries()].forEach(([k, r]) => { const c = [r.tipo, r.quorum, r.grupos.join(','), (r.firmantes || []).join(',')].join('|'); if (!porCombo.has(c)) porCombo.set(c, []); porCombo.get(c).push([k, r]); });
+      porCombo.forEach(lista => {
+        const fechas = [...new Set(lista.map(([, r]) => r._fecha || ''))];
+        if (fechas.length < 2) return;
+        const ultima = fechas.sort().pop();
+        const viejas = lista.filter(([, r]) => (r._fecha || '') < ultima);
+        const nueva = lista.find(([, r]) => (r._fecha || '') === ultima)[1];
+        viejas.forEach(([k, r]) => reglas.delete(k));
+        avisos.push(`${nueva.descripcion.replace(/^Grupo [A-Z]+ - /, '').replace(/^./, c => c.toUpperCase())} está en poderes de distinta fecha con distintos montos: se toma el del poder más reciente (${nueva._deed ? 'esc. ' + nueva._deed + ', ' : ''}${ultima.split('-').reverse().join('/')}).`);
+      });
+    }
     const cumplibles = [...reglas.values()].filter(r => {
       // Sin facultades (circuitos) la regla no otorga nada: el sistema de destino la rechaza (ERROR DE REGLA).
       if (!r.circuitos.length) { avisos.push(`No va la regla "${r.descripcion}": el poder no le da facultades.`); return false; }
