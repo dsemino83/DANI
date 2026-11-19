@@ -3098,7 +3098,7 @@
   const TIPOS_CHAT = { QUESTION: 'Pregunta', FACT: 'Hecho', OBSERVATION: 'Observación', HYPOTHESIS: 'Hipótesis', INFERENCE: 'Inferencia' };
   const VERIF_CHAT = { UNVERIFIED: ['gris', 'Sin verificar'], VERIFIED: ['ok', 'Verificado'], REFUTED: ['bad', 'Refutado'], INDETERMINATE: ['warn', 'Indeterminado'] };
   const EVID_CHAT = { SUPPORTS: 'A favor', CONTRADICTS: 'Contradice', COMPATIBLE: 'Compatible', INCONCLUSIVE: 'Inconclusa' };
-  const FUENTE_CHAT = { BASTANTEO: 'Bastanteo', HUMAN: 'Usuario', SKILL: 'Skill' };
+  const FUENTE_CHAT = { BASTANTEO: 'Bastanteo', HUMAN: 'Usuario', SKILL: 'Claude' };
   function contextoChat() {
     const s = bastAn;
     const conContexto = s.status === 'READY' || s.status === 'SENDING' || (s.status === 'ERROR' && s.stage === 'REQUEST');
@@ -3111,9 +3111,10 @@
     return r.ok ? { context: r.context, fila } : { errores: r.errors };
   }
   const conversacion = () => { const k = bastChat.clave; if (!bastChats.has(k)) bastChats.set(k, []); return bastChats.get(k); };
-  function agregarAlChat(context, source, type, text) {
+  function agregarAlChat(context, source, type, text, clave) {
     const r = RZ.createReasoningItem({ id: `m${++bastChatN}`, source, type, text }, context);
     if (!r.ok) return false;
+    if (clave) { if (!bastChats.has(clave)) bastChats.set(clave, []); bastChats.get(clave).push({ item: r.item, record: r.item.type === 'QUESTION' ? null : RZ.startVerification(r.item) }); return true; }
     conversacion().push({ item: r.item, record: r.item.type === 'QUESTION' ? null : RZ.startVerification(r.item) });
     return true;
   }
@@ -3151,13 +3152,67 @@
         '</div>';
     }).join('');
     caja.innerHTML = cab + estado +
-      `<div id="bastChatMensajes" style="max-height:420px;overflow:auto">${msgs || '<p class="sub">Sin mensajes. Escribí una pregunta, un hecho, una observación, una hipótesis o una inferencia sobre este agrupamiento.</p>'}</div>` +
+      `<div id="bastChatMensajes" style="max-height:420px;overflow:auto">${msgs || '<p class="sub">Sin mensajes. Escribí una pregunta, un hecho, una observación, una hipótesis o una inferencia sobre este agrupamiento.</p>'}</div><div id="bastChatClaude"></div>` +
       (x.context ? `<div class="fila-flex" style="gap:8px;align-items:flex-end;flex-wrap:wrap;margin-top:6px"><select id="bastChatTipo" style="width:auto">${Object.entries(TIPOS_CHAT).map(([k, t]) => `<option value="${k}"${k === tipo ? ' selected' : ''}>${t}</option>`).join('')}</select>` +
         `<textarea id="bastChatTexto" rows="2" style="flex:1;min-width:240px" placeholder="Escribí y apretá Enter (Shift+Enter: nueva línea)">${esc(borrador)}</textarea>` +
         '<button class="btn primario" type="button" data-chat-accion="enviar">Enviar</button>' +
+        (almacen && almacen.encargoAccion ? '<button class="btn" type="button" data-chat-accion="claude" title="Le pasa esta pregunta y el bastanteo a tu Claude (consume tu plan, no la API). Tarda unos minutos.">Preguntar a Claude</button>' : '') +
         '<button class="btn" type="button" data-chat-accion="hechos" title="Agrega como hechos del bastanteo los datos del ChatContext">Hechos del bastanteo</button></div>' +
         '<p class="sub">Un hecho solo queda Verificado si viene del bastanteo y está tal cual en el contexto. Lo que escribe el usuario se verifica con evidencia; el chat no modifica el bastanteo.</p>' : '');
     const lista = $('bastChatMensajes'); lista.scrollTop = lista.scrollHeight;
+    pintarEstadoClaude();
+  }
+  // --- Consulta a Claude (encargo de SO a la tarea de Claude Code de la cuenta): explica y propone, no modifica nada.
+  const claudeEnCurso = new Map();   // encargo → { clave de la conversación, t0 }
+  function pintarEstadoClaude() {
+    const caja = $('bastChatClaude');
+    if (!caja) return;
+    const mios = [...claudeEnCurso.values()].filter(e => bastChat && e.clave === bastChat.clave);
+    caja.innerHTML = mios.length ? mios.map(e => `<div class="sub" style="margin:4px 0">⏳ Claude está trabajando en tu consulta (${Math.max(1, Math.round((Date.now() - e.t0) / 60000))} min). Podés seguir usando la pantalla: la respuesta aparece acá.</div>`).join('') : '';
+  }
+  async function preguntarClaude() {
+    const x = contextoChat(), t = $('bastChatTexto'), texto = t ? t.value.trim() : '';
+    if (!x.context || !texto || !almacen.encargoAccion) return;
+    const json = jsonV1(), modelo = M.modeloBastanteo(json);
+    const control = bast.cliente && bast.cliente.firmantes.length ? M.compararConExcel(json, bast.cliente) : null;
+    const { pedido, contexto } = M.armarEncargoBastanteo({ json, modelo, control, pregunta: texto, chatContext: x.context,
+      agrupamiento: { id: bastChat.agrupamientoId, grupo: x.fila && x.fila.grupo, condicion: x.fila && x.fila.condicion, reglas: x.fila && x.fila.reglas } });
+    const clave = bastChat.clave;
+    agregarAlChat(x.context, 'HUMAN', 'QUESTION', texto);
+    t.value = '';
+    renderChat();
+    try {
+      const r = await almacen.encargoAccion({ accion: 'crear', pedido, contexto });
+      claudeEnCurso.set(r.encargo, { clave, t0: Date.now() });
+      pintarEstadoClaude();
+      vigilarClaude();
+    } catch (err) {
+      const msg = err.codigo === 'sin_vinculo' ? 'Tu cuenta de Claude no está vinculada: vinculala una vez en SO ("Vincular Claude").' : `No pude pasarle la consulta a Claude: ${err.message || err}.`;
+      informar('Consulta a Claude', esc(msg));
+    }
+  }
+  let tClaude = null;
+  async function vigilarClaude() {
+    clearTimeout(tClaude);
+    for (const [id, e] of [...claudeEnCurso]) {
+      let enc = null;
+      try { enc = await almacen.encargoLeer(id); } catch (err) { /* reintenta */ }
+      if (!enc || ['pendiente', 'enviado', 'en_curso'].includes(enc.estado)) {
+        if (Date.now() - e.t0 > 45 * 60000) { claudeEnCurso.delete(id); informar('Consulta a Claude', 'Claude tardó más de 45 minutos: probá de nuevo.'); }
+        continue;
+      }
+      claudeEnCurso.delete(id);
+      const x = (bastChat && bastChat.clave === e.clave) ? contextoChat() : null;
+      if (enc.estado === 'listo' && enc.resultado && enc.resultado.texto) {
+        const ctx = x && x.context ? x.context : null;
+        if (ctx) agregarAlChat(ctx, 'SKILL', 'INFERENCE', String(enc.resultado.texto).slice(0, 20000), e.clave);
+        else informar('Respuesta de Claude', `<div style="white-space:pre-wrap">${esc(enc.resultado.texto)}</div>`);
+        toast('Claude respondió');
+      } else informar('Consulta a Claude', esc(enc.error || 'Claude no pudo responder.'));
+      renderChat();
+    }
+    pintarEstadoClaude();
+    if (claudeEnCurso.size) tClaude = setTimeout(vigilarClaude, 8000);
   }
   $('bastChat').addEventListener('change', e => {
     if (e.target.id !== 'bastChatAgr') return;
@@ -3179,6 +3234,7 @@
       entrada.item = entrada.record.item;
       renderChat();
     } else if (ac && ac.dataset.chatAccion === 'enviar') enviarChat();
+    else if (ac && ac.dataset.chatAccion === 'claude') preguntarClaude();
     else if (ac && ac.dataset.chatAccion === 'hechos') {
       const x = contextoChat();
       if (!x.context) return;

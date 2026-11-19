@@ -5499,6 +5499,31 @@ try {
     };
   }
 
+  // ---------------------------------------------------------------- Consulta a Claude desde el chat del bastanteo
+  // El pedido y el contexto viajan como un "encargo" de SO a la tarea de Claude Code de la cuenta del usuario (consume el plan,
+  // no la API). El pedido lleva las instrucciones y la pregunta (máx. 4000 caracteres); el contexto, el bastanteo recortado.
+  // Claude solo explica y propone: no modifica nada (los ajustes se aplican en la página, con confirmación).
+  const INSTRUCCION_ENCARGO_BASTANTEO = 'Consulta de BASTANTEO de VALO (el contexto trae tipo "bastanteo": JSON generado de Complif y/o la planilla del cliente, reglas de firma, vista agrupada, errores del modelo, avisos del generador y el control contra la planilla). '
+    + 'Respondé en "texto", en español rioplatense, claro y breve. Primero contestá la pregunta; después, si hay un problema, decí dónde está: en los datos (Complif, planilla u OCR), en la agrupación, en la combinación o en la regla. '
+    + 'Si corresponde, proponé ajustes concretos (qué grupo, firmante o regla cambiar y por qué), pero NO los apliques ni inventes significado legal que no esté en los datos. Si falta un dato, decilo. Citá firmantes y reglas por nombre o referencia (regla-1…).';
+  function armarEncargoBastanteo({ json, modelo, control, pregunta, agrupamiento, chatContext, hoy } = {}) {
+    const preg = String(pregunta || '').trim().slice(0, 1800);
+    const recorte = conCircuitos => ({
+      tipo: 'bastanteo', fecha: (hoy || new Date()).toISOString(),
+      empresa: json && json.empresa, apoderados: json && json.apoderados,
+      reglasFirma: ((json && json.reglasFirma) || []).map(r => Object.assign({ referencia: r.referencia, tipo: r.tipo, quorum: r.quorum, moneda: r.moneda, monto: r.monto, descripcion: r.descripcion, grupos: r.grupos, firmantes: r.firmantes },
+        conCircuitos ? { circuitos: r.circuitos } : { cantidadCircuitos: (r.circuitos || []).length })),
+      vistaAgrupada: modelo ? vistaAgrupada(modelo).map(f => ({ grupo: f.grupo, agrupamiento: f.agrupamiento, firmantes: f.firmantes, condicion: f.condicion, monedas: f.monedas, limites: f.limites, reglas: f.reglas, facultades: f.facultades && f.facultades.length })) : null,
+      errores: modelo ? modelo.errores.map(e => ({ nivel: e.nivel, tipo: e.tipo, detalle: e.detalle })) : [],
+      avisosDelGenerador: (json && json.avisos) || [],
+      controlContraPlanilla: control ? { diferencias: control.diferencias, firmantes: control.firmantes } : null,
+      agrupamientoAbierto: agrupamiento || null, chatContext: chatContext || null,
+    });
+    let contexto = recorte(true);
+    if (JSON.stringify(contexto).length > 150000) contexto = recorte(false);
+    return { pedido: `${INSTRUCCION_ENCARGO_BASTANTEO}\n\nPREGUNTA DEL USUARIO: ${preg}`, contexto };
+  }
+
   // ---------------------------------------------------------------- Padrones de consulta (alícuotas por CUIT)
   // Padrón mensual de alícuotas de percepción/retención de IIBB (ARDJU…): texto latin1, una línea por CUIT, separado por ";":
   //   publicación(ddmmaaaa);vigencia desde;vigencia hasta;CUIT(11);tipo(C|D);marca alta/baja;marca cambio alícuota;
@@ -5823,7 +5848,7 @@ try {
     problemasBanco, codigoCreditoPorDefecto, prefijoBanco, numeroCredito, prefijosRepetidos, controlarBancos, controlarReporte,
     generarCuotas, generarCreditos, txtCuotas, txtCreditos, nombreArchivo,
     calcularSecuenciaLote, validarFormulario,
-    tnaATea, teaATna, PADRONES, indexarPadronAlicuotas, buscarEnPadron, alicuotaPercepcionIIBB,
+    armarEncargoBastanteo, tnaATea, teaATna, PADRONES, indexarPadronAlicuotas, buscarEnPadron, alicuotaPercepcionIIBB,
     leerArchivosCesion, datosCartaDesdeLote, precioCesionNeto, cartaCesion, textoCartaCesion, docxSimple, fechaEnLetras, crc32,
   };
   root.ValoMotor = api;

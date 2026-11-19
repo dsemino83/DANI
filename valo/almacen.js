@@ -513,6 +513,21 @@
       // Token de la sesión actual (para que el archivo de envío informe el resultado en la base).
       async rpc(nombre, args) { const { data, error } = await sb.rpc(nombre, args); if (error) throw new Error(error.message || String(error)); return data; },
       async tokenSesion() { const { data } = await sb.auth.getSession(); return data && data.session ? data.session.access_token : ''; },
+      // Encargos a Claude (SO): la función so-encargos dispara la tarea de Claude Code de la cuenta del usuario (consume su plan);
+      // la página solo pide la acción y lee su propio encargo (RLS). La clave del disparador nunca llega al navegador.
+      async encargoAccion(body) {
+        const { data, error } = await sb.functions.invoke('so-encargos', { body });
+        if (error) {
+          let det = null; try { det = await error.context.json(); } catch (e) { /* sin cuerpo */ }
+          throw Object.assign(new Error((det && (det.mensaje || det.error)) || error.message), { codigo: det && det.error });
+        }
+        return data;
+      },
+      async encargoLeer(id) {
+        const { data, error } = await sb.from('so_encargos').select('id, estado, resultado, error, session_url, created_at, finished_at').eq('id', id).maybeSingle();
+        if (error) throw new Error(error.message);
+        return data;
+      },
       async cambiarClave(nueva) {
         const { error } = await sb.auth.updateUser({ password: nueva });
         if (error) throw new Error(error.message);

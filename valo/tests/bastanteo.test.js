@@ -649,3 +649,15 @@ test('bastanteo: personas del mismo grupo con facultades distintas según su pod
   assert.deepEqual(sinCredito.grupos, gruposDe(2));
   assert.ok(M.modeloBastanteo(j).errores.filter(e => e.nivel === 'error').length === 0);
 });
+
+test('encargo a Claude: el pedido entra en 4000 caracteres y el contexto lleva reglas, vista agrupada y errores', () => {
+  const j = armar([poder([persona(1, 'A'), persona(2, 'A')], [uso('INDIVIDUAL', [], ['firmar_cheques'], { grupo: 'A' })])]);
+  const modelo = M.modeloBastanteo(j);
+  const e = M.armarEncargoBastanteo({ json: j, modelo, pregunta: 'x'.repeat(5000), agrupamiento: { id: 'A1' } });
+  assert.ok(e.pedido.length <= 4000, 'pedido de ' + e.pedido.length);
+  assert.match(e.pedido, /BASTANTEO de VALO/);
+  assert.equal(e.contexto.tipo, 'bastanteo');
+  assert.equal(e.contexto.reglasFirma.length, j.reglasFirma.length);
+  assert.ok(Array.isArray(e.contexto.vistaAgrupada) && Array.isArray(e.contexto.errores) && Array.isArray(e.contexto.apoderados));
+  assert.ok(JSON.stringify(e.contexto).length < 200000);
+});
