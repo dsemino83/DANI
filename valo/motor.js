@@ -3260,6 +3260,13 @@
     return { monto: null, moneda: null };
   }
 
+  // ¿El texto de un uso de firma nombra también la otra moneda ("pesos o dólares", "o su equivalente en pesos")? Sin eso, el tope vale
+  // solo en la moneda en que está escrito: no se agrega la regla gemela al tipo de cambio.
+  function nombraOtraMoneda(moneda, texto) {
+    const t = String(texto || '');
+    return moneda === 'USD' ? /pesos|\bARS\b|moneda nacional|moneda de curso legal|equivalente/i.test(t) || /\$\s*\d/.test(t.replace(/U\$S|US\$|U\$D/gi, ''))
+      : /d[oó]lar|\bUSD\b|U\$S|US\$|U\$D|moneda extranjera|equivalente/i.test(t);
+  }
   // Uso de firma con varios montos según la operación ("(1) Para transferencias a proveedores y cheques: hasta $3.800.000.000; (2) … sueldos …
   // $1.000.000.000; (3) Para disposición de fondos, préstamos y descubierto: hasta $6.100.000.000"). Cada cláusula con su monto pasa a ser
   // una regla con las facultades que nombra. Tabla de frase → facultades (se revisa con legales; lo que no se pueda asignar se avisa):
@@ -3583,10 +3590,10 @@
         // Misma regla (tipo, quorum, grupos, firmante, monto y vencimiento del poder) desde varios usos: se juntan los circuitos.
         const vto = e.vencimiento || '';
         const k = [tipo, quorum, grupos.join(','), firmantes.join(','), extra.monto || '', extra.moneda || '', vto].join('|');
-        if (reglas.has(k)) { const r = reglas.get(k); r.circuitos = [...new Set(r.circuitos.concat(circuitos))].sort(); r._participantes = [...new Set(r._participantes.concat(participantes))].sort(); if ((e._fecha || '') > (r._fecha || '')) { r._fecha = e._fecha; r._deed = e._deed; } return; }
+        if (reglas.has(k)) { const r = reglas.get(k); r.circuitos = [...new Set(r.circuitos.concat(circuitos))].sort(); r._participantes = [...new Set(r._participantes.concat(participantes))].sort(); if ((e._fecha || '') > (r._fecha || '')) { r._fecha = e._fecha; r._deed = e._deed; } if (nombraOtraMoneda(extra.moneda, `${e.estructura_de_firma || ''} ${e.limitaciones || ''}`)) r._otraMoneda = true; return; }
         const descripcion = tipo === 'Individual' ? `Firma individual - ${combo}`
           : tipo === 'ConjuntaIndistinta' ? (combo === 'individual' ? `Grupo ${grupos.join(' y/o ')} - firma individual` : grupos.length > 1 ? `Firma conjunta: ${combo}` : `Grupo ${grupos[0]} - firma conjunta ${combo}`) : `Firma conjunta ${combo}`;
-        reglas.set(k, ocultarEnRegla(Object.assign({ tipo, quorum, moneda: null, monto: null, descripcion, circuitos, grupos, firmantes }, extra), { _vto: vto, _participantes: participantes, _gemelaDe: null, _fecha: e._fecha || '', _deed: e._deed || '' }));
+        reglas.set(k, ocultarEnRegla(Object.assign({ tipo, quorum, moneda: null, monto: null, descripcion, circuitos, grupos, firmantes }, extra), { _vto: vto, _participantes: participantes, _gemelaDe: null, _fecha: e._fecha || '', _deed: e._deed || '', _otraMoneda: nombraOtraMoneda(extra.moneda, `${e.estructura_de_firma || ''} ${e.limitaciones || ''}`) }));
       };
       if (e.firma_individual && !e.firma_conjunta) {
         // Límite de la firma individual escrito en la planilla ("H/ $ 50.000.000"), si es el mismo para todo el grupo.
@@ -3693,7 +3700,9 @@
     const opt = optimizarReglas(cumplibles, apoderados);
     // Tope en las dos monedas: cada regla con monto va también en la otra moneda al tipo de cambio Com. A 3500
     // (opciones.tc = { tc, fecha }). Sin tipo de cambio, solo la del poder (y se avisa).
-    const conTope = opt.lista.filter(r => r.monto && (r.moneda === 'USD' || r.moneda === 'ARS'));
+    const conMonto = opt.lista.filter(r => r.monto && (r.moneda === 'USD' || r.moneda === 'ARS'));
+    const conTope = conMonto.filter(r => r._otraMoneda), sinOtraMoneda = conMonto.filter(r => !r._otraMoneda);
+    if (sinOtraMoneda.length) avisos.push(`${sinOtraMoneda.length === 1 ? 'La regla' : 'Las reglas'} con tope ${[...new Set(sinOtraMoneda.map(r => r.descripcion.split(' · ')[0]))].join(', ')} ${sinOtraMoneda.length === 1 ? 'está' : 'están'} solo en ${[...new Set(sinOtraMoneda.map(r => r.moneda === 'USD' ? 'dólares' : 'pesos'))].join(' y ')}: el poder no nombra la otra moneda, así que no se agrega la regla al tipo de cambio.`);
     if (conTope.length && !(opciones.tc && opciones.tc.tc > 0)) avisos.push('Hay reglas con tope: falta el tipo de cambio (Com. A 3500) para agregar la misma regla en la otra moneda.');
     if (conTope.length && opciones.tc && opciones.tc.tc > 0) {
       const tc = opciones.tc.tc, fTc = String(opciones.tc.fecha || '').split('-').reverse().join('/');

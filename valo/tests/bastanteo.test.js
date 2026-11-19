@@ -56,7 +56,7 @@ test('regresión: cada combinación toma solo a los apoderados de sus grupos', (
 // (_vto, _participantes, _gemelaDe): la misma regla en USD y en ARS quedaba en dos filas.
 test('regresión: la regla en otra moneda se reconoce como la misma (una sola fila)', () => {
   const ap = [persona(1, 'A'), persona(2, 'A')];
-  const j = armar([poder(ap, [uso('CONJUNTA', ['A+A'], ['firmar_cheques'], { limitaciones: 'En operaciones que no excedan U$S 500.000' })])], { tc: { tc: 1000, fecha: '2026-10-20' } });
+  const j = armar([poder(ap, [uso('CONJUNTA', ['A+A'], ['firmar_cheques'], { limitaciones: 'En operaciones que no excedan U$S 500.000 o su equivalente en pesos' })])], { tc: { tc: 1000, fecha: '2026-10-20' } });
   assert.deepEqual(j.reglasFirma.map(r => `${r.moneda} ${r.monto}`).sort(), ['ARS 500000000', 'USD 500000']);
   const ars = j.reglasFirma.find(r => r.moneda === 'ARS');
   assert.equal(ars._gemelaDe, j.reglasFirma.find(r => r.moneda === 'USD'));
@@ -168,7 +168,7 @@ test('optimización: A+A, B+B y A+B con el mismo monto → dos cualesquiera de A
     uso('CONJUNTA', ['A+A'], ['firmar_cheques'], { limitaciones: 'Operaciones que excedan U$S 500.000' }),
     uso('CONJUNTA', ['A+B'], ['cobrar_plazo_fijo'], { limitaciones: 'Operaciones que excedan U$S 500.000' }),
     uso('CONJUNTA', ['B+B'], ['cobrar_plazo_fijo'], { limitaciones: 'Operaciones que excedan U$S 500.000' }),
-    uso('CONJUNTA', ['A+A', 'A+B', 'B+B'], ['firmar_cheques'], { limitaciones: 'En operaciones que no excedan U$S 500.000' }) ])]);
+    uso('CONJUNTA', ['A+A', 'A+B', 'B+B'], ['firmar_cheques'], { limitaciones: 'En operaciones que no excedan U$S 500.000 o su equivalente en pesos' }) ])]);
   const sig = j.reglasFirma.map(r => `${r.tipo} q${r.quorum} ${r.grupos.join('')} ${r.moneda || '-'}`).sort();
   assert.deepEqual(sig, ['ConjuntaIndistinta q2 AB -', 'ConjuntaIndistinta q2 AB USD']);
   assert.equal(M.modeloBastanteo(j).errores.filter(e => e.nivel === 'error').length, 0);
@@ -274,7 +274,7 @@ test('regresión: una regla que no se puede cumplir con los firmantes del grupo 
   const j2 = armar([poder([persona(1, 'A'), persona(5, 'A'), persona(2, 'B')], [uso('CONJUNTA', ['A+A', 'A+B'], ['firmar_cheques'])])]);
   assert.deepEqual(j2.reglasFirma.map(r => `${r.tipo} q${r.quorum} [${r.grupos}]`).sort(), ['Conjunta q1 [A,B]', 'ConjuntaIndistinta q2 [A]']);
   // Y las reglas con tope también salen sin la imposible (y sin su gemela en la otra moneda).
-  const j3 = armar([poder([persona(1, 'A'), persona(2, 'B')], [uso('CONJUNTA', ['A+A', 'A+B'], ['firmar_cheques'], { limitaciones: 'En operaciones que no excedan U$S 500.000' })])], { tc: { tc: 1000, fecha: '2026-10-20' } });
+  const j3 = armar([poder([persona(1, 'A'), persona(2, 'B')], [uso('CONJUNTA', ['A+A', 'A+B'], ['firmar_cheques'], { limitaciones: 'En operaciones que no excedan U$S 500.000 o su equivalente en pesos' })])], { tc: { tc: 1000, fecha: '2026-10-20' } });
   assert.deepEqual(j3.reglasFirma.map(r => `${r.moneda} ${r.tipo} [${r.grupos}]`).sort(), ['ARS Conjunta [A,B]', 'USD Conjunta [A,B]']);
 });
 
@@ -710,4 +710,20 @@ test('bastanteo: un uso con varios montos según la operación da una regla por 
   assert.ok(alto.circuitos.includes('CG_CREDITO_PESOS') && !bajo.circuitos.includes('CG_CREDITO_PESOS'), 'préstamos solo con el monto de la cláusula 3');
   assert.ok(bajo.circuitos.includes('CC_ABRIR'), 'lo que el texto no nombra va con el menor monto');
   assert.ok(j.avisos.some(a => /varios montos según la operación/.test(a) && /clase F/i.test(a)), j.avisos.join(' | '));
+});
+
+test('bastanteo: la regla con tope solo se replica en la otra moneda si el poder la nombra', () => {
+  const tc = { tc: 1000, fecha: '2026-11-01' };
+  const armarTc = txt => {
+    const p = poder([persona(1, 'A')], [uso('INDIVIDUAL', [], ['firmar_cheques'], { grupo: 'A', limitaciones: txt })], { deed_number: '1', fecha_emision: '2024-01-01' });
+    const jp = M.jsonPoder(p, null, { todosApoderados: true });
+    return M.jsonBastanteoV1(M.jsonBastanteoUnico([jp], { cuit: '30000000007', cliente: 'EMPRESA DE PRUEBA SA' }), null, { fuente: 'complif', jsons: [jp], tc });
+  };
+  const soloPesos = armarTc('Cada apoderado hasta $50.000.000');
+  assert.deepEqual(soloPesos.reglasFirma.map(r => r.moneda), ['ARS'], 'el poder habla solo de pesos: no hay regla en dólares');
+  assert.ok(soloPesos.avisos.some(a => /no nombra la otra moneda/.test(a)));
+  const soloDolares = armarTc('Cada apoderado hasta U$S 50.000');
+  assert.deepEqual(soloDolares.reglasFirma.map(r => r.moneda), ['USD'], 'el poder habla solo de dólares: no hay regla en pesos');
+  const dosMonedas = armarTc('Cada apoderado hasta $50.000.000 o su equivalente en dólares');
+  assert.deepEqual(dosMonedas.reglasFirma.map(r => r.moneda).sort(), ['ARS', 'USD'], 'si el poder nombra los dólares, va también la regla en dólares');
 });
