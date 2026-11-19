@@ -3457,7 +3457,7 @@
     // Facultades distintas dentro de un mismo grupo: personas de la misma letra cuya firma individual sale de poderes con distintas
     // facultades (Marsilio en la esc. 46 puede tomar préstamos; Rivera y Dias, en la esc. 296, no). Una regla vale para todo el grupo,
     // así que no se juntan: cada conjunto de facultades va en su propio grupo (letra libre) y se avisa.
-    const reasignado = new Map();
+    const reasignado = new Map(), subgruposDe = {};
     {
       const circuitosDe = e => [...new Set(Object.entries(e.facultades || {}).filter(([k, v]) => v && CIRCUITO_DE_CLAVE[k])
         .flatMap(([k]) => [CIRCUITO_DE_CLAVE[k]].concat(CIRCUITOS_GEMELOS[CIRCUITO_DE_CLAVE[k]] || [])))].sort();
@@ -3477,12 +3477,17 @@
         if (firmas.size < 2) return;
         const subgrupos = [...firmas.values()].sort((a, b) => b.length - a.length);
         const base = new Set(subgrupos[0][0][1]);
+        // Cada conjunto de facultades distinto toma la letra siguiente a la del grupo (A → B); si hay más, la siguiente a la última
+        // tomada (B → C) y, si esa ya es de otro grupo, la que sigue.
+        let ultima = letra;
         subgrupos.slice(1).forEach(sg => {
-          // Subgrupo de la misma letra de la planilla: A2, A3… (el control contra el resumen lo toma como la letra A).
-          let n = 2;
-          while (usadas.has(letra + n)) n++;
-          const nueva = letra + n;
+          let c = ultima.charCodeAt(0) + 1;
+          while (c <= 90 && usadas.has(String.fromCharCode(c))) c++;
+          let nueva = String.fromCharCode(c);
+          if (c > 90) { let n = 2; while (usadas.has(letra + n)) n++; nueva = letra + n; }
           usadas.add(nueva);
+          ultima = nueva.length === 1 ? nueva : ultima;
+          subgruposDe[nueva] = letra;
           sg.forEach(([id]) => reasignado.set(id, nueva));
           const quita = [...base].filter(c => !sg[0][1].includes(c)), suma = sg[0][1].filter(c => !base.has(c));
           const nombres = sg.map(([id]) => { const a = apoderadosU.find(x => x.numero_de_identificacion === id); return a ? a.nombre_completo : String(id); });
@@ -3635,6 +3640,7 @@
     // Avisos y grupos renombrados: para la pantalla, no se exportan.
     Object.defineProperty(json, 'avisos', { value: [...new Set(avisos)], enumerable: false });
     Object.defineProperty(json, 'renombre', { value: renombre, enumerable: false });
+    Object.defineProperty(json, 'subgrupos', { value: subgruposDe, enumerable: false }); // grupo nuevo → letra de la planilla de la que salió
     Object.defineProperty(json, 'unificaciones', { value: opt.notas, enumerable: false });
     return json;
   }
@@ -4008,7 +4014,7 @@
       if (!L) {
         puntos.grupo = P('rev', 'el resumen no indica el grupo');
         aviso('ERROR DE PERTENENCIA', `El resumen no indica el grupo de ${nombre}.`, nombre);
-      } else if (dat.grupos.some(g => g === aL(L) || g.replace(/^([A-Z])\d$/, '$1') === aL(L))) puntos.grupo = P('ok'); // A2 = subgrupo de A por facultades distintas
+      } else if (dat.grupos.some(g => g === aL(L) || (json.subgrupos && json.subgrupos[g] === aL(L)))) puntos.grupo = P('ok'); // subgrupo de la letra de la planilla por facultades distintas
       else {
         puntos.grupo = P('dif', `grupo ${L} en el resumen y ${dat.grupos.join('/') || '—'} en el bastanteo`);
         error('ERROR DE PERTENENCIA', `${nombre}: grupo ${L} en el resumen y ${dat.grupos.join('/') || '—'} en el bastanteo.`, nombre);

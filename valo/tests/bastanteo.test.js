@@ -661,3 +661,21 @@ test('encargo a Claude: el pedido entra en 4000 caracteres y el contexto lleva r
   assert.ok(Array.isArray(e.contexto.vistaAgrupada) && Array.isArray(e.contexto.errores) && Array.isArray(e.contexto.apoderados));
   assert.ok(JSON.stringify(e.contexto).length < 200000);
 });
+
+test('bastanteo: los subgrupos por facultades distintas toman la letra siguiente a la del grupo (A → B → C), salteando las ya usadas', () => {
+  const f = (n, g) => persona(n, g);
+  // Tres conjuntos de facultades en el grupo A (poderes distintos) y un grupo D real: A queda, B y C son los subgrupos.
+  const p1 = poder([f(1, 'A')], [uso('INDIVIDUAL', [], ['firmar_cheques', 'tomar_credito_en_pesos'], { grupo: 'A' })], { deed_number: '1', fecha_emision: '2020-01-01' });
+  const p2 = poder([f(2, 'A'), f(3, 'A')], [uso('INDIVIDUAL', [], ['firmar_cheques'], { grupo: 'A' })], { deed_number: '2', fecha_emision: '2021-01-01' });
+  const p3 = poder([f(4, 'A')], [uso('INDIVIDUAL', [], ['firmar_cheques', 'endosar_cheques'], { grupo: 'A' })], { deed_number: '3', fecha_emision: '2022-01-01' });
+  const j = armar([p1, p2, p3]);
+  const gruposDe = n => j.apoderados.find(a => a.apellido === `APELLIDO${n}`).grupos[0];
+  assert.equal(gruposDe(2), 'A', 'los dos que comparten facultades (el subgrupo más grande) conservan la letra');
+  const otros = [gruposDe(1), gruposDe(4)].sort();
+  assert.deepEqual(otros, ['B', 'C'], 'los demás toman B y luego C');
+  assert.equal(M.modeloBastanteo(j).errores.filter(e => e.nivel === 'error').length, 0);
+  // Si la letra siguiente ya es de otro grupo, se salta.
+  const pB = poder([f(5, 'B')], [uso('INDIVIDUAL', [], ['firmar_cheques', 'cobrar_cheques'], { grupo: 'B' })], { deed_number: '4', fecha_emision: '2023-01-01' });
+  const j2 = armar([p1, p2, pB]);
+  assert.equal(j2.apoderados.find(a => a.apellido === 'APELLIDO1').grupos[0], 'C', 'B ya es otro grupo: el subgrupo toma la C');
+});
