@@ -3158,6 +3158,7 @@
         '<button class="btn primario" type="button" data-chat-accion="enviar">Enviar</button>' +
         (almacen && almacen.encargoAccion ? '<button class="btn" type="button" data-chat-accion="claude" title="Le pasa esta pregunta y el bastanteo a tu Claude (consume tu plan, no la API). Tarda unos minutos.">Preguntar a Claude</button>' : '') +
         '<button class="btn" type="button" data-chat-accion="hechos" title="Agrega como hechos del bastanteo los datos del ChatContext">Hechos del bastanteo</button></div>' +
+        (almacen && almacen.encargoAccion ? '<p class="sub" style="margin:6px 0 0"><b>Cómo se usa:</b> escribí tu pregunta en el cuadro y tocá <b>Preguntar a Claude</b> (con <b>Enviar</b> solo la anotás en el chat). Claude contesta en unos minutos, en este mismo chat, y no modifica nada.</p>' : '') +
         '<p class="sub">Un hecho solo queda Verificado si viene del bastanteo y está tal cual en el contexto. Lo que escribe el usuario se verifica con evidencia; el chat no modifica el bastanteo.</p>' : '');
     const lista = $('bastChatMensajes'); lista.scrollTop = lista.scrollHeight;
     pintarEstadoClaude();
@@ -3172,7 +3173,10 @@
   }
   async function preguntarClaude() {
     const x = contextoChat(), t = $('bastChatTexto'), texto = t ? t.value.trim() : '';
-    if (!x.context || !texto || !almacen.encargoAccion) return;
+    if (!almacen.encargoAccion) return;
+    if (!x.context) { toast('Todavía se está armando el análisis: esperá unos segundos y probá de nuevo.'); return; }
+    if (!texto) { toast('Escribí primero tu pregunta en el cuadro de texto de arriba y después tocá "Preguntar a Claude".'); if (t) t.focus(); return; }
+    toast('Consulta enviada a Claude: tarda unos minutos, la respuesta aparece en este chat.');
     const json = jsonV1(), modelo = M.modeloBastanteo(json);
     const control = bast.cliente && bast.cliente.firmantes.length ? M.compararConExcel(json, bast.cliente) : null;
     const { pedido, contexto } = M.armarEncargoBastanteo({ json, modelo, control, pregunta: texto, chatContext: x.context,
