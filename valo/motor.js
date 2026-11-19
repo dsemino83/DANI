@@ -3260,6 +3260,61 @@
     return { monto: null, moneda: null };
   }
 
+  // Uso de firma con varios montos según la operación ("(1) Para transferencias a proveedores y cheques: hasta $3.800.000.000; (2) … sueldos …
+  // $1.000.000.000; (3) Para disposición de fondos, préstamos y descubierto: hasta $6.100.000.000"). Cada cláusula con su monto pasa a ser
+  // una regla con las facultades que nombra. Tabla de frase → facultades (se revisa con legales; lo que no se pueda asignar se avisa):
+  const FRASES_FACULTADES = [
+    [/proveedor/, ['transferencias_a_cuentas_de_terceros']],
+    [/sueldo/, ['transferencias_a_cuentas_de_terceros']],
+    [/\bcheques?\b/, ['firmar_cheques', 'endosar_cheques', 'cobrar_cheques', 'depositar_echeqs', 'endosar_para_deposito', 'proveedores_firmar_cheques']],
+    [/descuento de cheques|descontar cheques/, ['descontar_cheques', 'descontar_cheques_pagos_diferidos']],
+    [/disposicion de fondos/, ['extraer_fondos']],
+    [/inversiones? bancarias?/, ['constituir_plazo_fijo', 'cobrar_plazo_fijo', 'endosar_plazo_fijo', 'ceder_plazo_fijo']],
+    [/bursatil|valores negociables/, ['depositar_valores_negociables', 'retirar_valores_negociables', 'ordenar_compra_valores_negociables', 'ordenar_venta_valores_negociables',
+      'alquilar_valores_negociables', 'caucionar_valores_negociables', 'operar_en_bolsas', 'abrir_cuentas_alyc']],
+    [/cuentas propias/, ['transferencias_entre_cuentas_de_la_empresa']],
+    [/prestamos?|creditos?/, ['tomar_credito_en_pesos', 'tomar_credito_en_moneda_extranjera']],
+    [/descubierto/, ['girar_descubierto_dentro_limites', 'solicitar_acuerdo_descubierto', 'sobregiro_de_fci']],
+  ];
+  const FRASES_SIN_FACULTAD = /afip|impuestos?/;
+  function variantesPorClausulas(e) {
+    const texto = `${e.estructura_de_firma || ''} ${e.limitaciones || ''}`.replace(/\s+/g, ' ');
+    const trozos = texto.split(/\s*(?:\(\d+\)|;|\.\s+(?=Para\b))\s*/i).filter(t => /\bpara\b/i.test(t));
+    const gruposUso = new Set((e.combinaciones || []).flatMap(c => String(c).split('+')));
+    const cl = trozos.map(t => {
+      const n = normalizar(t);
+      const general = /operaciones generales/.test(n);
+      const sinParentesis = normalizar(t.replace(/\([^)]*\)/g, ' '));
+      const claves = general ? [] : [...new Set(FRASES_FACULTADES.filter(([re]) => re.test(sinParentesis)).flatMap(([, ks]) => ks))];
+      const otrosGrupos = [...t.matchAll(/\b[Cc]lase\s+([A-Z])\b|\b[Gg]rupo\s+([A-Z])\b/g)].map(m => m[1] || m[2]).filter(g => !gruposUso.has(g));
+      const m = montoDeTexto(t);
+      return { texto: t, general, claves, otrosGrupos, monto: m.monto ? { monto: m.monto, moneda: m.moneda } : null,
+        noFacultada: !m.monto && /no\s+est[aá]\s+facultad|no\s+habilitad|no\s+actu/i.test(t), sinFacultad: FRASES_SIN_FACULTAD.test(sinParentesis) };
+    }).filter(c => c.claves.length || c.general || c.sinFacultad);
+    if (cl.filter(c => c.monto).length < 2) return null;
+    const verdaderas = Object.keys(e.facultades || {}).filter(k => e.facultades[k]);
+    const reclamadas = new Set(), por = [], notas = [];
+    cl.forEach(c => {
+      c.propias = c.claves.filter(k => !reclamadas.has(k));
+      c.claves.forEach(k => reclamadas.add(k));
+      if (c.otrosGrupos.length) { notas.push(`la cláusula "${c.texto.slice(0, 90)}" pide también la clase ${c.otrosGrupos.join(', ')} (va en la regla de esa combinación)`); return; }
+      if (c.noFacultada) { notas.push(`"${c.texto.slice(0, 90)}": sin facultad para esta combinación`); return; }
+      if (c.sinFacultad && !c.claves.length) notas.push(`"${c.texto.slice(0, 90)}": el catálogo no tiene una facultad para eso (no se asigna)`);
+      if (c.monto && (c.propias.length || c.general)) por.push(c);
+    });
+    if (por.length < 2 && !por.some(c => c.general)) return null;
+    // Lo que ninguna cláusula nombra: va con la cláusula de "operaciones generales" si hay; si no, con el menor monto (criterio conservador).
+    const sobrantes = verdaderas.filter(k => !reclamadas.has(k));
+    const general = por.find(c => c.general);
+    const menor = por.slice().sort((a, b) => a.monto.monto - b.monto.monto)[0];
+    if (sobrantes.length) {
+      const destino = general || menor;
+      if (destino) { destino.propias = destino.propias.concat(sobrantes); if (!general) notas.push(`${sobrantes.length} ${sobrantes.length === 1 ? 'facultad que el texto no nombra se informa' : 'facultades que el texto no nombra se informan'} con el menor monto (${destino.monto.monto.toLocaleString('es-AR')})`); }
+    }
+    const out = por.map(c => ({ monto: c.monto, facultades: Object.fromEntries(verdaderas.filter(k => c.propias.includes(k)).map(k => [k, true])), texto: c.texto })).filter(v => Object.keys(v.facultades).length);
+    return out.length > 1 || (out.length === 1 && out[0].monto) ? { variantes: out, notas } : null;
+  }
+
   // Tipo de cambio escrito en la planilla del cliente: "TIPO DE CAMBIO AL 11/01/2024: 834.5000", "TC: 9/11/2022 $166,50",
   // "(según fecha 2/9/2026 - cotización $1511 - …)". Devuelve { tc, fecha (aaaa-mm-dd o ''), texto } o null.
   function tcDePlanilla(hojas) {
@@ -3499,10 +3554,17 @@
         });
       });
     }
-    (exacto ? porUso : unico.estructuras_de_firma || []).forEach(e => {
+    // Usos con varios montos según la operación: una regla por cláusula (cada una con su monto y sus facultades).
+    const usosAProcesar = (exacto ? porUso : unico.estructuras_de_firma || []).flatMap(e => {
+      const v = exacto ? variantesPorClausulas(e) : null;
+      if (!v) return [e];
+      avisos.push(`El uso de firma ${String(e.estructura_de_firma || '').slice(0, 60)}${e._deed ? ' (esc. ' + e._deed + ')' : ''} tiene varios montos según la operación: ${v.variantes.length} regla${v.variantes.length > 1 ? 's' : ''} (${v.variantes.map(x => (x.monto.moneda === 'USD' ? 'USD ' : '$ ') + x.monto.monto.toLocaleString('es-AR') + ' → ' + Object.keys(x.facultades).length + (Object.keys(x.facultades).length === 1 ? ' facultad' : ' facultades')).join('; ')})${v.notas.length ? '. Revisar: ' + v.notas.join('; ') : ''}.`);
+      return v.variantes.map(x => Object.assign({}, e, { facultades: x.facultades, _monto: x.monto }));
+    });
+    usosAProcesar.forEach(e => {
       const circuitos = [...new Set(Object.entries(e.facultades || {}).filter(([k, v]) => v && CIRCUITO_DE_CLAVE[k])
         .flatMap(([k]) => [CIRCUITO_DE_CLAVE[k]].concat(CIRCUITOS_GEMELOS[CIRCUITO_DE_CLAVE[k]] || [])))].sort();
-      const mt = montoDeTexto(`${e.estructura_de_firma || ''} ${e.limitaciones || ''}`);
+      const mt = e._monto || montoDeTexto(`${e.estructura_de_firma || ''} ${e.limitaciones || ''}`);
       const delTexto = mt.monto ? { monto: mt.monto, moneda: mt.moneda } : {};
       // PARTICIPACIÓN: los firmantes a los que el uso de firma les da la regla (CUIT/CUIL como en apoderados).
       const participantesDe = ids => [...new Set((ids || []).map(id => { const f = planillaDe.get(id), d = idTexto(id) || idTexto(f && f.cuit); return d.length === 11 ? formatoCuit(d) : d; }).filter(Boolean))].sort();

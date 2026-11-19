@@ -696,3 +696,18 @@ test('bastanteo: poderes superpuestos con distintos montos toman el más recient
   const m = M.modeloBastanteo(j);
   assert.deepEqual(m.errores.filter(e => /AGRUPAMIENTO/.test(e.tipo)), [], 'sin error de agrupamiento: la regla vale para los tres del grupo B');
 });
+
+test('bastanteo: un uso con varios montos según la operación da una regla por cláusula (cada una con su monto y sus facultades)', () => {
+  const texto = 'Dos Apoderados Clase B actuando conjuntamente: (1) Para transferencias a cuenta de proveedores, operatoria con cheques y descuento de cheques: hasta $3.800.000.000; '
+    + '(2) Para transferencias para pago de sueldos: solo conjuntamente con uno de los Apoderados Clase F hasta $1.000.000.000; '
+    + '(3) Para disposición de fondos/inversiones bancarias y bursátiles, pagos AFIP, transferencias a cuentas propias, tomar préstamos y descubierto: hasta $6.100.000.000.';
+  const p = poder([persona(1, 'B'), persona(2, 'B')], [uso('CONJUNTA', ['B+B'], ['firmar_cheques', 'transferencias_a_cuentas_de_terceros', 'tomar_credito_en_pesos', 'girar_descubierto_dentro_limites', 'abrir_cuentas_corrientes'],
+    { grupo: 'B', limitaciones: texto })], { deed_number: '199', fecha_emision: '2024-09-19' });
+  const j = armar([p]);
+  const bb = j.reglasFirma.filter(r => r.grupos.join() === 'B');
+  assert.deepEqual(bb.map(r => r.monto).sort((a, b) => a - b), [3800000000, 6100000000], 'dos reglas: los montos de las cláusulas (la de sueldos con Clase F no es de B+B)');
+  const alto = bb.find(r => r.monto === 6100000000), bajo = bb.find(r => r.monto === 3800000000);
+  assert.ok(alto.circuitos.includes('CG_CREDITO_PESOS') && !bajo.circuitos.includes('CG_CREDITO_PESOS'), 'préstamos solo con el monto de la cláusula 3');
+  assert.ok(bajo.circuitos.includes('CC_ABRIR'), 'lo que el texto no nombra va con el menor monto');
+  assert.ok(j.avisos.some(a => /varios montos según la operación/.test(a) && /clase F/i.test(a)), j.avisos.join(' | '));
+});
