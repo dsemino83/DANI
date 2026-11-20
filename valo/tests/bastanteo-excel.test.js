@@ -159,6 +159,14 @@ test('contra el Excel: una facultad marcada con "X" que ninguna regla da es ERRO
   assert.ok(errores(compararConExcel(noDa, x, M), 'ERROR DE REGLA').some(e => /firmar_cheques|librar cheques/i.test(e.detalle)));
 });
 
+test('contra el Excel: "Apertura/Cierre de cuenta" genérico se cumple con cuenta corriente O caja de ahorro; sin ninguna, es error', () => {
+  const x = excel([[1, 'A CONJUNTA A+A'], [2, 'A CONJUNTA A+A']], { marcas: ['APERTURA DE CUENTA', 'CIERRE DE CUENTA'] });
+  const mk = c => json([ap(1, ['A']), ap(2, ['A'])], [regla('ConjuntaIndistinta', 2, ['A'], { circuitos: c })]);
+  assert.deepEqual(errores(compararConExcel(mk(['CC_ABRIR', 'CC_CERRAR']), x, M)), []);
+  assert.deepEqual(errores(compararConExcel(mk(['CA_ABRIR', 'CA_CERRAR']), x, M)), []);
+  assert.ok(errores(compararConExcel(mk(['ECHEQ_FIRMAR']), x, M), 'ERROR DE REGLA').length >= 2);
+});
+
 test('contra el Excel: sin marcas "X" no se controlan las facultades', () => {
   const j = json([ap(1, ['A']), ap(2, ['A'])], [regla('ConjuntaIndistinta', 2, ['A'], { circuitos: ['CA_ABRIR'] })]);
   assert.deepEqual(errores(compararConExcel(j, excel([[1, 'A CONJUNTA A+A'], [2, 'A CONJUNTA A+A']]), M)), []);

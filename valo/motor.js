@@ -4212,7 +4212,11 @@
     if (marcas.length) {
       const claveDe = Object.fromEntries(BASTANTEO_CATALOGO.map(c => [c[0], c[2]]));
       const dadas = new Set(m.reglas.flatMap(r => r.circuitos).map(c => claveDe[c]).filter(Boolean));
-      marcas.filter(k => !dadas.has(k)).forEach(k => {
+      // "Apertura de cuenta" / "Cierre de cuenta" genéricos: alcanza con que el poder dé cuenta corriente O caja de ahorro
+      // (la X no distingue el tipo de cuenta). Si ninguna de las dos está dada, se marca cada una.
+      const ALTERNATIVAS = [['abrir_cuentas_corrientes', 'abrir_caja_de_ahorro'], ['cerrar_cuentas_corrientes', 'cerrar_caja_de_ahorro']];
+      marcas.filter(k => !dadas.has(k)
+        && !ALTERNATIVAS.some(g => g.includes(k) && g.some(o => o !== k && dadas.has(o) && marcas.includes(o)))).forEach(k => {
         const nom = (BASTANTEO_CATALOGO.find(c => c[2] === k) || [])[1];
         error('ERROR DE REGLA', `La facultad ${k}${nom ? ` (${nom})` : ''} está marcada con X en el resumen y ninguna regla del bastanteo la da.`);
       });
