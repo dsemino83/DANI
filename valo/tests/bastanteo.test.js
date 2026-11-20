@@ -727,3 +727,22 @@ test('bastanteo: la regla con tope solo se replica en la otra moneda si el poder
   const dosMonedas = armarTc('Cada apoderado hasta $50.000.000 o su equivalente en dólares');
   assert.deepEqual(dosMonedas.reglasFirma.map(r => r.moneda).sort(), ['ARS', 'USD'], 'si el poder nombra los dólares, va también la regla en dólares');
 });
+
+test('bastanteo: un uso de firma agregado a mano reemplaza al heredado con las mismas combinaciones y toma el monto del poder más reciente', () => {
+  const u = M.usoManual({ combinaciones: 'd + d; B+D', limitaciones: 'hasta $1.100.000.000', facultades: { firmar_cheques: true } });
+  assert.deepEqual(u.combinaciones, ['B+D', 'D+D']);
+  assert.equal(u.tipo, 'CONJUNTA');
+  assert.equal(M.usoManual({ combinaciones: '' }), null);
+  const base = [uso('CONJUNTA', ['B+D'], ['firmar_cheques'], { grupo: 'B', limitaciones: 'hasta $1.600.000.000' }), uso('CONJUNTA', ['D+D'], ['firmar_cheques'], { grupo: 'D', limitaciones: 'hasta $100.000.000' })];
+  const con = M.usosConManuales(base, [{ combinaciones: 'D+D', limitaciones: 'hasta $1.100.000.000', copiarDe: 0 }]);
+  assert.equal(con.length, 2, 'el D+D anterior se reemplaza, no se suma');
+  assert.ok(con.some(x => x.manual && /1\.100\.000\.000/.test(x.limitaciones)));
+  assert.ok(!con.some(x => /100\.000\.000/.test(x.limitaciones) && !/1\.100/.test(x.limitaciones) && !/1\.600/.test(x.limitaciones)));
+  // Con el poder complementario nuevo (que no trae D+D) y el D+D agregado a mano, la regla D+D toma el monto nuevo.
+  const viejo = poder([persona(1, 'D'), persona(2, 'D')], [uso('CONJUNTA', ['D+D'], ['firmar_cheques'], { grupo: 'D', limitaciones: 'Dos del grupo D hasta $100.000.000' })], { deed_number: '283', fecha_emision: '2021-12-15' });
+  const nuevo = poder([persona(3, 'B')], [uso('CONJUNTA', ['B+D'], ['firmar_cheques'], { grupo: 'B', limitaciones: 'Un B con un D hasta $1.600.000.000' })], { deed_number: '199', fecha_emision: '2024-09-19', alcance: { new: false, revoke: false, complementary: true } });
+  nuevo.usos = M.usosConManuales(nuevo.usos, [{ combinaciones: 'D+D', limitaciones: 'Dos del grupo D hasta $1.100.000.000', copiarDe: 0 }]);
+  const j = armar([viejo, nuevo]);
+  const dd = j.reglasFirma.filter(r => r.grupos.join() === 'D');
+  assert.deepEqual(dd.map(r => r.monto), [1100000000], 'D+D con el monto de la escritura 199');
+});

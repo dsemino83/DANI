@@ -2790,7 +2790,8 @@
       const prev = bast.edPorPoder[p._k] || {};
       const candidatas = esc_.filter(e => e.fecha === p.fecha_emision);
       const ed = Object.assign({ deed_number: p.deed_number || '', board_resolution_power_attorney: p.board_resolution_power_attorney || '',
-        power_attorney_type: p.power_attorney_type || 'Poder Especial para Operaciones Bancarias', cuits: {}, facultades: p.usos.map(() => ({})) }, prev, { candidatas });
+        power_attorney_type: p.power_attorney_type || 'Poder Especial para Operaciones Bancarias', cuits: {}, facultades: [], usosExtra: leerUsosExtra(p) }, prev, { candidatas });
+      ed.facultades = usosDe(p, ed).map((u, n) => (prev.facultades || [])[n] || {});
       // Si con esa fecha hay varias escrituras se propone la última (en la planilla, la del poder va después del acta).
       if (!ed.deed_number && candidatas.length) ed.deed_number = candidatas[candidatas.length - 1].numero;
       bast.edPorPoder[p._k] = ed;
@@ -2838,6 +2839,11 @@
     if (bast.cuitsBase[dni]) return { cuit: bast.cuitsBase[dni], fuente: bast.fuenteCuit[dni] || 'base de entes' };
     return { cuit: '', fuente: '' };
   }
+  // Usos de firma que Complif no extrajo y se agregaron a mano (por poder): se guardan en este navegador por empresa y poder.
+  const claveUsosExtra = p => `valo.usosExtra.${String((bast.cliente && bast.cliente.cuit) || p.cuit_empresa || '').replace(/\D/g, '')}.${p.deed_number || ''}.${p.fecha_emision || ''}`;
+  const leerUsosExtra = p => { try { return JSON.parse(localStorage.getItem(claveUsosExtra(p)) || '[]'); } catch (e) { return []; } };
+  const guardarUsosExtra = (p, l) => { try { localStorage.setItem(claveUsosExtra(p), JSON.stringify(l)); } catch (e) { /* sin almacenamiento */ } };
+  const usosDe = (p, ed) => M.usosConManuales(p.usos, (ed && ed.usosExtra) || []);
   function jsonDe(i, todosApoderados = false) {
     const ed = bast.ediciones[i];
     const cuits = {};
@@ -2849,7 +2855,7 @@
       if ((ed.cuits || {})[d]) cuits[d] = ed.cuits[d];
       else if (!M.cuitPorDni(d, firmantes) && bast.cuitsBase[d]) cuits[d] = bast.cuitsBase[d];
     });
-    return M.jsonPoder(p, bast.cliente, Object.assign({}, ed, { cuits, todosApoderados }));
+    return M.jsonPoder(Object.assign({}, p, { usos: usosDe(p, ed) }), bast.cliente, Object.assign({}, ed, { cuits, todosApoderados }));
   }
 
   function renderBastanteo() {
@@ -2898,7 +2904,7 @@
           `<td><input data-bast-cuit="${i}" data-dni="${esc(x.dni)}" value="${esc(c.cuit)}" placeholder="CUIT (11 dígitos)" inputmode="numeric" style="max-width:150px"></td>` +
           `<td>${c.cuit ? `<span class="chip ok">${esc(c.fuente)}</span>` : '<span class="chip warn">sin CUIT: va el DNI</span>'}</td></tr>`;
       };
-      const usos = p.usos.map((u, n) => {
+      const usos = usosDe(p, ed).map((u, n) => {
         const fac = j.estructuras_de_firma[n].facultades;
         const celdas = M.BASTANTEO_CLAVES.map(k => {
           const cat = nombreCatalogo[k], nombre = cat ? cat[1] : M.BASTANTEO_EXTRA[k] || k;
@@ -2908,7 +2914,7 @@
             `<input type="checkbox" style="flex:none" data-bast-fac="${i}" data-uso="${n}" data-clave="${k}" ${fac[k] ? 'checked' : ''}> <span><b style="font-size:11px">${esc(cat ? cat[0] : '—')}</b> ${esc(nombre)}</span></label>`;
         }).join('');
         const si = Object.values(fac).filter(Boolean).length;
-        return `<h3>Uso de firma ${n} · ${esc(u.tipo || '—')} · ${esc(u.descripcion || '')}</h3>` +
+        return `<h3>Uso de firma ${n} · ${esc(u.tipo || '—')} · ${esc(u.descripcion || '')}${u.manual ? ' <span class="chip warn">agregado a mano</span>' : ''}</h3>` +
           (u.limitaciones ? `<p class="sub" style="margin:0 0 8px">Limitaciones: ${esc(u.limitaciones)}</p>` : '') +
           `<p class="sub" style="margin:0 0 6px">${si} de ${M.BASTANTEO_CLAVES.length} facultades habilitadas. Borde normal = del PDF · <span style="color:var(--warn)">ámbar</span> = de la planilla · tenue = sin dato (va "no") · <span style="color:var(--accent)">rojo</span> = cambiado a mano.</p>` +
           `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(270px,1fr));gap:6px">${celdas}</div>`;
@@ -2929,6 +2935,16 @@
         ${!apod.length && p.apoderados.length ? aviso('warn', 'Ningún apoderado de este poder está en la planilla del cliente.') : ''}
         ${fuera.length ? `<p class="sub" style="margin:6px 0 0">No se incluyen (están en el PDF pero no en la planilla): ${esc(fuera.map(a => a.nombre_completo).join(', '))}</p>` : ''}
         ${usos}
+        <details style="margin:8px 0"><summary><b>Agregar un uso de firma que Complif no extrajo</b>${(ed.usosExtra || []).length ? ` (${ed.usosExtra.length} agregado${ed.usosExtra.length > 1 ? 's' : ''})` : ''}</summary>
+          <p class="sub" style="margin:6px 0">Si el poder dice una combinación que la extracción de Complif no trae (por ejemplo "D con otro de la Clase D hasta $1.100.000.000"), cargala acá. Reemplaza al uso que ya tuviera esas mismas combinaciones (por ejemplo el heredado de un poder anterior). Se guarda en este navegador para esta empresa y poder.</p>
+          <div class="grid">
+            <label class="campo">Combinación(es) <input id="bastUsoComb${i}" placeholder="ej. D+D  o  B+B; B+D"></label>
+            <label class="campo">Texto del límite o condición del poder <input id="bastUsoLim${i}" placeholder="ej. Un Apoderado Clase D con otro Clase D hasta $1.100.000.000"></label>
+            <label class="campo">Facultades como en el uso <select id="bastUsoCopia${i}">${usosDe(p, ed).map((u, n) => `<option value="${n}">${n} · ${esc(String(u.descripcion || u.tipo || '').slice(0, 50))}</option>`).join('')}</select></label>
+          </div>
+          <button class="btn" type="button" data-bast-uso-agregar="${i}">Agregar uso de firma</button>
+          ${(ed.usosExtra || []).map((x, k) => `<div class="sub" style="margin:6px 0">${esc(x.combinaciones)} · ${esc(x.limitaciones || 'sin texto de límite')} <button class="btn chico" type="button" data-bast-uso-quitar="${i}|${k}">Quitar</button></div>`).join('')}
+        </details>
         <div class="acciones">
           <button class="btn primario" type="button" data-bast-bajar="${i}">Descargar JSON</button>
           <button class="btn" type="button" data-bast-ver="${i}">Ver JSON</button>
@@ -2954,6 +2970,27 @@
   });
   const nombreJsonPoder = (i, j) => `PODER_${String(j.razon_social || 'poder').replace(/[^A-Za-z0-9]+/g, '_').replace(/^_|_$/g, '').slice(0, 50)}${j.deed_number ? '_esc' + j.deed_number : ''}.json`;
   $('bastPoderes').addEventListener('click', e => {
+    const ag = e.target.closest('[data-bast-uso-agregar]'), qu = e.target.closest('[data-bast-uso-quitar]');
+    if (ag) {
+      const i = Number(ag.dataset.bastUsoAgregar), p = bast.poderes[i], ed = bast.ediciones[i];
+      const comb = $('bastUsoComb' + i).value, lim = $('bastUsoLim' + i).value, copia = Number($('bastUsoCopia' + i).value) || 0;
+      if (!M.usoManual({ combinaciones: comb })) { toast('Escribí la combinación, por ejemplo D+D'); return; }
+      const base = usosDe(p, ed)[copia];
+      ed.usosExtra = (ed.usosExtra || []).concat([{ combinaciones: comb.trim(), limitaciones: lim.trim(), facultades: Object.assign({}, (base && base.facultades) || {}) }]);
+      guardarUsosExtra(p, ed.usosExtra);
+      ed.facultades = usosDe(p, ed).map(() => ({}));
+      toast('Uso de firma agregado');
+      renderBastanteo();
+      return;
+    }
+    if (qu) {
+      const [i, k] = qu.dataset.bastUsoQuitar.split('|').map(Number), p = bast.poderes[i], ed = bast.ediciones[i];
+      ed.usosExtra = (ed.usosExtra || []).filter((_, n) => n !== k);
+      guardarUsosExtra(p, ed.usosExtra);
+      ed.facultades = usosDe(p, ed).map(() => ({}));
+      renderBastanteo();
+      return;
+    }
     const b = e.target.closest('[data-bast-bajar]'), v = e.target.closest('[data-bast-ver]');
     if (b) { const i = Number(b.dataset.bastBajar), j = jsonDe(i); descargar(nombreJsonPoder(i, j), JSON.stringify(j, null, 2), true); }
     if (v) { const i = Number(v.dataset.bastVer), pre = $('bastJson' + i); pre.textContent = JSON.stringify(jsonDe(i), null, 2); pre.classList.toggle('oculto'); }

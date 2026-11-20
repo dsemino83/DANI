@@ -3267,6 +3267,26 @@
     return moneda === 'USD' ? /pesos|\bARS\b|moneda nacional|moneda de curso legal|equivalente/i.test(t) || /\$\s*\d/.test(t.replace(/U\$S|US\$|U\$D/gi, ''))
       : /d[oó]lar|\bUSD\b|U\$S|US\$|U\$D|moneda extranjera|equivalente/i.test(t);
   }
+  // Uso de firma que Complif no extrajo del poder (se agrega a mano): combinaciones ("D+D", "B+B; B+D"), texto de límite/condición y las
+  // facultades de otro uso del mismo poder. Devuelve un uso con la misma forma que los de poderDesdeComplif, o null si falta la combinación.
+  function usoManual({ combinaciones, limitaciones, facultades, descripcion } = {}) {
+    const combos = [...new Set(String(combinaciones || '').toUpperCase().replace(/\s*\+\s*/g, '+').split(/[;,\s]+/).map(c => c.replace(/[^A-Z0-9+]/g, '')).filter(c => /^[A-Z0-9]+(\+[A-Z0-9]+)*$/.test(c))
+      .map(c => c.split('+').sort().join('+')))].sort();
+    if (!combos.length) return null;
+    const grupos = [...new Set(combos.flatMap(c => c.split('+')))];
+    const individual = combos.every(c => !c.includes('+')) && combos.length === 1;
+    return { descripcion: descripcion || `${combos.join(', ')} (agregado a mano)`, tipo: individual ? 'INDIVIDUAL' : 'CONJUNTA', limitaciones: String(limitaciones || '').trim(),
+      limite_de_operacion: null, facultades: Object.assign({}, facultades || {}), grupo: grupos[0], grupos, combinaciones: individual ? [] : combos, manual: true };
+  }
+  // Usos de un poder con los agregados a mano; un uso agregado reemplaza al que ya tenía exactamente las mismas combinaciones
+  // (por ejemplo el heredado de un poder anterior por ser complementario).
+  function usosConManuales(usos, extras) {
+    const clave = u => [...(u.combinaciones || [])].sort().join('|');
+    const nuevos = (extras || []).map(x => usoManual(Object.assign({}, x, { facultades: x.facultades || ((usos[x.copiarDe] || usos[0] || {}).facultades || {}) }))).filter(Boolean);
+    const reemplazadas = new Set(nuevos.map(clave).filter(Boolean));
+    return (usos || []).filter(u => !reemplazadas.has(clave(u))).concat(nuevos);
+  }
+
   // Uso de firma con varios montos según la operación ("(1) Para transferencias a proveedores y cheques: hasta $3.800.000.000; (2) … sueldos …
   // $1.000.000.000; (3) Para disposición de fondos, préstamos y descubierto: hasta $6.100.000.000"). Cada cláusula con su monto pasa a ser
   // una regla con las facultades que nombra. Tabla de frase → facultades (se revisa con legales; lo que no se pueda asignar se avisa):
@@ -5946,7 +5966,7 @@ try {
     problemasBanco, codigoCreditoPorDefecto, prefijoBanco, numeroCredito, prefijosRepetidos, controlarBancos, controlarReporte,
     generarCuotas, generarCreditos, txtCuotas, txtCreditos, nombreArchivo,
     calcularSecuenciaLote, validarFormulario,
-    armarEncargoBastanteo, tnaATea, teaATna, PADRONES, indexarPadronAlicuotas, buscarEnPadron, alicuotaPercepcionIIBB,
+    usoManual, usosConManuales, armarEncargoBastanteo, tnaATea, teaATna, PADRONES, indexarPadronAlicuotas, buscarEnPadron, alicuotaPercepcionIIBB,
     leerArchivosCesion, datosCartaDesdeLote, precioCesionNeto, cartaCesion, textoCartaCesion, docxSimple, fechaEnLetras, crc32,
   };
   root.ValoMotor = api;
