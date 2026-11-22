@@ -2,7 +2,7 @@
    - Permite mostrar el aviso «¡Tiempo!» del sistema cuando la app quedó en segundo plano.
    - Guarda la página y los fondos para que abra rápido aunque la señal sea mala. */
 'use strict';
-var CACHE = 'tareas-de-rami-v2';
+var CACHE = 'tareas-de-rami-v3';
 var BASE = ['./', 'index.html', 'manifest.webmanifest', 'fondos/icono-192.png', 'fondos/bano.jpg', 'fondos/hotel.jpg', 'fondos/nina-bano.jpg', 'fondos/nina-hotel.jpg'];
 
 self.addEventListener('install', function (ev) {
