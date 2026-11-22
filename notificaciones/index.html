@@ -267,6 +267,10 @@
   @keyframes campana { from { transform: rotate(-16deg); } to { transform: rotate(16deg); } }
   #alerta .boton { height: 88px; font-size: 36px; padding: 0 44px; }
 
+  #activar-sonido { position: fixed; z-index: 55; left: 50%; top: calc(80px + env(safe-area-inset-top)); transform: translateX(-50%);
+    height: auto; min-height: 58px; max-width: calc(100% - 32px); white-space: normal; font-size: 21px; padding: 8px 20px; line-height: 1.1;
+    animation: llamar-sonido 1s ease-in-out infinite; }
+  @keyframes llamar-sonido { 50% { transform: translateX(-50%) scale(1.06); } }
   .aviso { position: fixed; z-index: 50; left: 50%; bottom: calc(110px + env(safe-area-inset-bottom)); transform: translateX(-50%);
     background: var(--acento); color: var(--boton-texto); border-radius: 999px; padding: 8px 22px; font-size: 20px; font-weight: 800;
     box-shadow: 0 6px 18px rgba(0,0,0,.35); max-width: calc(100% - 32px); text-align: center; }
@@ -467,6 +471,10 @@
 </div>
 
 <div class="aviso" id="aviso" hidden></div>
+<button class="boton" id="activar-sonido" hidden>
+  <svg viewBox="0 0 54 54"><path d="M8 20h9l12-10v34L17 34H8z" fill="currentColor"/><path d="M36 18q6 9 0 18M42 12q11 15 0 30" stroke="currentColor" stroke-width="5" stroke-linecap="round" fill="none"/></svg>
+  Tocá para activar el sonido
+</button>
 
 <script>
 (function () {
@@ -648,12 +656,38 @@
   /* =================== Audio sin cortes (Web Audio) ===================
      Todos los audios se decodifican antes de empezar y se programan en el reloj de audio,
      cada uno exactamente cuando termina el anterior: no hay ni un milisegundo de pausa. */
-  var ctx = null;
+  /* En la app instalada, al ir a segundo plano (pantalla bloqueada, otra app, una llamada) el
+     celular puede dejar el audio «suspended» o «interrupted». Se reactiva con cualquier toque y,
+     si hace falta sonar y sigue mudo, aparece el botón «Tocá para activar el sonido». */
+  var ctx = null, ctxPausado = false, desbloqueado = false;
+  try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch (e) {} // iPhone: suena aunque esté en silencio
+  function reactivar() {
+    if (!ctx || ctx.state === 'running' || ctxPausado) return;
+    try { var p = ctx.resume(); if (p && p.then) p.then(revisarSonido, revisarSonido); } catch (e) {}
+  }
   function audioCtx() {
-    if (!ctx) { var C = window.AudioContext || window.webkitAudioContext; ctx = new C(); }
-    if (ctx.state === 'suspended') ctx.resume();
+    if (!ctx || ctx.state === 'closed') {
+      var C = window.AudioContext || window.webkitAudioContext; ctx = new C();
+      ctx.onstatechange = revisarSonido; desbloqueado = false;
+    }
+    reactivar();
+    if (!desbloqueado) {
+      // un instante de silencio dentro del toque «destraba» el audio en algunos celulares
+      try { var b = ctx.createBuffer(1, 1, 22050), s = ctx.createBufferSource(); s.buffer = b; s.connect(ctx.destination); s.start(0); desbloqueado = true; } catch (e) {}
+    }
     return ctx;
   }
+  function debeSonar() {
+    return (curso && (curso.estado === 'espera' || curso.estado === 'corre')) || !!alarma;
+  }
+  function revisarSonido() {
+    var mudo = !!ctx && ctx.state !== 'running' && !ctxPausado && debeSonar() && !document.hidden;
+    $('activar-sonido').hidden = !mudo;
+  }
+  ['pointerdown', 'touchend', 'keydown'].forEach(function (ev) {
+    document.addEventListener(ev, function () { if (ctx && ctx.state !== 'running' && !ctxPausado) audioCtx(); }, true);
+  });
+  $('activar-sonido').onclick = function () { audioCtx(); setTimeout(revisarSonido, 300); };
   var buffers = new Map(); // id de audio → AudioBuffer ya decodificado
   function decodificar(a) {
     if (buffers.has(a.id)) return Promise.resolve(buffers.get(a.id));
@@ -951,7 +985,7 @@
   }
   function empezarTarea() {
     if (!curso) return;
-    var c = audioCtx(); if (c.state === 'suspended') c.resume();
+    ctxPausado = false; audioCtx(); setTimeout(revisarSonido, 600);
     controles().forEach(function (k) { k.parar(); }); curso.prog = curso.rep = null;
     curso.estado = curso.total ? 'espera' : 'corre';
     curso.finEn = 0; curso.restante = curso.total; curso.arranque = null;
@@ -1051,12 +1085,12 @@
     if (curso.estado === 'pausa') {
       curso.estado = curso.antesDePausa;
       if (curso.estado === 'corre') curso.finEn = Date.now() + curso.restante * 1000;
-      if (ctx) ctx.resume(); // los audios siguen justo donde estaban
+      ctxPausado = false; audioCtx(); // los audios siguen justo donde estaban
     } else {
       curso.antesDePausa = curso.estado;
       if (curso.estado === 'corre') curso.restante = Math.max(0, (curso.finEn - Date.now()) / 1000);
       curso.estado = 'pausa';
-      if (ctx) ctx.suspend(); // pausa los audios (y la espera del audio 2)
+      ctxPausado = true; if (ctx) ctx.suspend(); // pausa los audios (y la espera del audio 2)
     }
     pintarCurso(); tic();
   };
@@ -1071,9 +1105,9 @@
   function pararTodo() {
     clearTimeout(ticT);
     if (curso) controles().forEach(function (k) { k.parar(); });
-    if (ctx && ctx.state === 'suspended') ctx.resume();
+    ctxPausado = false; if (ctx && ctx.state !== 'running') reactivar();
     pararAlarma(); $('alerta').hidden = true;
-    curso = null; soltarPantalla();
+    curso = null; soltarPantalla(); revisarSonido();
   }
   function cerrarTarea() {
     pararTodo();
@@ -1126,7 +1160,7 @@
     if (!alarma) return;
     clearTimeout(alarma.t);
     alarma.osc.forEach(function (o) { try { o.stop(); } catch (e) {} });
-    alarma = null;
+    alarma = null; revisarSonido();
   }
   function cerrarAlerta() {
     pararAlarma(); soltarPantalla();
@@ -1137,6 +1171,7 @@
 
   // Si el celular estuvo bloqueado o la pestaña dormida, se revisa el tiempo apenas se vuelve.
   document.addEventListener('visibilitychange', function () {
+    if (!document.hidden) { reactivar(); setTimeout(revisarSonido, 500); }
     if (!document.hidden) { if (curso && (curso.estado === 'corre' || curso.estado === 'espera')) { tic(); pedirPantallaPrendida(); } if (!$('alerta').hidden) pedirPantallaPrendida(); }
   });
 
