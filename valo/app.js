@@ -4546,11 +4546,15 @@
     mostrarCarpetaFcic();
   });
   $('btnFcicExcelRed').addEventListener('click', async () => {
-    const libro = fcicLibro();
-    if (!libro) return;
-    const nombre = libro.nombre;
-    const contenido = new Blob([XLSX.write(libro.wb, { bookType: 'xlsx', type: 'array' })], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
-    const bajar = () => descargarLibro(libro.nombre, libro.wb);
+    toast('Guardando en la carpeta de red…');
+    let libro, nombre, contenido, bajar;
+    try {
+      libro = fcicLibro();
+      if (!libro) return informar('No hay datos para guardar', 'Armá el TXT NO COBIS primero.');
+      nombre = libro.nombre;
+      contenido = new Blob([XLSX.write(libro.wb, { bookType: 'xlsx', type: 'array' })], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      bajar = () => descargarLibro(libro.nombre, libro.wb);
+    } catch (e) { return informar('No se pudo armar el Excel', `<b>${esc(e.name || 'Error')}</b>: ${esc(e.message || e)}`); }
     if (!window.showDirectoryPicker) {
       bajar();
       return informar('No se pudo guardar en la carpeta de red', `Este navegador no permite que la página escriba en carpetas. Se descargó <b>${esc(nombre)}</b>: copialo a ${esc(CARPETA_FCIC)}, o abrí la página en Edge / Chrome (desde el sitio, no dentro de claude.ai).`);
