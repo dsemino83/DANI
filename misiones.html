@@ -435,7 +435,7 @@ var rough=function(){"use strict";function t(t,e,s){if(t&&t.length){const[n,o]=e
     </div>
     <p class="saludo mayusculable" id="saludo">¿Qué misión jugamos hoy?</p>
     <div class="misiones" id="lista-misiones"></div>
-    <p id="version-juego" style="text-align:center;font-size:.75em;color:var(--suave);margin:14px 0 4px">Versión 34 · Seño Tiza nueva y demostración al empezar</p>
+    <p id="version-juego" style="text-align:center;font-size:.75em;color:var(--suave);margin:14px 0 4px">Versión 35 · Voz más natural</p>
     <div class="pie-inicio"><button class="enlace" id="btn-adultos">Para adultos: progreso y ejemplos</button></div>
   </section>
 
@@ -4653,8 +4653,8 @@ var rough=function(){"use strict";function t(t,e,s){if(t&&t.length){const[n,o]=e
     if (vs.length) vocesListas = true;
     return vs.filter((v) => /^es([-_]|$)/i.test(v.lang || ''));
   }
-  // Se prefieren las voces instaladas en el dispositivo: las voces "en línea"
-  // (por ejemplo las de Google en Chrome) a veces fallan sin avisar.
+  // Se prefieren las voces más naturales («Natural», «Neural», Google); si una falla
+  // sin avisar, se descarta y se usa la siguiente (ver hablarPartes).
   // Se busca una voz de MUJER en ESPAÑOL LATINO. Los navegadores no dicen el
   // género de cada voz, así que se reconoce por el nombre (Paulina, Sabina,
   // Elena, Dalia, Mónica…). También se puede elegir a mano en «Para adultos».
@@ -4669,8 +4669,11 @@ var rough=function(){"use strict";function t(t,e,s){if(t&&t.length){const[n,o]=e
     let p = 0;
     if (latina(v)) p += 40;
     if (esMujer(v)) p += 30; else if (MASCULINAS.test(v.name)) p -= 50;
-    if (v.localService) p += 25; // las voces instaladas en el dispositivo casi nunca fallan
-    if (/natural|neural/i.test(v.name)) p += 8; // suenan mejor, pero dependen de internet (y en ventanas privadas pueden quedar mudas)
+    // Las voces «Natural»/«Neural» (Edge, Windows, Android con Edge) y las de Google suenan mucho menos
+    // a robot. Si alguna falla (por ejemplo sin internet), hablarPartes la marca y pasa a la siguiente.
+    if (/natural|neural|online/i.test(v.name)) p += 45;
+    else if (/google/i.test(v.name)) p += 15;
+    if (v.localService) p += 10; // las instaladas en el dispositivo casi nunca fallan
     return p;
   }
   function elegirVoz() {
@@ -4681,8 +4684,8 @@ var rough=function(){"use strict";function t(t,e,s){if(t&&t.length){const[n,o]=e
     es.sort((x, y) => puntaje(y) - puntaje(x));
     voz = es[0] || null;
   }
-  // Si no hay ninguna voz de mujer, se sube un poco el tono para que suene más aguda.
-  const tonoVoz = () => (voz && (esMujer(voz) || vozElegidaNombre) ? 1.05 : 1.25);
+  // Subir mucho el tono deforma la voz y la hace sonar a robot: como máximo, un toque más aguda.
+  const tonoVoz = () => (voz && (esMujer(voz) || vozElegidaNombre) ? 1.0 : 1.08);
   if (hayVoz) {
     elegirVoz();
     try { speechSynthesis.addEventListener('voiceschanged', elegirVoz); } catch (e) { /* navegador viejo */ }
@@ -4746,7 +4749,7 @@ var rough=function(){"use strict";function t(t,e,s){if(t&&t.length){const[n,o]=e
     enCola = partes.map((p, i) => {
       const u = new SpeechSynthesisUtterance(p);
       u.lang = conVoz ? conVoz.lang : 'es-AR'; if (conVoz) u.voice = conVoz;
-      u.rate = 0.95; u.pitch = conVoz ? tonoVoz() : 1.2; u.volume = 1;
+      u.rate = 0.92; u.pitch = conVoz ? tonoVoz() : 1.05; u.volume = 1;
       u.onstart = empezo;
       if (i === partes.length - 1) u.onend = terminar;
       u.onerror = (e) => {
