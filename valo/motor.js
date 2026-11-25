@@ -3907,18 +3907,24 @@
       const limites = rs.filter(x => x.monto != null).map(x => ({ moneda: x.moneda, monto: x.monto })).sort((a, b) => a.moneda.localeCompare(b.moneda));
       const circuitos = circuitosNormales(rs.flatMap(x => x.circuitos));
       const individuales = rg.tipo === 'Individual' ? agrs.flatMap(firmantesDe) : [];
-      const clave = [agrs.map(a => a.id).join(','), rg.tipo, rg.quorum, circuitos.join(','), rg.vencimiento || '', limites.map(l => `${l.moneda}${l.monto}`).join(',')].join('|');
-      if (filas.has(clave)) { filas.get(clave).reglas.push(...rs.map(x => x.id)); return; }
-      filas.set(clave, {
-        grupo: grupos.join(' + ') || '—',
-        agrupamiento: agrs.map(a => a.id).join(' + ') || '—',
-        firmantes: agrs.map(a => ({ agrupamiento: a.id, grupo: a.grupo_id, nombres: firmantesDe(a) })),
-        condicion: condicionDeFirma(rg, grupos, individuales),
-        monedas: limites.length ? [...new Set(limites.map(l => l.moneda))] : [],
-        limites: limites.length ? limites.map(l => `${l.moneda} ${fmt(l.monto)}`) : ['Sin tope'],
-        facultades: circuitos.map(c => NOMBRE_CIRCUITO[c] || c),
-        vencimiento: rg.vencimiento || null,
-        reglas: rs.map(x => x.id),
+      // "Una firma de cualquiera de los grupos B, C y F" (ConjuntaIndistinta con quórum 1) no es una combinación B+C+F: es la firma
+      // individual de cada grupo. Va en una fila por grupo. Con quórum 2 o más, la combinación entre grupos sí es real y va junta.
+      const separar = rg.tipo === 'ConjuntaIndistinta' && rg.quorum === 1 && agrs.length > 1;
+      (separar ? agrs.map(a => [a]) : [agrs]).forEach(parte => {
+        const gs = [...new Set(parte.map(a => a.grupo_id))];
+        const clave = [parte.map(a => a.id).join(','), rg.tipo, rg.quorum, circuitos.join(','), rg.vencimiento || '', limites.map(l => `${l.moneda}${l.monto}`).join(',')].join('|');
+        if (filas.has(clave)) { filas.get(clave).reglas.push(...rs.map(x => x.id)); return; }
+        filas.set(clave, {
+          grupo: gs.join(' + ') || '—',
+          agrupamiento: parte.map(a => a.id).join(' + ') || '—',
+          firmantes: parte.map(a => ({ agrupamiento: a.id, grupo: a.grupo_id, nombres: firmantesDe(a) })),
+          condicion: condicionDeFirma(rg, gs, individuales),
+          monedas: limites.length ? [...new Set(limites.map(l => l.moneda))] : [],
+          limites: limites.length ? limites.map(l => `${l.moneda} ${fmt(l.monto)}`) : ['Sin tope'],
+          facultades: circuitos.map(c => NOMBRE_CIRCUITO[c] || c),
+          vencimiento: rg.vencimiento || null,
+          reglas: rs.map(x => x.id),
+        });
       });
     });
     return [...filas.values()].sort((a, b) => a.grupo.localeCompare(b.grupo) || a.agrupamiento.localeCompare(b.agrupamiento) || a.condicion.localeCompare(b.condicion));

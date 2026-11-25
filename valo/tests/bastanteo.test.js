@@ -804,3 +804,14 @@ test('ajustes: se aplican a las reglas y los apoderados; lo inválido se rechaza
   // El modelo sigue siendo válido tras agregar una regla.
   assert.ok(M.modeloBastanteo(j).reglas.length >= 2);
 });
+
+test('vista agrupada: "una firma de cualquiera de los grupos B, C y F" va en una fila por grupo (no como B+C+F); con 2 firmas la combinación sigue junta', () => {
+  const ap = (n, g) => ({ cuitCuil: `20-0000000${n}-1`, nombre: `N${n}`, apellido: `A${n}`, estado: 'Activa', grupos: g });
+  const r = (ref, quorum, grupos, circ) => ({ referencia: ref, tipo: 'ConjuntaIndistinta', quorum, moneda: null, monto: null, descripcion: ref, circuitos: [circ], grupos, firmantes: [] });
+  const filas = M.vistaAgrupada(M.modeloBastanteo({ apoderados: [ap(1, ['B']), ap(2, ['C']), ap(3, ['F'])], reglasFirma: [r('regla-1', 1, ['B', 'C', 'F'], 'TRF_ENTRE_CTAS_EMP'), r('regla-2', 2, ['B', 'C'], 'ECHEQ_FIRMAR')] }));
+  const unaFirma = filas.filter(f => f.reglas.includes('regla-1'));
+  assert.deepEqual(unaFirma.map(f => f.grupo).sort(), ['B', 'C', 'F']);
+  assert.ok(unaFirma.every(f => /^Una firma del grupo [BCF]$/.test(f.condicion)));
+  assert.ok(!filas.some(f => f.grupo === 'B + C + F'));
+  assert.equal(filas.filter(f => f.reglas.includes('regla-2')).length, 1);
+});
