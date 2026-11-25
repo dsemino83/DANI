@@ -3076,9 +3076,13 @@
   const nombreBast = (razon, sufijo = '') => `BASTANTEO_${String(razon || 'cliente').replace(/[^A-Za-z0-9]+/g, '_').replace(/^_|_$/g, '').slice(0, 50)}${sufijo}.json`;
   // Ajustes aplicados desde el chat (propuestos por Claude y confirmados con el botón): se guardan por cliente y se vuelven a aplicar
   // cada vez que se regenera el JSON; "Deshacer" los saca de la lista.
-  const claveAjustes = () => `valo.ajustes.${String((bast.cliente && bast.cliente.cuit) || '').replace(/\D/g, '')}`;
+  // Se guardan por CUIT del cliente; si la planilla no lo trae, por su razón social (antes, sin CUIT los ajustes no se aplicaban).
+  const claveAjustes = () => {
+    const c = bast.cliente || {}, cuit = String(c.cuit || '').replace(/\D/g, '');
+    return `valo.ajustes.${cuit || 'n_' + String(c.cliente || '').toLowerCase().replace(/[^a-z0-9]+/g, '_').slice(0, 60)}`;
+  };
   function ajustesGuardados() {
-    if (!(bast.cliente && bast.cliente.cuit)) return [];
+    if (!bast.cliente || !(bast.cliente.cuit || bast.cliente.cliente)) return [];
     if (bast.ajustesClave !== claveAjustes()) {
       bast.ajustesClave = claveAjustes();
       try { bast.ajustes = JSON.parse(localStorage.getItem(bast.ajustesClave) || '[]'); } catch (e) { bast.ajustes = []; }
@@ -3340,6 +3344,13 @@
       guardarAjustes(previos.concat(l.map(p => p.ajuste)));
       const json = jsonV1(), nuevos = errs(json).filter(e => !antes.has(e));
       const rech = (bast.ajustesResultado && bast.ajustesResultado.rechazados) || [];
+      // Un uso de firma agregado tiene que llegar de verdad al JSON del poder elegido; si no, se avisa en vez de dejar un ajuste que no hace nada.
+      l.filter(p => p.ajuste.op === 'uso_agregar').forEach(p => {
+        const i = bast.poderes.findIndex(x => claveDePoder(x) === p.ajuste.poder);
+        const comb = p.ajuste.combinaciones.split('; ')[0];
+        if (i < 0 || !jsonDe(i).estructuras_de_firma.some(e => (e.combinaciones || []).includes(comb)))
+          rech.push({ ajuste: p.ajuste, motivo: i < 0 ? 'no encontré el poder al que agregarlo' : 'el uso de firma no llegó al poder (sus apoderados no figuran en la planilla o el grupo no se pudo leer)' });
+      });
       // Un ajuste que deja el bastanteo con un error nuevo o que no se puede aplicar no queda: se vuelve atrás y se explica.
       if (nuevos.length || rech.length) {
         guardarAjustes(previos);
