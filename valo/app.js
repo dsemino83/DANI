@@ -3006,7 +3006,7 @@
   let ctrlPuntos = [];
   function renderControlResumen() {
     if (!bast.poderes.length || !bast.cliente || !bast.cliente.firmantes.length) { $('bastControl').innerHTML = ''; return; }
-    const filas = M.controlResumen(jsonUnico(), Object.assign({}, bast.cliente, { otrosApoderados: bast.poderes.flatMap(p => p.apoderados || []), jsonsPoderes: bast.poderes.map((p, i) => jsonDe(i)) }), bast.actas, { anulados: bast.anulados, quitados: bast.quitados }, criteriosCtrl.lista);
+    const filas = M.aplicarAjustesControlResumen(M.controlResumen(jsonUnico(), Object.assign({}, M.clienteConEquivalencias(bast.cliente, ajustesGuardados()), { otrosApoderados: bast.poderes.flatMap(p => p.apoderados || []), jsonsPoderes: bast.poderes.map((p, i) => jsonDe(i)) }), bast.actas, { anulados: bast.anulados, quitados: bast.quitados }, criteriosCtrl.lista), ajustesGuardados());
     ctrlPuntos = [];
     const marca = ok => (ok === true ? '<b style="color:var(--ok)">✓</b>' : ok === false ? '<b style="color:var(--bad)">✗</b>' : '<span class="sub">—</span>');
     const conDif = filas.filter(f => f.puntos.some(p => p.ok === false));
@@ -3290,7 +3290,7 @@
         return;
       }
       l.forEach(p => { p.estado = 'aplicado'; });
-      renderVistaAgrupada();
+      renderVistaAgrupada(); renderControlResumen();
       toast(l.length > 1 ? `${l.length} ajustes aplicados al bastanteo` : 'Ajuste aplicado al bastanteo');
       const caja = $('bastChatAjustes'); if (caja && caja.scrollIntoView) caja.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
     } catch (err) {
@@ -3382,7 +3382,7 @@
       renderChat();
     } else if (e.target.closest('[data-ajuste-aplicar]')) { const v = e.target.closest('[data-ajuste-aplicar]').dataset.ajusteAplicar; aplicarPropuestas(v === 'todos' ? 'todos' : [v]); }
     else if (e.target.closest('[data-ajuste-descartar]')) { const v = e.target.closest('[data-ajuste-descartar]').dataset.ajusteDescartar; bast.propuestas = (bast.propuestas || []).filter(p => p.id !== v); pintarAjustes(); }
-    else if (e.target.closest('[data-ajuste-deshacer]')) { const k = Number(e.target.closest('[data-ajuste-deshacer]').dataset.ajusteDeshacer); guardarAjustes(ajustesGuardados().filter((_, n) => n !== k)); toast('Ajuste deshecho'); renderVistaAgrupada(); }
+    else if (e.target.closest('[data-ajuste-deshacer]')) { const k = Number(e.target.closest('[data-ajuste-deshacer]').dataset.ajusteDeshacer); guardarAjustes(ajustesGuardados().filter((_, n) => n !== k)); toast('Ajuste deshecho'); renderVistaAgrupada(); renderControlResumen(); }
     else if (ac && ac.dataset.chatAccion === 'enviar') enviarChat();
     else if (ac && ac.dataset.chatAccion === 'claude') preguntarClaude();
     else if (ac && ac.dataset.chatAccion === 'hechos') {

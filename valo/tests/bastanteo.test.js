@@ -815,3 +815,21 @@ test('vista agrupada: "una firma de cualquiera de los grupos B, C y F" va en una
   assert.ok(!filas.some(f => f.grupo === 'B + C + F'));
   assert.equal(filas.filter(f => f.reglas.includes('regla-2')).length, 1);
 });
+
+test('ajustes del control del resumen: la equivalencia de letras y "ignorar" cambian el resultado del control contra los poderes', () => {
+  // Poder: grupos A y B, firma A+B. La planilla llama C al grupo B.
+  const p = poder([persona(1, 'A'), persona(2, 'A'), persona(3, 'B')],
+    [{ tipo: 'CONJUNTA', descripcion: 'A+A y A+B', combinaciones: ['A+A', 'A+B'], grupo: 'A', facultades: FAC(['firmar_cheques']), limitaciones: null }]);
+  const unico = M.jsonBastanteoUnico([M.jsonPoder(p, null, { todosApoderados: true })], { cuit: '30000000007', cliente: 'EMPRESA DE PRUEBA SA' });
+  const fila = (n, grupo, combinaciones) => ({ nombre: `Nombre${n} APELLIDO${n}`, cuit: CUIT(n), dni: String(n), ente: '', observacion: '', monto_hasta: null, revocado: false,
+    uso: { grupo, tipo: 'CONJUNTA', tipos: ['CONJUNTA'], combinaciones, texto: `${grupo} CONJUNTA ${combinaciones.join('; ')}`, limite: null } });
+  const cliente = { firmantes: [fila(1, 'A', ['A+A', 'A+B', 'A+C']), fila(2, 'A', ['A+A', 'A+B', 'A+C']), fila(3, 'C', ['A+B', 'A+C'])] };
+  const difs = filas => filas.flatMap(c => c.puntos.filter(x => x.ok === false).map(x => `${c.nombre}: ${x.punto}`));
+  assert.ok(difs(M.controlResumen(unico, cliente, [], {})).length > 0, 'con la letra C hay diferencias');
+  const eq = [{ op: 'control_equivalencia', planilla: 'C', bastanteo: 'B' }];
+  assert.deepEqual(difs(M.controlResumen(unico, M.clienteConEquivalencias(cliente, eq), [], {})), [], 'con C = B no hay diferencias');
+  // Ignorar las diferencias de agrupamiento del control: pasan a criterio aceptado.
+  const ig = [{ op: 'control_ignorar', tipo: 'ERROR DE AGRUPAMIENTO', firmante: '', motivo: 'rótulo de letra' }, { op: 'control_ignorar', tipo: 'ERROR DE GRUPO', firmante: '', motivo: 'rótulo de letra' }];
+  const filas = M.aplicarAjustesControlResumen(M.controlResumen(unico, cliente, [], {}), ig);
+  assert.deepEqual(difs(filas).filter(d => /conjunta|grupo/i.test(d)), []);
+});

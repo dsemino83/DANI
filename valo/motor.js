@@ -5815,6 +5815,21 @@ try {
     return { resultado: Object.assign({}, res, { diferencias, firmantes }), ignoradas };
   }
   const palabrasNorm = t => normalizar(String(t || '')).replace(/[^a-z0-9 ]/g, ' ').split(/\s+/).filter(Boolean).sort().join(' ');
+  // Lo mismo para el "Control del resumen contra los poderes" (controlResumen): los puntos que el usuario marcó como falso positivo
+  // pasan a "criterio aceptado" (ok = null) con el motivo. Los tipos del otro control se traducen al punto de este.
+  const PUNTO_RESUMEN = { 'ERROR DE GRUPO': /grupo/i, 'ERROR DE PERTENENCIA': /poder|pertenencia/i, 'ERROR DE AGRUPAMIENTO': /conjunta|combinaci/i, 'ERROR DE REGLA': /uso|l[ií]mite/i, 'ERROR DE APLICACIÓN': /conjunta|combinaci/i, 'ERROR DE PARTICIPACIÓN': /conjunta|combinaci/i };
+  function aplicarAjustesControlResumen(filas, ajustes) {
+    const ig = (ajustes || []).filter(a => a.op === 'control_ignorar');
+    if (!ig.length) return filas;
+    (filas || []).forEach(f => f.puntos.forEach(p => {
+      if (p.ok !== false) return;
+      const a = ig.find(x => (PUNTO_RESUMEN[x.tipo] || /^$/).test(p.punto) && (!x.firmante || palabrasNorm(f.nombre).includes(palabrasNorm(x.firmante)) || (soloDigitos(x.firmante).length >= 7 && soloDigitos(f.ident).includes(soloDigitos(x.firmante)))));
+      if (!a) return;
+      p.detalle = [`ignorado por ajuste del chat: ${a.motivo}`, p.detalle].filter(Boolean).join(' · ');
+      p.ok = null; p.criterio = true;
+    }));
+    return filas;
+  }
   // Aplica la lista de ajustes (ya validados) al JSON 1.0 recién generado. Devuelve { aplicados, rechazados:[{ajuste, motivo}] }.
   function aplicarAjustes(json, ajustes) {
     const aplicados = [], rechazados = [];
@@ -6200,7 +6215,7 @@ try {
     problemasBanco, codigoCreditoPorDefecto, prefijoBanco, numeroCredito, prefijosRepetidos, controlarBancos, controlarReporte,
     generarCuotas, generarCreditos, txtCuotas, txtCreditos, nombreArchivo,
     calcularSecuenciaLote, validarFormulario,
-    usoManual, usosConManuales, armarEncargoBastanteo, extraerAjustes, validarAjuste, describirAjuste, aplicarAjustes, firmaDeRegla, OPS_AJUSTE, clienteConEquivalencias, aplicarAjustesControl, tnaATea, teaATna, PADRONES, indexarPadronAlicuotas, buscarEnPadron, alicuotaPercepcionIIBB,
+    usoManual, usosConManuales, armarEncargoBastanteo, extraerAjustes, validarAjuste, describirAjuste, aplicarAjustes, firmaDeRegla, OPS_AJUSTE, clienteConEquivalencias, aplicarAjustesControl, aplicarAjustesControlResumen, tnaATea, teaATna, PADRONES, indexarPadronAlicuotas, buscarEnPadron, alicuotaPercepcionIIBB,
     leerArchivosCesion, datosCartaDesdeLote, precioCesionNeto, cartaCesion, textoCartaCesion, docxSimple, fechaEnLetras, crc32,
   };
   root.ValoMotor = api;
