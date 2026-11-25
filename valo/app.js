@@ -5399,6 +5399,22 @@
     });
   }
 
+  // Aviso de versión nueva: el navegador puede servir una copia vieja de la página (por ejemplo desde un enlace con ?v=…). Se compara
+  // la versión de esta página con la publicada y, si difieren, se ofrece actualizar (sin esto, los arreglos nuevos no se ven).
+  (async () => {
+    try {
+      if (!/^https?:/.test(location.protocol)) return;
+      const r = await fetch(location.pathname, { cache: 'no-store' });
+      const m = (await r.text()).match(/id="versionPagina">versión ([0-9.\-]+)</);
+      const mia = (($('versionPagina') || {}).textContent || '').replace(/^versión\s*/, '').trim();
+      if (!m || !mia || m[1] === mia) return;
+      const b = document.createElement('div');
+      b.style.cssText = 'position:fixed;left:0;right:0;top:0;z-index:99999;background:#b42318;color:#fff;padding:10px 16px;font:600 14px sans-serif;text-align:center';
+      b.innerHTML = `Estás viendo una versión vieja de la página (${mia}); la última es la ${m[1]}. <button type="button" style="margin-left:10px;padding:4px 12px;font-weight:700;cursor:pointer">Actualizar ahora</button>`;
+      b.querySelector('button').addEventListener('click', () => { location.href = `${location.pathname}?v=${Date.now()}`; });
+      document.body.appendChild(b);
+    } catch (e) { /* sin red o sin permiso: no se avisa */ }
+  })();
   // Solo para pruebas: con ?depurar=1 se exponen algunas piezas internas del bastanteo (no hay otro modo de recorrer el flujo completo).
   if (/[?&]depurar=1/.test(location.search)) window.__valo = { M, bast, prepararBastanteo, renderBastanteo, renderControlResumen, renderVistaAgrupada, jsonV1, jsonUnico, ajustesGuardados, aplicarPropuestas, claveDePoder, renderChat: () => renderChat(), setVista: v => { bastVista = v; } };
   iniciar();
