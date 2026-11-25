@@ -3080,6 +3080,9 @@
     if (bast.ajustesClave !== claveAjustes()) {
       bast.ajustesClave = claveAjustes();
       try { bast.ajustes = JSON.parse(localStorage.getItem(bast.ajustesClave) || '[]'); } catch (e) { bast.ajustes = []; }
+      // Un ajuste guardado que hoy no pasa la validación (por ejemplo, de una versión anterior) se descarta: no se muestra como aplicado.
+      const validos = bast.ajustes.filter(a => M.validarAjuste(a).ok);
+      if (validos.length !== bast.ajustes.length) { bast.ajustes = validos; try { localStorage.setItem(bast.ajustesClave, JSON.stringify(validos)); } catch (e) { /* sin almacenamiento */ } }
     }
     return bast.ajustes || [];
   }
@@ -3240,7 +3243,8 @@
     if (!caja) return;
     const json = jsonV1();
     const pend = (bast.propuestas || []).filter(p => p.estado === 'pendiente' || p.estado === 'invalido');
-    const aplicados = ajustesGuardados(), rech = (bast.ajustesResultado && bast.ajustesResultado.rechazados) || [];
+    const rech = (bast.ajustesResultado && bast.ajustesResultado.rechazados) || [];
+    const aplicados = ajustesGuardados().filter(a => !rech.some(r => r.ajuste.op === a.op && r.ajuste.referencia === a.referencia && r.ajuste.cuitCuil === a.cuitCuil && JSON.stringify(r.ajuste.cambios) === JSON.stringify(a.cambios)));
     let h = '';
     if (pend.length) {
       h += `<div style="border:1px solid var(--line);border-radius:8px;padding:8px 10px;margin:8px 0"><b>Ajustes propuestos por Claude</b> <span class="sub" style="margin:0">(no se aplican hasta que los confirmes)</span>` +
@@ -3250,9 +3254,10 @@
             `<button class="btn chico primario" type="button" data-ajuste-aplicar="${esc(p.id)}">Aplicar</button><button class="btn chico" type="button" data-ajuste-descartar="${esc(p.id)}">Descartar</button></div>`).join('') +
         (pend.filter(p => p.estado === 'pendiente').length > 1 ? '<button class="btn chico" type="button" data-ajuste-aplicar="todos">Aplicar todos</button>' : '') + '</div>';
     }
+    if (!aplicados.length && rech.length) h += rech.map(r => `<div class="sub" style="margin:4px 0;color:var(--bad)">Un ajuste guardado ya no se puede aplicar: ${esc(M.describirAjuste(r.ajuste, json))} (${esc(r.motivo)}). <button class="btn chico" type="button" data-ajuste-deshacer="${ajustesGuardados().findIndex(a => a.op === r.ajuste.op && a.referencia === r.ajuste.referencia)}">Quitar</button></div>`).join('');
     if (aplicados.length) {
       h += `<div style="border:1px solid var(--ok);border-radius:8px;padding:8px 10px;margin:8px 0"><b>✔ Ajustes aplicados al bastanteo de este cliente (${aplicados.length})</b> <span class="sub" style="margin:0">— ya están en la vista, en el control y en el JSON que se descarga</span>` +
-        aplicados.map((a, k) => `<div style="margin:6px 0;display:flex;gap:6px;align-items:center;flex-wrap:wrap"><span style="flex:1;min-width:240px">${esc(M.describirAjuste(a, json))}</span><button class="btn chico" type="button" data-ajuste-deshacer="${k}">Deshacer</button></div>`).join('') +
+        aplicados.map(a => `<div style="margin:6px 0;display:flex;gap:6px;align-items:center;flex-wrap:wrap"><span style="flex:1;min-width:240px">${esc(M.describirAjuste(a, json))}</span><button class="btn chico" type="button" data-ajuste-deshacer="${ajustesGuardados().indexOf(a)}">Deshacer</button></div>`).join('') +
         (rech.length ? rech.map(r => `<div class="sub" style="margin:4px 0;color:var(--bad)">No se pudo aplicar: ${esc(M.describirAjuste(r.ajuste, json))} (${esc(r.motivo)}).</div>`).join('') : '') + '</div>';
     }
     caja.innerHTML = h;
