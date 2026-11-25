@@ -5633,10 +5633,10 @@ try {
     + 'Respondé en "texto", en español rioplatense, claro y breve. Primero contestá la pregunta; después, si hay un problema, decí dónde está: en los datos (Complif, planilla u OCR), en la agrupación, en la combinación o en la regla. '
     + 'Si corresponde, proponé ajustes concretos (qué grupo, firmante o regla cambiar y por qué) sin inventar significado legal que no esté en los datos. Si falta un dato, decilo. Citá firmantes y reglas por nombre o referencia (regla-1…). '
     + 'Vos no modificás nada: para que el usuario pueda aplicar un ajuste con un botón (y deshacerlo), agregá AL FINAL de "texto" un bloque exacto ```ajustes-valo con un arreglo JSON de a lo sumo 12 ajustes, cada uno {"op", "motivo", ...}. Operaciones: '
-    + '"regla_editar" {"referencia":"regla-3","cambios":{"monto":null|número,"moneda":"USD"|"ARS"|null,"quorum":n,"tipo":"Individual"|"Conjunta"|"ConjuntaIndistinta","grupos":["B","C"],"descripcion":"…","circuitos_agregar":["CODIGO"],"circuitos_quitar":["CODIGO"]}}; '
+    + '"regla_editar" {"referencia":"regla-3","cambios":{"monto":null|número,"moneda":"USD"|"ARS"|null,"quorum":n,"tipo":"Individual"|"Conjunta"|"ConjuntaIndistinta","grupos":["B","C"],"firmantes":["CUIT"],"descripcion":"…","circuitos_agregar":["CODIGO"],"circuitos_quitar":["CODIGO"]}}; '
     + '"regla_quitar" {"referencia":"regla-3"}; "regla_agregar" {"regla":{"tipo","quorum","grupos","monto","moneda","descripcion","circuitos":["CODIGO"]}}; '
     + '"apoderado_grupos" {"cuitCuil":"20-12345678-9","grupos":["B"]}; "apoderado_quitar" {"cuitCuil"}; "apoderado_agregar" {"cuitCuil","nombre","apellido","grupos":[…]}; '
-    + '"planilla_limite" {"cuitCuil","limite":null|número} (corrige el límite individual que trae la planilla del cliente). Los códigos de circuito son los del contexto (reglasFirma[].circuitos). Solo proponé ajustes que los datos respalden.';
+    + '"planilla_limite" {"cuitCuil","limite":null|número} (corrige el límite individual que trae la planilla del cliente). Los códigos de circuito son los del contexto (reglasFirma[].circuitos). Una firma individual de un grupo es ConjuntaIndistinta con quórum 1 (no la pases a Individual: ese tipo es de UNA persona y pide su CUIT en firmantes). Solo proponé ajustes que los datos respalden.';
   function armarEncargoBastanteo({ json, modelo, control, pregunta, agrupamiento, chatContext, hoy } = {}) {
     const preg = String(pregunta || '').trim().slice(0, 1800);
     const recorte = conCircuitos => ({
@@ -5692,6 +5692,8 @@ try {
       if ('moneda' in c) { if (c.moneda !== null && !['USD', 'ARS'].includes(c.moneda)) return { ok: false, error: 'moneda inválida (USD o ARS)' }; o.moneda = c.moneda; }
       if ('quorum' in c) { if (!(Number.isInteger(c.quorum) && c.quorum > 0)) return { ok: false, error: 'quorum inválido' }; o.quorum = c.quorum; }
       if ('tipo' in c) { if (!TIPOS_REGLA.includes(c.tipo)) return { ok: false, error: 'tipo inválido' }; o.tipo = c.tipo; }
+      if ('firmantes' in c) { if (!Array.isArray(c.firmantes)) return { ok: false, error: 'firmantes inválidos' }; o.firmantes = c.firmantes.map(String); }
+      if (o.tipo === 'Individual' && !(o.firmantes && o.firmantes.length === 1)) return { ok: false, error: 'una regla Individual necesita exactamente un firmante ("firmantes" con su CUIT); la firma individual de un grupo es ConjuntaIndistinta con quórum 1' };
       if ('grupos' in c) { const g = letrasAjuste(c.grupos); if (!g.length) return { ok: false, error: 'grupos inválidos' }; o.grupos = g; }
       if ('descripcion' in c) o.descripcion = String(c.descripcion).slice(0, 300);
       for (const k of ['circuitos_agregar', 'circuitos_quitar']) if (c[k]) {
@@ -5776,6 +5778,7 @@ try {
         if (r.monto != null && !r.moneda) return rechazo(a, 'un tope necesita moneda');
         if (c.quorum) r.quorum = c.quorum;
         if (c.tipo) r.tipo = c.tipo;
+        if (c.firmantes) r.firmantes = c.firmantes;
         if (c.descripcion) r.descripcion = c.descripcion;
         if (c.grupos) { r.grupos = c.grupos; r._participantes = participantes(c.grupos); }
         if (c.circuitos_agregar) r.circuitos = [...new Set(r.circuitos.concat(c.circuitos_agregar))].sort();

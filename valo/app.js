@@ -3251,7 +3251,7 @@
         (pend.filter(p => p.estado === 'pendiente').length > 1 ? '<button class="btn chico" type="button" data-ajuste-aplicar="todos">Aplicar todos</button>' : '') + '</div>';
     }
     if (aplicados.length) {
-      h += `<div style="border:1px solid var(--line);border-radius:8px;padding:8px 10px;margin:8px 0"><b>Ajustes aplicados a este cliente</b>` +
+      h += `<div style="border:1px solid var(--ok);border-radius:8px;padding:8px 10px;margin:8px 0"><b>✔ Ajustes aplicados al bastanteo de este cliente (${aplicados.length})</b> <span class="sub" style="margin:0">— ya están en la vista, en el control y en el JSON que se descarga</span>` +
         aplicados.map((a, k) => `<div style="margin:6px 0;display:flex;gap:6px;align-items:center;flex-wrap:wrap"><span style="flex:1;min-width:240px">${esc(M.describirAjuste(a, json))}</span><button class="btn chico" type="button" data-ajuste-deshacer="${k}">Deshacer</button></div>`).join('') +
         (rech.length ? rech.map(r => `<div class="sub" style="margin:4px 0;color:var(--bad)">No se pudo aplicar: ${esc(M.describirAjuste(r.ajuste, json))} (${esc(r.motivo)}).</div>`).join('') : '') + '</div>';
     }
@@ -3259,11 +3259,32 @@
   }
   function aplicarPropuestas(ids) {
     const l = (bast.propuestas || []).filter(p => p.estado === 'pendiente' && (ids === 'todos' || ids.includes(p.id)));
-    if (!l.length) return;
-    guardarAjustes(ajustesGuardados().concat(l.map(p => p.ajuste)));
-    l.forEach(p => { p.estado = 'aplicado'; });
-    toast(l.length > 1 ? `${l.length} ajustes aplicados` : 'Ajuste aplicado');
-    renderVistaAgrupada();
+    if (!l.length) { toast('No hay ajustes pendientes para aplicar.'); return; }
+    const previos = ajustesGuardados();
+    try {
+      const errs = j => M.modeloBastanteo(j).errores.filter(e => e.nivel === 'error').map(e => `${e.tipo}: ${e.detalle}`);
+      const antes = new Set(errs(jsonV1()));
+      guardarAjustes(previos.concat(l.map(p => p.ajuste)));
+      const json = jsonV1(), nuevos = errs(json).filter(e => !antes.has(e));
+      const rech = (bast.ajustesResultado && bast.ajustesResultado.rechazados) || [];
+      // Un ajuste que deja el bastanteo con un error nuevo o que no se puede aplicar no queda: se vuelve atrás y se explica.
+      if (nuevos.length || rech.length) {
+        guardarAjustes(previos);
+        informar('No se aplicó el ajuste', `<div>Aplicarlo ${rech.length ? 'no es posible' : 'deja el bastanteo con un error nuevo'}, así que lo dejé como estaba.</div>`
+          + (rech.length ? rech.map(r => `<div>${esc(M.describirAjuste(r.ajuste, json))}: <b>${esc(r.motivo)}</b></div>`).join('') : nuevos.map(e => `<div>• ${esc(e)}</div>`).join(''))
+          + '<div class="sub">Pedile a Claude otra forma de hacerlo o corregilo a mano.</div>');
+        renderVistaAgrupada();
+        return;
+      }
+      l.forEach(p => { p.estado = 'aplicado'; });
+      renderVistaAgrupada();
+      toast(l.length > 1 ? `${l.length} ajustes aplicados al bastanteo` : 'Ajuste aplicado al bastanteo');
+      const caja = $('bastChatAjustes'); if (caja && caja.scrollIntoView) caja.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    } catch (err) {
+      guardarAjustes(previos);
+      informar('No se pudo aplicar el ajuste', `<b>${esc(err.name || 'Error')}</b>: ${esc(err.message || err)}. El bastanteo quedó como estaba.`);
+      try { renderVistaAgrupada(); } catch (e2) { /* sigue */ }
+    }
   }
   // --- Consulta a Claude (encargo de SO a la tarea de Claude Code de la cuenta): explica y propone, no modifica nada.
   const claudeEnCurso = new Map();   // encargo → { clave de la conversación, t0 }
