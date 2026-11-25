@@ -3255,6 +3255,16 @@
     pintarAdjuntos();
   }
   // Ajustes propuestos por Claude (pendientes) y ajustes aplicados (con Deshacer). Nada se aplica sin tocar "Aplicar".
+  // Para un uso de firma agregado por ajuste: a qué poder se agregó y a cuántos apoderados de la planilla alcanza (así se ve si llegó).
+  function diagnosticoAjuste(a) {
+    if (a.op !== 'uso_agregar') return '';
+    try {
+      const i = bast.poderes.findIndex(x => claveDePoder(x) === a.poder);
+      if (i < 0) return ' <span class="sub" style="color:var(--bad)">· el poder elegido ya no está entre los vigentes</span>';
+      const comb = a.combinaciones.split('; ')[0], e = jsonDe(i).estructuras_de_firma.find(x => (x.combinaciones || []).includes(comb));
+      return ` <span class="sub">· poder esc. ${esc(bast.poderes[i].deed_number || 's/n')} (${esc(bast.poderes[i].fecha_emision || 's/f')}): alcanza a ${e ? e.apoderados.length : 0} apoderados de la planilla · versión ${esc(($('versionPagina') || {}).textContent || '')}</span>`;
+    } catch (err) { return ''; }
+  }
   function pintarAjustes() {
     const caja = $('bastChatAjustes');
     if (!caja) return;
@@ -3274,7 +3284,7 @@
     if (!aplicados.length && rech.length) h += rech.map(r => `<div class="sub" style="margin:4px 0;color:var(--bad)">Un ajuste guardado ya no se puede aplicar: ${esc(M.describirAjuste(r.ajuste, json))} (${esc(r.motivo)}). <button class="btn chico" type="button" data-ajuste-deshacer="${ajustesGuardados().findIndex(a => a.op === r.ajuste.op && a.referencia === r.ajuste.referencia)}">Quitar</button></div>`).join('');
     if (aplicados.length) {
       h += `<div style="border:1px solid var(--ok);border-radius:8px;padding:8px 10px;margin:8px 0"><b>✔ Ajustes aplicados al bastanteo de este cliente (${aplicados.length})</b> <span class="sub" style="margin:0">— ya están en la vista, en el control y en el JSON que se descarga</span>` +
-        aplicados.map(a => `<div style="margin:6px 0;display:flex;gap:6px;align-items:center;flex-wrap:wrap"><span style="flex:1;min-width:240px">${esc(M.describirAjuste(a, json))}</span><button class="btn chico" type="button" data-ajuste-deshacer="${ajustesGuardados().indexOf(a)}">Deshacer</button></div>`).join('') +
+        aplicados.map(a => `<div style="margin:6px 0;display:flex;gap:6px;align-items:center;flex-wrap:wrap"><span style="flex:1;min-width:240px">${esc(M.describirAjuste(a, json))}${diagnosticoAjuste(a)}</span><button class="btn chico" type="button" data-ajuste-deshacer="${ajustesGuardados().indexOf(a)}">Deshacer</button></div>`).join('') +
         (rech.length ? rech.map(r => `<div class="sub" style="margin:4px 0;color:var(--bad)">No se pudo aplicar: ${esc(M.describirAjuste(r.ajuste, json))} (${esc(r.motivo)}).</div>`).join('') : '') + '</div>';
     }
     caja.innerHTML = h;
@@ -5389,5 +5399,7 @@
     });
   }
 
+  // Solo para pruebas: con ?depurar=1 se exponen algunas piezas internas del bastanteo (no hay otro modo de recorrer el flujo completo).
+  if (/[?&]depurar=1/.test(location.search)) window.__valo = { M, bast, prepararBastanteo, renderBastanteo, renderControlResumen, renderVistaAgrupada, jsonV1, jsonUnico, ajustesGuardados, aplicarPropuestas, claveDePoder, renderChat: () => renderChat(), setVista: v => { bastVista = v; } };
   iniciar();
 })();
