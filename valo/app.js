@@ -3275,7 +3275,7 @@
   }
   // ---- Adjuntos del chat: se leen en el navegador (texto del PDF, hoja de Excel…) y se suben a Storage (carpeta privada del usuario);
   // a Claude le llega el texto extraído y una URL firmada del archivo completo. Se borran cuando Claude termina.
-  const MAX_ADJUNTOS = 5, MAX_BYTES_ADJUNTO = 25 * 1024 * 1024;
+  const MAX_ADJUNTOS = 10, MAX_BYTES_ADJUNTO = 50 * 1024 * 1024, MAX_BYTES_TEXTO = 20 * 1024 * 1024;   // 50 MB = tope del bucket; el texto previo solo hasta 20 MB (más pesado lo lee Claude de la URL)
   async function textoDeArchivo(f) {
     const n = (f.name || '').toLowerCase();
     if (/\.pdf$/.test(n) || f.type === 'application/pdf') {
@@ -3297,13 +3297,13 @@
     bast.adjChat = bast.adjChat || [];
     for (const f of [...files]) {
       if (bast.adjChat.length >= MAX_ADJUNTOS) { toast(`Máximo ${MAX_ADJUNTOS} archivos por consulta.`); break; }
-      if (f.size > MAX_BYTES_ADJUNTO) { toast(`${f.name}: pesa más de 25 MB.`); continue; }
+      if (f.size > MAX_BYTES_ADJUNTO) { toast(`${f.name}: pesa más de 50 MB (el tope del almacenamiento).`); continue; }
       const it = { id: `a${++bastChatN}`, nombre: f.name, tam: f.size, tipo: f.type || '', estado: 'subiendo' };
       bast.adjChat.push(it);
       pintarAdjuntos();
       (async () => {
         try {
-          const [ex, sube] = await Promise.all([textoDeArchivo(f).catch(() => ({ texto: '', paginas: null })), almacen.adjuntoSubir(f)]);
+          const [ex, sube] = await Promise.all([(f.size > MAX_BYTES_TEXTO ? Promise.resolve({ texto: '', paginas: null }) : textoDeArchivo(f)).catch(() => ({ texto: '', paginas: null })), almacen.adjuntoSubir(f)]);
           Object.assign(it, { texto: ex.texto, paginas: ex.paginas, ruta: sube.ruta, url: sube.url, estado: 'listo' });
           if (!bast.adjChat.includes(it)) almacen.adjuntoBorrar([sube.ruta]).catch(() => {});   // lo quitaron mientras subía
         } catch (err) { Object.assign(it, { estado: 'error', error: err.message || String(err) }); }

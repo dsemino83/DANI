@@ -5650,9 +5650,9 @@ try {
     + 'Si el control marca un error que no lo es, proponé control_equivalencia o control_ignorar. La firma individual de un grupo es ConjuntaIndistinta con quórum 1 (Individual es de UNA persona y pide su CUIT en firmantes). Solo ajustes que los datos respalden.';
   // Adjuntos del chat: { nombre, tipo, tam, url, texto }. El texto extraído va acotado (40 KB por archivo, 90 KB en total) para que el
   // contexto entre en el límite del encargo (200 KB); el archivo completo lo baja Claude de la URL firmada.
-  function acotarAdjuntos(adjuntos, { porArchivo = 40000, total = 90000 } = {}) {
+  function acotarAdjuntos(adjuntos, { porArchivo = 40000, total = 90000 } = {}) {   // hasta 10 archivos; el texto se reparte, el archivo completo va por URL
     let usado = 0;
-    return (adjuntos || []).slice(0, 5).map(a => {
+    return (adjuntos || []).slice(0, 10).map(a => {
       const t = String(a.texto || '');
       const resto = Math.max(0, total - usado), corte = Math.min(porArchivo, resto);
       const texto = t.slice(0, corte);
