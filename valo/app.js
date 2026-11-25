@@ -3108,8 +3108,8 @@
     const r = M.aplicarAjustes(json, ajustesGuardados());
     bast.ajustesResultado = r;
     if (r.aplicados.length) {
-      const av = [...(json.avisos || [])].concat(r.aplicados.map(a => `Ajuste aplicado desde el chat: ${M.describirAjuste(a, json)}.`));
-      Object.defineProperty(json, 'avisos', { value: av, enumerable: false });
+      // json.avisos ya existe (propiedad no enumerable y no reconfigurable): se agregan los avisos al mismo arreglo.
+      r.aplicados.forEach(a => json.avisos.push(`Ajuste aplicado desde el chat: ${M.describirAjuste(a, json)}.`));
     }
     return json;
   }

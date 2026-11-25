@@ -849,3 +849,14 @@ test('chat con adjuntos: el texto se acota, el contexto entra en el límite del 
   assert.ok(/ADJUNTOS/.test(e.pedido) && e.contexto.adjuntos.length === 10);
   assert.equal(M.armarEncargoBastanteo({ json, pregunta: 'x' }).contexto.adjuntos, undefined, 'sin adjuntos no hay campo ni mención');
 });
+
+test('ajustes: el JSON generado admite agregar avisos de los ajustes aplicados (json.avisos es un arreglo que se puede ampliar)', () => {
+  const ap = n => ({ cuitCuil: `20-0000000${n}-1`, nombre: `N${n}`, apellido: `A${n}`, estado: 'Activa', grupos: [n === 1 ? 'D' : 'E'] });
+  const json = { version: '1.0', empresa: {}, apoderados: [ap(1), ap(2)], reglasFirma: [] };
+  const r = M.aplicarAjustes(json, [{ op: 'regla_agregar', regla: { tipo: 'Conjunta', quorum: 1, grupos: ['D', 'E'], circuitos: ['TRF_A_TERCEROS', 'TRF_ENTRE_CTAS_EMP'], descripcion: 'D+E sin tope' } }]);
+  assert.equal(r.aplicados.length, 1);
+  assert.equal(M.modeloBastanteo(json).errores.filter(e => e.nivel === 'error').length, 0, JSON.stringify(M.modeloBastanteo(json).errores));
+  const e = M.armarEncargoBastanteo({ json, pregunta: 'p'.repeat(1800), adjuntos: [{ nombre: 'a.pdf', url: 'u', texto: 'x' }] });
+  assert.ok(e.pedido.length <= 4000, 'pedido de ' + e.pedido.length);
+  assert.ok(e.contexto.circuitosValidos.includes('TRF_A_TERCEROS = Transferencias a cuentas de terceros'));
+});

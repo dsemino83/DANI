@@ -5647,7 +5647,7 @@ try {
     + 'regla_editar {referencia,cambios:{monto(null=sin tope),moneda USD|ARS,quorum,tipo,grupos[],firmantes[],descripcion,circuitos_agregar[],circuitos_quitar[]}}; regla_quitar {referencia}; regla_agregar {regla:{tipo,quorum,grupos,monto,moneda,descripcion,circuitos[]}}; '
     + 'apoderado_grupos {cuitCuil,grupos[]}; apoderado_quitar {cuitCuil}; apoderado_agregar {cuitCuil,nombre,apellido,grupos[]}; planilla_limite {cuitCuil,limite|null}; '
     + 'control_equivalencia {planilla:"C",bastanteo:"B"} (la planilla llama C a lo que el bastanteo llama B); control_ignorar {tipo:"ERROR DE AGRUPAMIENTO",firmante(opcional),motivo} (falso positivo del control). '
-    + 'Si el control marca un error que no lo es, proponé control_equivalencia o control_ignorar. La firma individual de un grupo es ConjuntaIndistinta con quórum 1 (Individual es de UNA persona y pide su CUIT en firmantes). Solo ajustes que los datos respalden.';
+    + 'Si el control marca un error que no lo es, proponé control_equivalencia o control_ignorar. La firma individual de un grupo es ConjuntaIndistinta con quórum 1 (Individual es de UNA persona y pide su CUIT en firmantes). Los circuitos solo de contexto.circuitosValidos (si una facultad no tiene código, no lo inventes: decilo). Solo ajustes que los datos respalden.';
   // Adjuntos del chat: { nombre, tipo, tam, url, texto }. El texto extraído va acotado (40 KB por archivo, 90 KB en total) para que el
   // contexto entre en el límite del encargo (200 KB); el archivo completo lo baja Claude de la URL firmada.
   function acotarAdjuntos(adjuntos, { porArchivo = 40000, total = 90000 } = {}) {   // hasta 10 archivos; el texto se reparte, el archivo completo va por URL
@@ -5678,6 +5678,8 @@ try {
     if (JSON.stringify(contexto).length > 100000) contexto = recorte(false);
     const adj = acotarAdjuntos(adjuntos);
     if (adj.length) contexto.adjuntos = adj;
+    // Los únicos códigos de circuito que se aceptan en los ajustes (código = nombre): Claude elige de acá, no inventa.
+    contexto.circuitosValidos = BASTANTEO_CATALOGO.map(c => `${c[0]} = ${c[1]}`);
     const aviso = adj.length ? `\nADJUNTOS (${adj.length}): contexto.adjuntos[] trae "texto" (capa de texto; puede faltar en escaneos) y "url" (curl -sS -o archivo "<url>"). Leelos con tus skills si los tenés: pdf para PDF, xlsx para Excel, docx para Word; imágenes y escaneos con Read; para revisar el resultado, bastanteo-review y control-resumenes-review. Compará con el JSON, citá página o cláusula y proponé ajustes solo con lo que el documento respalde. No imprimas el JSON completo.` : '';
     return { pedido: `${INSTRUCCION_ENCARGO_BASTANTEO}${aviso}\n\nPREGUNTA DEL USUARIO: ${preg}`, contexto };
   }
@@ -5726,7 +5728,7 @@ try {
       if ('grupos' in c) { const g = letrasAjuste(c.grupos); if (!g.length) return { ok: false, error: 'grupos inválidos' }; o.grupos = g; }
       if ('descripcion' in c) o.descripcion = String(c.descripcion).slice(0, 300);
       for (const k of ['circuitos_agregar', 'circuitos_quitar']) if (c[k]) {
-        if (!Array.isArray(c[k]) || c[k].some(x => !NOMBRE_CIRCUITO[x])) return { ok: false, error: `${k}: hay un código de circuito desconocido` };
+        if (!Array.isArray(c[k]) || c[k].some(x => !NOMBRE_CIRCUITO[x])) return { ok: false, error: `${k}: circuitos que no existen en el catálogo: ${(Array.isArray(c[k]) ? c[k] : []).filter(x => !NOMBRE_CIRCUITO[x]).join(', ')}` };
         o[k] = [...new Set(c[k])];
       }
       if (!Object.keys(o).length) return { ok: false, error: 'no hay cambios' };
@@ -5737,7 +5739,9 @@ try {
       if (!r || !TIPOS_REGLA.includes(r.tipo)) return { ok: false, error: 'regla nueva: tipo inválido' };
       const g = letrasAjuste(r.grupos);
       if (!g.length) return { ok: false, error: 'regla nueva: faltan los grupos' };
-      if (!Array.isArray(r.circuitos) || !r.circuitos.length || r.circuitos.some(x => !NOMBRE_CIRCUITO[x])) return { ok: false, error: 'regla nueva: circuitos inválidos o vacíos' };
+      if (!Array.isArray(r.circuitos) || !r.circuitos.length) return { ok: false, error: 'regla nueva: faltan los circuitos (facultades)' };
+      const malos = r.circuitos.filter(x => !NOMBRE_CIRCUITO[x]);
+      if (malos.length) return { ok: false, error: `regla nueva: circuitos que no existen en el catálogo: ${malos.join(', ')}` };
       if (r.monto != null && !(Number(r.monto) > 0 && ['USD', 'ARS'].includes(r.moneda))) return { ok: false, error: 'regla nueva: monto y moneda van juntos' };
       const q = r.quorum == null ? (r.tipo === 'Conjunta' ? g.length : 1) : r.quorum;
       if (!(Number.isInteger(q) && q > 0)) return { ok: false, error: 'regla nueva: quorum inválido' };
