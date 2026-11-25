@@ -523,6 +523,21 @@
         }
         return data;
       },
+      // Adjuntos del chat del bastanteo (poderes, escrituras, planillas): se suben al bucket privado so-archivos (carpeta del usuario,
+      // que solo él lee) y a Claude se le pasa una URL firmada de corta vida. Después del encargo se borran.
+      async adjuntoSubir(archivo, segundos = 7200) {
+        const { data: ses } = await sb.auth.getSession();
+        const uid = ses && ses.session && ses.session.user.id;
+        if (!uid) throw new Error('Iniciá sesión para adjuntar archivos.');
+        const seguro = String(archivo.name || 'archivo').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^A-Za-z0-9._ -]+/g, '_').slice(-120) || 'archivo';
+        const ruta = `${uid}/bastanteo-${Date.now()}-${Math.random().toString(36).slice(2, 8)}/${seguro}`;
+        const { error } = await sb.storage.from('so-archivos').upload(ruta, archivo, { contentType: archivo.type || 'application/octet-stream', upsert: false });
+        if (error) throw new Error(error.message || 'No se pudo subir el archivo.');
+        const f = await sb.storage.from('so-archivos').createSignedUrl(ruta, segundos);
+        if (f.error || !f.data) { await sb.storage.from('so-archivos').remove([ruta]); throw new Error((f.error && f.error.message) || 'No se pudo generar el enlace del archivo.'); }
+        return { ruta, url: f.data.signedUrl };
+      },
+      async adjuntoBorrar(rutas) { if (rutas && rutas.length) await sb.storage.from('so-archivos').remove(rutas); },
       async encargoLeer(id) {
         const { data, error } = await sb.from('so_encargos').select('id, estado, resultado, error, session_url, created_at, finished_at').eq('id', id).maybeSingle();
         if (error) throw new Error(error.message);

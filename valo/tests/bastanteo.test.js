@@ -833,3 +833,19 @@ test('ajustes del control del resumen: la equivalencia de letras y "ignorar" cam
   const filas = M.aplicarAjustesControlResumen(M.controlResumen(unico, cliente, [], {}), ig);
   assert.deepEqual(difs(filas).filter(d => /conjunta|grupo/i.test(d)), []);
 });
+
+test('chat con adjuntos: el texto se acota, el contexto entra en el límite del encargo y el pedido menciona los adjuntos', () => {
+  const grande = 'x'.repeat(300000);
+  const adj = [1, 2, 3, 4, 5, 6].map(n => ({ nombre: `poder${n}.pdf`, tipo: 'application/pdf', tam: 1e6, url: 'https://ejemplo/firmado/' + n, texto: grande, paginas: 20 }));
+  const a = M.acotarAdjuntos(adj);
+  assert.equal(a.length, 5, 'máximo 5 archivos');
+  assert.ok(a.reduce((t, x) => t + (x.texto || '').length, 0) <= 90000);
+  assert.ok(a.every(x => x.url && x.textoCompleto === false));
+  const json = { empresa: { cuit: '30-00000000-7' }, apoderados: Array.from({ length: 40 }, (_, i) => ({ cuitCuil: `20-0000000${i}-1`, nombre: 'N', apellido: 'A', grupos: ['A'] })),
+    reglasFirma: Array.from({ length: 30 }, (_, i) => ({ referencia: `regla-${i}`, tipo: 'ConjuntaIndistinta', quorum: 1, grupos: ['A'], descripcion: 'd'.repeat(80), circuitos: ['ECHEQ_FIRMAR', 'CA_ABRIR'], firmantes: [] })) };
+  const e = M.armarEncargoBastanteo({ json, pregunta: 'p'.repeat(1800), adjuntos: adj });
+  assert.ok(e.pedido.length <= 4000, 'pedido de ' + e.pedido.length);
+  assert.ok(JSON.stringify(e.contexto).length <= 200000, 'contexto de ' + JSON.stringify(e.contexto).length);
+  assert.ok(/ADJUNTOS/.test(e.pedido) && e.contexto.adjuntos.length === 5);
+  assert.equal(M.armarEncargoBastanteo({ json, pregunta: 'x' }).contexto.adjuntos, undefined, 'sin adjuntos no hay campo ni mención');
+});

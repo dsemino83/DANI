@@ -3234,16 +3234,19 @@
     }).join('');
     caja.innerHTML = cab + estado +
       `<div id="bastChatMensajes" style="max-height:420px;overflow:auto">${msgs || '<p class="sub">Sin mensajes. Escribí una pregunta, un hecho, una observación, una hipótesis o una inferencia sobre este agrupamiento.</p>'}</div><div id="bastChatClaude"></div><div id="bastChatAjustes"></div>` +
+      '<div id="bastChatAdjuntos"></div>' +
       (x.context ? `<div class="fila-flex" style="gap:8px;align-items:flex-end;flex-wrap:wrap;margin-top:6px"><select id="bastChatTipo" style="width:auto">${Object.entries(TIPOS_CHAT).map(([k, t]) => `<option value="${k}"${k === tipo ? ' selected' : ''}>${t}</option>`).join('')}</select>` +
         `<textarea id="bastChatTexto" rows="2" style="flex:1;min-width:240px" placeholder="Escribí y apretá Enter (Shift+Enter: nueva línea)">${esc(borrador)}</textarea>` +
         '<button class="btn primario" type="button" data-chat-accion="enviar">Enviar</button>' +
+        (almacen && almacen.adjuntoSubir ? '<button class="btn" type="button" data-chat-accion="adjuntar" title="Adjuntá poderes, escrituras o planillas (PDF, imagen, Excel, texto) para que Claude los lea junto con el bastanteo">📎 Adjuntar archivo</button><input type="file" id="bastChatArchivo" multiple hidden accept=".pdf,.png,.jpg,.jpeg,.webp,.xlsx,.xls,.csv,.txt,.json">' : '') +
         (almacen && almacen.encargoAccion ? '<button class="btn" type="button" data-chat-accion="claude" title="Le pasa esta pregunta y el bastanteo a tu Claude (consume tu plan, no la API). Tarda unos minutos.">Preguntar a Claude</button>' : '') +
         '<button class="btn" type="button" data-chat-accion="hechos" title="Agrega como hechos del bastanteo los datos del ChatContext">Hechos del bastanteo</button></div>' +
-        (almacen && almacen.encargoAccion ? '<p class="sub" style="margin:6px 0 0"><b>Cómo se usa:</b> escribí tu pregunta en el cuadro y tocá <b>Preguntar a Claude</b> (con <b>Enviar</b> solo la anotás en el chat). Claude contesta en unos minutos, en este mismo chat. Si hay que cambiar algo (un tope, un grupo, una regla, un apoderado), te lo propone como ajuste: lo aplicás con un botón y lo podés deshacer.</p>' : '') +
+        (almacen && almacen.encargoAccion ? '<p class="sub" style="margin:6px 0 0"><b>Cómo se usa:</b> escribí tu pregunta en el cuadro y tocá <b>Preguntar a Claude</b> (con <b>Enviar</b> solo la anotás en el chat). Claude contesta en unos minutos, en este mismo chat. Podés adjuntar poderes o escrituras (📎) para que los lea junto con el bastanteo. Si hay que cambiar algo (un tope, un grupo, una regla, un apoderado), te lo propone como ajuste: lo aplicás con un botón y lo podés deshacer.</p>' : '') +
         '<p class="sub">Un hecho solo queda Verificado si viene del bastanteo y está tal cual en el contexto. Lo que escribe el usuario se verifica con evidencia; el chat solo cambia el bastanteo con los ajustes que aplicás vos.</p>' : '');
     const lista = $('bastChatMensajes'); lista.scrollTop = lista.scrollHeight;
     pintarEstadoClaude();
     pintarAjustes();
+    pintarAdjuntos();
   }
   // Ajustes propuestos por Claude (pendientes) y ajustes aplicados (con Deshacer). Nada se aplica sin tocar "Aplicar".
   function pintarAjustes() {
@@ -3269,6 +3272,58 @@
         (rech.length ? rech.map(r => `<div class="sub" style="margin:4px 0;color:var(--bad)">No se pudo aplicar: ${esc(M.describirAjuste(r.ajuste, json))} (${esc(r.motivo)}).</div>`).join('') : '') + '</div>';
     }
     caja.innerHTML = h;
+  }
+  // ---- Adjuntos del chat: se leen en el navegador (texto del PDF, hoja de Excel…) y se suben a Storage (carpeta privada del usuario);
+  // a Claude le llega el texto extraído y una URL firmada del archivo completo. Se borran cuando Claude termina.
+  const MAX_ADJUNTOS = 5, MAX_BYTES_ADJUNTO = 25 * 1024 * 1024;
+  async function textoDeArchivo(f) {
+    const n = (f.name || '').toLowerCase();
+    if (/\.pdf$/.test(n) || f.type === 'application/pdf') {
+      const lineas = await lineasPdf(await f.arrayBuffer());
+      let pag = 1, out = ['[Página 1]'];
+      lineas.forEach(l => { if (l === '<<PAGINA>>') { pag++; out.push(`[Página ${pag}]`); } else out.push(l); });
+      const texto = out.join('\n').replace(/\[Página \d+\]\s*$/, '').trim();
+      return { texto: texto.replace(/\[Página \d+\]\s*/g, '').trim().length < 40 ? '' : texto, paginas: pag - 1 };
+    }
+    if (/\.(xlsx|xls)$/.test(n)) {
+      const wb = window.XLSX.read(await f.arrayBuffer(), { type: 'array', cellDates: true });
+      return { texto: wb.SheetNames.map(h => `[Hoja ${h}]\n${window.XLSX.utils.sheet_to_csv(wb.Sheets[h], { blankrows: false })}`).join('\n\n'), paginas: null };
+    }
+    if (/\.(csv|txt|json)$/.test(n)) return { texto: await f.text(), paginas: null };
+    return { texto: '', paginas: null };   // imagen: la lee Claude desde la URL
+  }
+  async function agregarAdjuntos(files) {
+    if (!almacen.adjuntoSubir) return;
+    bast.adjChat = bast.adjChat || [];
+    for (const f of [...files]) {
+      if (bast.adjChat.length >= MAX_ADJUNTOS) { toast(`Máximo ${MAX_ADJUNTOS} archivos por consulta.`); break; }
+      if (f.size > MAX_BYTES_ADJUNTO) { toast(`${f.name}: pesa más de 25 MB.`); continue; }
+      const it = { id: `a${++bastChatN}`, nombre: f.name, tam: f.size, tipo: f.type || '', estado: 'subiendo' };
+      bast.adjChat.push(it);
+      pintarAdjuntos();
+      (async () => {
+        try {
+          const [ex, sube] = await Promise.all([textoDeArchivo(f).catch(() => ({ texto: '', paginas: null })), almacen.adjuntoSubir(f)]);
+          Object.assign(it, { texto: ex.texto, paginas: ex.paginas, ruta: sube.ruta, url: sube.url, estado: 'listo' });
+          if (!bast.adjChat.includes(it)) almacen.adjuntoBorrar([sube.ruta]).catch(() => {});   // lo quitaron mientras subía
+        } catch (err) { Object.assign(it, { estado: 'error', error: err.message || String(err) }); }
+        pintarAdjuntos();
+      })();
+    }
+  }
+  function pintarAdjuntos() {
+    const caja = $('bastChatAdjuntos');
+    if (!caja) return;
+    const l = bast.adjChat || [];
+    caja.innerHTML = l.length ? '<div class="fila-flex" style="gap:6px;flex-wrap:wrap;margin-top:6px">' + l.map(a =>
+      `<span class="chip ${a.estado === 'error' ? 'bad' : a.estado === 'listo' ? 'ok' : 'gris'}" title="${esc(a.error || '')}">📎 ${esc(a.nombre)} · ${a.estado === 'subiendo' ? 'subiendo…' : a.estado === 'error' ? 'error: ' + esc(a.error) : a.paginas ? a.paginas + ' pág.' : Math.max(1, Math.round(a.tam / 1024)) + ' KB'}` +
+      ` <a href="#" data-adj-quitar="${esc(a.id)}" title="Quitar">✕</a></span>`).join('') + '</div>' : '';
+  }
+  function quitarAdjunto(id) {
+    const it = (bast.adjChat || []).find(a => a.id === id);
+    bast.adjChat = (bast.adjChat || []).filter(a => a.id !== id);
+    if (it && it.ruta) almacen.adjuntoBorrar([it.ruta]).catch(() => {});
+    pintarAdjuntos();
   }
   function aplicarPropuestas(ids) {
     const l = (bast.propuestas || []).filter(p => p.estado === 'pendiente' && (ids === 'todos' || ids.includes(p.id)));
@@ -3312,23 +3367,28 @@
     if (!almacen.encargoAccion) return;
     if (!x.context) { toast('Todavía se está armando el análisis: esperá unos segundos y probá de nuevo.'); return; }
     if (!texto) { toast('Escribí primero tu pregunta en el cuadro de texto de arriba y después tocá "Preguntar a Claude".'); if (t) t.focus(); return; }
+    const adjs = (bast.adjChat || []);
+    if (adjs.some(a => a.estado === 'subiendo')) { toast('Esperá un momento: se están subiendo los archivos adjuntos.'); return; }
+    const adjListos = adjs.filter(a => a.estado === 'listo');
     toast('Consulta enviada a Claude: tarda unos minutos, la respuesta aparece en este chat.');
     const json = jsonV1(), modelo = M.modeloBastanteo(json);
     const control = bast.cliente && bast.cliente.firmantes.length ? controlDe(json) : null;
-    const { pedido, contexto } = M.armarEncargoBastanteo({ json, modelo, control, pregunta: texto, chatContext: x.context,
+    const { pedido, contexto } = M.armarEncargoBastanteo({ json, modelo, control, pregunta: texto, chatContext: x.context, adjuntos: adjListos,
       agrupamiento: { id: bastChat.agrupamientoId, grupo: x.fila && x.fila.grupo, condicion: x.fila && x.fila.condicion, reglas: x.fila && x.fila.reglas } });
     const clave = bastChat.clave;
-    agregarAlChat(x.context, 'HUMAN', 'QUESTION', texto);
+    agregarAlChat(x.context, 'HUMAN', 'QUESTION', adjListos.length ? `${texto}\n📎 ${adjListos.map(a => a.nombre).join(', ')}` : texto);
     t.value = '';
+    bast.adjChat = adjs.filter(a => a.estado === 'error');
     renderChat();
     try {
       const r = await almacen.encargoAccion({ accion: 'crear', pedido, contexto });
-      claudeEnCurso.set(r.encargo, { clave, t0: Date.now() });
+      claudeEnCurso.set(r.encargo, { clave, t0: Date.now(), rutas: adjListos.map(a => a.ruta).filter(Boolean) });
       pintarEstadoClaude();
       vigilarClaude();
     } catch (err) {
       const msg = err.codigo === 'sin_vinculo' ? 'Tu cuenta de Claude no está vinculada: vinculala una vez en SO ("Vincular Claude").' : `No pude pasarle la consulta a Claude: ${err.message || err}.`;
       informar('Consulta a Claude', esc(msg));
+      almacen.adjuntoBorrar(adjListos.map(a => a.ruta).filter(Boolean)).catch(() => {});
     }
   }
   let tClaude = null;
@@ -3338,10 +3398,11 @@
       let enc = null;
       try { enc = await almacen.encargoLeer(id); } catch (err) { /* reintenta */ }
       if (!enc || ['pendiente', 'enviado', 'en_curso'].includes(enc.estado)) {
-        if (Date.now() - e.t0 > 45 * 60000) { claudeEnCurso.delete(id); informar('Consulta a Claude', 'Claude tardó más de 45 minutos: probá de nuevo.'); }
+        if (Date.now() - e.t0 > 45 * 60000) { claudeEnCurso.delete(id); if (e.rutas && e.rutas.length) almacen.adjuntoBorrar(e.rutas).catch(() => {}); informar('Consulta a Claude', 'Claude tardó más de 45 minutos: probá de nuevo.'); }
         continue;
       }
       claudeEnCurso.delete(id);
+      if (e.rutas && e.rutas.length) almacen.adjuntoBorrar(e.rutas).catch(() => {});
       const x = (bastChat && bastChat.clave === e.clave) ? contextoChat() : null;
       if (enc.estado === 'listo' && enc.resultado && enc.resultado.texto) {
         const ctx = x && x.context ? x.context : null;
@@ -3362,6 +3423,7 @@
     if (claudeEnCurso.size) tClaude = setTimeout(vigilarClaude, 8000);
   }
   $('bastChat').addEventListener('change', e => {
+    if (e.target.id === 'bastChatArchivo') { agregarAdjuntos(e.target.files); e.target.value = ''; return; }
     if (e.target.id !== 'bastChatAgr') return;
     const [agrupamientoId, reglas] = e.target.value.split('|');
     bastChat = { agrupamientoId, reglas, clave: e.target.value };
@@ -3380,7 +3442,9 @@
       entrada.record = RZ.applyEvidence(entrada.record, { id: `e${++bastChatN}`, contextVersion: entrada.record.item.contextVersion, source: 'HUMAN', kind });
       entrada.item = entrada.record.item;
       renderChat();
-    } else if (e.target.closest('[data-ajuste-aplicar]')) { const v = e.target.closest('[data-ajuste-aplicar]').dataset.ajusteAplicar; aplicarPropuestas(v === 'todos' ? 'todos' : [v]); }
+    } else if (e.target.closest('[data-adj-quitar]')) { e.preventDefault(); quitarAdjunto(e.target.closest('[data-adj-quitar]').dataset.adjQuitar); }
+    else if (ac && ac.dataset.chatAccion === 'adjuntar') { const i = $('bastChatArchivo'); if (i) i.click(); }
+    else if (e.target.closest('[data-ajuste-aplicar]')) { const v = e.target.closest('[data-ajuste-aplicar]').dataset.ajusteAplicar; aplicarPropuestas(v === 'todos' ? 'todos' : [v]); }
     else if (e.target.closest('[data-ajuste-descartar]')) { const v = e.target.closest('[data-ajuste-descartar]').dataset.ajusteDescartar; bast.propuestas = (bast.propuestas || []).filter(p => p.id !== v); pintarAjustes(); }
     else if (e.target.closest('[data-ajuste-deshacer]')) { const k = Number(e.target.closest('[data-ajuste-deshacer]').dataset.ajusteDeshacer); guardarAjustes(ajustesGuardados().filter((_, n) => n !== k)); toast('Ajuste deshecho'); renderVistaAgrupada(); renderControlResumen(); }
     else if (ac && ac.dataset.chatAccion === 'enviar') enviarChat();
@@ -3610,7 +3674,7 @@
   });
   $('btnBastLimpiar').addEventListener('click', () => {
     $('cmpEstado').innerHTML = ''; $('cmpCuit').value = ''; $('cmpNombre').value = ''; cmp.crudo = null;
-    Object.assign(bast, { propuestas: [], ajustesClave: null, ajustes: [], limOrig: null, pdf: null, xls: null, poderes: [], poderesTodos: [], poderPresidente: null, avisoPresidente: '', actas: [], otrosPoderes: [], edPorPoder: {}, cliente: null, ediciones: [], cuitsBase: {}, fuenteCuit: {} });
+    Object.assign(bast, { adjChat: [], propuestas: [], ajustesClave: null, ajustes: [], limOrig: null, pdf: null, xls: null, poderes: [], poderesTodos: [], poderPresidente: null, avisoPresidente: '', actas: [], otrosPoderes: [], edPorPoder: {}, cliente: null, ediciones: [], cuitsBase: {}, fuenteCuit: {} });
     $('bastPdfNombre').textContent = 'Arrastrá el PDF o hacé clic';
     $('bastXlsNombre').textContent = 'Arrastrá el Excel o hacé clic';
     $('bastUnicoJson').classList.add('oculto');

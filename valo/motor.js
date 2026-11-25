@@ -5648,7 +5648,20 @@ try {
     + 'apoderado_grupos {cuitCuil,grupos[]}; apoderado_quitar {cuitCuil}; apoderado_agregar {cuitCuil,nombre,apellido,grupos[]}; planilla_limite {cuitCuil,limite|null}; '
     + 'control_equivalencia {planilla:"C",bastanteo:"B"} (la planilla llama C a lo que el bastanteo llama B); control_ignorar {tipo:"ERROR DE AGRUPAMIENTO",firmante(opcional),motivo} (falso positivo del control). '
     + 'Si el control marca un error que no lo es, proponé control_equivalencia o control_ignorar. La firma individual de un grupo es ConjuntaIndistinta con quórum 1 (Individual es de UNA persona y pide su CUIT en firmantes). Solo ajustes que los datos respalden.';
-  function armarEncargoBastanteo({ json, modelo, control, pregunta, agrupamiento, chatContext, hoy } = {}) {
+  // Adjuntos del chat: { nombre, tipo, tam, url, texto }. El texto extraído va acotado (40 KB por archivo, 90 KB en total) para que el
+  // contexto entre en el límite del encargo (200 KB); el archivo completo lo baja Claude de la URL firmada.
+  function acotarAdjuntos(adjuntos, { porArchivo = 40000, total = 90000 } = {}) {
+    let usado = 0;
+    return (adjuntos || []).slice(0, 5).map(a => {
+      const t = String(a.texto || '');
+      const resto = Math.max(0, total - usado), corte = Math.min(porArchivo, resto);
+      const texto = t.slice(0, corte);
+      usado += texto.length;
+      return { nombre: String(a.nombre || 'archivo').slice(0, 150), tipo: String(a.tipo || '').slice(0, 80), tam: a.tam || null, url: a.url || null,
+        texto: texto || null, textoCompleto: t.length <= corte, paginas: a.paginas || null };
+    });
+  }
+  function armarEncargoBastanteo({ json, modelo, control, pregunta, agrupamiento, chatContext, hoy, adjuntos } = {}) {
     const preg = String(pregunta || '').trim().slice(0, 1800);
     const recorte = conCircuitos => ({
       tipo: 'bastanteo', fecha: (hoy || new Date()).toISOString(),
@@ -5662,8 +5675,11 @@ try {
       agrupamientoAbierto: agrupamiento || null, chatContext: chatContext || null,
     });
     let contexto = recorte(true);
-    if (JSON.stringify(contexto).length > 150000) contexto = recorte(false);
-    return { pedido: `${INSTRUCCION_ENCARGO_BASTANTEO}\n\nPREGUNTA DEL USUARIO: ${preg}`, contexto };
+    if (JSON.stringify(contexto).length > 100000) contexto = recorte(false);
+    const adj = acotarAdjuntos(adjuntos);
+    if (adj.length) contexto.adjuntos = adj;
+    const aviso = adj.length ? `\nADJUNTOS: el usuario subió ${adj.length} archivo(s) (poderes, escrituras, planillas): contexto.adjuntos[] trae "texto" (capa de texto, puede faltar o estar incompleto en un escaneo) y "url" (descargalo con curl -sS -o archivo "<url>" y leelo con Read, PDF o imagen). Compará lo que dicen con el JSON del bastanteo, citá página o cláusula y proponé ajustes solo con lo que el documento respalde. No imprimas el JSON completo.` : '';
+    return { pedido: `${INSTRUCCION_ENCARGO_BASTANTEO}${aviso}\n\nPREGUNTA DEL USUARIO: ${preg}`, contexto };
   }
 
   // ---------------------------------------------------------------- Ajustes al bastanteo (los propone Claude, los confirma el usuario)
@@ -6215,7 +6231,7 @@ try {
     problemasBanco, codigoCreditoPorDefecto, prefijoBanco, numeroCredito, prefijosRepetidos, controlarBancos, controlarReporte,
     generarCuotas, generarCreditos, txtCuotas, txtCreditos, nombreArchivo,
     calcularSecuenciaLote, validarFormulario,
-    usoManual, usosConManuales, armarEncargoBastanteo, extraerAjustes, validarAjuste, describirAjuste, aplicarAjustes, firmaDeRegla, OPS_AJUSTE, clienteConEquivalencias, aplicarAjustesControl, aplicarAjustesControlResumen, tnaATea, teaATna, PADRONES, indexarPadronAlicuotas, buscarEnPadron, alicuotaPercepcionIIBB,
+    usoManual, usosConManuales, armarEncargoBastanteo, acotarAdjuntos, extraerAjustes, validarAjuste, describirAjuste, aplicarAjustes, firmaDeRegla, OPS_AJUSTE, clienteConEquivalencias, aplicarAjustesControl, aplicarAjustesControlResumen, tnaATea, teaATna, PADRONES, indexarPadronAlicuotas, buscarEnPadron, alicuotaPercepcionIIBB,
     leerArchivosCesion, datosCartaDesdeLote, precioCesionNeto, cartaCesion, textoCartaCesion, docxSimple, fechaEnLetras, crc32,
   };
   root.ValoMotor = api;
