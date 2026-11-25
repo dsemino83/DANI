@@ -860,3 +860,30 @@ test('ajustes: el JSON generado admite agregar avisos de los ajustes aplicados (
   assert.ok(e.pedido.length <= 4000, 'pedido de ' + e.pedido.length);
   assert.ok(e.contexto.circuitosValidos.includes('TRF_A_TERCEROS = Transferencias a cuentas de terceros'));
 });
+
+test('ajustes: una regla D+E propuesta por Claude se aplica como uso de firma del poder y llega al bastanteo y al control del resumen', () => {
+  const p = poder([persona(1, 'D'), persona(2, 'D'), persona(3, 'E')], [uso('CONJUNTA', ['D+D'], ['firmar_cheques'], { grupo: 'D' })], { deed_number: '978', fecha_emision: '2025-04-03' });
+  const regla = { op: 'regla_agregar', motivo: 'cláusula I)', regla: { tipo: 'Conjunta', quorum: 1, grupos: ['D', 'E'], circuitos: ['TRF_A_TERCEROS', 'TRF_ENTRE_CTAS_EMP'], descripcion: 'D+E sin tope' } };
+  const u = M.usoAgregarDeRegla(regla, '978|2025-04-03');
+  assert.equal(u.op, 'uso_agregar');
+  assert.equal(u.combinaciones, 'D+E');
+  assert.equal(u.limitaciones, '');
+  assert.deepEqual(Object.keys(u.facultades).sort(), ['transferencias_a_cuentas_de_terceros', 'transferencias_entre_cuentas_de_la_empresa']);
+  assert.equal(M.validarAjuste(u).ok, true, 'el ajuste guardado vuelve a validar al recargar la página');
+  // Con tope: el texto queda legible para el generador.
+  assert.equal(M.usoAgregarDeRegla({ regla: { tipo: 'Conjunta', quorum: 1, grupos: ['D', 'E'], circuitos: ['TRF_A_TERCEROS'], monto: 30000000, moneda: 'USD' } }).limitaciones, 'hasta USD 30.000.000');
+  // Sin el ajuste no hay regla D+E; con el ajuste, sí, y sin errores del modelo.
+  const sin = armar([p]);
+  assert.equal(sin.reglasFirma.some(r => r.grupos.join() === 'D,E'), false);
+  const extras = M.usosDeAjustes([u], '978|2025-04-03');
+  assert.equal(extras.length, 1);
+  assert.equal(M.usosDeAjustes([u], 'otro|poder').length, 0, 'solo vale para el poder elegido');
+  const con = armar([Object.assign({}, p, { usos: M.usosConManuales(p.usos, extras) })]);
+  const de = con.reglasFirma.find(r => r.grupos.join() === 'D,E');
+  assert.ok(de, JSON.stringify(con.reglasFirma.map(r => r.descripcion)));
+  assert.ok(de.circuitos.includes('TRF_A_TERCEROS') && de.monto == null);
+  assert.deepEqual(M.modeloBastanteo(con).errores.filter(e => e.nivel === 'error'), []);
+  // El control del resumen ve el uso agregado: el apoderado del grupo E ya figura en una regla.
+  const unico = M.jsonBastanteoUnico([M.jsonPoder(Object.assign({}, p, { usos: M.usosConManuales(p.usos, extras) }), null, { todosApoderados: true })], { cuit: '30000000007', cliente: 'EMPRESA DE PRUEBA SA' });
+  assert.ok(unico.estructuras_de_firma.some(e => (e.combinaciones || []).includes('D+E')), 'el JSON único del poder tiene la combinación D+E');
+});

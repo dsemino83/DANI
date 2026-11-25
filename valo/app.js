@@ -2843,7 +2843,9 @@
   const claveUsosExtra = p => `valo.usosExtra.${String((bast.cliente && bast.cliente.cuit) || p.cuit_empresa || '').replace(/\D/g, '')}.${p.deed_number || ''}.${p.fecha_emision || ''}`;
   const leerUsosExtra = p => { try { return JSON.parse(localStorage.getItem(claveUsosExtra(p)) || '[]'); } catch (e) { return []; } };
   const guardarUsosExtra = (p, l) => { try { localStorage.setItem(claveUsosExtra(p), JSON.stringify(l)); } catch (e) { /* sin almacenamiento */ } };
-  const usosDe = (p, ed) => M.usosConManuales(p.usos, (ed && ed.usosExtra) || []);
+  const claveDePoder = p => `${p.deed_number || ''}|${p.fecha_emision || ''}`;
+  // Usos manuales del poder + los agregados desde el chat (ajuste "uso_agregar"): llegan al generador, a la vista y a los dos controles.
+  const usosDe = (p, ed) => M.usosConManuales(p.usos, ((ed && ed.usosExtra) || []).concat(M.usosDeAjustes(typeof ajustesGuardados === 'function' ? ajustesGuardados() : [], claveDePoder(p))));
   function jsonDe(i, todosApoderados = false) {
     const ed = bast.ediciones[i];
     const cuits = {};
@@ -3329,6 +3331,9 @@
     const l = (bast.propuestas || []).filter(p => p.estado === 'pendiente' && (ids === 'todos' || ids.includes(p.id)));
     if (!l.length) { toast('No hay ajustes pendientes para aplicar.'); return; }
     const previos = ajustesGuardados();
+    // Una regla entre grupos propuesta por Claude se aplica como uso de firma del poder principal (el que tiene más apoderados).
+    const principal = bast.poderes.slice().sort((x, y) => (y.apoderados || []).length - (x.apoderados || []).length)[0];
+    l.forEach(p => { const u = p.ajuste.op === 'regla_agregar' && principal ? M.usoAgregarDeRegla(p.ajuste, claveDePoder(principal)) : null; if (u) p.ajuste = u; });
     try {
       const errs = j => M.modeloBastanteo(j).errores.filter(e => e.nivel === 'error').map(e => `${e.tipo}: ${e.detalle}`);
       const antes = new Set(errs(jsonV1()));
@@ -3345,7 +3350,7 @@
         return;
       }
       l.forEach(p => { p.estado = 'aplicado'; });
-      renderVistaAgrupada(); renderControlResumen();
+      renderBastanteo(); renderVistaAgrupada(); renderControlResumen();
       toast(l.length > 1 ? `${l.length} ajustes aplicados al bastanteo` : 'Ajuste aplicado al bastanteo');
       const caja = $('bastChatAjustes'); if (caja && caja.scrollIntoView) caja.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
     } catch (err) {
@@ -3446,7 +3451,7 @@
     else if (ac && ac.dataset.chatAccion === 'adjuntar') { const i = $('bastChatArchivo'); if (i) i.click(); }
     else if (e.target.closest('[data-ajuste-aplicar]')) { const v = e.target.closest('[data-ajuste-aplicar]').dataset.ajusteAplicar; aplicarPropuestas(v === 'todos' ? 'todos' : [v]); }
     else if (e.target.closest('[data-ajuste-descartar]')) { const v = e.target.closest('[data-ajuste-descartar]').dataset.ajusteDescartar; bast.propuestas = (bast.propuestas || []).filter(p => p.id !== v); pintarAjustes(); }
-    else if (e.target.closest('[data-ajuste-deshacer]')) { const k = Number(e.target.closest('[data-ajuste-deshacer]').dataset.ajusteDeshacer); guardarAjustes(ajustesGuardados().filter((_, n) => n !== k)); toast('Ajuste deshecho'); renderVistaAgrupada(); renderControlResumen(); }
+    else if (e.target.closest('[data-ajuste-deshacer]')) { const k = Number(e.target.closest('[data-ajuste-deshacer]').dataset.ajusteDeshacer); guardarAjustes(ajustesGuardados().filter((_, n) => n !== k)); toast('Ajuste deshecho'); renderBastanteo(); renderVistaAgrupada(); renderControlResumen(); }
     else if (ac && ac.dataset.chatAccion === 'enviar') enviarChat();
     else if (ac && ac.dataset.chatAccion === 'claude') preguntarClaude();
     else if (ac && ac.dataset.chatAccion === 'hechos') {

@@ -5688,9 +5688,9 @@ try {
   // Claude contesta con un bloque ```ajustes-valo [ ... ] ``` al final del texto. La página muestra cada ajuste, el usuario lo aplica
   // (o lo descarta) y se puede deshacer. Se aplican sobre el JSON recién generado (cada vez que se regenera), con una lista cerrada de
   // operaciones: no hay forma de tocar nada fuera de reglas, apoderados y el límite de la planilla.
-  const OPS_AJUSTE = ['regla_editar', 'regla_quitar', 'regla_agregar', 'apoderado_grupos', 'apoderado_quitar', 'apoderado_agregar', 'planilla_limite', 'control_equivalencia', 'control_ignorar'];
+  const OPS_AJUSTE = ['regla_editar', 'regla_quitar', 'regla_agregar', 'apoderado_grupos', 'apoderado_quitar', 'apoderado_agregar', 'planilla_limite', 'control_equivalencia', 'control_ignorar', 'uso_agregar'];
   const TIPOS_CONTROL = ['ERROR DE GRUPO', 'ERROR DE PERTENENCIA', 'ERROR DE PARTICIPACIÓN', 'ERROR DE AGRUPAMIENTO', 'ERROR DE REGLA', 'ERROR DE APLICACIÓN', 'AVISO DEL EXCEL'];
-  const OPS_DE_CONTROL = ['planilla_limite', 'control_equivalencia', 'control_ignorar'];
+  const OPS_DE_CONTROL = ['planilla_limite', 'control_equivalencia', 'control_ignorar', 'uso_agregar'];   // no tocan el JSON final: los aplica la página sobre la planilla, el control o los usos del poder
   const TIPOS_REGLA = ['Individual', 'Conjunta', 'ConjuntaIndistinta'];
   const soloDigitos = x => String(x == null ? '' : x).replace(/\D/g, '');
   const letrasAjuste = l => [...new Set((Array.isArray(l) ? l : []).map(x => grupoNormal(x)).filter(Boolean))].sort();
@@ -5763,6 +5763,14 @@ try {
       if (!String(a.apellido || a.nombre || '').trim()) return { ok: false, error: 'falta el nombre' };
       limpio.nombre = String(a.nombre || '').slice(0, 100); limpio.apellido = String(a.apellido || '').slice(0, 100);
     }
+    if (a.op === 'uso_agregar') {
+      const u = usoManual({ combinaciones: a.combinaciones, limitaciones: a.limitaciones, facultades: a.facultades });
+      if (!u || !u.combinaciones.length) return { ok: false, error: 'uso de firma: indicá las combinaciones (por ejemplo D+E)' };
+      const claves = Object.keys(a.facultades || {}).filter(k => a.facultades[k]);
+      if (!claves.length || claves.some(k => !BASTANTEO_CLAVES.includes(k))) return { ok: false, error: 'uso de firma: facultades inválidas o vacías' };
+      limpio.combinaciones = u.combinaciones.join('; '); limpio.limitaciones = String(a.limitaciones || '').slice(0, 300); limpio.descripcion = String(a.descripcion || '').slice(0, 300);
+      limpio.facultades = Object.fromEntries(claves.map(k => [k, true])); limpio.poder = String(a.poder || '').slice(0, 80);
+    }
     if (a.op === 'control_equivalencia') {
       const p = grupoNormal(a.planilla), b = grupoNormal(a.bastanteo);
       if (!/^[A-Z]{1,3}$/.test(p) || !/^[A-Z]{1,3}$/.test(b)) return { ok: false, error: 'equivalencia: indicá la letra de la planilla y la del bastanteo' };
@@ -5796,6 +5804,7 @@ try {
     if (a.op === 'apoderado_grupos') return `${nom(a.cuitCuil)}: pasa al grupo ${a.grupos.join(', ')}${cierre}`;
     if (a.op === 'apoderado_quitar') return `Sacar a ${nom(a.cuitCuil)} del bastanteo${cierre}`;
     if (a.op === 'apoderado_agregar') return `Agregar a ${[a.apellido, a.nombre].filter(Boolean).join(', ')} (${formatoCuit(a.cuitCuil)}) al grupo ${a.grupos.join(', ')}${cierre}`;
+    if (a.op === 'uso_agregar') return `Agregar al poder${a.poder ? ' (' + a.poder.replace('|', ', ') + ')' : ''} el uso de firma ${a.combinaciones}${a.limitaciones ? ' ' + a.limitaciones : ' sin tope'} (${Object.keys(a.facultades).length} facultades)${cierre}`;
     if (a.op === 'control_equivalencia') return `Control: la letra ${a.planilla} de la planilla equivale al grupo ${a.bastanteo} del bastanteo${cierre}`;
     if (a.op === 'control_ignorar') return `Control: ignorar ${a.tipo}${a.firmante ? ' de ' + a.firmante : ''} (falso positivo)${cierre}`;
     if (a.op === 'planilla_limite') return `Planilla: límite individual de ${nom(a.cuitCuil)} → ${a.limite === null ? 'sin límite' : a.limite.toLocaleString('es-AR')}${cierre}`;
@@ -5849,6 +5858,24 @@ try {
       p.ok = null; p.criterio = true;
     }));
     return filas;
+  }
+  // Una regla propuesta entre grupos (Conjunta / ConjuntaIndistinta) sale de una cláusula del poder: se agrega como USO DE FIRMA del poder
+  // (igual que "Agregar un uso de firma que Complif no extrajo"), así el generador, la vista y los dos controles la ven. Individual queda como regla.
+  function usoAgregarDeRegla(a, poderClave = '') {
+    const r = a && a.regla;
+    if (!r || r.tipo === 'Individual') return null;
+    const grupos = [...new Set((r.grupos || []).map(grupoNormal))].filter(Boolean).sort();
+    const combos = r.tipo === 'Conjunta' ? [grupos.flatMap(g => Array(r.quorum || 1).fill(g)).sort().join('+')]
+      : (firmasMinimasDe('ConjuntaIndistinta', r.quorum || 1, grupos) || []).map(x => x.join('+'));
+    if (!combos.length) return null;
+    const CLAVE_DE_CIRCUITO = Object.fromEntries(BASTANTEO_CATALOGO.map(c => [c[0], c[2]]));
+    const facultades = Object.fromEntries((r.circuitos || []).map(c => CLAVE_DE_CIRCUITO[c]).filter(Boolean).map(k => [k, true]));
+    const limitaciones = r.monto ? `hasta ${r.moneda === 'USD' ? 'USD' : '$'} ${Number(r.monto).toLocaleString('es-AR')}` : '';
+    return { op: 'uso_agregar', motivo: a.motivo || '', combinaciones: combos.join('; '), limitaciones, facultades, descripcion: r.descripcion || '', poder: poderClave };
+  }
+  // Usos agregados por ajuste para un poder (clave "escritura|fecha"; sin clave valen para el poder elegido al aplicar).
+  function usosDeAjustes(ajustes, poderClave) {
+    return (ajustes || []).filter(a => a.op === 'uso_agregar' && (!a.poder || a.poder === poderClave)).map(a => ({ combinaciones: a.combinaciones, limitaciones: a.limitaciones, facultades: a.facultades, descripcion: a.descripcion || undefined }));
   }
   // Aplica la lista de ajustes (ya validados) al JSON 1.0 recién generado. Devuelve { aplicados, rechazados:[{ajuste, motivo}] }.
   function aplicarAjustes(json, ajustes) {
@@ -6235,7 +6262,7 @@ try {
     problemasBanco, codigoCreditoPorDefecto, prefijoBanco, numeroCredito, prefijosRepetidos, controlarBancos, controlarReporte,
     generarCuotas, generarCreditos, txtCuotas, txtCreditos, nombreArchivo,
     calcularSecuenciaLote, validarFormulario,
-    usoManual, usosConManuales, armarEncargoBastanteo, acotarAdjuntos, extraerAjustes, validarAjuste, describirAjuste, aplicarAjustes, firmaDeRegla, OPS_AJUSTE, clienteConEquivalencias, aplicarAjustesControl, aplicarAjustesControlResumen, tnaATea, teaATna, PADRONES, indexarPadronAlicuotas, buscarEnPadron, alicuotaPercepcionIIBB,
+    usoManual, usosConManuales, armarEncargoBastanteo, acotarAdjuntos, extraerAjustes, validarAjuste, describirAjuste, aplicarAjustes, firmaDeRegla, OPS_AJUSTE, clienteConEquivalencias, aplicarAjustesControl, aplicarAjustesControlResumen, usoAgregarDeRegla, usosDeAjustes, tnaATea, teaATna, PADRONES, indexarPadronAlicuotas, buscarEnPadron, alicuotaPercepcionIIBB,
     leerArchivosCesion, datosCartaDesdeLote, precioCesionNeto, cartaCesion, textoCartaCesion, docxSimple, fechaEnLetras, crc32,
   };
   root.ValoMotor = api;
