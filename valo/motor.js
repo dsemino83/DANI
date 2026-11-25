@@ -5631,7 +5631,12 @@ try {
   // Claude solo explica y propone: no modifica nada (los ajustes se aplican en la página, con confirmación).
   const INSTRUCCION_ENCARGO_BASTANTEO = 'Consulta de BASTANTEO de VALO (el contexto trae tipo "bastanteo": JSON generado de Complif y/o la planilla del cliente, reglas de firma, vista agrupada, errores del modelo, avisos del generador y el control contra la planilla). '
     + 'Respondé en "texto", en español rioplatense, claro y breve. Primero contestá la pregunta; después, si hay un problema, decí dónde está: en los datos (Complif, planilla u OCR), en la agrupación, en la combinación o en la regla. '
-    + 'Si corresponde, proponé ajustes concretos (qué grupo, firmante o regla cambiar y por qué), pero NO los apliques ni inventes significado legal que no esté en los datos. Si falta un dato, decilo. Citá firmantes y reglas por nombre o referencia (regla-1…).';
+    + 'Si corresponde, proponé ajustes concretos (qué grupo, firmante o regla cambiar y por qué) sin inventar significado legal que no esté en los datos. Si falta un dato, decilo. Citá firmantes y reglas por nombre o referencia (regla-1…). '
+    + 'Vos no modificás nada: para que el usuario pueda aplicar un ajuste con un botón (y deshacerlo), agregá AL FINAL de "texto" un bloque exacto ```ajustes-valo con un arreglo JSON de a lo sumo 12 ajustes, cada uno {"op", "motivo", ...}. Operaciones: '
+    + '"regla_editar" {"referencia":"regla-3","cambios":{"monto":null|número,"moneda":"USD"|"ARS"|null,"quorum":n,"tipo":"Individual"|"Conjunta"|"ConjuntaIndistinta","grupos":["B","C"],"descripcion":"…","circuitos_agregar":["CODIGO"],"circuitos_quitar":["CODIGO"]}}; '
+    + '"regla_quitar" {"referencia":"regla-3"}; "regla_agregar" {"regla":{"tipo","quorum","grupos","monto","moneda","descripcion","circuitos":["CODIGO"]}}; '
+    + '"apoderado_grupos" {"cuitCuil":"20-12345678-9","grupos":["B"]}; "apoderado_quitar" {"cuitCuil"}; "apoderado_agregar" {"cuitCuil","nombre","apellido","grupos":[…]}; '
+    + '"planilla_limite" {"cuitCuil","limite":null|número} (corrige el límite individual que trae la planilla del cliente). Los códigos de circuito son los del contexto (reglasFirma[].circuitos). Solo proponé ajustes que los datos respalden.';
   function armarEncargoBastanteo({ json, modelo, control, pregunta, agrupamiento, chatContext, hoy } = {}) {
     const preg = String(pregunta || '').trim().slice(0, 1800);
     const recorte = conCircuitos => ({
@@ -5648,6 +5653,165 @@ try {
     let contexto = recorte(true);
     if (JSON.stringify(contexto).length > 150000) contexto = recorte(false);
     return { pedido: `${INSTRUCCION_ENCARGO_BASTANTEO}\n\nPREGUNTA DEL USUARIO: ${preg}`, contexto };
+  }
+
+  // ---------------------------------------------------------------- Ajustes al bastanteo (los propone Claude, los confirma el usuario)
+  // Claude contesta con un bloque ```ajustes-valo [ ... ] ``` al final del texto. La página muestra cada ajuste, el usuario lo aplica
+  // (o lo descarta) y se puede deshacer. Se aplican sobre el JSON recién generado (cada vez que se regenera), con una lista cerrada de
+  // operaciones: no hay forma de tocar nada fuera de reglas, apoderados y el límite de la planilla.
+  const OPS_AJUSTE = ['regla_editar', 'regla_quitar', 'regla_agregar', 'apoderado_grupos', 'apoderado_quitar', 'apoderado_agregar', 'planilla_limite'];
+  const TIPOS_REGLA = ['Individual', 'Conjunta', 'ConjuntaIndistinta'];
+  const soloDigitos = x => String(x == null ? '' : x).replace(/\D/g, '');
+  const letrasAjuste = l => [...new Set((Array.isArray(l) ? l : []).map(x => grupoNormal(x)).filter(Boolean))].sort();
+  function extraerAjustes(texto) {
+    const t = String(texto || '');
+    const m = t.match(/```ajustes-valo\s*([\s\S]*?)```/i);
+    if (!m) return { texto: t, ajustes: [], error: null };
+    const limpio = (t.slice(0, m.index) + t.slice(m.index + m[0].length)).trim();
+    let lista;
+    try { lista = JSON.parse(m[1]); } catch (e) { return { texto: limpio, ajustes: [], error: 'El bloque de ajustes que mandó Claude no es un JSON válido.' }; }
+    if (!Array.isArray(lista)) return { texto: limpio, ajustes: [], error: 'El bloque de ajustes tiene que ser una lista.' };
+    return { texto: limpio, ajustes: lista.slice(0, 12), error: null };
+  }
+  // Firma estable de una regla (no cambia al renumerar regla-N): sirve para volver a encontrarla en cada regeneración.
+  const firmaDeRegla = r => [r.tipo, r.quorum, (r.grupos || []).join(','), r.moneda || '', r.monto == null ? '' : r.monto].join('|');
+  function validarAjuste(a) {
+    if (!a || typeof a !== 'object') return { ok: false, error: 'ajuste vacío' };
+    if (!OPS_AJUSTE.includes(a.op)) return { ok: false, error: `operación desconocida: ${a.op}` };
+    const limpio = { op: a.op, motivo: String(a.motivo || '').slice(0, 500) };
+    if (a.firma) limpio.firma = String(a.firma).slice(0, 200);
+    if (a.op === 'regla_editar' || a.op === 'regla_quitar') {
+      if (!a.referencia && !a.firma) return { ok: false, error: 'falta la referencia de la regla' };
+      limpio.referencia = String(a.referencia || '').slice(0, 60);
+    }
+    if (a.op === 'regla_editar') {
+      const c = a.cambios && typeof a.cambios === 'object' ? a.cambios : null;
+      if (!c) return { ok: false, error: 'faltan los cambios' };
+      const o = {};
+      if ('monto' in c) { if (c.monto !== null && !(Number(c.monto) > 0)) return { ok: false, error: 'monto inválido' }; o.monto = c.monto === null ? null : Number(c.monto); }
+      if ('moneda' in c) { if (c.moneda !== null && !['USD', 'ARS'].includes(c.moneda)) return { ok: false, error: 'moneda inválida (USD o ARS)' }; o.moneda = c.moneda; }
+      if ('quorum' in c) { if (!(Number.isInteger(c.quorum) && c.quorum > 0)) return { ok: false, error: 'quorum inválido' }; o.quorum = c.quorum; }
+      if ('tipo' in c) { if (!TIPOS_REGLA.includes(c.tipo)) return { ok: false, error: 'tipo inválido' }; o.tipo = c.tipo; }
+      if ('grupos' in c) { const g = letrasAjuste(c.grupos); if (!g.length) return { ok: false, error: 'grupos inválidos' }; o.grupos = g; }
+      if ('descripcion' in c) o.descripcion = String(c.descripcion).slice(0, 300);
+      for (const k of ['circuitos_agregar', 'circuitos_quitar']) if (c[k]) {
+        if (!Array.isArray(c[k]) || c[k].some(x => !NOMBRE_CIRCUITO[x])) return { ok: false, error: `${k}: hay un código de circuito desconocido` };
+        o[k] = [...new Set(c[k])];
+      }
+      if (!Object.keys(o).length) return { ok: false, error: 'no hay cambios' };
+      limpio.cambios = o;
+    }
+    if (a.op === 'regla_agregar') {
+      const r = a.regla && typeof a.regla === 'object' ? a.regla : null;
+      if (!r || !TIPOS_REGLA.includes(r.tipo)) return { ok: false, error: 'regla nueva: tipo inválido' };
+      const g = letrasAjuste(r.grupos);
+      if (!g.length) return { ok: false, error: 'regla nueva: faltan los grupos' };
+      if (!Array.isArray(r.circuitos) || !r.circuitos.length || r.circuitos.some(x => !NOMBRE_CIRCUITO[x])) return { ok: false, error: 'regla nueva: circuitos inválidos o vacíos' };
+      if (r.monto != null && !(Number(r.monto) > 0 && ['USD', 'ARS'].includes(r.moneda))) return { ok: false, error: 'regla nueva: monto y moneda van juntos' };
+      const q = r.quorum == null ? (r.tipo === 'Conjunta' ? g.length : 1) : r.quorum;
+      if (!(Number.isInteger(q) && q > 0)) return { ok: false, error: 'regla nueva: quorum inválido' };
+      if (r.tipo === 'Individual' && !(Array.isArray(r.firmantes) && r.firmantes.length === 1)) return { ok: false, error: 'regla individual: indicá un firmante en "firmantes"' };
+      limpio.regla = { tipo: r.tipo, quorum: q, grupos: g, moneda: r.monto != null ? r.moneda : null, monto: r.monto != null ? Number(r.monto) : null, circuitos: [...new Set(r.circuitos)].sort(),
+        descripcion: String(r.descripcion || 'Regla agregada a mano').slice(0, 300), firmantes: r.tipo === 'Individual' ? r.firmantes.map(String) : [] };
+    }
+    if (['apoderado_grupos', 'apoderado_quitar', 'apoderado_agregar', 'planilla_limite'].includes(a.op)) {
+      const c = soloDigitos(a.cuitCuil);
+      if (c.length < 7) return { ok: false, error: 'falta el CUIT/CUIL' };
+      limpio.cuitCuil = c;
+    }
+    if (a.op === 'apoderado_grupos' || a.op === 'apoderado_agregar') {
+      const g = letrasAjuste(a.grupos);
+      if (!g.length) return { ok: false, error: 'faltan los grupos' };
+      limpio.grupos = g;
+    }
+    if (a.op === 'apoderado_agregar') {
+      if (!String(a.apellido || a.nombre || '').trim()) return { ok: false, error: 'falta el nombre' };
+      limpio.nombre = String(a.nombre || '').slice(0, 100); limpio.apellido = String(a.apellido || '').slice(0, 100);
+    }
+    if (a.op === 'planilla_limite') {
+      if (a.limite !== null && !(Number(a.limite) > 0)) return { ok: false, error: 'límite inválido' };
+      limpio.limite = a.limite === null ? null : Number(a.limite);
+    }
+    return { ok: true, ajuste: limpio };
+  }
+  function describirAjuste(a, json) {
+    const regla = () => { const rs = (json && json.reglasFirma) || []; const r = (a.firma && rs.find(x => firmaDeRegla(x) === a.firma)) || rs.find(x => x.referencia === a.referencia); return r; };
+    const nom = c => { const x = ((json && json.apoderados) || []).find(y => soloDigitos(y.cuitCuil) === soloDigitos(c)); return x ? [x.apellido, x.nombre].filter(Boolean).join(', ') : formatoCuit(c); };
+    const cierre = a.motivo ? ` — ${a.motivo}` : '';
+    if (a.op === 'regla_quitar') { const r = regla(); return `Sacar la regla ${a.referencia || ''}${r ? ` (${r.descripcion})` : ''}${cierre}`; }
+    if (a.op === 'regla_editar') {
+      const r = regla(), c = a.cambios, p = [];
+      if ('monto' in c) p.push(c.monto === null ? 'sin tope' : `tope ${c.moneda || (r && r.moneda) || ''} ${c.monto.toLocaleString('es-AR')}`);
+      if ('moneda' in c && !('monto' in c)) p.push(`moneda ${c.moneda || 'ninguna'}`);
+      if (c.quorum) p.push(`quorum ${c.quorum}`); if (c.tipo) p.push(`tipo ${c.tipo}`); if (c.grupos) p.push(`grupos ${c.grupos.join('+')}`);
+      if (c.descripcion) p.push('descripción'); if (c.circuitos_agregar) p.push(`+${c.circuitos_agregar.length} facultad(es)`); if (c.circuitos_quitar) p.push(`−${c.circuitos_quitar.length} facultad(es)`);
+      return `Regla ${a.referencia || ''}${r ? ` (${r.descripcion})` : ''}: ${p.join(', ')}${cierre}`;
+    }
+    if (a.op === 'regla_agregar') return `Agregar regla ${a.regla.tipo} ${a.regla.grupos.join('+')}${a.regla.monto ? ` hasta ${a.regla.moneda} ${a.regla.monto.toLocaleString('es-AR')}` : ' sin tope'} (${a.regla.circuitos.length} facultades)${cierre}`;
+    if (a.op === 'apoderado_grupos') return `${nom(a.cuitCuil)}: pasa al grupo ${a.grupos.join(', ')}${cierre}`;
+    if (a.op === 'apoderado_quitar') return `Sacar a ${nom(a.cuitCuil)} del bastanteo${cierre}`;
+    if (a.op === 'apoderado_agregar') return `Agregar a ${[a.apellido, a.nombre].filter(Boolean).join(', ')} (${formatoCuit(a.cuitCuil)}) al grupo ${a.grupos.join(', ')}${cierre}`;
+    if (a.op === 'planilla_limite') return `Planilla: límite individual de ${nom(a.cuitCuil)} → ${a.limite === null ? 'sin límite' : a.limite.toLocaleString('es-AR')}${cierre}`;
+    return a.op;
+  }
+  // Aplica la lista de ajustes (ya validados) al JSON 1.0 recién generado. Devuelve { aplicados, rechazados:[{ajuste, motivo}] }.
+  function aplicarAjustes(json, ajustes) {
+    const aplicados = [], rechazados = [];
+    const rechazo = (a, motivo) => rechazados.push({ ajuste: a, motivo });
+    const apod = c => (json.apoderados || []).find(x => soloDigitos(x.cuitCuil) === c);
+    const participantes = grupos => (json.apoderados || []).filter(x => (x.grupos || []).some(g => grupos.includes(grupoNormal(g)))).map(x => formatoCuit(soloDigitos(x.cuitCuil))).sort();
+    (ajustes || []).forEach(a => {
+      if (a.op === 'planilla_limite') return;   // lo aplica la página sobre la planilla
+      const v = validarAjuste(a);
+      if (!v.ok) return rechazo(a, v.error);
+      a = v.ajuste;
+      const rs = json.reglasFirma || [];
+      if (a.op === 'regla_editar' || a.op === 'regla_quitar') {
+        const r = (a.firma && rs.find(x => firmaDeRegla(x) === a.firma)) || rs.find(x => x.referencia === a.referencia);
+        if (!r) return rechazo(a, 'la regla ya no existe (el bastanteo cambió)');
+        if (a.op === 'regla_quitar') { json.reglasFirma = rs.filter(x => x !== r); return aplicados.push(a); }
+        const c = a.cambios;
+        if ('monto' in c) { r.monto = c.monto; if (c.monto === null) r.moneda = null; }
+        if ('moneda' in c) r.moneda = c.moneda;
+        if (r.monto != null && !r.moneda) return rechazo(a, 'un tope necesita moneda');
+        if (c.quorum) r.quorum = c.quorum;
+        if (c.tipo) r.tipo = c.tipo;
+        if (c.descripcion) r.descripcion = c.descripcion;
+        if (c.grupos) { r.grupos = c.grupos; r._participantes = participantes(c.grupos); }
+        if (c.circuitos_agregar) r.circuitos = [...new Set(r.circuitos.concat(c.circuitos_agregar))].sort();
+        if (c.circuitos_quitar) r.circuitos = r.circuitos.filter(x => !c.circuitos_quitar.includes(x));
+        return aplicados.push(a);
+      }
+      if (a.op === 'regla_agregar') {
+        const n = rs.length + 1;
+        json.reglasFirma = rs.concat([ocultarEnRegla(Object.assign({ referencia: `ajuste-${n}` }, a.regla), { _vto: '', _participantes: a.regla.tipo === 'Individual' ? a.regla.firmantes : participantes(a.regla.grupos), _gemelaDe: null })]);
+        return aplicados.push(a);
+      }
+      const x = apod(a.cuitCuil);
+      if (a.op === 'apoderado_agregar') {
+        if (x) return rechazo(a, 'ya está en el bastanteo');
+        json.apoderados = (json.apoderados || []).concat([{ cuitCuil: formatoCuit(a.cuitCuil), nombre: a.nombre, apellido: a.apellido, estado: 'Activa', grupos: a.grupos }]);
+        // Las reglas de esos grupos lo incluyen entre los participantes.
+        (json.reglasFirma || []).forEach(r => { if (r.tipo !== 'Individual' && (r.grupos || []).some(g => a.grupos.includes(grupoNormal(g))) && Array.isArray(r._participantes)) r._participantes = [...new Set(r._participantes.concat([formatoCuit(a.cuitCuil)]))].sort(); });
+        return aplicados.push(a);
+      }
+      if (!x) return rechazo(a, 'la persona no está en el bastanteo');
+      if (a.op === 'apoderado_quitar') {
+        json.apoderados = json.apoderados.filter(y => y !== x);
+        (json.reglasFirma || []).forEach(r => { if (Array.isArray(r._participantes)) r._participantes = r._participantes.filter(c => soloDigitos(c) !== a.cuitCuil); });
+        return aplicados.push(a);
+      }
+      if (a.op === 'apoderado_grupos') {
+        x.grupos = a.grupos;
+        (json.reglasFirma || []).forEach(r => {
+          if (r.tipo === 'Individual' || !Array.isArray(r._participantes)) return;
+          const f = formatoCuit(a.cuitCuil), entra = (r.grupos || []).some(g => a.grupos.includes(grupoNormal(g)));
+          r._participantes = entra ? [...new Set(r._participantes.concat([f]))].sort() : r._participantes.filter(c => soloDigitos(c) !== a.cuitCuil);
+        });
+        return aplicados.push(a);
+      }
+    });
+    return { aplicados, rechazados };
   }
 
   // ---------------------------------------------------------------- Padrones de consulta (alícuotas por CUIT)
@@ -5974,7 +6138,7 @@ try {
     problemasBanco, codigoCreditoPorDefecto, prefijoBanco, numeroCredito, prefijosRepetidos, controlarBancos, controlarReporte,
     generarCuotas, generarCreditos, txtCuotas, txtCreditos, nombreArchivo,
     calcularSecuenciaLote, validarFormulario,
-    usoManual, usosConManuales, armarEncargoBastanteo, tnaATea, teaATna, PADRONES, indexarPadronAlicuotas, buscarEnPadron, alicuotaPercepcionIIBB,
+    usoManual, usosConManuales, armarEncargoBastanteo, extraerAjustes, validarAjuste, describirAjuste, aplicarAjustes, firmaDeRegla, OPS_AJUSTE, tnaATea, teaATna, PADRONES, indexarPadronAlicuotas, buscarEnPadron, alicuotaPercepcionIIBB,
     leerArchivosCesion, datosCartaDesdeLote, precioCesionNeto, cartaCesion, textoCartaCesion, docxSimple, fechaEnLetras, crc32,
   };
   root.ValoMotor = api;

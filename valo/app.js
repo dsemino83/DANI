@@ -3072,10 +3072,43 @@
   }
   // JSON de bastanteo (formato 1.0). Grupos de la planilla o de los poderes (Complif / PDF).
   const nombreBast = (razon, sufijo = '') => `BASTANTEO_${String(razon || 'cliente').replace(/[^A-Za-z0-9]+/g, '_').replace(/^_|_$/g, '').slice(0, 50)}${sufijo}.json`;
+  // Ajustes aplicados desde el chat (propuestos por Claude y confirmados con el botón): se guardan por cliente y se vuelven a aplicar
+  // cada vez que se regenera el JSON; "Deshacer" los saca de la lista.
+  const claveAjustes = () => `valo.ajustes.${String((bast.cliente && bast.cliente.cuit) || '').replace(/\D/g, '')}`;
+  function ajustesGuardados() {
+    if (!(bast.cliente && bast.cliente.cuit)) return [];
+    if (bast.ajustesClave !== claveAjustes()) {
+      bast.ajustesClave = claveAjustes();
+      try { bast.ajustes = JSON.parse(localStorage.getItem(bast.ajustesClave) || '[]'); } catch (e) { bast.ajustes = []; }
+    }
+    return bast.ajustes || [];
+  }
+  function guardarAjustes(l) { bast.ajustes = l; bast.ajustesClave = claveAjustes(); try { localStorage.setItem(bast.ajustesClave, JSON.stringify(l)); } catch (e) { /* sin almacenamiento: vale esta sesión */ } }
+  // El límite individual de la planilla se corrige sobre los datos leídos del Excel; el valor original se guarda para poder deshacer.
+  function sincronizarPlanilla() {
+    const cli = bast.cliente;
+    if (!cli) return;
+    if (!bast.limOrig) bast.limOrig = new Map();
+    cli.firmantes.forEach(f => { const o = bast.limOrig.get(f); if (o && f.uso) { f.uso.limite = o.limite; f.uso.limiteTexto = o.limiteTexto; f.monto_hasta = o.monto_hasta; } });
+    ajustesGuardados().filter(a => a.op === 'planilla_limite').forEach(a => {
+      const f = cli.firmantes.find(x => String(x.cuit || '').replace(/\D/g, '') === a.cuitCuil);
+      if (!f || !f.uso) return;
+      if (!bast.limOrig.has(f)) bast.limOrig.set(f, { limite: f.uso.limite, limiteTexto: f.uso.limiteTexto, monto_hasta: f.monto_hasta });
+      f.uso.limite = a.limite; f.uso.limiteTexto = a.limite == null ? '' : String(a.limite); f.monto_hasta = a.limite == null ? null : a.limite;
+    });
+  }
   function jsonV1() {
     const conLetras = bast.cliente && bast.cliente.firmantes.some(f => f.uso && f.uso.grupo);
     const todos = $('bastTodosApod').checked;
-    return M.jsonBastanteoV1(jsonUnico(todos), bast.cliente, { jsons: bast.poderes.map((p, i) => jsonDe(i, todos)), tc: bastTcActual(), fuente: conLetras ? $('bastFuenteGrupos').value : 'complif' });
+    sincronizarPlanilla();
+    const json = M.jsonBastanteoV1(jsonUnico(todos), bast.cliente, { jsons: bast.poderes.map((p, i) => jsonDe(i, todos)), tc: bastTcActual(), fuente: conLetras ? $('bastFuenteGrupos').value : 'complif' });
+    const r = M.aplicarAjustes(json, ajustesGuardados());
+    bast.ajustesResultado = r;
+    if (r.aplicados.length) {
+      const av = [...(json.avisos || [])].concat(r.aplicados.map(a => `Ajuste aplicado desde el chat: ${M.describirAjuste(a, json)}.`));
+      Object.defineProperty(json, 'avisos', { value: av, enumerable: false });
+    }
+    return json;
   }
   // Vista agrupada: GRUPO → AGRUPAMIENTO (firmantes que participan) → REGLA, una fila por agrupamiento + regla, con
   // los errores del modelo (pertenencia, participación, agrupamiento, regla, aplicación). Usa el mismo JSON que se descarga.
@@ -3189,16 +3222,48 @@
         '</div>';
     }).join('');
     caja.innerHTML = cab + estado +
-      `<div id="bastChatMensajes" style="max-height:420px;overflow:auto">${msgs || '<p class="sub">Sin mensajes. Escribí una pregunta, un hecho, una observación, una hipótesis o una inferencia sobre este agrupamiento.</p>'}</div><div id="bastChatClaude"></div>` +
+      `<div id="bastChatMensajes" style="max-height:420px;overflow:auto">${msgs || '<p class="sub">Sin mensajes. Escribí una pregunta, un hecho, una observación, una hipótesis o una inferencia sobre este agrupamiento.</p>'}</div><div id="bastChatClaude"></div><div id="bastChatAjustes"></div>` +
       (x.context ? `<div class="fila-flex" style="gap:8px;align-items:flex-end;flex-wrap:wrap;margin-top:6px"><select id="bastChatTipo" style="width:auto">${Object.entries(TIPOS_CHAT).map(([k, t]) => `<option value="${k}"${k === tipo ? ' selected' : ''}>${t}</option>`).join('')}</select>` +
         `<textarea id="bastChatTexto" rows="2" style="flex:1;min-width:240px" placeholder="Escribí y apretá Enter (Shift+Enter: nueva línea)">${esc(borrador)}</textarea>` +
         '<button class="btn primario" type="button" data-chat-accion="enviar">Enviar</button>' +
         (almacen && almacen.encargoAccion ? '<button class="btn" type="button" data-chat-accion="claude" title="Le pasa esta pregunta y el bastanteo a tu Claude (consume tu plan, no la API). Tarda unos minutos.">Preguntar a Claude</button>' : '') +
         '<button class="btn" type="button" data-chat-accion="hechos" title="Agrega como hechos del bastanteo los datos del ChatContext">Hechos del bastanteo</button></div>' +
-        (almacen && almacen.encargoAccion ? '<p class="sub" style="margin:6px 0 0"><b>Cómo se usa:</b> escribí tu pregunta en el cuadro y tocá <b>Preguntar a Claude</b> (con <b>Enviar</b> solo la anotás en el chat). Claude contesta en unos minutos, en este mismo chat, y no modifica nada.</p>' : '') +
-        '<p class="sub">Un hecho solo queda Verificado si viene del bastanteo y está tal cual en el contexto. Lo que escribe el usuario se verifica con evidencia; el chat no modifica el bastanteo.</p>' : '');
+        (almacen && almacen.encargoAccion ? '<p class="sub" style="margin:6px 0 0"><b>Cómo se usa:</b> escribí tu pregunta en el cuadro y tocá <b>Preguntar a Claude</b> (con <b>Enviar</b> solo la anotás en el chat). Claude contesta en unos minutos, en este mismo chat. Si hay que cambiar algo (un tope, un grupo, una regla, un apoderado), te lo propone como ajuste: lo aplicás con un botón y lo podés deshacer.</p>' : '') +
+        '<p class="sub">Un hecho solo queda Verificado si viene del bastanteo y está tal cual en el contexto. Lo que escribe el usuario se verifica con evidencia; el chat solo cambia el bastanteo con los ajustes que aplicás vos.</p>' : '');
     const lista = $('bastChatMensajes'); lista.scrollTop = lista.scrollHeight;
     pintarEstadoClaude();
+    pintarAjustes();
+  }
+  // Ajustes propuestos por Claude (pendientes) y ajustes aplicados (con Deshacer). Nada se aplica sin tocar "Aplicar".
+  function pintarAjustes() {
+    const caja = $('bastChatAjustes');
+    if (!caja) return;
+    const json = jsonV1();
+    const pend = (bast.propuestas || []).filter(p => p.estado === 'pendiente' || p.estado === 'invalido');
+    const aplicados = ajustesGuardados(), rech = (bast.ajustesResultado && bast.ajustesResultado.rechazados) || [];
+    let h = '';
+    if (pend.length) {
+      h += `<div style="border:1px solid var(--line);border-radius:8px;padding:8px 10px;margin:8px 0"><b>Ajustes propuestos por Claude</b> <span class="sub" style="margin:0">(no se aplican hasta que los confirmes)</span>` +
+        pend.map(p => p.estado === 'invalido'
+          ? `<div class="sub" style="margin:6px 0;color:var(--bad)">No se puede aplicar un ajuste (${esc(p.motivo)}). <button class="btn chico" type="button" data-ajuste-descartar="${esc(p.id)}">Descartar</button></div>`
+          : `<div style="margin:6px 0;display:flex;gap:6px;align-items:center;flex-wrap:wrap"><span style="flex:1;min-width:240px">${esc(M.describirAjuste(p.ajuste, json))}</span>` +
+            `<button class="btn chico primario" type="button" data-ajuste-aplicar="${esc(p.id)}">Aplicar</button><button class="btn chico" type="button" data-ajuste-descartar="${esc(p.id)}">Descartar</button></div>`).join('') +
+        (pend.filter(p => p.estado === 'pendiente').length > 1 ? '<button class="btn chico" type="button" data-ajuste-aplicar="todos">Aplicar todos</button>' : '') + '</div>';
+    }
+    if (aplicados.length) {
+      h += `<div style="border:1px solid var(--line);border-radius:8px;padding:8px 10px;margin:8px 0"><b>Ajustes aplicados a este cliente</b>` +
+        aplicados.map((a, k) => `<div style="margin:6px 0;display:flex;gap:6px;align-items:center;flex-wrap:wrap"><span style="flex:1;min-width:240px">${esc(M.describirAjuste(a, json))}</span><button class="btn chico" type="button" data-ajuste-deshacer="${k}">Deshacer</button></div>`).join('') +
+        (rech.length ? rech.map(r => `<div class="sub" style="margin:4px 0;color:var(--bad)">No se pudo aplicar: ${esc(M.describirAjuste(r.ajuste, json))} (${esc(r.motivo)}).</div>`).join('') : '') + '</div>';
+    }
+    caja.innerHTML = h;
+  }
+  function aplicarPropuestas(ids) {
+    const l = (bast.propuestas || []).filter(p => p.estado === 'pendiente' && (ids === 'todos' || ids.includes(p.id)));
+    if (!l.length) return;
+    guardarAjustes(ajustesGuardados().concat(l.map(p => p.ajuste)));
+    l.forEach(p => { p.estado = 'aplicado'; });
+    toast(l.length > 1 ? `${l.length} ajustes aplicados` : 'Ajuste aplicado');
+    renderVistaAgrupada();
   }
   // --- Consulta a Claude (encargo de SO a la tarea de Claude Code de la cuenta): explica y propone, no modifica nada.
   const claudeEnCurso = new Map();   // encargo → { clave de la conversación, t0 }
@@ -3246,8 +3311,15 @@
       const x = (bastChat && bastChat.clave === e.clave) ? contextoChat() : null;
       if (enc.estado === 'listo' && enc.resultado && enc.resultado.texto) {
         const ctx = x && x.context ? x.context : null;
-        if (ctx) agregarAlChat(ctx, 'SKILL', 'INFERENCE', String(enc.resultado.texto).slice(0, 20000), e.clave);
-        else informar('Respuesta de Claude', `<div style="white-space:pre-wrap">${esc(enc.resultado.texto)}</div>`);
+        const ex = M.extraerAjustes(enc.resultado.texto);
+        const jsonAct = ex.ajustes.length ? jsonV1() : null;
+        const validos = ex.ajustes.map(a => M.validarAjuste(a)).map((v, k) => v.ok
+          ? { id: `${id}:${k}`, ajuste: Object.assign(v.ajuste, (() => { const r = v.ajuste.referencia && (jsonAct.reglasFirma || []).find(y => y.referencia === v.ajuste.referencia); return r ? { firma: M.firmaDeRegla(r) } : {}; })()), estado: 'pendiente' }
+          : { id: `${id}:${k}`, ajuste: ex.ajustes[k], estado: 'invalido', motivo: v.error });
+        if (validos.length) { bast.propuestas = (bast.propuestas || []).concat(validos); }
+        const textoVisible = ex.texto + (ex.error ? `\n\n(${ex.error})` : '');
+        if (ctx) agregarAlChat(ctx, 'SKILL', 'INFERENCE', String(textoVisible).slice(0, 20000), e.clave);
+        else informar('Respuesta de Claude', `<div style="white-space:pre-wrap">${esc(textoVisible)}</div>`);
         toast('Claude respondió');
       } else informar('Consulta a Claude', esc(enc.error || 'Claude no pudo responder.'));
       renderChat();
@@ -3274,7 +3346,10 @@
       entrada.record = RZ.applyEvidence(entrada.record, { id: `e${++bastChatN}`, contextVersion: entrada.record.item.contextVersion, source: 'HUMAN', kind });
       entrada.item = entrada.record.item;
       renderChat();
-    } else if (ac && ac.dataset.chatAccion === 'enviar') enviarChat();
+    } else if (e.target.closest('[data-ajuste-aplicar]')) { const v = e.target.closest('[data-ajuste-aplicar]').dataset.ajusteAplicar; aplicarPropuestas(v === 'todos' ? 'todos' : [v]); }
+    else if (e.target.closest('[data-ajuste-descartar]')) { const v = e.target.closest('[data-ajuste-descartar]').dataset.ajusteDescartar; bast.propuestas = (bast.propuestas || []).filter(p => p.id !== v); pintarAjustes(); }
+    else if (e.target.closest('[data-ajuste-deshacer]')) { const k = Number(e.target.closest('[data-ajuste-deshacer]').dataset.ajusteDeshacer); guardarAjustes(ajustesGuardados().filter((_, n) => n !== k)); toast('Ajuste deshecho'); renderVistaAgrupada(); }
+    else if (ac && ac.dataset.chatAccion === 'enviar') enviarChat();
     else if (ac && ac.dataset.chatAccion === 'claude') preguntarClaude();
     else if (ac && ac.dataset.chatAccion === 'hechos') {
       const x = contextoChat();
@@ -3501,7 +3576,7 @@
   });
   $('btnBastLimpiar').addEventListener('click', () => {
     $('cmpEstado').innerHTML = ''; $('cmpCuit').value = ''; $('cmpNombre').value = ''; cmp.crudo = null;
-    Object.assign(bast, { pdf: null, xls: null, poderes: [], poderesTodos: [], poderPresidente: null, avisoPresidente: '', actas: [], otrosPoderes: [], edPorPoder: {}, cliente: null, ediciones: [], cuitsBase: {}, fuenteCuit: {} });
+    Object.assign(bast, { propuestas: [], ajustesClave: null, ajustes: [], limOrig: null, pdf: null, xls: null, poderes: [], poderesTodos: [], poderPresidente: null, avisoPresidente: '', actas: [], otrosPoderes: [], edPorPoder: {}, cliente: null, ediciones: [], cuitsBase: {}, fuenteCuit: {} });
     $('bastPdfNombre').textContent = 'Arrastrá el PDF o hacé clic';
     $('bastXlsNombre').textContent = 'Arrastrá el Excel o hacé clic';
     $('bastUnicoJson').classList.add('oculto');

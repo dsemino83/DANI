@@ -764,3 +764,43 @@ test('bastanteo: un poder más nuevo que usa la clase en forma genérica y solo 
   assert.ok(cc.length >= 1, 'la regla C+C sigue: ' + j.avisos.join(' | '));
   assert.ok(cc.every(r => r.monto === 1000000 || r.monto === 1000000 * 1000 || r.monto == null), JSON.stringify(cc.map(r => r.monto)));
 });
+
+// ---------------------------------------------------------------- Ajustes propuestos por Claude y confirmados por el usuario
+test('ajustes: se extrae el bloque ```ajustes-valo del texto de Claude y se valida cada ajuste', () => {
+  const t = 'Explicación.\n```ajustes-valo\n[{"op":"regla_editar","referencia":"regla-1","cambios":{"monto":null},"motivo":"sin tope"},{"op":"borrar_todo"}]\n```';
+  const x = M.extraerAjustes(t);
+  assert.equal(x.texto, 'Explicación.');
+  assert.equal(x.ajustes.length, 2);
+  assert.equal(M.validarAjuste(x.ajustes[0]).ok, true);
+  assert.equal(M.validarAjuste(x.ajustes[1]).ok, false, 'una operación fuera de la lista no se acepta');
+  assert.ok(M.extraerAjustes('```ajustes-valo\nno es json\n```').error);
+  assert.deepEqual(M.extraerAjustes('sin bloque').ajustes, []);
+});
+
+test('ajustes: se aplican a las reglas y los apoderados; lo inválido se rechaza con el motivo y no rompe el resto', () => {
+  const ap = (n, g) => ({ cuitCuil: `20-0000000${n}-1`, nombre: `N${n}`, apellido: `A${n}`, estado: 'Activa', grupos: g });
+  const mk = () => ({ version: '1.0', empresa: {}, apoderados: [ap(1, ['B']), ap(2, ['C'])],
+    reglasFirma: [{ referencia: 'regla-1', tipo: 'ConjuntaIndistinta', quorum: 1, moneda: 'ARS', monto: 66580, descripcion: 'Grupo B y/o C - firma individual', circuitos: ['ECHEQ_FIRMAR'], grupos: ['B', 'C'], firmantes: [] }] });
+  const j = mk();
+  const lista = [
+    { op: 'regla_editar', referencia: 'regla-1', cambios: { monto: null }, motivo: 'sin límite' },
+    { op: 'regla_editar', referencia: 'regla-9', cambios: { monto: 5 } },
+    { op: 'regla_editar', referencia: 'regla-1', cambios: { circuitos_agregar: ['NO_EXISTE'] } },
+    { op: 'apoderado_agregar', cuitCuil: '20-00000003-1', nombre: 'N3', apellido: 'A3', grupos: ['C'] },
+    { op: 'regla_agregar', regla: { tipo: 'Conjunta', quorum: 1, grupos: ['B', 'C'], circuitos: ['ECHEQ_FIRMAR'], monto: 1000, moneda: 'USD', descripcion: 'B+C hasta USD 1000' } },
+  ];
+  const r = M.aplicarAjustes(j, lista);
+  assert.equal(r.aplicados.length, 3);
+  assert.equal(r.rechazados.length, 2);
+  assert.equal(j.reglasFirma[0].monto, null);
+  assert.equal(j.reglasFirma[0].moneda, null, 'sin tope también saca la moneda');
+  assert.equal(j.apoderados.length, 3);
+  assert.equal(j.reglasFirma.length, 2);
+  // Se vuelve a encontrar la regla por su firma aunque la renumeren.
+  const k = mk(); k.reglasFirma[0].referencia = 'regla-7';
+  const firma = M.firmaDeRegla(k.reglasFirma[0]);
+  assert.equal(M.aplicarAjustes(k, [{ op: 'regla_quitar', referencia: 'regla-1', firma }]).aplicados.length, 1);
+  assert.equal(k.reglasFirma.length, 0);
+  // El modelo sigue siendo válido tras agregar una regla.
+  assert.ok(M.modeloBastanteo(j).reglas.length >= 2);
+});
