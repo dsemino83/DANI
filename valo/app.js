@@ -3013,7 +3013,7 @@
     const marca = ok => (ok === true ? '<b style="color:var(--ok)">✓</b>' : ok === false ? '<b style="color:var(--bad)">✗</b>' : '<span class="sub">—</span>');
     const conDif = filas.filter(f => f.puntos.some(p => p.ok === false));
     const orden = conDif.concat(filas.filter(f => !conDif.includes(f)));
-    $('bastControl').innerHTML = `<h3>Control del resumen contra los poderes</h3>` +
+    $('bastControl').innerHTML = `<h3>Control del resumen contra los poderes <button class="btn chico" type="button" data-ctrl-diag title="Copia un resumen técnico (poderes, usos de firma, ajustes y diferencias) para pegarlo en el chat con Claude Code">Copiar diagnóstico</button></h3>` +
       aviso(conDif.length ? 'warn' : 'ok', conDif.length ? `<b>${conDif.length} de ${filas.length} firmantes con diferencias.</b> ✓ = el resumen y el poder coinciden · ✗ = difieren.` : `Los ${filas.length} firmantes del resumen coinciden con los poderes.`) +
       `<div class="tabla-caja"><table><thead><tr><th>Firmante</th><th>Resumen (Excel)</th><th>Punto</th><th></th><th>Dice el resumen</th><th>Dice el poder</th></tr></thead><tbody>` +
       orden.map(f => f.puntos.map((p, i) => { const k = ctrlPuntos.push({ f, p }) - 1; return `<tr>${i ? '' : `<td rowspan="${f.puntos.length}"><b>${esc(f.nombre)}</b><div class="sub" style="margin:0">${esc(M.formatoCuit(f.ident) || '')}</div></td><td rowspan="${f.puntos.length}">${esc(f.resumen || '—')}</td>`}` +
@@ -3024,7 +3024,34 @@
       `<label class="campo" style="margin:8px 0 0">Comentario para el criterio que aceptes (opcional: por qué está bien) <input id="ctrlCriterioComentario" placeholder="ej. no hay firma individual en el poder: vale la conjunta"></label>`;
   }
 
+  // Resumen técnico del estado del bastanteo (sin facultades ni textos largos) para diagnosticar diferencias del control.
+  function diagnosticoBastanteo() {
+    const resumenUso = u => ({ grupo: u.grupo, tipo: u.tipo, combinaciones: u.combinaciones, manual: !!u.manual });
+    const d = { version: ($('versionPagina') || {}).textContent, cliente: bast.cliente && { nombre: bast.cliente.cliente, cuit: bast.cliente.cuit, firmantes: bast.cliente.firmantes.map(f => ({ nombre: f.nombre, cuit: f.cuit, dni: f.dni, grupo: f.uso && f.uso.grupo, combinaciones: f.uso && f.uso.combinaciones, tipos: f.uso && f.uso.tipos, texto: f.observacion })) } };
+    d.ajustes = ajustesGuardados();
+    d.poderes = bast.poderes.map((p, i) => {
+      const j = jsonDe(i);
+      return { clave: claveDePoder(p), apoderados: (p.apoderados || []).length, gruposApoderados: [...new Set((p.apoderados || []).map(x => x.grupo))],
+        usos: usosDe(p, bast.ediciones[i]).map(resumenUso),
+        estructuras: j.estructuras_de_firma.map(e => ({ grupo: e.grupo, combinaciones: e.combinaciones, apoderados: (e.apoderados || []).length })) };
+    });
+    d.anulados = (bast.anulados || []).map(x => `${x.poder.deed_number || 's/n'}: ${x.motivo}`);
+    d.quitados = (bast.quitados || []).map(x => ({ poder: x.poder && x.poder.deed_number, quien: x.apoderado && x.apoderado.nombre_completo }));
+    try {
+      const filas = M.controlResumen(jsonUnico(), Object.assign({}, M.clienteConEquivalencias(bast.cliente, ajustesGuardados()), { otrosApoderados: bast.poderes.flatMap(p => p.apoderados || []), jsonsPoderes: bast.poderes.map((p, i) => jsonDe(i)) }), bast.actas, { anulados: bast.anulados, quitados: bast.quitados }, criteriosCtrl.lista);
+      d.controlResumen = M.aplicarAjustesControlResumen(filas, ajustesGuardados()).filter(f => f.puntos.some(p => p.ok === false || p.punto === 'Poder')).map(f => ({ firmante: f.nombre, puntos: f.puntos.filter(p => p.ok === false || p.punto === 'Poder').map(p => ({ punto: p.punto, ok: p.ok, resumen: p.resumen, poder: String(p.poder).slice(0, 120), detalle: p.detalle })) }));
+    } catch (err) { d.controlResumenError = String(err && err.message || err); }
+    try { d.reglasJson = jsonV1().reglasFirma.map(r => `${r.tipo} q${r.quorum} ${r.grupos.join('+')} ${r.moneda || ''}${r.monto || ''}`); } catch (err) { d.reglasJsonError = String(err && err.message || err); }
+    return d;
+  }
   $('bastControl').addEventListener('click', async e => {
+    if (e.target.closest('[data-ctrl-diag]')) {
+      e.preventDefault();
+      const txt = JSON.stringify(diagnosticoBastanteo(), null, 1);
+      try { await navigator.clipboard.writeText(txt); toast('Diagnóstico copiado: pegalo en el chat con Claude Code.'); }
+      catch (err) { informar('Diagnóstico', `<p class="sub">Copiá este texto (Ctrl+A, Ctrl+C) y pegalo en el chat con Claude Code:</p><textarea style="width:100%;height:260px;font:12px monospace" readonly onfocus="this.select()">${esc(txt)}</textarea>`); }
+      return;
+    }
     const a = e.target.closest('[data-ctrl-aceptar]'), q = e.target.closest('[data-ctrl-quitar]');
     if (!a && !q) return;
     e.preventDefault();
