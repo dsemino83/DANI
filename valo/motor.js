@@ -5678,7 +5678,7 @@ try {
     if (JSON.stringify(contexto).length > 100000) contexto = recorte(false);
     const adj = acotarAdjuntos(adjuntos);
     if (adj.length) contexto.adjuntos = adj;
-    const aviso = adj.length ? `\nADJUNTOS: el usuario subió ${adj.length} archivo(s) (poderes, escrituras, planillas): contexto.adjuntos[] trae "texto" (capa de texto, puede faltar o estar incompleto en un escaneo) y "url" (descargalo con curl -sS -o archivo "<url>" y leelo con Read, PDF o imagen). Compará lo que dicen con el JSON del bastanteo, citá página o cláusula y proponé ajustes solo con lo que el documento respalde. No imprimas el JSON completo.` : '';
+    const aviso = adj.length ? `\nADJUNTOS (${adj.length}): contexto.adjuntos[] trae "texto" (capa de texto; puede faltar en escaneos) y "url" (curl -sS -o archivo "<url>"). Leelos con tus skills si los tenés: pdf para PDF, xlsx para Excel, docx para Word; imágenes y escaneos con Read; para revisar el resultado, bastanteo-review y control-resumenes-review. Compará con el JSON, citá página o cláusula y proponé ajustes solo con lo que el documento respalde. No imprimas el JSON completo.` : '';
     return { pedido: `${INSTRUCCION_ENCARGO_BASTANTEO}${aviso}\n\nPREGUNTA DEL USUARIO: ${preg}`, contexto };
   }
 
