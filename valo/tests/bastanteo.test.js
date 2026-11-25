@@ -746,3 +746,21 @@ test('bastanteo: un uso de firma agregado a mano reemplaza al heredado con las m
   const dd = j.reglasFirma.filter(r => r.grupos.join() === 'D');
   assert.deepEqual(dd.map(r => r.monto), [1100000000], 'D+D con el monto de la escritura 199');
 });
+
+test('bastanteo: el monto con comas de miles ("USD 1,000,000") vale un millón, no 1', () => {
+  assert.deepEqual(M.montoDeTexto('hasta USD 1,000,000 (o su equivalente)'), { monto: 1000000, moneda: 'USD' });
+  assert.deepEqual(M.montoDeTexto('por hasta la suma de US$ 1.000.000 (dólares)'), { monto: 1000000, moneda: 'USD' });
+  assert.deepEqual(M.montoDeTexto('hasta $ 2.500,50'), { monto: 2500.5, moneda: 'ARS' });
+});
+
+test('bastanteo: un poder más nuevo que usa la clase en forma genérica y solo nombra a otra persona no deja sin firmantes a la combinación del poder anterior', () => {
+  // GDM: el poder viejo da C+C a Nombre1 y Nombre2 (hasta USD 1.000.000); el nuevo repite C+C pero solo incorpora a Nombre3 (grupo F).
+  const viejo = poder([persona(1, 'C'), persona(2, 'C')], [uso('CONJUNTA', ['C+C'], ['firmar_cheques'], Object.assign({ grupo: 'C' }, { limitaciones: 'Dos Clase C hasta US$ 1.000.000' }))],
+    { deed_number: '53', fecha_emision: '2026-03-16' });
+  const nuevo = poder([persona(3, 'F')], [uso('CONJUNTA', ['C+C'], ['firmar_cheques'], Object.assign({ grupo: 'C' }, { limitaciones: 'Dos Clase C hasta USD 1,000,000' }))],
+    { deed_number: '53', fecha_emision: '2026-03-17' });
+  const j = armar([viejo, nuevo]);
+  const cc = j.reglasFirma.filter(r => r.grupos.join() === 'C');
+  assert.ok(cc.length >= 1, 'la regla C+C sigue: ' + j.avisos.join(' | '));
+  assert.ok(cc.every(r => r.monto === 1000000 || r.monto === 1000000 * 1000 || r.monto == null), JSON.stringify(cc.map(r => r.monto)));
+});

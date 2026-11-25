@@ -3243,11 +3243,12 @@
   // mayores: no tiene tope (null). Sin monto en el texto: null.
   function montoDeTexto(texto) {
     const t = String(texto || '').replace(/\s+/g, ' ');
-    const re = /(U\$S|U\$D|USD|US\$|D[OÓ]LARES|\$|ARS|PESOS)\s*([\d][\d.]*(?:,\d{1,2})?)(\s*(?:MILLONES|MILL\.?))?/gi;
+    const re = /(U\$S|U\$D|USD|US\$|D[OÓ]LARES|\$|ARS|PESOS)\s*(\d{1,3}(?:,\d{3})+(?:\.\d{1,2})?(?!\d)|[\d][\d.]*(?:,\d{1,2})?)(\s*(?:MILLONES|MILL\.?))?/gi;
     let m;
     while ((m = re.exec(t))) {
       const antes = t.slice(Math.max(0, m.index - 70), m.index).toLowerCase();
-      let valor = Number(m[2].replace(/\./g, '').replace(',', '.'));
+      // "1,000,000" (comas de miles, como escribe a veces el OCR) vale un millón, no 1.
+      let valor = /^\d{1,3}(?:,\d{3})+(?:\.\d{1,2})?$/.test(m[2]) ? Number(m[2].replace(/,/g, '')) : Number(m[2].replace(/\./g, '').replace(',', '.'));
       if (m[3]) valor *= 1e6;
       if (!(valor > 0)) continue;
       const moneda = /\$/.test(m[1]) && !/U\$|US\$/i.test(m[1]) || /ARS|PESOS/i.test(m[1]) ? 'ARS' : 'USD';
@@ -3696,6 +3697,9 @@
         const ultima = fechas.sort().pop();
         const viejas = lista.filter(([, r]) => (r._fecha || '') < ultima);
         const nueva = lista.find(([, r]) => (r._fecha || '') === ultima)[1];
+        // Los participantes son la unión: un poder más nuevo que solo nombra a otra persona (Robles) y usa las clases C/B de manera
+        // genérica no deja sin firmantes a la combinación que el poder anterior le daba a Degli y Decanio.
+        nueva._participantes = [...new Set(lista.flatMap(([, r]) => r._participantes || []))].sort();
         viejas.forEach(([k, r]) => reglas.delete(k));
         avisos.push(`${nueva.descripcion.replace(/^Grupo [A-Z]+ - /, '').replace(/^./, c => c.toUpperCase())} está en poderes de distinta fecha con distintos montos: se toma el del poder más reciente (${nueva._deed ? 'esc. ' + nueva._deed + ', ' : ''}${ultima.split('-').reverse().join('/')}).`);
       });
