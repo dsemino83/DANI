@@ -333,3 +333,24 @@ test('planilla: la fecha de la columna "monto desde" no se toma como límite cua
   assert.equal(c.firmantes[1].monto_hasta, null, 'ni el número de serie de una fecha');
   assert.equal(c.firmantes[2].monto_hasta, 1500000, 'el monto de su propia celda sí');
 });
+
+test('ajustes del control: equivalencia de letras (la planilla llama C a lo que el bastanteo llama B) e ignorar un falso positivo', () => {
+  // La persona del grupo C de la planilla (4) no está en el bastanteo: el control no puede deducir que C es B.
+  const x = excel([[1, 'A CONJUNTA A+C'], [2, 'A CONJUNTA A+C'], [4, 'C CONJUNTA A+C']]);
+  const j = json([ap(1, ['A']), ap(2, ['A']), ap(3, ['B'])], [regla('Conjunta', 1, ['A', 'B'])]);
+  const agrup = r => errores(r, 'ERROR DE AGRUPAMIENTO');
+  const sin = compararConExcel(j, x, M);
+  assert.ok(agrup(sin).length > 0, 'sin ajuste el control marca error de agrupamiento por la letra: ' + JSON.stringify(sin.diferencias));
+  // Equivalencia C = B: desaparece ese falso positivo.
+  const eq = [{ op: 'control_equivalencia', planilla: 'C', bastanteo: 'B' }];
+  const con = M.aplicarAjustesControl(compararConExcel(j, M.clienteConEquivalencias(x, eq), M), eq).resultado;
+  assert.deepEqual(agrup(con), [], JSON.stringify(con.diferencias));
+  // Ignorar: se saca la diferencia (por tipo y firmante) y el punto queda en OK con el motivo.
+  const ig = [{ op: 'control_ignorar', tipo: 'ERROR DE AGRUPAMIENTO', firmante: '', motivo: 'solo cambia el rótulo de la letra' }];
+  const r = M.aplicarAjustesControl(sin, ig);
+  assert.equal(r.resultado.diferencias.filter(d => d.tipo === 'ERROR DE AGRUPAMIENTO').length, 0);
+  assert.ok(r.ignoradas.length > 0);
+  // Un ajuste sin motivo o con un tipo desconocido no se acepta.
+  assert.equal(M.validarAjuste({ op: 'control_ignorar', tipo: 'ERROR DE AGRUPAMIENTO' }).ok, false);
+  assert.equal(M.validarAjuste({ op: 'control_ignorar', tipo: 'X', motivo: 'y' }).ok, false);
+});

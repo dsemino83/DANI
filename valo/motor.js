@@ -5641,14 +5641,13 @@ try {
   // El pedido y el contexto viajan como un "encargo" de SO a la tarea de Claude Code de la cuenta del usuario (consume el plan,
   // no la API). El pedido lleva las instrucciones y la pregunta (máx. 4000 caracteres); el contexto, el bastanteo recortado.
   // Claude solo explica y propone: no modifica nada (los ajustes se aplican en la página, con confirmación).
-  const INSTRUCCION_ENCARGO_BASTANTEO = 'Consulta de BASTANTEO de VALO (el contexto trae tipo "bastanteo": JSON generado de Complif y/o la planilla del cliente, reglas de firma, vista agrupada, errores del modelo, avisos del generador y el control contra la planilla). '
-    + 'Respondé en "texto", en español rioplatense, claro y breve. Primero contestá la pregunta; después, si hay un problema, decí dónde está: en los datos (Complif, planilla u OCR), en la agrupación, en la combinación o en la regla. '
-    + 'Si corresponde, proponé ajustes concretos (qué grupo, firmante o regla cambiar y por qué) sin inventar significado legal que no esté en los datos. Si falta un dato, decilo. Citá firmantes y reglas por nombre o referencia (regla-1…). '
-    + 'Vos no modificás nada: para que el usuario pueda aplicar un ajuste con un botón (y deshacerlo), agregá AL FINAL de "texto" un bloque exacto ```ajustes-valo con un arreglo JSON de a lo sumo 12 ajustes, cada uno {"op", "motivo", ...}. Operaciones: '
-    + '"regla_editar" {"referencia":"regla-3","cambios":{"monto":null|número,"moneda":"USD"|"ARS"|null,"quorum":n,"tipo":"Individual"|"Conjunta"|"ConjuntaIndistinta","grupos":["B","C"],"firmantes":["CUIT"],"descripcion":"…","circuitos_agregar":["CODIGO"],"circuitos_quitar":["CODIGO"]}}; '
-    + '"regla_quitar" {"referencia":"regla-3"}; "regla_agregar" {"regla":{"tipo","quorum","grupos","monto","moneda","descripcion","circuitos":["CODIGO"]}}; '
-    + '"apoderado_grupos" {"cuitCuil":"20-12345678-9","grupos":["B"]}; "apoderado_quitar" {"cuitCuil"}; "apoderado_agregar" {"cuitCuil","nombre","apellido","grupos":[…]}; '
-    + '"planilla_limite" {"cuitCuil","limite":null|número} (corrige el límite individual que trae la planilla del cliente). Los códigos de circuito son los del contexto (reglasFirma[].circuitos). Una firma individual de un grupo es ConjuntaIndistinta con quórum 1 (no la pases a Individual: ese tipo es de UNA persona y pide su CUIT en firmantes). Solo proponé ajustes que los datos respalden.';
+  const INSTRUCCION_ENCARGO_BASTANTEO = 'Consulta de BASTANTEO de VALO (contexto tipo "bastanteo": JSON, reglas, vista agrupada, errores del modelo, avisos y control contra la planilla). '
+    + 'Respondé en "texto", en español rioplatense, claro y breve: primero la respuesta; si hay un problema, decí dónde está (datos, agrupación, combinación o regla). No inventes significado legal; si falta un dato, decilo. Citá firmantes y reglas por nombre o referencia. '
+    + 'Vos no modificás nada: para que el usuario aplique cambios con un botón (y los deshaga), agregá AL FINAL de "texto" un bloque ```ajustes-valo con un arreglo JSON (máx. 12) de {"op","motivo",...}. Ops: '
+    + 'regla_editar {referencia,cambios:{monto(null=sin tope),moneda USD|ARS,quorum,tipo,grupos[],firmantes[],descripcion,circuitos_agregar[],circuitos_quitar[]}}; regla_quitar {referencia}; regla_agregar {regla:{tipo,quorum,grupos,monto,moneda,descripcion,circuitos[]}}; '
+    + 'apoderado_grupos {cuitCuil,grupos[]}; apoderado_quitar {cuitCuil}; apoderado_agregar {cuitCuil,nombre,apellido,grupos[]}; planilla_limite {cuitCuil,limite|null}; '
+    + 'control_equivalencia {planilla:"C",bastanteo:"B"} (la planilla llama C a lo que el bastanteo llama B); control_ignorar {tipo:"ERROR DE AGRUPAMIENTO",firmante(opcional),motivo} (falso positivo del control). '
+    + 'Si el control marca un error que no lo es, proponé control_equivalencia o control_ignorar. La firma individual de un grupo es ConjuntaIndistinta con quórum 1 (Individual es de UNA persona y pide su CUIT en firmantes). Solo ajustes que los datos respalden.';
   function armarEncargoBastanteo({ json, modelo, control, pregunta, agrupamiento, chatContext, hoy } = {}) {
     const preg = String(pregunta || '').trim().slice(0, 1800);
     const recorte = conCircuitos => ({
@@ -5671,7 +5670,9 @@ try {
   // Claude contesta con un bloque ```ajustes-valo [ ... ] ``` al final del texto. La página muestra cada ajuste, el usuario lo aplica
   // (o lo descarta) y se puede deshacer. Se aplican sobre el JSON recién generado (cada vez que se regenera), con una lista cerrada de
   // operaciones: no hay forma de tocar nada fuera de reglas, apoderados y el límite de la planilla.
-  const OPS_AJUSTE = ['regla_editar', 'regla_quitar', 'regla_agregar', 'apoderado_grupos', 'apoderado_quitar', 'apoderado_agregar', 'planilla_limite'];
+  const OPS_AJUSTE = ['regla_editar', 'regla_quitar', 'regla_agregar', 'apoderado_grupos', 'apoderado_quitar', 'apoderado_agregar', 'planilla_limite', 'control_equivalencia', 'control_ignorar'];
+  const TIPOS_CONTROL = ['ERROR DE GRUPO', 'ERROR DE PERTENENCIA', 'ERROR DE PARTICIPACIÓN', 'ERROR DE AGRUPAMIENTO', 'ERROR DE REGLA', 'ERROR DE APLICACIÓN', 'AVISO DEL EXCEL'];
+  const OPS_DE_CONTROL = ['planilla_limite', 'control_equivalencia', 'control_ignorar'];
   const TIPOS_REGLA = ['Individual', 'Conjunta', 'ConjuntaIndistinta'];
   const soloDigitos = x => String(x == null ? '' : x).replace(/\D/g, '');
   const letrasAjuste = l => [...new Set((Array.isArray(l) ? l : []).map(x => grupoNormal(x)).filter(Boolean))].sort();
@@ -5742,6 +5743,16 @@ try {
       if (!String(a.apellido || a.nombre || '').trim()) return { ok: false, error: 'falta el nombre' };
       limpio.nombre = String(a.nombre || '').slice(0, 100); limpio.apellido = String(a.apellido || '').slice(0, 100);
     }
+    if (a.op === 'control_equivalencia') {
+      const p = grupoNormal(a.planilla), b = grupoNormal(a.bastanteo);
+      if (!/^[A-Z]{1,3}$/.test(p) || !/^[A-Z]{1,3}$/.test(b)) return { ok: false, error: 'equivalencia: indicá la letra de la planilla y la del bastanteo' };
+      limpio.planilla = p; limpio.bastanteo = b;
+    }
+    if (a.op === 'control_ignorar') {
+      if (!TIPOS_CONTROL.includes(a.tipo)) return { ok: false, error: `tipo de diferencia desconocido (${TIPOS_CONTROL.join(', ')})` };
+      if (!String(a.motivo || '').trim()) return { ok: false, error: 'para ignorar una diferencia del control hay que explicar por qué es un falso positivo ("motivo")' };
+      limpio.tipo = a.tipo; limpio.firmante = String(a.firmante || '').slice(0, 120);
+    }
     if (a.op === 'planilla_limite') {
       if (a.limite !== null && !(Number(a.limite) > 0)) return { ok: false, error: 'límite inválido' };
       limpio.limite = a.limite === null ? null : Number(a.limite);
@@ -5765,9 +5776,45 @@ try {
     if (a.op === 'apoderado_grupos') return `${nom(a.cuitCuil)}: pasa al grupo ${a.grupos.join(', ')}${cierre}`;
     if (a.op === 'apoderado_quitar') return `Sacar a ${nom(a.cuitCuil)} del bastanteo${cierre}`;
     if (a.op === 'apoderado_agregar') return `Agregar a ${[a.apellido, a.nombre].filter(Boolean).join(', ')} (${formatoCuit(a.cuitCuil)}) al grupo ${a.grupos.join(', ')}${cierre}`;
+    if (a.op === 'control_equivalencia') return `Control: la letra ${a.planilla} de la planilla equivale al grupo ${a.bastanteo} del bastanteo${cierre}`;
+    if (a.op === 'control_ignorar') return `Control: ignorar ${a.tipo}${a.firmante ? ' de ' + a.firmante : ''} (falso positivo)${cierre}`;
     if (a.op === 'planilla_limite') return `Planilla: límite individual de ${nom(a.cuitCuil)} → ${a.limite === null ? 'sin límite' : a.limite.toLocaleString('es-AR')}${cierre}`;
     return a.op;
   }
+  // Equivalencia de letras que el usuario (o Claude, con su confirmación) fijó para el control: copia de la planilla con las letras
+  // de grupo renombradas (todas a la vez). El control las compara después con el bastanteo ya renombradas.
+  function clienteConEquivalencias(cliente, ajustes) {
+    const mapa = {};
+    (ajustes || []).filter(a => a.op === 'control_equivalencia').forEach(a => { mapa[a.planilla] = a.bastanteo; });
+    if (!cliente || !Object.keys(mapa).length) return cliente;
+    const ren = l => (Object.prototype.hasOwnProperty.call(mapa, l) ? mapa[l] : l);
+    const renTexto = t => String(t == null ? '' : t).replace(/\b[A-Z]{1,3}\b/g, w => ren(w));
+    return Object.assign({}, cliente, { firmantes: (cliente.firmantes || []).map(f => {
+      if (!f.uso) return f;
+      const u = Object.assign({}, f.uso, { grupo: ren(f.uso.grupo), combinaciones: (f.uso.combinaciones || []).map(c => c.split('+').map(ren).sort().join('+')).sort(), texto: renTexto(f.uso.texto) });
+      return Object.assign({}, f, { uso: u });
+    }) });
+  }
+  // Saca del resultado del control las diferencias que el usuario marcó como falso positivo (tipo y, si se indicó, firmante).
+  const PUNTO_DE_TIPO = { 'ERROR DE GRUPO': ['grupo'], 'ERROR DE PERTENENCIA': ['pertenencia'], 'ERROR DE AGRUPAMIENTO': ['combinaciones'], 'ERROR DE REGLA': ['uso', 'limite'], 'ERROR DE APLICACIÓN': ['combinaciones'], 'ERROR DE PARTICIPACIÓN': ['combinaciones'] };
+  function aplicarAjustesControl(res, ajustes) {
+    const ig = (ajustes || []).filter(a => a.op === 'control_ignorar');
+    if (!ig.length || !res) return { resultado: res, ignoradas: [] };
+    const coincide = (a, nombre) => !a.firmante || palabrasNorm(nombre).includes(palabrasNorm(a.firmante)) || (soloDigitos(a.firmante).length >= 7 && soloDigitos(nombre).includes(soloDigitos(a.firmante)));
+    const ignoradas = [];
+    const diferencias = res.diferencias.filter(d => {
+      const a = ig.find(x => x.tipo === d.tipo && coincide(x, d.firmante || d.detalle));
+      if (a) ignoradas.push({ diferencia: d, ajuste: a });
+      return !a;
+    });
+    const firmantes = res.firmantes.map(f => {
+      const puntos = Object.assign({}, f.puntos);
+      ig.filter(a => coincide(a, f.nombre)).forEach(a => (PUNTO_DE_TIPO[a.tipo] || []).forEach(k => { if (puntos[k] && (puntos[k].estado === 'dif' || puntos[k].estado === 'rev')) puntos[k] = { estado: 'ok', detalle: `ignorado: ${a.motivo}` }; }));
+      return Object.assign({}, f, { puntos });
+    });
+    return { resultado: Object.assign({}, res, { diferencias, firmantes }), ignoradas };
+  }
+  const palabrasNorm = t => normalizar(String(t || '')).replace(/[^a-z0-9 ]/g, ' ').split(/\s+/).filter(Boolean).sort().join(' ');
   // Aplica la lista de ajustes (ya validados) al JSON 1.0 recién generado. Devuelve { aplicados, rechazados:[{ajuste, motivo}] }.
   function aplicarAjustes(json, ajustes) {
     const aplicados = [], rechazados = [];
@@ -5775,7 +5822,7 @@ try {
     const apod = c => (json.apoderados || []).find(x => soloDigitos(x.cuitCuil) === c);
     const participantes = grupos => (json.apoderados || []).filter(x => (x.grupos || []).some(g => grupos.includes(grupoNormal(g)))).map(x => formatoCuit(soloDigitos(x.cuitCuil))).sort();
     (ajustes || []).forEach(a => {
-      if (a.op === 'planilla_limite') return;   // lo aplica la página sobre la planilla
+      if (OPS_DE_CONTROL.includes(a.op)) return;   // los aplica la página sobre la planilla y el control, no sobre el JSON
       const v = validarAjuste(a);
       if (!v.ok) return rechazo(a, v.error);
       a = v.ajuste;
@@ -6153,7 +6200,7 @@ try {
     problemasBanco, codigoCreditoPorDefecto, prefijoBanco, numeroCredito, prefijosRepetidos, controlarBancos, controlarReporte,
     generarCuotas, generarCreditos, txtCuotas, txtCreditos, nombreArchivo,
     calcularSecuenciaLote, validarFormulario,
-    usoManual, usosConManuales, armarEncargoBastanteo, extraerAjustes, validarAjuste, describirAjuste, aplicarAjustes, firmaDeRegla, OPS_AJUSTE, tnaATea, teaATna, PADRONES, indexarPadronAlicuotas, buscarEnPadron, alicuotaPercepcionIIBB,
+    usoManual, usosConManuales, armarEncargoBastanteo, extraerAjustes, validarAjuste, describirAjuste, aplicarAjustes, firmaDeRegla, OPS_AJUSTE, clienteConEquivalencias, aplicarAjustesControl, tnaATea, teaATna, PADRONES, indexarPadronAlicuotas, buscarEnPadron, alicuotaPercepcionIIBB,
     leerArchivosCesion, datosCartaDesdeLote, precioCesionNeto, cartaCesion, textoCartaCesion, docxSimple, fechaEnLetras, crc32,
   };
   root.ValoMotor = api;

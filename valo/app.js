@@ -3145,9 +3145,16 @@
   // Control del bastanteo contra la planilla del cliente (Excel), firmante por firmante: pertenencia, grupo, uso de firma,
   // firmas conjuntas y límite. OK coincide; REV el bastanteo da más que la planilla o falta el dato (no es un error); DIF la
   // planilla pide algo que el bastanteo no da. Las letras de grupo de la planilla pueden ser otras si son equivalentes.
+  // Control con los ajustes confirmados en el chat (equivalencias de letras y diferencias marcadas como falso positivo).
+  function controlDe(json) {
+    const aj = ajustesGuardados();
+    const { resultado, ignoradas } = M.aplicarAjustesControl(M.compararConExcel(json, M.clienteConEquivalencias(bast.cliente, aj)), aj);
+    resultado.ignoradas = ignoradas;
+    return resultado;
+  }
   function htmlContraExcel(json) {
     if (!bast.cliente || !bast.cliente.firmantes.length) return '';
-    const r = M.compararConExcel(json, bast.cliente);
+    const r = controlDe(json);
     const chip = e => (e === 'dif' ? '<span class="chip bad">DIF</span>' : e === 'rev' ? '<span class="chip warn">REV</span>' : '<span class="chip ok">OK</span>');
     const errores = r.diferencias.filter(d => d.nivel === 'error'), avisos = r.diferencias.filter(d => d.nivel !== 'error');
     const porTipo = l => M.ORIGEN_ERROR_EXCEL ? Object.keys(M.ORIGEN_ERROR_EXCEL).map(t => {
@@ -3159,6 +3166,7 @@
       '<p class="sub" style="margin:0 0 6px">Cada firmante de la planilla contra el bastanteo generado. OK coincide · REV el bastanteo da más que la planilla o la planilla no dice el dato (revisar, no es un error) · DIF la planilla pide algo que el bastanteo no da.</p>' +
       (errores.length ? aviso('bad', `<b>${errores.length} diferencia${errores.length > 1 ? 's' : ''} con la planilla</b>${porTipo(errores)}`) : aviso('ok', 'El bastanteo da todo lo que pide la planilla.')) +
       (avisos.length ? aviso('warn', `<b>Para revisar</b>${porTipo(avisos)}`) : '') +
+      ((r.ignoradas || []).length ? `<p class="sub" style="margin:4px 0">${r.ignoradas.length} diferencia${r.ignoradas.length > 1 ? 's' : ''} ignorada${r.ignoradas.length > 1 ? 's' : ''} por ajuste del chat (falso positivo): ${r.ignoradas.map(x => esc(x.diferencia.detalle)).join(' · ')}</p>` : '') +
       (r.firmantes.length ? '<div class="tabla-caja"><table><thead><tr><th>Firmante</th><th>Pertenencia</th><th>Grupo</th><th>Uso de firma</th><th>Firmas conjuntas</th><th>Límite</th></tr></thead><tbody>' +
         r.firmantes.map(f => `<tr><td>${esc(f.nombre)}</td>${P.map(p => `<td title="${esc(f.puntos[p].detalle || '')}">${chip(f.puntos[p].estado)}</td>`).join('')}</tr>`).join('') + '</tbody></table></div>' : '');
   }
@@ -3306,7 +3314,7 @@
     if (!texto) { toast('Escribí primero tu pregunta en el cuadro de texto de arriba y después tocá "Preguntar a Claude".'); if (t) t.focus(); return; }
     toast('Consulta enviada a Claude: tarda unos minutos, la respuesta aparece en este chat.');
     const json = jsonV1(), modelo = M.modeloBastanteo(json);
-    const control = bast.cliente && bast.cliente.firmantes.length ? M.compararConExcel(json, bast.cliente) : null;
+    const control = bast.cliente && bast.cliente.firmantes.length ? controlDe(json) : null;
     const { pedido, contexto } = M.armarEncargoBastanteo({ json, modelo, control, pregunta: texto, chatContext: x.context,
       agrupamiento: { id: bastChat.agrupamientoId, grupo: x.fila && x.fila.grupo, condicion: x.fila && x.fila.condicion, reglas: x.fila && x.fila.reglas } });
     const clave = bastChat.clave;
