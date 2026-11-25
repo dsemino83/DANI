@@ -320,3 +320,16 @@ test('documentos onboardeados: un firmante de la planilla sin poder trae su carg
   assert.match(ap.advertencia, /no figura en ningún poder.*Director titular/);
   assert.equal(ap.rol_en_documentos, 'Director titular');
 });
+
+test('planilla: la fecha de la columna "monto desde" no se toma como límite cuando "monto hasta" dice ILIMITADO', () => {
+  const fecha = new Date(Date.UTC(2082, 3, 14));
+  const filas = [['CLIENTE', 'EMPRESA DE PRUEBA SA'], ['CUIT', '30000000007'], [],
+    ['Rol', 'Cuit', 'apellido y nombre firmante', 'monto desde', 'monto hasta', 'observación'],
+    ['F', CUIT(1), 'APELLIDO1 Nombre1', fecha, 'ILIMITADO', 'F INDISTINTA SIN LÍMITE'],
+    ['F', CUIT(2), 'APELLIDO2 Nombre2', 66580, 'ILIMITADO', 'F INDISTINTA SIN LÍMITE'],
+    ['F', CUIT(3), 'APELLIDO3 Nombre3', 66580, 1500000, 'F INDISTINTA H/ $ 1.500.000']];
+  const c = M.leerClienteBastanteo([{ hoja: 'R', filas }]);
+  assert.equal(c.firmantes[0].monto_hasta, null);
+  assert.equal(c.firmantes[1].monto_hasta, null, 'ni el número de serie de una fecha');
+  assert.equal(c.firmantes[2].monto_hasta, 1500000, 'el monto de su propia celda sí');
+});

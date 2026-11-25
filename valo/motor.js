@@ -2584,7 +2584,13 @@
             const clave = num || (enteVal ? 'e:' + enteVal : 'n:' + normalizar(nombre));
             if (vistos.has(clave)) continue;
             vistos.add(clave);
-            const montos = (iHasta > -1 ? [fila[iHasta], fila[iHasta + 1], fila[iHasta - 1]] : []).map(c => Number(String(c == null ? '' : c).replace(/[^\d.]/g, ''))).filter(x => x > 0);
+            // El monto puede venir corrido una columna, pero nunca de una columna de fechas ("monto desde" con 14/04/2082 daba un "límite" de
+            // 66.580, el número de serie de la fecha) ni de una fecha. Si la celda del monto dice algo ("ILIMITADO"), manda lo que dice.
+            const celdaMonto = iHasta > -1 ? fila[iHasta] : null;
+            const propia = celdaMonto != null && String(celdaMonto).trim() !== '';
+            const vecina = k => k > -1 && !/desde|fecha|inicio|final/.test(n[k] || '') && !(fila[k] instanceof Date);
+            const montos = (iHasta > -1 ? [celdaMonto].concat(propia ? [] : [vecina(iHasta + 1) ? fila[iHasta + 1] : null, vecina(iHasta - 1) ? fila[iHasta - 1] : null]) : [])
+              .filter(c => !(c instanceof Date)).map(c => Number(String(c == null ? '' : c).replace(/[^\d.]/g, ''))).filter(x => x > 0);
             // "REVOCADO" en cualquier celda de la fila: el firmante figura como revocado en el resumen.
             // ("REVOCADO. FALTA REVO FISICA", "REVOCADA ESPERAR REVOCACION": la revocación todavía no está formalizada, el poder sigue vigente.)
             const pendiente = c => /\b(?:falta\w*|esperar\w*|espera\w*|pendiente\w*|aguard\w*|a la espera)\b[^.;]{0,30}\brevo/i.test(c) || /\brevoc\w*\s+(?:pendiente|sin\s+formalizar)/i.test(c);
