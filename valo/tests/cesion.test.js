@@ -162,3 +162,22 @@ test('lote con varios archivos: se unen las hojas del mismo formato y encabezado
   assert.equal(r2.crudas[0].filas.length, 3);
   assert.ok(r2.avisos.some(x => /d\.csv|d"/.test(x)), r2.avisos.join(' | '));
 });
+
+test('totales del lote: se suman en centavos enteros (sin el error de decimales de miles de filas) y GetNet elige la columna de la cuota', () => {
+  // 0,1 + 0,2 repetido: con float se arrastra error; en centavos el total es exacto.
+  const filas = Array.from({ length: 300000 }, (_, i) => (i % 2 ? 0.1 : 0.2));
+  assert.equal(M.sumaCentavos(filas), 45000);
+  // GetNet: el monto de la transacción es cuota × cuotas en cada fila → se suma la cuota.
+  const enc = ['idt_transaction_identifier', 'dat_reconciliation_estimated_date', 'vlu_transaction_amount', 'cod_entidad_bancaria', 'num_installment_number', 'vlu_installment_amount'];
+  const f = [enc].concat(Array.from({ length: 30 }, (_, i) => [i, 46000, 300, 7, 3, 100]));
+  const det = M.detectarHoja('Hoja1', f);
+  const c = M.columnaMontoGetnet(f, det, null);
+  assert.equal(c.columna, 'vlu_installment_amount');
+  assert.equal(c.totalCuota, 3000); assert.equal(c.totalTransaccion, 9000);
+  // Si el archivo trae el Bruto de la conciliación, manda el que coincide con él (aunque sea el de la transacción).
+  assert.equal(M.columnaMontoGetnet(f, det, 9000).columna, 'vlu_transaction_amount');
+  assert.equal(M.columnaMontoGetnet(f, det, 3000).columna, 'vlu_installment_amount');
+  // Compras de una sola cuota: ambas columnas son iguales, se mantiene la de siempre.
+  const u = [enc].concat(Array.from({ length: 30 }, (_, i) => [i, 46000, 100, 7, 1, 100]));
+  assert.equal(M.columnaMontoGetnet(u, M.detectarHoja('Hoja1', u), null).columna, 'vlu_transaction_amount');
+});

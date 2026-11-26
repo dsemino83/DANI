@@ -3952,7 +3952,7 @@
     return archivo.errorHojas;
   }
   $('aHoja').addEventListener('change', reevaluarArchivo);
-  $('aMonto').addEventListener('change', reevaluarArchivo);
+  $('aMonto').addEventListener('change', () => { if (archivo) archivo.columnaManual = true; reevaluarArchivo(); });
 
   function reevaluarArchivo() {
     if (!almacen || !almacen.datos) return;
@@ -3981,6 +3981,14 @@
     }
     const hoja = archivo.hojas[Number($('aHoja').value) || 0];
     $('aMontoCaja').classList.toggle('oculto', hoja.formato !== 'getnet');
+    // GetNet: la columna de MONTO se elige sola (coincidencia con el Bruto o monto de la compra repetido en cada cuota); si el usuario la cambia, se respeta.
+    let notaColumna = '';
+    if (hoja.formato === 'getnet') {
+      if (!hoja._colAuto) hoja._colAuto = M.columnaMontoGetnet(hoja.filas, hoja, archivo.conciliacion && archivo.conciliacion.bruto != null ? archivo.conciliacion.bruto : null);
+      if (!archivo.columnaManual && $('aMonto').value !== hoja._colAuto.columna) $('aMonto').value = hoja._colAuto.columna;
+      if (!archivo.columnaManual && hoja._colAuto.motivo && hoja._colAuto.columna === 'vlu_installment_amount')
+        notaColumna = aviso('ok', `Se tomó <b>vlu_installment_amount</b> (monto de la cuota) como MONTO: ${esc(hoja._colAuto.motivo)}. Con <b>vlu_transaction_amount</b> el total sería $ ${fmtMonto(hoja._colAuto.totalTransaccion)}.`);
+    }
     let reporte, bancosUso = datos().bancos, meli = null;
     if (hoja.formato === 'meli') {
       meli = armarReporteMeli();
@@ -3990,7 +3998,7 @@
       codigoPorNombre: M.crearBuscadorBancoPorNombre(datos().bancos, datos().bancosMeli) });
     const errores = M.controlarReporte(reporte);
     const cb = M.controlarBancos(reporte, bancosUso);
-    const total = M.round2(reporte.reduce((s, r) => s + (r.MONTO || 0), 0));
+    const total = M.sumaCentavos(reporte.map(r => r.MONTO || 0));
     // Sin Math.min(...fechas): con cientos de miles de filas excede la pila ("Maximum call stack size exceeded").
     const fechas = reporte.map(r => r.FECHA_VENCIMIENTO).filter(f => f != null);
     preparado = { reporte, errores, cb, total, hoja, bancosUso,
@@ -4016,6 +4024,7 @@
         : aviso('ok', `Se ignoró ${reporte.ignoradas === 1 ? 'una fila' : reporte.ignoradas + ' filas'} sin banco ni fecha${pie != null ? ' (total al pie, coincide con la suma)' : ''}.`);
     }
     if (meli) html += meli.html;
+    html += notaColumna;
     if (archivo.detalleFusion) {
       html += aviso('ok', `<b>Lote consolidado de ${archivo.detalleFusion.length} archivos</b> (una sola carta y un solo CSV):<ul style="margin:6px 0 0 18px">${archivo.detalleFusion.map(d => `<li>${esc(d.archivo)} · ${fmtEntero(d.filas)} filas</li>`).join('')}</ul>`);
       if ((archivo.avisosFusion || []).length) html += aviso('warn', archivo.avisosFusion.map(esc).join('<br>'));

@@ -222,6 +222,10 @@
     vlu_installment_amount: 'vlu_installment_amount (monto de la cuota)',
   };
 
+  // Suma en centavos enteros: con cientos de miles de filas y totales de miles de millones, sumar decimales (float) arrastra error de
+  // centavos (el total salía $ 0,01 de más). Cada importe se lleva a centavos y se suma como entero.
+  const sumaCentavos = valores => { let c = 0; for (const v of valores) { const n = Number(v); if (isFinite(n)) c += Math.round(n * 100); } return c / 100; };
+
   const clave = h => normalizar(h).replace(/ /g, '_');
 
   // Lector de CSV (separador , o ; y comillas). Devuelve filas como texto; descarta las filas vacías
@@ -314,6 +318,34 @@
       }
     }
     return { hoja: nombre, formato: null, cantidad: 0 };
+  }
+
+  // Columna de MONTO de un archivo GetNet. En estos archivos cada fila es una cuota y vlu_transaction_amount es el monto de TODA la compra
+  // (se repite en cada cuota: = cuota × cantidad de cuotas), así que sumarlo cuenta cada compra varias veces. Se elige:
+  //   1) la columna cuya suma coincide con el Bruto de la hoja Conciliación, si el archivo lo trae;
+  //   2) si no, vlu_installment_amount cuando el monto de la transacción es cuota × cuotas en casi todas las filas con más de una cuota;
+  //   3) si no, vlu_transaction_amount (lo de siempre).
+  function columnaMontoGetnet(filas, det, bruto) {
+    const enc = det.encabezados || [], col = k => enc.indexOf(k);
+    const iT = col('vlu_transaction_amount'), iI = col('vlu_installment_amount'), iN = col('num_installment_number');
+    if (iT < 0 || iI < 0) return { columna: 'vlu_transaction_amount', motivo: null };
+    let sT = 0, sI = 0, multi = 0, coincide = 0;
+    for (let k = det.filaEncabezado + 1; k < filas.length; k++) {
+      const r = filas[k];
+      if (!r) continue;
+      const T = aNumero(r[iT]), I = aNumero(r[iI]), N = iN > -1 ? aNumero(r[iN]) : null;
+      if (T != null) sT += T;
+      if (I != null) sI += I;
+      if (T != null && I != null && N > 1) { multi++; if (Math.abs(T - I * N) <= 0.02 * N) coincide++; }
+    }
+    sT = round2(sT); sI = round2(sI);
+    if (bruto != null) {
+      if (Math.abs(sI - bruto) < 0.01 * Math.max(1, Math.sqrt(filas.length))) return { columna: 'vlu_installment_amount', motivo: 'su suma coincide con el Bruto de la hoja Conciliación', totalTransaccion: sT, totalCuota: sI };
+      if (Math.abs(sT - bruto) < 0.01 * Math.max(1, Math.sqrt(filas.length))) return { columna: 'vlu_transaction_amount', motivo: null, totalTransaccion: sT, totalCuota: sI };
+    }
+    if (multi >= 10 && coincide / multi >= 0.95) return { columna: 'vlu_installment_amount', totalTransaccion: sT, totalCuota: sI, multi, coincide,
+      motivo: `en el archivo el monto de la transacción se repite en cada cuota (es cuota × cantidad de cuotas en ${coincide} de ${multi} filas): sumarlo contaría cada compra varias veces` };
+    return { columna: 'vlu_transaction_amount', motivo: null, totalTransaccion: sT, totalCuota: sI };
   }
 
   // Varios archivos del mismo cliente en un solo lote: se unen las hojas que tienen el mismo formato y los mismos encabezados (los
@@ -5486,9 +5518,9 @@ try {
       cesionario: FIJOS.cesionario,
       negocio: String(params.negocio),
       cedente: String(params.cedente),
-      totalCapital: round2(filas.reduce((s, f) => s + f.capital, 0)),
-      totalValor: round2(filas.reduce((s, f) => s + f.valor, 0)),
-      totalInteres: round2(filas.reduce((s, f) => s + f.interes, 0)),
+      totalCapital: sumaCentavos(filas.map(f => f.capital)),
+      totalValor: sumaCentavos(filas.map(f => f.valor)),
+      totalInteres: sumaCentavos(filas.map(f => f.interes)),
     };
     return { encabezado, filas };
   }
@@ -6286,7 +6318,7 @@ try {
     problemasBanco, codigoCreditoPorDefecto, prefijoBanco, numeroCredito, prefijosRepetidos, controlarBancos, controlarReporte,
     generarCuotas, generarCreditos, txtCuotas, txtCreditos, nombreArchivo,
     calcularSecuenciaLote, validarFormulario,
-    usoManual, usosConManuales, fusionarHojas, armarEncargoBastanteo, acotarAdjuntos, extraerAjustes, validarAjuste, describirAjuste, aplicarAjustes, firmaDeRegla, OPS_AJUSTE, clienteConEquivalencias, aplicarAjustesControl, aplicarAjustesControlResumen, usoAgregarDeRegla, usosDeAjustes, tnaATea, teaATna, PADRONES, indexarPadronAlicuotas, buscarEnPadron, alicuotaPercepcionIIBB,
+    usoManual, usosConManuales, fusionarHojas, columnaMontoGetnet, sumaCentavos, armarEncargoBastanteo, acotarAdjuntos, extraerAjustes, validarAjuste, describirAjuste, aplicarAjustes, firmaDeRegla, OPS_AJUSTE, clienteConEquivalencias, aplicarAjustesControl, aplicarAjustesControlResumen, usoAgregarDeRegla, usosDeAjustes, tnaATea, teaATna, PADRONES, indexarPadronAlicuotas, buscarEnPadron, alicuotaPercepcionIIBB,
     leerArchivosCesion, datosCartaDesdeLote, precioCesionNeto, cartaCesion, textoCartaCesion, docxSimple, fechaEnLetras, crc32,
   };
   root.ValoMotor = api;
