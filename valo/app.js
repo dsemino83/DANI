@@ -4380,8 +4380,9 @@
     $('cContra').value = ''; contraManual = false; liquidManual = false; iibbManual = false; $('cIIBB').value = '';
     $('cLiquid').value = hoy;
     // Modelo Getnet por defecto para el cedente Getnet (o el que se usó la última vez con este cliente); la fecha de la Oferta Marco y los emisores se recuerdan por cliente.
-    $('cModelo').value = pref.modelo || (/getnet/i.test($('cCedente').value) ? 'getnet' : 'anexo1');
+    $('cModelo').value = pref.modelo || (/getnet|payway/i.test($('cCedente').value) ? 'getnet' : 'anexo1');
     $('cFechaOferta').value = pref.fechaOferta || ''; $('cEmisores').value = (o.emisores || []).join(', ');   // todos los bancos del archivo, separados por comas (se puede editar)
+    $('cCbu').value = pref.cbu != null ? pref.cbu : (/getnet|payway/i.test($('cCedente').value) ? '0720000720000003779868' : ''); $('cFirmantes').value = pref.firmantes || '';
     $('cRevolving').value = 'NO';   // Revolving lo elige el usuario; por defecto NO
     mostrarCamposModelo();
     $('cBanco').value = pref.banco || 'Banco de Valores S.A.'; $('cDomicilio').value = pref.domicilio || 'Sarmiento 310';
@@ -4394,7 +4395,7 @@
     if (!d) return null;
     return { cedente: $('cCedente').value, alias: $('cAlias').value, fechaCarta: $('cFechaCarta').value, fechaPropuesta: $('cFechaProp').value, fechaAceptacion: $('cFechaAcep').value,
       secuencia: $('cNumero').value.trim() === '' ? null : Number($('cNumero').value), archivoCreditos: $('cArchCreditos').value.trim(), archivoCuotas: $('cArchCuotas').value.trim(),
-      modelo: $('cModelo').value, fechaOferta: $('cFechaOferta').value, emisores: $('cEmisores').value.trim(), revolving: $('cRevolving').value,
+      modelo: $('cModelo').value, fechaOferta: $('cFechaOferta').value, emisores: $('cEmisores').value.trim(), revolving: $('cRevolving').value, cbu: $('cCbu').value, firmantes: $('cFirmantes').value,
       total: d.total, tasa: numeroDeCampo($('cTasa').value), contraprestacion: numeroDeCampo($('cContra').value), fechasPago: d.fechasPago, banco: $('cBanco').value.trim(), domicilioBanco: $('cDomicilio').value.trim() };
   }
   // Excel con el cálculo del desembolso (mismo esquema que "VA Precio Cesión"): fórmulas vivas, se puede retocar tasa y fecha.
@@ -4501,7 +4502,7 @@
     if (e.target.id === 'cFechaAcep' && !liquidManual) $('cLiquid').value = e.target.value;
     recalcularContra();
     if (e.target.id === 'cModelo') mostrarCamposModelo();
-    if (cartaBase) guardarCartaPrefs(cartaBase.clienteId || '_', { cedente: $('cCedente').value, alias: $('cAlias').value, banco: $('cBanco').value, domicilio: $('cDomicilio').value, modelo: $('cModelo').value, fechaOferta: $('cFechaOferta').value });
+    if (cartaBase) guardarCartaPrefs(cartaBase.clienteId || '_', { cedente: $('cCedente').value, alias: $('cAlias').value, banco: $('cBanco').value, domicilio: $('cDomicilio').value, modelo: $('cModelo').value, fechaOferta: $('cFechaOferta').value, cbu: $('cCbu').value, firmantes: $('cFirmantes').value });
   });
   $('btnCartaWord').addEventListener('click', async () => {
     const dc = datosCarta();

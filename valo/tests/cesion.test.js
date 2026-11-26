@@ -207,3 +207,10 @@ test('carta modelo Getnet: emisores comprendidos = todos los bancos del archivo 
   // El modelo Anexo I sigue igual.
   assert.ok(M.textoCartaCesion(M.cartaCesion(Object.assign({}, d, { modelo: 'anexo1' }))).startsWith('Anexo I'));
 });
+
+test('carta Getnet: tasa con TEA, fecha corta, CBU y firmantes del modelo final', () => {
+  const d = { modelo: 'getnet', cedente: 'Getnet Argentina S.A.U.', fechaCarta: '2026-10-22', fechaOferta: '2026-09-22', secuencia: 1, total: 10, tasa: 29.5, contraprestacion: 9, emisores: 'Visa', revolving: 'NO', cbu: '0720000720000003779868', firmantes: 'Ana Pérez, Apoderado', fechasPago: [{ serial: M.aFechaSerial('2026-10-26'), monto: 10 }] };
+  const t = M.textoCartaCesion(M.cartaCesion(d));
+  assert.ok(t.includes('29,50 % TNA (33,84 % TEA)') && t.includes('Fecha de Cesión — 22/10/2026') && t.includes('CBU 0720000720000003779868'), t);
+  assert.ok(t.includes('Total'), t);
+});

@@ -6192,11 +6192,17 @@ try {
     // Fecha sin completar: queda el hueco del modelo "[●] de [●] de 2026".
     const fechaOHueco = v => (aFechaSerial(v) == null ? '[●] de [●] de 2026' : fechaEnLetras(v, 'de'));
     const esGetnet = /getnet/i.test(cedente);
-    const tasa = d.tasa != null && isFinite(Number(d.tasa)) ? `${Number(d.tasa).toLocaleString('es-AR', { maximumFractionDigits: 4 })} %` : '[●] %';
+    const tasaOk = d.tasa != null && d.tasa !== '' && isFinite(Number(d.tasa));
+    const tea = tasaOk ? (Math.pow(1 + Number(d.tasa) / 100 * 30 / 365, 365 / 30) - 1) * 100 : null;
+    const pct2 = v => v.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const tasa = tasaOk ? `${pct2(Number(d.tasa))} % TNA (${pct2(tea)} % TEA)` : '[●] % TNA ([●] % TEA)';
+    const corto = esGetnet ? 'Getnet' : /payway/i.test(cedente) ? 'Payway' : cedente.split(/\s+/)[0];
+    const cbu = String(d.cbu || '').replace(/\D/g, '') || '[CBU]';
+    const firmantes = String(d.firmantes || '').split(/\r?\n/).map(x => x.trim()).filter(Boolean).map(l => { const [n, c] = l.split(/[,;|]/).map(x => x.trim()); return { nombre: n, cargo: c || 'Apoderado' }; });
     const rev = String(d.revolving || '').toUpperCase();
     // Párrafo con tramos (negrita / subrayado); texto = lo mismo sin formato (vista previa y copiar).
-    const R = (tramos, o) => Object.assign({ texto: tramos.map(x => (typeof x === 'string' ? x : x.texto)).join(''), runs: tramos.map(x => (typeof x === 'string' ? { texto: x } : x)), espacioDespues: 160, cursiva: true }, o || {});
-    const P = (texto, o) => Object.assign({ texto, espacioDespues: 160, cursiva: true }, o || {});
+    const R = (tramos, o) => Object.assign({ texto: tramos.map(x => (typeof x === 'string' ? x : x.texto)).join(''), runs: tramos.map(x => (typeof x === 'string' ? { texto: x } : x)), espacioDespues: 160 }, o || {});
+    const P = (texto, o) => Object.assign({ texto, espacioDespues: 160 }, o || {});
     const U = texto => ({ texto, subrayado: true }), B = texto => ({ texto, negrita: true });
     const nSolic = d.secuencia != null ? d.secuencia : '[●]';
     const apoderados = esGetnet ? [B('Getnet Argentina S.A.U.'), ', CUIT 30-71682151-6, con domicilio en Av. Juan de Garay 151, piso 6, Ciudad Autónoma de Buenos Aires, Argentina (“', U('Getnet'), '”)']
@@ -6210,22 +6216,32 @@ try {
       R(['En nuestro carácter de apoderados de ', ...apoderados, `, nos dirigimos a ${banco} (el “`, U('Cesionario'), '”), en el marco de la Oferta Marco para la Cesión sin recurso de Créditos por Cupones de fecha ',
         `${fechaOHueco(d.fechaOferta)} y sus Términos y Condiciones (Anexo A) (la “`, U('Oferta Marco'), '”), a fin de ofrecer en cesión, sin recurso, los Créditos por Cupones que se individualizan a continuación (la “', U('Cesión'),
         '”), de conformidad con lo previsto en el apartado 1.2 del Reglamento Operativo (Anexo III):'], { alinear: 'justificado' }),
-      P('', { espacioDespues: 0, tabla: { anchos: [5200, 3800], primeraColumnaNegrita: true, cursiva: true, filas: [
+      P('', { espacioDespues: 0, tabla: { anchos: [4300, 4700], primeraColumnaNegrita: true, sombraPrimeraColumna: 'F2F2F2', filas: [
         ['Valor Nominal de los Créditos Cedidos', `$ ${montoAR(totalNominal)}`],
         ['Tasa de Descuento aplicable', tasa],
-        ['Fecha de Cesión', aFechaSerial(d.fechaCarta) == null ? '[●]' : fechaEnLetras(d.fechaCarta, 'de')],
+        ['Fecha de Cesión', aFechaSerial(d.fechaCarta) == null ? '[●]' : corta(aFechaSerial(d.fechaCarta))],
         ['Precio de Cesión (Valor Nominal, neto de la Tasa de Descuento, gastos e impuestos aplicables)', contra != null ? `$ ${montoAR(contra)}` : '$ [●]'],
         ['Emisores comprendidos', String(d.emisores || '').trim() || '[●]'],
         ['Revolving', rev === 'SI' || rev === 'NO' ? rev : '[SI/NO]'],
       ] } }),
       P('', { espacioDespues: 200 }),
       P('Caída de la Cartera de Créditos', { negrita: true }),
-      P('', { espacioDespues: 0, tabla: { anchos: [4500, 4500], encabezado: true, sombraEncabezado: 'D9D9D9', cursiva: true, ultimaFilaNegrita: true,
-        filas: [['Fecha de Vencimiento', 'Valor Nominal']].concat(pago.map(x => [corta(x.serial), `$ ${montoAR(x.monto)}`])).concat([['TOTAL', `$ ${montoAR(totalNominal)}`]]) } }),
-      P('', { espacioDespues: 360 }),
-      P('________________________________', { espacioDespues: 0 }),
-      P(cedente, { espacioDespues: 0, negrita: true }),
+      P('', { espacioDespues: 0, tabla: { anchos: [3000, 6000], encabezado: true, compacta: true, tam: 16, alineaciones: ['izquierda', 'derecha'], ultimaFilaNegrita: true,
+        filas: [['Fecha de Vencimiento', 'Valor Nominal']].concat(pago.map(x => [corta(x.serial), `$ ${montoAR(x.monto)}`])).concat([['Total', `$ ${montoAR(totalNominal)}`]]) } }),
+      P('', { espacioDespues: 240 }),
+      R(['El detalle de la cartera de Créditos por Cupones ofrecida en cesión —individualizada por Emisor, Transacción y demás datos identificatorios— será remitido al Cesionario mediante el diseño de registro previsto en el Anexo IV de la Oferta Marco, a través del Protocolo SFTP acordado entre las Partes, de conformidad con el apartado 2.2 del Reglamento Operativo.'], { alinear: 'justificado' }),
+      R([`De conformidad con lo dispuesto en el apartado 1.2 del Reglamento Operativo, la presente Comunicación de Cesión se entenderá aceptada por el Cesionario mediante el pago del Precio de Cesión indicado precedentemente en la Cuenta de ${corto} (CBU ${cbu}), el cual deberá efectuarse antes de las 15:00 horas del día en que se hayan enviado al Cesionario los datos de la cartera de Créditos por Cupones seleccionados, conforme el apartado 1.3 del Reglamento Operativo.`], { alinear: 'justificado' }),
+      R(['La presente Cesión se realiza sin recurso, en los términos y con el alcance previsto en la Cláusula QUINTA de los Términos y Condiciones de la Oferta Marco.'], { alinear: 'justificado', espacioDespues: 280 }),
+      P('Sin otro particular, saludamos a Uds. muy atentamente.', { espacioDespues: 360 }),
+      P(cedente.toUpperCase(), { negrita: true, espacioDespues: 600 }),
     ];
+    const f2 = firmantes.length ? firmantes : [{ nombre: '', cargo: 'Apoderado' }, { nombre: '', cargo: 'Apoderado' }];
+    const linea = '___________________________________';
+    for (let i = 0; i < f2.length; i += 2) {
+      const par = f2.slice(i, i + 2); if (par.length < 2) par.push(null);
+      out.push(P('', { espacioDespues: 0, tabla: { anchos: [4500, 4500], sinBordes: true, compacta: true, filas: [par.map(x => (x ? linea : '')), par.map(x => (x ? `Nombre: ${x.nombre}` : '')), par.map(x => (x ? `Cargo: ${x.cargo}` : ''))] } }));
+      out.push(P('', { espacioDespues: 240 }));
+    }
     return out;
   }
   const textoCartaCesion = parrafos => parrafos.map((p, i) => {
@@ -6261,12 +6277,12 @@ try {
   // parrafos: [{ texto, negrita, alinear: 'izquierda'|'centro'|'derecha'|'justificado', espacioDespues (en veinteavos de punto) }]
   function docxSimple(parrafos) {
     const jc = { centro: 'center', derecha: 'right', justificado: 'both' };
-    const bordes = ['top', 'left', 'bottom', 'right', 'insideH', 'insideV'].map(b => `<w:${b} w:val="single" w:sz="4" w:space="0" w:color="808080"/>`).join('');
-    const rPr = o => (o.negrita || o.cursiva || o.subrayado ? `<w:rPr>${o.negrita ? '<w:b/>' : ''}${o.cursiva ? '<w:i/>' : ''}${o.subrayado ? '<w:u w:val="single"/>' : ''}</w:rPr>` : '');
+    const bordes = ['top', 'left', 'bottom', 'right', 'insideH', 'insideV'].map(b => `<w:${b} w:val="single" w:sz="4" w:space="0" w:color="A6A6A6"/>`).join('');
+    const rPr = o => (o.negrita || o.cursiva || o.subrayado || o.tam ? `<w:rPr>${o.negrita ? '<w:b/>' : ''}${o.cursiva ? '<w:i/>' : ''}${o.subrayado ? '<w:u w:val="single"/>' : ''}${o.tam ? `<w:sz w:val="${o.tam}"/>` : ''}</w:rPr>` : '');
     const corrida = (txt, o) => `<w:r>${rPr(o)}<w:t xml:space="preserve">${xmlEsc(txt)}</w:t></w:r>`;
-    const celda = (txt, ancho, neg, tb, sombra) => `<w:tc><w:tcPr><w:tcW w:w="${ancho}" w:type="dxa"/>${sombra ? `<w:shd w:val="clear" w:color="auto" w:fill="${sombra}"/>` : ''}</w:tcPr><w:p><w:pPr><w:spacing w:before="60" w:after="60"/></w:pPr>${corrida(txt, { negrita: neg, cursiva: tb.cursiva })}</w:p></w:tc>`;
-    const tablaXml = tb => `<w:tbl><w:tblPr><w:tblW w:w="${tb.anchos.reduce((a, b) => a + b, 0)}" w:type="dxa"/><w:tblBorders>${bordes}</w:tblBorders><w:tblLayout w:type="fixed"/></w:tblPr><w:tblGrid>${tb.anchos.map(a => `<w:gridCol w:w="${a}"/>`).join('')}</w:tblGrid>`
-      + tb.filas.map((f, i) => `<w:tr>${f.map((c, k) => celda(c, tb.anchos[k], (tb.encabezado && i === 0) || (tb.primeraColumnaNegrita && k === 0) || (tb.ultimaFilaNegrita && i === tb.filas.length - 1), tb, tb.encabezado && i === 0 ? tb.sombraEncabezado : (tb.sombraPrimeraColumna && k === 0 ? tb.sombraPrimeraColumna : null))).join('')}</w:tr>`).join('') + '</w:tbl>';
+    const celda = (txt, ancho, neg, tb, sombra, k) => `<w:tc><w:tcPr><w:tcW w:w="${ancho}" w:type="dxa"/>${sombra ? `<w:shd w:val="clear" w:color="auto" w:fill="${sombra}"/>` : ''}</w:tcPr><w:p><w:pPr><w:spacing w:before="${tb.compacta ? 0 : 60}" w:after="${tb.compacta ? 0 : 60}"/>${tb.alineaciones && jc[tb.alineaciones[k]] ? `<w:jc w:val="${jc[tb.alineaciones[k]]}"/>` : ''}</w:pPr>${corrida(txt, { negrita: neg, cursiva: tb.cursiva, tam: tb.tam })}</w:p></w:tc>`;
+    const tablaXml = tb => `<w:tbl><w:tblPr><w:tblW w:w="${tb.anchos.reduce((a, b) => a + b, 0)}" w:type="dxa"/><w:tblBorders>${tb.sinBordes ? ['top', 'left', 'bottom', 'right', 'insideH', 'insideV'].map(b => `<w:${b} w:val="nil"/>`).join('') : bordes}</w:tblBorders><w:tblLayout w:type="fixed"/></w:tblPr><w:tblGrid>${tb.anchos.map(a => `<w:gridCol w:w="${a}"/>`).join('')}</w:tblGrid>`
+      + tb.filas.map((f, i) => `<w:tr>${f.map((c, k) => celda(c, tb.anchos[k], (tb.encabezado && i === 0) || (tb.primeraColumnaNegrita && k === 0) || (tb.ultimaFilaNegrita && i === tb.filas.length - 1), tb, tb.encabezado && i === 0 ? tb.sombraEncabezado : (tb.sombraPrimeraColumna && k === 0 ? tb.sombraPrimeraColumna : null), k)).join('')}</w:tr>`).join('') + '</w:tbl>';
     const cuerpo = parrafos.map(p => p.tabla ? tablaXml(p.tabla) : `<w:p><w:pPr>${jc[p.alinear] ? `<w:jc w:val="${jc[p.alinear]}"/>` : ''}<w:spacing w:after="${p.espacioDespues != null ? p.espacioDespues : 160}" w:line="259" w:lineRule="auto"/></w:pPr>`
       + (p.runs ? p.runs.map(r => corrida(r.texto, { negrita: r.negrita || p.negrita, cursiva: r.cursiva != null ? r.cursiva : p.cursiva, subrayado: r.subrayado })).join('')
         : p.texto === '' ? '' : corrida(p.texto, { negrita: p.negrita, cursiva: p.cursiva, subrayado: p.subrayado })) + '</w:p>').join('');
