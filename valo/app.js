@@ -4156,6 +4156,22 @@
 
   let resultadoActual = null;
 
+  // Limpiar pantalla: descarta el archivo subido y todo lo que se armó con él (carta y resultado).
+  $('btnLimpiarPantalla').addEventListener('click', () => {
+    if (procesando) return;
+    archivo = null; preparado = null; cartaPendiente = false; cartaBase = null; resultadoActual = null;
+    $('archivoLote').value = '';
+    $('detalleArchivo').classList.add('oculto');
+    $('resumenArchivo').innerHTML = ''; $('controlBancos').innerHTML = ''; $('aNombre').value = '';
+    $('motivoBloqueo').textContent = '';
+    $('cartaCuerpo').classList.add('oculto'); $('cartaEspera').classList.remove('oculto');
+    $('cartaVista').textContent = '';
+    $('cardResultado').classList.add('oculto');
+    $('fSecuenciaManual').checked = false;
+    refrescar();
+    toast('Pantalla limpia');
+  });
+
   function mostrarResultado(lote, res, reporte, totalMonto) {
     const { cuotas, creditos } = res;
     resultadoActual = { cuotas, creditos, reporte };
