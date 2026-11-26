@@ -4188,6 +4188,25 @@
     $('cardCarta').scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 
+  // Carta sin generar los archivos: se calcula en memoria lo mismo que el lote (cuotas por fecha y total) y se arma la carta. No se guarda
+  // nada: no hay lote, no se consume la secuencia y no se descargan los CSV (los nombres de los archivos quedan en la carta como corresponden).
+  $('btnCartaSinArchivos').addEventListener('click', async () => {
+    if (!archivo) { await informar('Falta el archivo', 'Cargá primero el archivo del cliente (paso 2) y completá el formulario (paso 1).'); return; }
+    reevaluarArchivo();
+    const ef = estadoFormulario();
+    if (ef.estado !== 'LISTO') { await informar('Completá el formulario', ef.estado === 'INCOMPLETO' ? `Falta completar: <b>${ef.faltantes.map(esc).join(', ')}</b>.` : ef.errores.map(esc).join('<br>')); return; }
+    if (!preparado || !preparado.reporte.length) { await informar('El archivo no está listo', 'Revisá el archivo cargado: no tiene filas válidas.'); return; }
+    if (preparado.errores.length || preparado.cb.conProblemas.length) { await informar('Revisá el archivo', 'El archivo tiene filas inválidas o bancos sin completar en la tabla Bancos: corregilos igual que para procesar el lote.'); return; }
+    const c = ef.cliente, p = Object.assign({}, ef.p, { tasa: Number(ef.p.tasa) }), hoy = new Date();
+    try {
+      const cuotas = M.generarCuotas(preparado.reporte, preparado.bancosUso, p, hoy, preparado.opcCuotas);
+      await prepararCarta({ origen: 'lote', cliente: c, datos: M.datosCartaDesdeLote(cuotas, { secuencia: p.secuencia, tasa: p.tasa }),
+        archivoCreditos: M.nombreArchivo('creditos', hoy, 'csv', c.nombre), archivoCuotas: M.nombreArchivo('cuotas', hoy, 'csv', c.nombre) });
+      toast('Carta armada (no se generaron archivos ni se usó la secuencia)');
+      $('cardCarta').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    } catch (err) { await informar('No se pudo armar la carta', esc(err.message || err)); }
+  });
+
   // --- Padrones de consulta (IIBB): se suben una vez por mes y reemplazan al anterior. Se guarda el índice compacto en IndexedDB.
   const padronMem = {};
   let padronAbierto = null;
