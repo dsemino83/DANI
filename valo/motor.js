@@ -5684,6 +5684,24 @@ try {
   }
 
   // Datos de la carta a partir de las cuotas recién generadas (generarCuotas) y los parámetros del lote.
+  // Datos de la carta directamente del reporte (sin armar las cuotas ni mirar la tabla de bancos): mismo agrupamiento que las cuotas
+  // (suma por banco y fecha, redondeada a centavos) y después por fecha. Sirve para generar la carta sin generar los archivos.
+  function datosCartaDesdeReporte(reporte, params) {
+    const grupos = new Map();
+    (reporte || []).forEach(r => {
+      if (r.COD_BANCO == null || r.FECHA_VENCIMIENTO == null) return;
+      const k = r.COD_BANCO + '|' + r.FECHA_VENCIMIENTO;
+      if (!grupos.has(k)) grupos.set(k, { fecha: r.FECHA_VENCIMIENTO, suma: 0 });
+      grupos.get(k).suma += r.MONTO || 0;
+    });
+    const importes = [...grupos.values()].map(g => ({ fecha: g.fecha, importe: round2(g.suma) }));
+    const porFecha = new Map();
+    importes.forEach(g => porFecha.set(g.fecha, (porFecha.get(g.fecha) || []).concat(g.importe)));
+    return {
+      secuencia: params.secuencia, tasa: params.tasa == null || params.tasa === '' ? null : Number(params.tasa), total: sumaCentavos(importes.map(g => g.importe)),
+      fechasPago: [...porFecha.entries()].sort((a, b) => a[0] - b[0]).map(([serial, v]) => ({ serial, monto: sumaCentavos(v) })),
+    };
+  }
   function datosCartaDesdeLote(cuotas, params) {
     const porFecha = new Map();
     cuotas.filas.forEach(f => porFecha.set(f.fecha, round2((porFecha.get(f.fecha) || 0) + f.importe)));
@@ -6319,7 +6337,7 @@ try {
     generarCuotas, generarCreditos, txtCuotas, txtCreditos, nombreArchivo,
     calcularSecuenciaLote, validarFormulario,
     usoManual, usosConManuales, fusionarHojas, columnaMontoGetnet, sumaCentavos, armarEncargoBastanteo, acotarAdjuntos, extraerAjustes, validarAjuste, describirAjuste, aplicarAjustes, firmaDeRegla, OPS_AJUSTE, clienteConEquivalencias, aplicarAjustesControl, aplicarAjustesControlResumen, usoAgregarDeRegla, usosDeAjustes, tnaATea, teaATna, PADRONES, indexarPadronAlicuotas, buscarEnPadron, alicuotaPercepcionIIBB,
-    leerArchivosCesion, datosCartaDesdeLote, precioCesionNeto, cartaCesion, textoCartaCesion, docxSimple, fechaEnLetras, crc32,
+    leerArchivosCesion, datosCartaDesdeLote, datosCartaDesdeReporte, precioCesionNeto, cartaCesion, textoCartaCesion, docxSimple, fechaEnLetras, crc32,
   };
   root.ValoMotor = api;
   if (typeof module !== 'undefined') module.exports = api;

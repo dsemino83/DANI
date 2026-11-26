@@ -3904,6 +3904,7 @@
       else if (/\balta\b/.test(n)) document.querySelector('input[name="fTipo"][value="Alta"]').checked = true;
       $('detalleArchivo').classList.remove('oculto');
       actualizarFormulario();
+      if (cartaPendiente) await generarCartaSola();
     } catch (err) {
       archivo = null; preparado = null;
       $('detalleArchivo').classList.add('oculto');
@@ -4188,23 +4189,32 @@
     $('cardCarta').scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 
-  // Carta sin generar los archivos: se calcula en memoria lo mismo que el lote (cuotas por fecha y total) y se arma la carta. No se guarda
-  // nada: no hay lote, no se consume la secuencia y no se descargan los CSV (los nombres de los archivos quedan en la carta como corresponden).
-  $('btnCartaSinArchivos').addEventListener('click', async () => {
-    if (!archivo) { await informar('Falta el archivo', 'Cargá primero el archivo del cliente (paso 2) y completá el formulario (paso 1).'); return; }
+  // Carta sin generar los archivos, directamente con los Excel que manda el cliente: del reporte se sacan el monto cedido y las fechas de pago
+  // (mismo agrupamiento que las cuotas). No hace falta cliente ni formulario completo: lo que falte (cedente, N° de solicitud, tasa) se escribe en los
+  // campos de la carta. No se guarda lote, no se consume la secuencia y no se descargan CSV.
+  let cartaPendiente = false;
+  async function generarCartaSola() {
+    cartaPendiente = false;
     reevaluarArchivo();
-    const ef = estadoFormulario();
-    if (ef.estado !== 'LISTO') { await informar('Completá el formulario', ef.estado === 'INCOMPLETO' ? `Falta completar: <b>${ef.faltantes.map(esc).join(', ')}</b>.` : ef.errores.map(esc).join('<br>')); return; }
-    if (!preparado || !preparado.reporte.length) { await informar('El archivo no está listo', 'Revisá el archivo cargado: no tiene filas válidas.'); return; }
-    if (preparado.errores.length || preparado.cb.conProblemas.length) { await informar('Revisá el archivo', 'El archivo tiene filas inválidas o bancos sin completar en la tabla Bancos: corregilos igual que para procesar el lote.'); return; }
-    const c = ef.cliente, p = Object.assign({}, ef.p, { tasa: Number(ef.p.tasa) }), hoy = new Date();
+    if (!preparado || !preparado.reporte.length) { await informar('El archivo no está listo', archivo ? esc(archivo.errorHojas || 'No se encontraron filas válidas en el archivo.') : 'Cargá el archivo del cliente.'); return; }
+    if (preparado.errores.length) { await informar('Revisá el archivo', `El archivo tiene ${preparado.errores.length} filas con datos inválidas: corregilas en el Excel antes de armar la carta.`); return; }
+    const ef = estadoFormulario(), c = ef.cliente, p = ef.p, hoy = new Date();
+    const secuencia = Number($('fSecuencia').value) > 0 ? Number($('fSecuencia').value) : null;
+    const tasa = p.tasa !== '' && isFinite(Number(p.tasa)) ? Number(p.tasa) : null;
     try {
-      const cuotas = M.generarCuotas(preparado.reporte, preparado.bancosUso, p, hoy, preparado.opcCuotas);
-      await prepararCarta({ origen: 'lote', cliente: c, datos: M.datosCartaDesdeLote(cuotas, { secuencia: p.secuencia, tasa: p.tasa }),
-        archivoCreditos: M.nombreArchivo('creditos', hoy, 'csv', c.nombre), archivoCuotas: M.nombreArchivo('cuotas', hoy, 'csv', c.nombre) });
-      toast('Carta armada (no se generaron archivos ni se usó la secuencia)');
+      const datos = M.datosCartaDesdeReporte(preparado.reporte, { secuencia, tasa });
+      await prepararCarta({ origen: 'archivo', cliente: c, datos,
+        archivoCreditos: c ? M.nombreArchivo('creditos', hoy, 'csv', c.nombre) : '', archivoCuotas: c ? M.nombreArchivo('cuotas', hoy, 'csv', c.nombre) : '' });
+      const faltan = [!c && 'el cedente (razón social)', secuencia == null && 'el N° de solicitud', tasa == null && 'la tasa de descuento'].filter(Boolean);
+      $('cartaAviso').innerHTML = aviso('ok', `Carta armada con ${archivo.detalleFusion ? 'los ' + archivo.detalleFusion.length + ' archivos' : 'el archivo'} del cliente (${fmtEntero(preparado.reporte.length)} filas, $ ${fmtMonto(datos.total)}). No se generaron los CSV ni se usó la secuencia.`)
+        + (faltan.length ? aviso('warn', `Completá en los campos de abajo: ${faltan.join(', ')}.`) : '');
+      toast('Carta armada con el Excel del cliente');
       $('cardCarta').scrollIntoView({ behavior: 'smooth', block: 'start' });
     } catch (err) { await informar('No se pudo armar la carta', esc(err.message || err)); }
+  }
+  $('btnCartaSinArchivos').addEventListener('click', async () => {
+    if (!archivo) { cartaPendiente = true; toast('Elegí el o los Excel del cliente: la carta se arma sola al cargarlos.'); $('archivoLote').click(); return; }
+    await generarCartaSola();
   });
 
   // --- Padrones de consulta (IIBB): se suben una vez por mes y reemplazan al anterior. Se guarda el índice compacto en IndexedDB.

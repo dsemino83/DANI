@@ -181,3 +181,15 @@ test('totales del lote: se suman en centavos enteros (sin el error de decimales 
   const u = [enc].concat(Array.from({ length: 30 }, (_, i) => [i, 46000, 100, 7, 1, 100]));
   assert.equal(M.columnaMontoGetnet(u, M.detectarHoja('Hoja1', u), null).columna, 'vlu_transaction_amount');
 });
+
+test('carta sin generar los archivos: los datos salen del reporte y coinciden con los de las cuotas del lote', () => {
+  const rep = [[7, 46001, 100.005], [7, 46001, 50.004], [7, 46002, 25], [11, 46001, 10.1], [11, 46003, 0.2], [11, 46003, 0.1], [null, 46001, 99], [7, null, 99]]
+    .map(([b, f, m]) => ({ COD_BANCO: b, NOMBRE_BANCO: 'B' + b, MONTO: m, FECHA_VENCIMIENTO: f }));
+  const bancos = [{ codigo: 7, sucursal: 1, cuit: '30500000001', nombre: 'A', codCredito: 7 }, { codigo: 11, sucursal: 2, cuit: '30500000002', nombre: 'B', codCredito: 11 }];
+  const params = { tipoAccion: 'Alta', secuencia: 5, lote: 5, tasa: 28, negocio: '1', cedente: '30712345678', periodo: '202611' };
+  const cuotas = M.generarCuotas(rep, bancos, params, new Date(2026, 10, 26));
+  const dl = M.datosCartaDesdeLote(cuotas, { secuencia: 5, tasa: 28 });
+  const dr = M.datosCartaDesdeReporte(rep, { secuencia: 5, tasa: 28 });
+  assert.deepEqual(dr, dl);
+  assert.equal(M.datosCartaDesdeReporte(rep, {}).tasa, null, 'sin tasa queda vacía, no 0');
+});
