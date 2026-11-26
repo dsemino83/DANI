@@ -193,3 +193,17 @@ test('carta sin generar los archivos: los datos salen del reporte y coinciden co
   assert.deepEqual(dr, dl);
   assert.equal(M.datosCartaDesdeReporte(rep, {}).tasa, null, 'sin tasa queda vacía, no 0');
 });
+
+test('carta modelo Getnet: emisores comprendidos = todos los bancos del archivo separados por comas; revolving a elección y por defecto NO', () => {
+  const rep = [{ COD_BANCO: 7, NOMBRE_BANCO: 'banco galicia', MONTO: 1 }, { COD_BANCO: 11, NOMBRE_BANCO: 'BANCO NACION', MONTO: 1 }, { COD_BANCO: 7, NOMBRE_BANCO: 'BANCO GALICIA', MONTO: 2 }, { COD_BANCO: 20, NOMBRE_BANCO: '', MONTO: 1 }];
+  const e = M.emisoresDeReporte(rep, [{ codigo: 11, nombre: 'Banco de la Nación Argentina' }, { codigo: 20, nombre: 'Santander' }]);
+  assert.deepEqual(e, ['Banco de la Nación Argentina', 'banco galicia', 'Santander'], 'sin repetidos, nombre de la tabla si existe, en orden alfabético');
+  const d = { modelo: 'getnet', fechaCarta: '2026-11-26', fechaOferta: '2026-03-02', secuencia: 3, total: 10, tasa: 28, fechasPago: [{ serial: 46001, monto: 10 }], emisores: e.join(', '), revolving: 'NO' };
+  const txt = M.textoCartaCesion(M.cartaCesion(d));
+  assert.ok(txt.includes('Emisores comprendidos — Banco de la Nación Argentina, banco galicia, Santander'), txt);
+  assert.ok(txt.includes('Revolving — NO') && txt.includes('de fecha 2 de marzo de 2026'));
+  assert.ok(M.textoCartaCesion(M.cartaCesion(Object.assign({}, d, { revolving: 'SI' }))).includes('Revolving — SI'));
+  assert.ok(M.textoCartaCesion(M.cartaCesion(Object.assign({}, d, { revolving: '' }))).includes('Revolving — [SI/NO]'));
+  // El modelo Anexo I sigue igual.
+  assert.ok(M.textoCartaCesion(M.cartaCesion(Object.assign({}, d, { modelo: 'anexo1' }))).startsWith('Anexo I'));
+});

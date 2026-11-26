@@ -5684,6 +5684,20 @@ try {
   }
 
   // Datos de la carta a partir de las cuotas recién generadas (generarCuotas) y los parámetros del lote.
+  // Emisores comprendidos de la carta: los bancos del reporte (nombre de la tabla Bancos si está; si no, el del archivo), sin repetir y en orden alfabético.
+  function emisoresDeReporte(reporte, bancos) {
+    const tabla = new Map();
+    (bancos || []).forEach(b => { if (b && b.codigo != null && !tabla.has(Number(b.codigo)) && String(b.nombre || '').trim()) tabla.set(Number(b.codigo), String(b.nombre).trim()); });
+    const nombres = new Map();
+    (reporte || []).forEach(r => {
+      if (r.COD_BANCO == null || nombres.has(r.COD_BANCO)) return;
+      const n = tabla.get(Number(r.COD_BANCO)) || String(r.NOMBRE_BANCO || '').trim();
+      if (n) nombres.set(r.COD_BANCO, n);
+    });
+    const vistos = new Set(), salida = [];
+    [...nombres.values()].forEach(n => { const k = normalizar(n); if (!vistos.has(k)) { vistos.add(k); salida.push(n); } });
+    return salida.sort((a, b) => a.localeCompare(b, 'es'));
+  }
   // Datos de la carta directamente del reporte (sin armar las cuotas ni mirar la tabla de bancos): mismo agrupamiento que las cuotas
   // (suma por banco y fecha, redondeada a centavos) y después por fecha. Sirve para generar la carta sin generar los archivos.
   function datosCartaDesdeReporte(reporte, params) {
@@ -6132,6 +6146,7 @@ try {
   // d: { cedente, alias, fechaCarta, fechaPropuesta, fechaAceptacion, secuencia, archivoCreditos, archivoCuotas, total, tasa,
   //      contraprestacion (número o null: queda [●]), fechasPago: [{serial|fecha, monto}], banco, domicilioBanco }
   function cartaCesion(d) {
+    if (d.modelo === 'getnet') return cartaGetnet(d);
     const cedente = String(d.cedente || '[Cedente]').trim();
     const alias = String(d.alias || '').trim();
     const nombreCedente = alias && alias !== cedente ? `${cedente} (“${alias}” o el “Cedente”)` : `${cedente} (el “Cedente”)`;
@@ -6165,7 +6180,58 @@ try {
     out.push(P(cedente, { espacioDespues: 0 }));
     return out;
   }
-  const textoCartaCesion = parrafos => parrafos.map(p => p.texto).join('\r\n\r\n').replace(/\r\n\r\n(Sres\.|Banco de Valores S\.A\.|Sarmiento 310)/g, '\r\n$1');
+  // Modelo Getnet: "Comunicación de Cesión" en el marco de la Oferta Marco (la fecha del acuerdo es un dato del formulario de la carta).
+  // d: lo mismo que cartaCesion + { fechaOferta, emisores, revolving ('SI'|'NO'|'') }.
+  function cartaGetnet(d) {
+    const cedente = String(d.cedente || 'Getnet Argentina S.A.U.').trim();
+    const banco = d.banco || 'Banco de Valores S.A.';
+    const pago = (d.fechasPago || []).map(x => ({ serial: aFechaSerial(x.serial != null ? x.serial : x.fecha), monto: Number(x.monto) }));
+    const totalNominal = pago.length ? round2(pago.reduce((a, b) => a + b.monto, 0)) : d.total;
+    const contra = d.contraprestacion != null && d.contraprestacion !== '' && isFinite(Number(d.contraprestacion)) ? Number(d.contraprestacion) : null;
+    const corta = serial => { const q = serialAPartes(serial); return `${String(q.d).padStart(2, '0')}/${String(q.m).padStart(2, '0')}/${q.y}`; };
+    // Fecha sin completar: queda el hueco del modelo "[●] de [●] de 2026".
+    const fechaOHueco = v => (aFechaSerial(v) == null ? '[●] de [●] de 2026' : fechaEnLetras(v, 'de'));
+    const esGetnet = /getnet/i.test(cedente);
+    const tasa = d.tasa != null && isFinite(Number(d.tasa)) ? `${Number(d.tasa).toLocaleString('es-AR', { maximumFractionDigits: 4 })} %` : '[●] %';
+    const rev = String(d.revolving || '').toUpperCase();
+    // Párrafo con tramos (negrita / subrayado); texto = lo mismo sin formato (vista previa y copiar).
+    const R = (tramos, o) => Object.assign({ texto: tramos.map(x => (typeof x === 'string' ? x : x.texto)).join(''), runs: tramos.map(x => (typeof x === 'string' ? { texto: x } : x)), espacioDespues: 160, cursiva: true }, o || {});
+    const P = (texto, o) => Object.assign({ texto, espacioDespues: 160, cursiva: true }, o || {});
+    const U = texto => ({ texto, subrayado: true }), B = texto => ({ texto, negrita: true });
+    const nSolic = d.secuencia != null ? d.secuencia : '[●]';
+    const apoderados = esGetnet ? [B('Getnet Argentina S.A.U.'), ', CUIT 30-71682151-6, con domicilio en Av. Juan de Garay 151, piso 6, Ciudad Autónoma de Buenos Aires, Argentina (“', U('Getnet'), '”)']
+      : [B(cedente), ' (el “', U('Cedente'), '”)'];
+    const out = [
+      P(`Ciudad Autónoma de Buenos Aires, ${fechaOHueco(d.fechaCarta)}`, { alinear: 'derecha', espacioDespues: 240 }),
+      P('Señores', { espacioDespues: 0 }), P(banco, { espacioDespues: 0, negrita: true, junto: true }), P(d.domicilioBanco || 'Sarmiento 310', { espacioDespues: 0, junto: true }),
+      P('Ciudad Autónoma de Buenos Aires', { espacioDespues: 0, junto: true }), R([U('Presentes')], { junto: true, espacioDespues: 240 }),
+      R([{ texto: 'Ref.:', negrita: true, subrayado: true }, B(` Comunicación de Cesión N° ${nSolic} — Oferta Marco para la Cesión sin recurso de Créditos por Cupones.`)], { alinear: 'derecha', espacioDespues: 240 }),
+      P('De nuestra mayor consideración:'),
+      R(['En nuestro carácter de apoderados de ', ...apoderados, `, nos dirigimos a ${banco} (el “`, U('Cesionario'), '”), en el marco de la Oferta Marco para la Cesión sin recurso de Créditos por Cupones de fecha ',
+        `${fechaOHueco(d.fechaOferta)} y sus Términos y Condiciones (Anexo A) (la “`, U('Oferta Marco'), '”), a fin de ofrecer en cesión, sin recurso, los Créditos por Cupones que se individualizan a continuación (la “', U('Cesión'),
+        '”), de conformidad con lo previsto en el apartado 1.2 del Reglamento Operativo (Anexo III):'], { alinear: 'justificado' }),
+      P('', { espacioDespues: 0, tabla: { anchos: [5200, 3800], primeraColumnaNegrita: true, cursiva: true, filas: [
+        ['Valor Nominal de los Créditos Cedidos', `$ ${montoAR(totalNominal)}`],
+        ['Tasa de Descuento aplicable', tasa],
+        ['Fecha de Cesión', aFechaSerial(d.fechaCarta) == null ? '[●]' : fechaEnLetras(d.fechaCarta, 'de')],
+        ['Precio de Cesión (Valor Nominal, neto de la Tasa de Descuento, gastos e impuestos aplicables)', contra != null ? `$ ${montoAR(contra)}` : '$ [●]'],
+        ['Emisores comprendidos', String(d.emisores || '').trim() || '[●]'],
+        ['Revolving', rev === 'SI' || rev === 'NO' ? rev : '[SI/NO]'],
+      ] } }),
+      P('', { espacioDespues: 200 }),
+      P('Caída de la Cartera de Créditos', { negrita: true }),
+      P('', { espacioDespues: 0, tabla: { anchos: [4500, 4500], encabezado: true, sombraEncabezado: 'D9D9D9', cursiva: true, ultimaFilaNegrita: true,
+        filas: [['Fecha de Vencimiento', 'Valor Nominal']].concat(pago.map(x => [corta(x.serial), `$ ${montoAR(x.monto)}`])).concat([['TOTAL', `$ ${montoAR(totalNominal)}`]]) } }),
+      P('', { espacioDespues: 360 }),
+      P('________________________________', { espacioDespues: 0 }),
+      P(cedente, { espacioDespues: 0, negrita: true }),
+    ];
+    return out;
+  }
+  const textoCartaCesion = parrafos => parrafos.map((p, i) => {
+    const cuerpo = p.tabla ? p.tabla.filas.map(f => f.join(' — ')).join('\r\n') : p.texto;
+    return (i === 0 ? '' : p.junto ? '\r\n' : '\r\n\r\n') + cuerpo;
+  }).join('').replace(/\r\n\r\n(Sres\.|Banco de Valores S\.A\.|Sarmiento 310)/g, '\r\n$1');
 
   // ---- Word (.docx) mínimo, sin dependencias: un ZIP "sin compresión" con las tres partes imprescindibles.
   const CRC_TABLA = (() => { const t = []; for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; } return t; })();
@@ -6195,8 +6261,15 @@ try {
   // parrafos: [{ texto, negrita, alinear: 'izquierda'|'centro'|'derecha'|'justificado', espacioDespues (en veinteavos de punto) }]
   function docxSimple(parrafos) {
     const jc = { centro: 'center', derecha: 'right', justificado: 'both' };
-    const cuerpo = parrafos.map(p => `<w:p><w:pPr>${jc[p.alinear] ? `<w:jc w:val="${jc[p.alinear]}"/>` : ''}<w:spacing w:after="${p.espacioDespues != null ? p.espacioDespues : 160}" w:line="259" w:lineRule="auto"/></w:pPr>`
-      + (p.texto === '' ? '' : `<w:r>${p.negrita ? '<w:rPr><w:b/></w:rPr>' : ''}<w:t xml:space="preserve">${xmlEsc(p.texto)}</w:t></w:r>`) + '</w:p>').join('');
+    const bordes = ['top', 'left', 'bottom', 'right', 'insideH', 'insideV'].map(b => `<w:${b} w:val="single" w:sz="4" w:space="0" w:color="808080"/>`).join('');
+    const rPr = o => (o.negrita || o.cursiva || o.subrayado ? `<w:rPr>${o.negrita ? '<w:b/>' : ''}${o.cursiva ? '<w:i/>' : ''}${o.subrayado ? '<w:u w:val="single"/>' : ''}</w:rPr>` : '');
+    const corrida = (txt, o) => `<w:r>${rPr(o)}<w:t xml:space="preserve">${xmlEsc(txt)}</w:t></w:r>`;
+    const celda = (txt, ancho, neg, tb, sombra) => `<w:tc><w:tcPr><w:tcW w:w="${ancho}" w:type="dxa"/>${sombra ? `<w:shd w:val="clear" w:color="auto" w:fill="${sombra}"/>` : ''}</w:tcPr><w:p><w:pPr><w:spacing w:before="60" w:after="60"/></w:pPr>${corrida(txt, { negrita: neg, cursiva: tb.cursiva })}</w:p></w:tc>`;
+    const tablaXml = tb => `<w:tbl><w:tblPr><w:tblW w:w="${tb.anchos.reduce((a, b) => a + b, 0)}" w:type="dxa"/><w:tblBorders>${bordes}</w:tblBorders><w:tblLayout w:type="fixed"/></w:tblPr><w:tblGrid>${tb.anchos.map(a => `<w:gridCol w:w="${a}"/>`).join('')}</w:tblGrid>`
+      + tb.filas.map((f, i) => `<w:tr>${f.map((c, k) => celda(c, tb.anchos[k], (tb.encabezado && i === 0) || (tb.primeraColumnaNegrita && k === 0) || (tb.ultimaFilaNegrita && i === tb.filas.length - 1), tb, tb.encabezado && i === 0 ? tb.sombraEncabezado : (tb.sombraPrimeraColumna && k === 0 ? tb.sombraPrimeraColumna : null))).join('')}</w:tr>`).join('') + '</w:tbl>';
+    const cuerpo = parrafos.map(p => p.tabla ? tablaXml(p.tabla) : `<w:p><w:pPr>${jc[p.alinear] ? `<w:jc w:val="${jc[p.alinear]}"/>` : ''}<w:spacing w:after="${p.espacioDespues != null ? p.espacioDespues : 160}" w:line="259" w:lineRule="auto"/></w:pPr>`
+      + (p.runs ? p.runs.map(r => corrida(r.texto, { negrita: r.negrita || p.negrita, cursiva: r.cursiva != null ? r.cursiva : p.cursiva, subrayado: r.subrayado })).join('')
+        : p.texto === '' ? '' : corrida(p.texto, { negrita: p.negrita, cursiva: p.cursiva, subrayado: p.subrayado })) + '</w:p>').join('');
     const documento = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>${cuerpo}<w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1247" w:right="1417" w:bottom="1134" w:left="1417" w:header="708" w:footer="708" w:gutter="0"/></w:sectPr></w:body></w:document>`;
     const estilos = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:docDefaults><w:rPrDefault><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial" w:cs="Arial"/><w:sz w:val="21"/><w:lang w:val="es-AR"/></w:rPr></w:rPrDefault></w:docDefaults></w:styles>`;
     return zipSinCompresion([
@@ -6337,7 +6410,7 @@ try {
     generarCuotas, generarCreditos, txtCuotas, txtCreditos, nombreArchivo,
     calcularSecuenciaLote, validarFormulario,
     usoManual, usosConManuales, fusionarHojas, columnaMontoGetnet, sumaCentavos, armarEncargoBastanteo, acotarAdjuntos, extraerAjustes, validarAjuste, describirAjuste, aplicarAjustes, firmaDeRegla, OPS_AJUSTE, clienteConEquivalencias, aplicarAjustesControl, aplicarAjustesControlResumen, usoAgregarDeRegla, usosDeAjustes, tnaATea, teaATna, PADRONES, indexarPadronAlicuotas, buscarEnPadron, alicuotaPercepcionIIBB,
-    leerArchivosCesion, datosCartaDesdeLote, datosCartaDesdeReporte, precioCesionNeto, cartaCesion, textoCartaCesion, docxSimple, fechaEnLetras, crc32,
+    leerArchivosCesion, datosCartaDesdeLote, datosCartaDesdeReporte, emisoresDeReporte, precioCesionNeto, cartaCesion, textoCartaCesion, docxSimple, fechaEnLetras, crc32,
   };
   root.ValoMotor = api;
   if (typeof module !== 'undefined') module.exports = api;

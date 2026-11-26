@@ -4184,7 +4184,7 @@
     $('controlesResultado').innerHTML = `<h3>Controles antes de usar el archivo</h3><div class="tabla-caja" style="max-height:none"><table><tbody>${
       controles.map(([t, ok, v]) => `<tr><td>${esc(t)}</td><td class="num">${esc(v)}</td><td>${ok ? '<span class="chip ok">OK</span>' : '<span class="chip bad">REVISAR</span>'}</td></tr>`).join('')}</tbody></table></div>`;
     renderTablaResultado('cuotas');
-    prepararCarta({ origen: 'lote', cliente: c, lote, datos: M.datosCartaDesdeLote(cuotas, { secuencia: lote.secuencia, tasa: lote.tasa }),
+    prepararCarta({ origen: 'lote', cliente: c, lote, datos: M.datosCartaDesdeLote(cuotas, { secuencia: lote.secuencia, tasa: lote.tasa }), emisores: M.emisoresDeReporte(reporte, datos().bancos.concat(datos().bancosMeli || [])),
       archivoCreditos: lote.nombreCreditos, archivoCuotas: lote.nombreCuotas });
     $('cardCarta').scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
@@ -4203,7 +4203,7 @@
     const tasa = p.tasa !== '' && isFinite(Number(p.tasa)) ? Number(p.tasa) : null;
     try {
       const datos = M.datosCartaDesdeReporte(preparado.reporte, { secuencia, tasa });
-      await prepararCarta({ origen: 'archivo', cliente: c, datos,
+      await prepararCarta({ origen: 'archivo', cliente: c, datos, emisores: M.emisoresDeReporte(preparado.reporte, preparado.bancosUso),
         archivoCreditos: c ? M.nombreArchivo('creditos', hoy, 'csv', c.nombre) : '', archivoCuotas: c ? M.nombreArchivo('cuotas', hoy, 'csv', c.nombre) : '' });
       const faltan = [!c && 'el cedente (razón social)', secuencia == null && 'el N° de solicitud', tasa == null && 'la tasa de descuento'].filter(Boolean);
       $('cartaAviso').innerHTML = aviso('ok', `Carta armada con ${archivo.detalleFusion ? 'los ' + archivo.detalleFusion.length + ' archivos' : 'el archivo'} del cliente (${fmtEntero(preparado.reporte.length)} filas, $ ${fmtMonto(datos.total)}). No se generaron los CSV ni se usó la secuencia.`)
@@ -4327,6 +4327,11 @@
     $('cTasa').value = o.datos.tasa != null && isFinite(o.datos.tasa) ? String(o.datos.tasa).replace('.', ',') : '';
     $('cContra').value = ''; contraManual = false; liquidManual = false; iibbManual = false; $('cIIBB').value = '';
     $('cLiquid').value = hoy;
+    // Modelo Getnet por defecto para el cedente Getnet (o el que se usó la última vez con este cliente); la fecha de la Oferta Marco y los emisores se recuerdan por cliente.
+    $('cModelo').value = pref.modelo || (/getnet/i.test($('cCedente').value) ? 'getnet' : 'anexo1');
+    $('cFechaOferta').value = pref.fechaOferta || ''; $('cEmisores').value = (o.emisores || []).join(', ');   // todos los bancos del archivo, separados por comas (se puede editar)
+    $('cRevolving').value = 'NO';   // Revolving lo elige el usuario; por defecto NO
+    mostrarCamposModelo();
     $('cBanco').value = pref.banco || 'Banco de Valores S.A.'; $('cDomicilio').value = pref.domicilio || 'Sarmiento 310';
     $('cartaAviso').innerHTML = (o.errores || []).length ? aviso('warn', o.errores.map(esc).join('<br>')) : '';
     recalcularContra();
@@ -4337,6 +4342,7 @@
     if (!d) return null;
     return { cedente: $('cCedente').value, alias: $('cAlias').value, fechaCarta: $('cFechaCarta').value, fechaPropuesta: $('cFechaProp').value, fechaAceptacion: $('cFechaAcep').value,
       secuencia: $('cNumero').value.trim() === '' ? null : Number($('cNumero').value), archivoCreditos: $('cArchCreditos').value.trim(), archivoCuotas: $('cArchCuotas').value.trim(),
+      modelo: $('cModelo').value, fechaOferta: $('cFechaOferta').value, emisores: $('cEmisores').value.trim(), revolving: $('cRevolving').value,
       total: d.total, tasa: numeroDeCampo($('cTasa').value), contraprestacion: numeroDeCampo($('cContra').value), fechasPago: d.fechasPago, banco: $('cBanco').value.trim(), domicilioBanco: $('cDomicilio').value.trim() };
   }
   // Excel con el cálculo del desembolso (mismo esquema que "VA Precio Cesión"): fórmulas vivas, se puede retocar tasa y fecha.
@@ -4425,6 +4431,12 @@
       : (al.alic == null ? aviso('warn', 'Sin la alícuota de percepción de IIBB no se calcula el importe neto: la contraprestación queda en [●].') : '');
     renderCarta();
   }
+  // Los campos propios de cada modelo se muestran solo con ese modelo.
+  function mostrarCamposModelo() {
+    const g = $('cModelo').value === 'getnet';
+    document.querySelectorAll('#cartaCampos .solo-getnet').forEach(e => e.classList.toggle('oculto', !g));
+    document.querySelectorAll('#cartaCampos .solo-anexo1').forEach(e => e.classList.toggle('oculto', g));
+  }
   function renderCarta() {
     const dc = datosCarta();
     if (!dc) { $('cartaVista').textContent = ''; return; }
@@ -4436,7 +4448,8 @@
     if (e.target.id === 'cLiquid') liquidManual = true;
     if (e.target.id === 'cFechaAcep' && !liquidManual) $('cLiquid').value = e.target.value;
     recalcularContra();
-    if (cartaBase) guardarCartaPrefs(cartaBase.clienteId || '_', { cedente: $('cCedente').value, alias: $('cAlias').value, banco: $('cBanco').value, domicilio: $('cDomicilio').value });
+    if (e.target.id === 'cModelo') mostrarCamposModelo();
+    if (cartaBase) guardarCartaPrefs(cartaBase.clienteId || '_', { cedente: $('cCedente').value, alias: $('cAlias').value, banco: $('cBanco').value, domicilio: $('cDomicilio').value, modelo: $('cModelo').value, fechaOferta: $('cFechaOferta').value });
   });
   $('btnCartaWord').addEventListener('click', async () => {
     const dc = datosCarta();
