@@ -3883,10 +3883,18 @@
         archivo = { nombre: files.length > 1 ? `${files.length} archivos TXT` : file.name, txtMeli: txts.map(t => M.leerTxtMeli(t.nombre, t.texto)),
           crudas: [], hojas: [], conciliacion: null, interfazDe: undefined };
       } else {
-        if (files.length > 1) throw new Error('Para este formato se carga un solo archivo. Solo el esquema MELI admite varios TXT a la vez.');
-        const crudas = await leerHojas(file);
-        const conc = crudas.find(h => M.normalizar(h.hoja).startsWith('conciliacion'));
-        archivo = { nombre: file.name, crudas, hojas: [], conciliacion: conc ? M.leerConciliacion(conc.filas) : null, interfazDe: undefined };
+        // Varios archivos (Excel o CSV) del mismo cliente: se leen todos y se consolidan en un solo lote (una exportación de carta y de CSV).
+        const unicos = [], vistos = new Set(), repetidos = [];
+        files.forEach(f => { const k = `${f.name}|${f.size}`; if (vistos.has(k)) repetidos.push(f.name); else { vistos.add(k); unicos.push(f); } });
+        if (repetidos.length) toast(`Se ignoró ${repetidos.length === 1 ? 'un archivo repetido' : repetidos.length + ' archivos repetidos'}: ${repetidos.join(', ')}.`);
+        const archivos = [];
+        for (const f of unicos) archivos.push({ nombre: f.name, crudas: await leerHojas(f) });
+        const concDe = a => { const c = a.crudas.find(h => M.normalizar(h.hoja).startsWith('conciliacion')); return c ? M.leerConciliacion(c.filas) : null; };
+        const concs = archivos.map(concDe);
+        // Con varios archivos el Bruto de la conciliación es la suma de los de cada archivo (si alguno no lo trae, no se controla).
+        const conciliacion = archivos.length === 1 ? concs[0] : concs.every(c => c && c.bruto != null) ? { bruto: M.round2(concs.reduce((t, c) => t + c.bruto, 0)), fechaCesion: concs[0].fechaCesion } : null;
+        archivo = { nombre: archivos.length === 1 ? archivos[0].nombre : archivos.map(a => a.nombre).join(' + ').slice(0, 150), crudas: archivos[0].crudas, archivos: archivos.length > 1 ? archivos : null,
+          hojas: [], conciliacion, interfazDe: undefined };
       }
       $('aNombre').value = archivo.nombre;
       $('aMonto').innerHTML = Object.entries(M.COLUMNAS_MONTO).map(([k, v]) => `<option value="${k}">${esc(v)}</option>`).join('');
@@ -3924,8 +3932,14 @@
       $('aHoja').innerHTML = archivo.hojas.map((h, i) => `<option value="${i}">TXT de cuotas MELI — ${archivo.txtMeli.length} archivos (${fmtEntero(h.cantidad)} filas)</option>`).join('');
       return archivo.errorHojas;
     }
-    const hojas = archivo.crudas.map(h => Object.assign(
-      interfaz ? M.detectarHojaInterfaz(h.hoja, h.filas, interfaz) : M.detectarHoja(h.hoja, h.filas), { filas: h.filas }));
+    const detectar = h => (interfaz ? M.detectarHojaInterfaz(h.hoja, h.filas, interfaz) : M.detectarHoja(h.hoja, h.filas));
+    let crudasUso = archivo.crudas;
+    archivo.avisosFusion = null; archivo.detalleFusion = null;
+    if (archivo.archivos) {
+      const fu = M.fusionarHojas(archivo.archivos, detectar);
+      crudasUso = fu.crudas; archivo.avisosFusion = fu.avisos; archivo.detalleFusion = fu.detalle;
+    }
+    const hojas = crudasUso.map(h => Object.assign(detectar(h), { filas: h.filas }));
     const utiles = hojas.filter(h => h.formato && M.normalizar(h.hoja) !== 'glosario');
     archivo.hojas = utiles;
     archivo.interfaz = interfaz;
@@ -4002,6 +4016,10 @@
         : aviso('ok', `Se ignoró ${reporte.ignoradas === 1 ? 'una fila' : reporte.ignoradas + ' filas'} sin banco ni fecha${pie != null ? ' (total al pie, coincide con la suma)' : ''}.`);
     }
     if (meli) html += meli.html;
+    if (archivo.detalleFusion) {
+      html += aviso('ok', `<b>Lote consolidado de ${archivo.detalleFusion.length} archivos</b> (una sola carta y un solo CSV):<ul style="margin:6px 0 0 18px">${archivo.detalleFusion.map(d => `<li>${esc(d.archivo)} · ${fmtEntero(d.filas)} filas</li>`).join('')}</ul>`);
+      if ((archivo.avisosFusion || []).length) html += aviso('warn', archivo.avisosFusion.map(esc).join('<br>'));
+    }
     if (errores.length) html += aviso('bad', `<b>El archivo tiene ${errores.length} filas con datos inválidos:</b><ul>${errores.slice(0, 8).map(e => `<li>${esc(e)}</li>`).join('')}${errores.length > 8 ? '<li>…</li>' : ''}</ul>`);
     $('resumenArchivo').innerHTML = html;
 

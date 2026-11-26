@@ -139,3 +139,26 @@ test('cesión: la tasa del archivo de Créditos va en TEA (28% TNA = 31,89% TEA)
   const cuotas = M.generarCuotas(reporte, bancos, params, new Date(2026, 10, 16));
   assert.equal(M.generarCreditos(cuotas, bancos, params).encabezado.tasa, 31.89);
 });
+
+// ---------------------------------------------------------------- varios archivos en un solo lote
+test('lote con varios archivos: se unen las hojas del mismo formato y encabezados; lo que no coincide se avisa', () => {
+  const enc = ['COD_BANCO', 'FECHA_VENCIMIENTO', 'MONTO'];
+  const fila = (b, m) => [b, 46000, m];
+  const arch = (nombre, filas, extra = []) => ({ nombre, crudas: [{ hoja: nombre.replace(/\.csv$/, ''), filas: [enc].concat(filas) }].concat(extra) });
+  const a = arch('a.csv', [fila(7, 100), fila(7, 50)]), b = arch('b.csv', [fila(11, 25), fila(11, 5), []]), c = arch('c.csv', [fila(11, 1)]);
+  c.crudas[0].filas[0] = ['OTRA', 'COSA', 'X'];   // sin el formato esperado: no se suma
+  const r = M.fusionarHojas([a, b, c], h => M.detectarHoja(h.hoja, h.filas));
+  assert.equal(r.crudas.length, 1);
+  assert.equal(r.crudas[0].filas.length, 1 + 2 + 2, 'encabezado + 2 filas de a + 2 filas de b (la fila vacía no cuenta)');
+  assert.deepEqual(r.detalle.map(d => [d.archivo, d.filas]), [['a.csv', 2], ['b.csv', 2], ['c.csv', 0]]);
+  // El reporte armado sobre la hoja unida trae las filas de ambos archivos (un solo CSV y una sola carta).
+  const det = M.detectarHoja('a', r.crudas[0].filas);
+  const rep = M.armarReporte(r.crudas[0].filas, det, {});
+  assert.equal(rep.length, 4);
+  assert.equal(M.round2(rep.reduce((t, x) => t + x.MONTO, 0)), 180);
+  // Encabezados distintos con el mismo formato: no se mezclan y se avisa.
+  const d = arch('d.csv', [fila(9, 3)]); d.crudas[0].filas[0] = ['COD_BANCO', 'FECHA_VENCIMIENTO', 'MONTO', 'EXTRA'];
+  const r2 = M.fusionarHojas([a, d], h => M.detectarHoja(h.hoja, h.filas));
+  assert.equal(r2.crudas[0].filas.length, 3);
+  assert.ok(r2.avisos.some(x => /d\.csv|d"/.test(x)), r2.avisos.join(' | '));
+});

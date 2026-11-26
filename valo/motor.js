@@ -316,6 +316,30 @@
     return { hoja: nombre, formato: null, cantidad: 0 };
   }
 
+  // Varios archivos del mismo cliente en un solo lote: se unen las hojas que tienen el mismo formato y los mismos encabezados (los
+  // renglones de datos de los demás archivos se agregan a los del primero). Lo demás (Conciliación, glosario, hojas de otro formato) se avisa.
+  // archivos: [{ nombre, crudas: [{ hoja, filas }] }]; detectar(hoja) devuelve la detección de formato (detectarHoja o la de la interfaz).
+  function fusionarHojas(archivos, detectar) {
+    const avisos = [], detalle = [];
+    const lista = (archivos || []).filter(a => a && (a.crudas || []).length);
+    if (!lista.length) return { crudas: [], avisos, detalle };
+    const mismos = (a, b) => a.length === b.length && a.every((x, i) => x === b[i]);
+    const base = lista[0].crudas.map(h => ({ hoja: h.hoja, filas: h.filas.slice() }));
+    const principal = a => Math.max(0, ...a.crudas.map(h => detectar(h).cantidad || 0));
+    detalle.push({ archivo: lista[0].nombre, filas: principal(lista[0]) });
+    lista.slice(1).forEach(a => {
+      detalle.push({ archivo: a.nombre, filas: principal(a) });
+      a.crudas.forEach(h => {
+        const d = detectar(h);
+        if (!d.formato) return;
+        const destino = base.find(x => { const dx = detectar(x); return dx.formato === d.formato && mismos(dx.encabezados || [], d.encabezados || []); });
+        if (!destino) { avisos.push(`La hoja "${h.hoja}" de ${a.nombre} no tiene el mismo formato o los mismos encabezados que la del primer archivo: no se sumó.`); return; }
+        h.filas.slice(d.filaEncabezado + 1).filter(r => r && r.some(c => c != null && c !== '')).forEach(r => destino.filas.push(r));
+      });
+    });
+    return { crudas: base, avisos, detalle };
+  }
+
   // Devuelve las filas de tblReporte a partir de la hoja elegida.
   function armarReporte(filas, deteccion, opciones) {
     const enc = deteccion.encabezados;
@@ -6262,7 +6286,7 @@ try {
     problemasBanco, codigoCreditoPorDefecto, prefijoBanco, numeroCredito, prefijosRepetidos, controlarBancos, controlarReporte,
     generarCuotas, generarCreditos, txtCuotas, txtCreditos, nombreArchivo,
     calcularSecuenciaLote, validarFormulario,
-    usoManual, usosConManuales, armarEncargoBastanteo, acotarAdjuntos, extraerAjustes, validarAjuste, describirAjuste, aplicarAjustes, firmaDeRegla, OPS_AJUSTE, clienteConEquivalencias, aplicarAjustesControl, aplicarAjustesControlResumen, usoAgregarDeRegla, usosDeAjustes, tnaATea, teaATna, PADRONES, indexarPadronAlicuotas, buscarEnPadron, alicuotaPercepcionIIBB,
+    usoManual, usosConManuales, fusionarHojas, armarEncargoBastanteo, acotarAdjuntos, extraerAjustes, validarAjuste, describirAjuste, aplicarAjustes, firmaDeRegla, OPS_AJUSTE, clienteConEquivalencias, aplicarAjustesControl, aplicarAjustesControlResumen, usoAgregarDeRegla, usosDeAjustes, tnaATea, teaATna, PADRONES, indexarPadronAlicuotas, buscarEnPadron, alicuotaPercepcionIIBB,
     leerArchivosCesion, datosCartaDesdeLote, precioCesionNeto, cartaCesion, textoCartaCesion, docxSimple, fechaEnLetras, crc32,
   };
   root.ValoMotor = api;
