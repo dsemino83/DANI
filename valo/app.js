@@ -4236,10 +4236,55 @@
     tx.onerror = () => rej(tx.error);
     tx.onabort = () => rej(tx.error || new Error('No se pudo guardar el padrón.'));
   }));
+  // Copia compartida (Supabase Storage): índice en delta + gzip para que todos los usuarios usen el mismo padrón.
+  async function gz(bytes, modo) {
+    const cs = new (modo === 'c' ? CompressionStream : DecompressionStream)('gzip');
+    return new Uint8Array(await new Response(new Blob([bytes]).stream().pipeThrough(cs)).arrayBuffer());
+  }
+  async function empacarPadron(ind) {
+    const n = ind.filas, meta = { id: ind.id, filas: n, omitidas: ind.omitidas || 0, publicacion: ind.publicacion, desde: ind.desde, hasta: ind.hasta, archivo: ind.archivo || '', cargado: ind.cargado || 0 };
+    const d = new Uint32Array(n); let ok = true, prev = 0;
+    for (let i = 0; i < n; i++) { const x = ind.cuits[i] - prev; if (x > 4294967295) { ok = false; break; } d[i] = x; prev = ind.cuits[i]; }
+    const cuits = ok ? d : Float64Array.from(ind.cuits.subarray(0, n));
+    meta.delta = ok;
+    const mb = new TextEncoder().encode(JSON.stringify(meta));
+    const partes = [new Uint8Array(new Uint32Array([mb.length]).buffer), mb, new Uint8Array(cuits.buffer), new Uint8Array(ind.perc.buffer, 0, n * 2), new Uint8Array(ind.ret.buffer, 0, n * 2), ind.tipo.subarray(0, n)];
+    const tot = partes.reduce((a, b) => a + b.length, 0), buf = new Uint8Array(tot); let o = 0;
+    partes.forEach(b => { buf.set(b, o); o += b.length; });
+    return gz(buf, 'c');
+  }
+  async function desempacarPadron(zip) {
+    const buf = await gz(zip, 'd'), dv = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
+    const ml = dv.getUint32(0, true), meta = JSON.parse(new TextDecoder().decode(buf.subarray(4, 4 + ml))), n = meta.filas;
+    let o = 4 + ml;
+    const tomar = (T, k) => { const b = buf.slice(o, o + k * T.BYTES_PER_ELEMENT); o += b.length; return new T(b.buffer); };
+    const c0 = meta.delta ? tomar(Uint32Array, n) : tomar(Float64Array, n), cuits = new Float64Array(n);
+    if (meta.delta) { let a = 0; for (let i = 0; i < n; i++) { a += c0[i]; cuits[i] = a; } } else cuits.set(c0);
+    const perc = tomar(Uint16Array, n), ret = tomar(Uint16Array, n), tipo = tomar(Uint8Array, n);
+    return Object.assign(meta, { cuits, perc, ret, tipo });
+  }
   const padronListo = (async () => {
     for (const id of Object.keys(M.PADRONES)) { try { const r = await padronOp('readonly', st => st.get(id)); if (r) padronMem[id] = r; } catch (e) { /* sin almacenamiento */ } }
     renderPadrones();
   })();
+  // Si hay una copia compartida más nueva que la de este navegador, se baja y reemplaza a la local (se llama al tener sesión).
+  async function sincronizarPadrones() {
+    await padronListo;
+    if (almacen && almacen.padronBajar && typeof CompressionStream !== 'undefined') {
+      for (const id of Object.keys(M.PADRONES)) {
+        try {
+          const f = await almacen.padronFecha(id);
+          if (!f || (padronMem[id] && padronMem[id].compartido === f)) continue;
+          const zip = await almacen.padronBajar(id);
+          if (!zip) continue;
+          const ind = await desempacarPadron(zip); ind.compartido = f;
+          padronMem[id] = ind;
+          try { await padronOp('readwrite', st => st.put(ind)); } catch (e) { /* sin almacenamiento */ }
+          renderPadrones();
+        } catch (e) { console.warn('Padrón compartido:', e); }
+      }
+    }
+  }
   const fechaIsoALegible = iso => iso ? iso.split('-').reverse().join('/') : '—';
   function renderPadrones() {
     const caja = $('padronesLista');
@@ -4280,8 +4325,14 @@
       padronMem[id] = ind;
       let guardado = true;
       try { await padronOp('readwrite', st => st.put(ind)); } catch (e) { guardado = false; }
+      let compartido = '';
+      if (almacen && almacen.padronSubir && typeof CompressionStream !== 'undefined') {
+        try { est.textContent = 'Compartiendo el padrón con los demás usuarios…'; await pausaUI(); await almacen.padronSubir(id, await empacarPadron(ind)); compartido = 'ok'; ind.compartido = await almacen.padronFecha(id); try { await padronOp('readwrite', st => st.put(ind)); } catch (e) { /* sin almacenamiento */ } }
+        catch (e) { compartido = 'error:' + (e.message || e); }
+      }
       renderPadrones();
       est.innerHTML = `Padrón cargado: ${ind.filas.toLocaleString('es-AR')} CUIT, vigencia ${fechaIsoALegible(ind.desde)} al ${fechaIsoALegible(ind.hasta)}${ind.omitidas ? ` (${ind.omitidas} líneas omitidas)` : ''}.`
+        + (compartido === 'ok' ? ' <b>Compartido con todos los usuarios.</b>' : compartido ? ` <span style="color:var(--bad)">No se pudo compartir (${esc(compartido.slice(6))}): solo lo ven en este navegador.</span>` : '')
         + (guardado ? ' Reemplazó al anterior.' : ' <span style="color:var(--bad)">No se pudo guardar en este navegador: queda disponible hasta que cierres la página.</span>');
       if (cartaBase) recalcularContra();
       toast('Padrón cargado');
@@ -4295,6 +4346,7 @@
     if (q && window.confirm('¿Quitar el padrón cargado? El cálculo de la percepción de IIBB va a pedir la alícuota a mano hasta que cargues uno nuevo.')) {
       delete padronMem[q.dataset.padronQuitar];
       try { await padronOp('readwrite', st => st.delete(q.dataset.padronQuitar)); } catch (err) { /* sin almacenamiento */ }
+      try { if (almacen && almacen.padronBorrar) await almacen.padronBorrar(q.dataset.padronQuitar); } catch (err) { /* sin conexión */ }
       renderPadrones(); if (cartaBase) recalcularContra();
     }
   });
@@ -5397,6 +5449,7 @@
       almacen = { modo: 'sin-conexion' };
     }
     $('errorCarga').classList.add('oculto');
+    if (almacen.padronBajar) sincronizarPadrones().then(() => { if (cartaBase) recalcularContra(); }, () => {});
     if (almacen.modo === 'sin-conexion') {
       $('estadoBase').innerHTML = '<span class="chip bad">Sin base</span>';
       $('errorBase').innerHTML = aviso('bad', window.VALO_WEB ? 'No se pudo conectar con la base compartida. Revisá la conexión y recargá la página.'

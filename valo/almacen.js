@@ -604,7 +604,25 @@
         }
       },
     };
-    return Object.assign(api, cuenta, entes, { proveedor: 'supabase', descargaLibre: true, email, importarDocs: db.importar });
+    // Padrones de consulta (IIBB) compartidos: un solo archivo comprimido en el bucket privado valo-padrones, que lee todo usuario VALO.
+    const padronesComp = {
+      async padronSubir(id, bytes) {
+        const { error } = await sb.storage.from('valo-padrones').upload(id + '.bin', new Blob([bytes], { type: 'application/octet-stream' }), { upsert: true, contentType: 'application/octet-stream' });
+        if (error) throw new Error(error.message || 'No se pudo compartir el padrón.');
+      },
+      async padronBajar(id) {
+        const { data, error } = await sb.storage.from('valo-padrones').download(id + '.bin');
+        if (error || !data) return null;
+        return new Uint8Array(await data.arrayBuffer());
+      },
+      async padronFecha(id) {
+        const { data } = await sb.storage.from('valo-padrones').list('', { search: id + '.bin', limit: 5 });
+        const f = (data || []).find(x => x.name === id + '.bin');
+        return f ? (f.updated_at || f.created_at || '') : '';
+      },
+      async padronBorrar(id) { await sb.storage.from('valo-padrones').remove([id + '.bin']); },
+    };
+    return Object.assign(api, cuenta, entes, padronesComp, { proveedor: 'supabase', descargaLibre: true, email, importarDocs: db.importar });
   }
 
   // Elige el modo: sitio propio con Supabase; dentro de claude.ai, su base compartida; si no, el navegador.
