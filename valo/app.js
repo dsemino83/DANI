@@ -4185,7 +4185,7 @@
     renderTablaResultado('cuotas');
     prepararCarta({ origen: 'lote', cliente: c, lote, datos: M.datosCartaDesdeLote(cuotas, { secuencia: lote.secuencia, tasa: lote.tasa }),
       archivoCreditos: lote.nombreCreditos, archivoCuotas: lote.nombreCuotas });
-    $('cardResultado').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    $('cardCarta').scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 
   // --- Padrones de consulta (IIBB): se suben una vez por mes y reemplazan al anterior. Se guarda el índice compacto en IndexedDB.
@@ -4288,7 +4288,7 @@
     cartaBase = { datos: o.datos, clienteId: o.cliente ? o.cliente.id : null, cuit: String(o.cuit || (o.cliente && o.cliente.cuit) || '').replace(/\D/g, '') };
     const pref = cartaPrefs(cartaBase.clienteId || '_');
     const hoy = isoHoy();
-    $('cardCarta').classList.remove('oculto');
+    $('cardCarta').classList.remove('oculto'); $('cartaCuerpo').classList.remove('oculto'); $('cartaEspera').classList.add('oculto');
     $('cCedente').value = pref.cedente || (o.cliente ? o.cliente.nombre : '') || '';
     $('cAlias').value = pref.alias != null ? pref.alias : '';
     $('cFechaCarta').value = hoy; $('cFechaProp').value = hoy; $('cFechaAcep').value = hoy;
