@@ -1169,7 +1169,8 @@
   });
   // --- Verificar en la API (por el flujo de Power Automate, acción "consultar"): vigencia del N° de operación y saldo cargado.
   let verifFilas = [];
-  const numCampo = t => { const v = String(t == null ? '' : t).trim().replace(/\./g, '').replace(',', '.'); return v === '' || !isFinite(Number(v)) ? null : Number(v); };
+  const numCampo = t => { if (typeof t === 'number') return isFinite(t) ? t : null;   // ya es número (viene del lote): no se reinterpreta como texto es-AR
+    const v = String(t == null ? '' : t).trim().replace(/\./g, '').replace(',', '.'); return v === '' || !isFinite(Number(v)) ? null : Number(v); };
   function pintarVerifTabla() {
     if (!verifFilas.length) { $('verifTabla').innerHTML = '<p class="sub">Todavía no hay filas: tocá "Armar desde el lote y el último envío" (con la cartera cargada) o "Agregar fila".</p>'; return; }
     $('verifTabla').innerHTML = '<table><thead><tr><th>Cliente (MIS)</th><th>Banco</th><th>N° de operación</th><th class="num">Saldo cargado</th><th></th></tr></thead><tbody>' + verifFilas.map((f, i) =>
