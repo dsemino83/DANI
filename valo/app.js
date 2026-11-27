@@ -1196,24 +1196,60 @@
     toast(verifFilas.length ? `${verifFilas.length} filas armadas` : 'No hay lote cargado ni envíos con número de operación: agregá filas a mano.');
   });
   const ESTADO_VERIF = { ok: ['ok', 'OK'], vigente: ['ok', 'Vigente'], saldo_distinto: ['warn', 'Saldo distinto'], no_vigente: ['bad', 'No vigente'], sin_vigentes: ['bad', 'Sin operación vigente'], error: ['bad', 'Error de la API'], sin_consulta: ['gris', 'Sin consultar'] };
-  function pintarVerifResultado(filas) {
+  function pintarVerifResultado(filas, errorGeneral) {
     const cuenta = k => filas.filter(f => f.estado === k).length, ok = cuenta('ok') + cuenta('vigente');
-    const html = aviso(ok === filas.length ? 'ok' : 'warn', `<b>${ok} de ${filas.length}</b> coinciden (vigentes y con el saldo cargado).` + (filas.length - ok ? ` Revisá las ${filas.length - ok} restantes.` : ''));
+    const html = (errorGeneral ? aviso('warn', esc(errorGeneral)) : '') + aviso(ok === filas.length ? 'ok' : 'warn', `<b>${ok} de ${filas.length}</b> coinciden (vigentes y con el saldo cargado).` + (filas.length - ok ? ` Revisá las ${filas.length - ok} restantes.` : ''));
     $('verifResultado').innerHTML = html + '<div class="tabla-caja"><table><thead><tr><th>Cliente (MIS)</th><th>Banco</th><th>Operación</th><th class="num">Saldo cargado</th><th class="num">Saldo en la API</th><th class="num">Diferencia</th><th>Vencimiento</th><th>Estado</th></tr></thead><tbody>' +
       filas.map(f => { const [cl, tx] = ESTADO_VERIF[f.estado] || ['gris', f.estado];
         return `<tr><td>${esc(f.cliente)}</td><td>${esc(f.banco)}</td><td><b>${esc(f.operacion != null ? f.operacion : (f.numeroOp != null ? f.numeroOp : ''))}</b></td><td class="num">${f.saldoCargado != null ? fmtMonto(f.saldoCargado) : ''}</td>` +
           `<td class="num">${f.saldoApi != null ? fmtMonto(f.saldoApi) : ''}</td><td class="num">${f.diferencia != null && f.diferencia !== 0 ? fmtMonto(f.diferencia) : ''}</td><td>${esc(f.vencimiento || '')}</td>` +
           `<td><span class="chip ${cl}">${tx}</span><div class="sub" style="margin:2px 0 0">${esc(f.detalle)}</div></td></tr>`; }).join('') + '</tbody></table></div>';
   }
-  $('btnVerifFilas').addEventListener('click', () => {
+  // Verificación por archivo .cmd (como el envío): la página crea verificaciones/<id>, el archivo consulta la API desde la PC de la red y deja las operaciones
+  // vigentes de cada cliente; la comparación con el N° de operación y el saldo cargados se hace acá, en vivo.
+  let verifEsperando = null;
+  const ESTADO_VERIFICACION = { pendiente: ['gris', 'Esperando el archivo'], terminado: ['ok', 'Consultada'] };
+  const comparacionDe = v => M.compararOperacionesApi(v.filas || [], v.consultas || [], M.NO_COBIS.tipoCredito);
+  function renderVerifLista() {
+    const caja = $('verifLista');
+    if (!caja || !almacen || !Array.isArray(almacen.datos && almacen.datos.verificaciones)) return;
+    const lista = datos().verificaciones.slice(0, 5);
+    const nuevaTerminada = verifEsperando && lista.find(v => v.id === verifEsperando && v.estado === 'terminado');
+    if (nuevaTerminada) { verifEsperando = null; if (nuevaTerminada.error && !(nuevaTerminada.consultas || []).length) $('verifResultado').innerHTML = aviso('bad', esc(nuevaTerminada.error)); else pintarVerifResultado(comparacionDe(nuevaTerminada), nuevaTerminada.error); toast('Verificación recibida'); }
+    caja.innerHTML = !lista.length ? '' : '<div class="tabla-caja"><table><thead><tr><th>Fecha</th><th>Usuario</th><th class="num">Filas</th><th>Estado</th><th></th></tr></thead><tbody>' + lista.map(v => {
+      const [cl, tx] = ESTADO_VERIFICACION[v.estado] || ['gris', v.estado || ''];
+      let rtd = '';
+      if (v.estado === 'terminado') { const c = comparacionDe(v), ok = c.filter(f => f.estado === 'ok' || f.estado === 'vigente').length; rtd = `${ok} de ${c.length} coinciden`; }
+      return `<tr><td>${esc(new Date(v.creado).toLocaleString('es-AR'))}</td><td>${esc(quien(v.usuarioId) || '')}</td><td class="num">${fmtEntero((v.filas || []).length)}</td><td><span class="chip ${cl}">${tx}</span> ${esc(rtd)}</td>` +
+        `<td>${v.estado === 'terminado' ? `<button class="btn chico" type="button" data-verif-ver="${esc(v.id)}">Ver detalle</button>` : `<button class="btn chico" type="button" data-verif-bajar="${esc(v.id)}">Descargar de nuevo</button>`}</td></tr>`;
+    }).join('') + '</tbody></table></div>';
+  }
+  async function bajarArchivoVerif(id, filas) {
+    const cfg = window.VALO_SUPABASE || {};
+    const token = almacen.tokenSesion ? await almacen.tokenSesion() : '';
+    const d = new Date(), dos = n => String(n).padStart(2, '0');
+    const nombre = `Verificar-NOCOBIS-${dos(d.getDate())}${dos(d.getMonth() + 1)}${String(d.getFullYear()).slice(2)}-${dos(d.getHours())}${dos(d.getMinutes())}.cmd`;
+    await descargar(nombre, M.cmdVerificarNoCobis({ filas, verifPath: 'verificaciones/' + id, supabaseUrl: cfg.url, supabaseKey: cfg.anonKey, token }), true);
+    informar('Abrí el archivo descargado', `<p>Se descargó <b>${esc(nombre)}</b>. Con la PC conectada a la <b>red de VALO o a la VPN</b>, abrilo con doble clic (si Windows pregunta, elegí <i>Más información → Ejecutar de todas formas</i>).</p>` +
+      '<p>Consulta la API (no ingresa ni cancela nada) y el resultado aparece en esta pantalla. Usalo dentro de la hora; si vence, tocá <b>Descargar de nuevo</b>.</p>');
+  }
+  $('btnVerifCmd').addEventListener('click', async () => {
+    if (!almacen || !almacen.encolarVerificacion) { informar('Verificar con archivo', 'Esta opción necesita la base compartida (sitio con usuario). Usá "Consultar en la API" (flujo de Power Automate).'); return; }
     const filas = verifFilas.filter(f => numCampo(f.cliente) != null).map(f => ({ cliente: numCampo(f.cliente), banco: f.banco || '', saldo: numCampo(f.saldo), numeroOp: numCampo(f.numeroOp) }));
-    if (!filas.length) { informar('Verificar en la API', 'Armá la tabla o agregá al menos una fila con el cliente (MIS).'); return; }
-    descargar('NoCobis_verificar_' + new Date().toISOString().slice(0, 10).replace(/-/g, '') + '.json', JSON.stringify({ tipo: 'VALO NO COBIS VERIFICAR', generado: new Date().toISOString(), filas }, null, 1), true);
+    if (!filas.length) { informar('Verificar en la API', 'Armá la tabla ("Armar desde el lote y el último envío") o agregá al menos una fila con el cliente (MIS).'); return; }
+    try {
+      const id = await almacen.encolarVerificacion({ filas, tipoCredito: M.NO_COBIS.tipoCredito });
+      verifEsperando = id;
+      $('verifResultado').innerHTML = '<p class="sub">Esperando que abras el archivo descargado… el resultado aparece acá cuando termine.</p>';
+      await bajarArchivoVerif(id, filas);
+    } catch (e) { informar('No se pudo preparar la verificación', esc(e.message || e)); }
   });
-  $('btnVerifScript').addEventListener('click', () => {
-    const nombre = descargas ? 'verificar-api-nocobis.ps1.txt' : 'verificar-api-nocobis.ps1';
-    if (descargas) toast('Se descarga como .txt: renombralo a verificar-api-nocobis.ps1');
-    descargar(nombre, '\ufeff' + M.scriptPowerShellVerificarNoCobis(), true);
+  $('verifLista').addEventListener('click', e => {
+    const ver = e.target.dataset.verifVer, bajar = e.target.dataset.verifBajar;
+    const v = (datos().verificaciones || []).find(x => x.id === (ver || bajar));
+    if (!v) return;
+    if (ver) { pintarVerifResultado(comparacionDe(v), v.error); $('verifResultado').scrollIntoView({ block: 'nearest' }); }
+    else { verifEsperando = v.id; bajarArchivoVerif(v.id, v.filas || []).catch(err => informar('No se pudo descargar', esc(err.message || err))); }
   });
   $('btnVerifConsultar').addEventListener('click', async () => {
     const filas = verifFilas.filter(f => numCampo(f.cliente) != null).map(f => ({ cliente: numCampo(f.cliente), banco: f.banco, saldo: numCampo(f.saldo), numeroOp: numCampo(f.numeroOp) }));
@@ -5668,6 +5704,7 @@
     let primera = true;
     $('cajaFlujo').classList.toggle('oculto', !flujoDisponible());
     $('cardVerifApi').classList.toggle('oculto', !flujoDisponible());
+    $('cajaVerifCmd').classList.toggle('oculto', almacen.proveedor !== 'supabase');
     $('cajaPbi').classList.toggle('oculto', !flujoDisponible());
     $('cajaCola').classList.toggle('oculto', almacen.proveedor !== 'supabase');
     $('detPA').open = almacen.modo === 'local';
@@ -5681,6 +5718,7 @@
       if (primera) { primera = false; $('cargandoBase').classList.add('oculto'); $('contenido').classList.remove('oculto'); }
       refrescar();
       menuRefrescar();
+      renderVerifLista();
     });
     menuIniciar();
     if (!compartido) {

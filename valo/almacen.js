@@ -117,7 +117,7 @@
     const holder = 'pestana-' + nuevoId();
     const usuarioId = user ? await user.id() : null;
     const puede = user ? await user.can('data.write') : null;
-    const datos = { clientes: [], bancos: [], bancosMeli: [], lotes: [], carteraCfg: null, nocobisFlujo: null, chequesCfg: null, fcicMeliCfg: null, envios: [], agenteNoCobis: null, padronInventario: null, carteraHist: [], menuSectores: null };
+    const datos = { clientes: [], bancos: [], bancosMeli: [], lotes: [], carteraCfg: null, nocobisFlujo: null, chequesCfg: null, fcicMeliCfg: null, envios: [], agenteNoCobis: null, padronInventario: null, carteraHist: [], menuSectores: null, verificaciones: [] };
     const listo = { clientes: false, bancos: false, lotes: false, bancosMeli: false };
     const api = {
       modo: 'compartido',
@@ -169,6 +169,12 @@
     db.collection('envios').onSnapshot(s => {
       datos.envios = s.docs.map(d => Object.assign({ id: d.id }, d.data()))
         .sort((a, b) => String(b.creado || b.fecha || '').localeCompare(String(a.creado || a.fecha || '')));
+      emitirSiListo();
+    }, alError);
+    // Verificaciones NO COBIS en la API (solo consulta): la página las crea y el archivo .cmd deja las operaciones vigentes de cada cliente.
+    db.collection('verificaciones').onSnapshot(s => {
+      datos.verificaciones = s.docs.map(d => Object.assign({ id: d.id }, d.data()))
+        .sort((x, y) => String(y.creado || '').localeCompare(String(x.creado || ''))).slice(0, 20);
       emitirSiListo();
     }, alError);
     db.doc('maestros/agenteNoCobis').onSnapshot(s => {
@@ -244,6 +250,11 @@
       async encolarEnvio(e) {
         const id = nuevoId();
         await escribir(() => db.doc('envios/' + id).set(Object.assign(clonar(e), { estado: 'pendiente', creado: new Date().toISOString(), usuarioId })));
+        return id;
+      },
+      async encolarVerificacion(v) {
+        const id = nuevoId();
+        await escribir(() => db.doc('verificaciones/' + id).set(Object.assign(clonar(v), { estado: 'pendiente', creado: new Date().toISOString(), usuarioId })));
         return id;
       },
       async actualizarEnvio(id, cambios) { await escribir(() => db.doc('envios/' + id).update(clonar(cambios))); },
@@ -361,7 +372,7 @@
   // Sitio propio (GitHub Pages) con la base en Supabase. Se arma una capa con la misma forma que la base de
   // claude.ai (doc / collection / onSnapshot / acquire) para reutilizar crearCompartido sin cambios.
 
-  const COLECCIONES_VIVAS = ['clientes', 'lotes', 'maestros', 'envios', 'carteraHist'];
+  const COLECCIONES_VIVAS = ['clientes', 'lotes', 'maestros', 'envios', 'carteraHist', 'verificaciones'];
   const coleccionDe = path => String(path).split('/')[0];
   const padreDe = path => String(path).split('/').slice(0, -1).join('/');
 

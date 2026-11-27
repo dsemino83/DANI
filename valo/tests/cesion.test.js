@@ -242,10 +242,13 @@ test('verificación NO COBIS: operación vigente y saldo cargado contra lo que i
   assert.ok(r[2].detalle.includes('18987'), r[2].detalle);
 });
 
-test('script de verificación NO COBIS: solo consulta y lee las filas de la página', () => {
-  const ps = M.scriptPowerShellVerificarNoCobis();
-  assert.ok(ps.includes('/v1/nocobis/operacion?cliente=') && ps.includes("'VALO NO COBIS VERIFICAR'") && ps.includes('NoCobis_resultado_*.csv'));
-  assert.ok(!/Method Post -Uri \(\$BaseUrl/.test(ps) && !ps.includes('/v1/nocobis/ingreso') && !ps.includes('/v1/nocobis/cancelar'), 'no ingresa ni cancela');
-  assert.equal((ps.match(/\{/g) || []).length, (ps.match(/\}/g) || []).length, 'llaves balanceadas');
-  assert.equal((ps.match(/\(/g) || []).length, (ps.match(/\)/g) || []).length, 'paréntesis balanceados');
+test('archivo .cmd de verificación NO COBIS: solo consulta, trae las filas y deja el resultado en la página', () => {
+  const cmd = M.cmdVerificarNoCobis({ filas: [{ cliente: 728, banco: "Banco 'X'", saldo: 500000, numeroOp: 18987 }], verifPath: 'verificaciones/abc', supabaseUrl: 'https://x.supabase.co', supabaseKey: 'k', token: 't' });
+  assert.ok(cmd.startsWith('<# :') && cmd.includes('/v1/nocobis/operacion?cliente=') && cmd.includes("'verificaciones/abc'") && cmd.includes('"cliente":728'));
+  assert.ok(!cmd.includes('/v1/nocobis/ingreso') && !cmd.includes('/v1/nocobis/cancelar') && !/Method Post -Uri \(\$BaseUrl/.test(cmd), 'no ingresa ni cancela');
+  assert.ok(cmd.includes('nocobis-credencial.txt'), 'usa la misma clave guardada que el envío');
+  assert.ok(cmd.includes('\r\n') && !/[^\r]\n/.test(cmd), 'fin de línea CRLF');
+  // una sola operación llega como objeto (PowerShell): se acepta igual
+  const r = M.compararOperacionesApi([{ cliente: 1, saldo: 10 }], [{ cliente: 1, http: 200, operaciones: { numeroOperacion: 5, tipoCredito: 'CCASR', saldoCapital: 10 } }], 'CCASR');
+  assert.equal(r[0].estado, 'ok');
 });
