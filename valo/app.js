@@ -3096,7 +3096,13 @@
       const filaPersona = ([rol, x]) => {
         const f = rol === 'Apoderado' && firmantes ? M.firmanteDe(x, firmantes) : null;
         const c = f && !(bast.ediciones[i].cuits || {})[x.dni] ? { cuit: String(f.cuit || '').replace(/\D/g, ''), fuente: f.fuente || 'planilla' } : cuitDe(i, x.dni);
-        return `<tr><td>${rol}</td><td>${esc(x.nombre_completo)}</td><td>${esc(x.dni)}</td>` +
+        // Categoría (grupo) de la persona: la que trae el poder y la que dice la planilla del cliente (observaciones, ej. "A INDIVIDUAL").
+        const gPoder = rol === 'Apoderado' ? String(x.grupo || '').replace(/^\s*(grupo|clase)\s+/i, '').trim().toUpperCase() : '';
+        const gPlanilla = f && f.uso && f.uso.grupo ? f.uso.grupo : '';
+        const celdaGrupo = (g, tit) => g ? `<span class="chip ok" title="${esc(tit)}">${esc(g)}</span>` : '<span class="sub" style="margin:0">—</span>';
+        const celdasGrupo = rol === 'Otorgante' ? '<td class="sub">—</td><td class="sub">—</td>'
+          : `<td>${celdaGrupo(gPoder, 'Grupo que trae el poder')}</td><td>${celdaGrupo(gPlanilla, f ? 'Observaciones de la planilla: ' + (f.observacion || '') : '')}${gPoder && gPlanilla && gPoder !== gPlanilla ? ' <span class="chip warn" title="El poder y la planilla ponen letras distintas">difieren</span>' : ''}</td>`;
+        return `<tr><td>${rol}</td><td>${esc(x.nombre_completo)}</td><td>${esc(x.dni)}</td>${celdasGrupo}` +
           `<td><input data-bast-cuit="${i}" data-dni="${esc(x.dni)}" value="${esc(c.cuit)}" placeholder="CUIT (11 dígitos)" inputmode="numeric" style="max-width:150px"></td>` +
           `<td>${c.cuit ? `<span class="chip ok">${esc(c.fuente)}</span>` : '<span class="chip warn">sin CUIT: va el DNI</span>'}</td></tr>`;
       };
@@ -3127,7 +3133,7 @@
           <label class="campo">Tipo de poder <input data-bast-campo="power_attorney_type" data-i="${i}" value="${esc(ed.power_attorney_type || '')}"></label>
         </div>
         <h3>Personas</h3>
-        <div class="tabla-caja"><table><thead><tr><th>Rol</th><th>Nombre</th><th>DNI</th><th>CUIT (número de identificación)</th><th>Origen</th></tr></thead><tbody>${personas.map(filaPersona).join('')}</tbody></table></div>
+        <div class="tabla-caja"><table><thead><tr><th>Rol</th><th>Nombre</th><th>DNI</th><th>Grupo en el poder</th><th>Grupo en la planilla</th><th>CUIT (número de identificación)</th><th>Origen</th></tr></thead><tbody>${personas.map(filaPersona).join('')}</tbody></table></div>
         ${!apod.length && p.apoderados.length ? aviso('warn', 'Ningún apoderado de este poder está en la planilla del cliente.') : ''}
         ${fuera.length ? `<p class="sub" style="margin:6px 0 0">No se incluyen (están en el PDF pero no en la planilla): ${esc(fuera.map(a => a.nombre_completo).join(', '))}</p>` : ''}
         ${usos}
