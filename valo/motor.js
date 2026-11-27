@@ -3069,6 +3069,17 @@
     return r.length && r.length <= 30 ? r : null;
   }
   const USO_RESTRINGIDO = /(\bs[oó]lo (para|a)\b|[uú]nicamente|exclusivamente|endoso para dep[oó]sito|e-?banval)/i;
+  // Firma individual que solo habilita operaciones de bajo riesgo (depositar, cobrar, percibir, pedir saldos o chequeras, retirar valores): en un
+  // poder con firma conjunta no es una regla de firma aparte, igual que la "restringida" por texto. Se mira por las facultades habilitadas, no solo
+  // por las palabras del texto. "Endosar cheques" cuenta solo si el texto lo limita al depósito.
+  const FAC_BAJO_RIESGO = new Set(['depositar_echeqs', 'depositar_valores_negociables', 'endosar_para_deposito', 'solicitar_chequeras', 'retirar_chequeras', 'solicitar_saldo_de_cuentas',
+    'retirar_valores_negociables', 'acceder_caja_de_seguridad', 'cobrar_cheques', 'percibir_importes_de_creditos', 'constituir_plazo_fijo', 'retirar_cheques_rechazados']);
+  const soloBajoRiesgo = e => {
+    const ks = Object.keys(e.facultades || {}).filter(k => e.facultades[k]);
+    const texto = `${e.estructura_de_firma || ''} ${e.limitaciones || ''}`;
+    return ks.length > 0 && ks.every(k => FAC_BAJO_RIESGO.has(k) || (k === 'endosar_cheques' && /dep[oó]sito/i.test(texto)));
+  };
+  const usoRestringido = e => USO_RESTRINGIDO.test(`${e.estructura_de_firma || ''} ${e.limitaciones || ''}`) || soloBajoRiesgo(e);
   function jsonBastanteoUnico(jsons, cliente) {
     jsons = jsons.map(j => Object.assign({}, j));
     const letra = n => { let s = ''; n++; while (n > 0) { const r = (n - 1) % 26; s = String.fromCharCode(65 + r) + s; n = Math.floor((n - 1) / 26); } return s; };
@@ -3079,7 +3090,7 @@
     jsons.forEach(j => {
       if (!j.estructuras_de_firma.some(e => e.firma_conjunta)) return;
       j.estructuras_de_firma = j.estructuras_de_firma.filter(e => {
-        const r = e.firma_individual && !e.firma_conjunta && USO_RESTRINGIDO.test(`${e.estructura_de_firma || ''} ${e.limitaciones || ''}`);
+        const r = e.firma_individual && !e.firma_conjunta && usoRestringido(e);
         if (r) restringidas.push(e.estructura_de_firma);
         return !r;
       });
@@ -3547,7 +3558,10 @@
       : r.tipo === 'Conjunta' ? r.grupos.every(g => firmas.filter(x => x === g).length >= r.quorum) : false;
     const cubre = (grande, chica) => grande !== chica && (grande._vto || '') === (chica._vto || '') && chica.circuitos.every(c => grande.circuitos.includes(c))
       && (grande.monto || null) === (chica.monto || null) && (grande.moneda || null) === (chica.moneda || null)
-      && (firmasMinimas(chica) || [null]).every(f => f && cumple(f, grande));
+      && (firmasMinimas(chica) || [null]).every(f => f && cumple(f, grande))
+      // Solo sobra si todos los que participan de la regla chica ya participan de la grande: si no, quien queda afuera (p. ej. uno del B que firma con uno
+      // del A) perdería su combinación, y pasarlo a la regla grande le daría una firma individual que el poder no le da.
+      && (chica._participantes || []).every(p => (grande._participantes || []).includes(p));
     const sobran = new Set();
     lista.forEach(r => {
       const g = lista.find(x => !sobran.has(x) && cubre(x, r));
@@ -3587,13 +3601,18 @@
     // de firma exacto del poder (sus circuitos y sus combinaciones). Si no, de los grupos del JSON único.
     // Firma individual restringida ("únicamente verificar saldos y endosar cheques", "solo para endoso para depósito",
     // E-BANVAL) en un poder con firma conjunta: no es una regla aparte (igual que en el JSON único); se avisa.
+    // Letra de cada persona en el poder MÁS RECIENTE en que figura (los grupos de un poder viejo no valen para quien cambió de letra en uno posterior).
+    const ultimaLetra = new Map();
+    [...(opciones.jsons || [])].sort((x, y) => String(x.fecha_emision || '').localeCompare(String(y.fecha_emision || ''))).forEach(j =>
+      (j.apoderados || []).forEach(a => { const l = letraGrupo(a.grupo); if (l) ultimaLetra.set(a.numero_de_identificacion, l); }));
     const porUso = (opciones.jsons || []).flatMap(j => {
       const conConjunta = (j.estructuras_de_firma || []).some(e => e.firma_conjunta);
       return (j.estructuras_de_firma || []).filter(e => {
-        const restringida = conConjunta && e.firma_individual && !e.firma_conjunta && USO_RESTRINGIDO.test(`${e.estructura_de_firma || ''} ${e.limitaciones || ''}`);
+        const restringida = conConjunta && e.firma_individual && !e.firma_conjunta && usoRestringido(e);
         if (restringida) avisos.push(`No va como regla la firma individual restringida del poder${j.deed_number ? ' esc. ' + j.deed_number : ''}: "${String(e.estructura_de_firma || e.limitaciones || '').slice(0, 140)}".`);
         return !restringida;
-      }).map(e => Object.assign({}, e, { _fecha: j.fecha_emision || '', _deed: j.deed_number || '', _complementario: !!j.complementario }));
+      }).map(e => Object.assign({}, e, { _fecha: j.fecha_emision || '', _deed: j.deed_number || '', _complementario: !!j.complementario,
+        _letraEnPoder: new Map((j.apoderados || []).map(a => [a.numero_de_identificacion, letraGrupo(a.grupo)])) }));
     });
     // Control de lectura: si el texto de un uso conjunto nombra un grupo ("con Firma B", "un Tipo de Firma C") que las
     // combinaciones leídas no usan, la lectura pudo quedar incompleta: se avisa para revisar (no cambia el resultado).
@@ -3691,6 +3710,17 @@
         reglas.set(k, ocultarEnRegla(Object.assign({ tipo, quorum, moneda: null, monto: null, descripcion, circuitos, grupos, firmantes }, extra), { _vto: vto, _participantes: participantes, _gemelaDe: null, _fecha: e._fecha || '', _deed: e._deed || '', _otraMoneda: nombraOtraMoneda(extra.moneda, `${e.estructura_de_firma || ''} ${e.limitaciones || ''}`) }));
       };
       if (e.firma_individual && !e.firma_conjunta) {
+        // Quien en un poder posterior pasó a otra letra no puede validarse con la firma individual de un poder más viejo que lo tenía en otra.
+        if (e._letraEnPoder) {
+          const cambioDeLetra = id => { const propia = e._letraEnPoder.get(id), ultima = ultimaLetra.get(id); return !!(propia && ultima && propia !== ultima); };
+          const quedan = (e.apoderados || []).filter(id => !cambioDeLetra(id));
+          if (quedan.length < (e.apoderados || []).length) {
+            const fuera = (e.apoderados || []).filter(cambioDeLetra).map(id => (apoderadosU.find(x => x.numero_de_identificacion === id) || {}).nombre_completo || id);
+            avisos.push(`La firma individual "${String(e.estructura_de_firma || '').slice(0, 80)}"${e._deed ? ' (esc. ' + e._deed + ')' : ''} no se aplica a ${fuera.join(', ')}: en un poder posterior tienen otra letra y no se puede validar el poder anterior.`);
+            e = Object.assign({}, e, { apoderados: quedan });
+            if (!quedan.length) return;
+          }
+        }
         // Límite de la firma individual escrito en la planilla ("H/ $ 50.000.000"), si es el mismo para todo el grupo.
         const lim = fuente === 'planilla' ? [...new Set((e.apoderados || []).map(id => { const f = planillaDe.get(id); return f && f.uso && f.uso.limite ? `${f.uso.limite}|${f.uso.limiteTexto}` : ''; }))] : [];
         const extra = lim.length === 1 && lim[0] ? { monto: Number(lim[0].split('|')[0]), moneda: /U\$S|USD|US\$/.test(lim[0]) ? 'USD' : 'ARS' } : {};

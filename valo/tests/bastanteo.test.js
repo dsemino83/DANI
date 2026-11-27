@@ -945,3 +945,42 @@ test('combinaciones de firma: redacciones con "Grupo de Apoderados", "Mandatario
     assert.deepEqual(got, esperado.slice().sort(), d);
   });
 });
+
+// Poderes con letras que cambian: lo que vale es la letra de la persona en el poder más reciente en que figura.
+const poderOcr = (id, creado, deed, fecha, aps, ests) => ({ type: 'Poder Complejo', status: 'APPROVED', id_document: id, created_at: creado, relations: [{ name: 'EMPRESA PRUEBA SA', type: 'people' }],
+  ocr_data_responses: { otorgante: { nombre_completo: 'OTORGANTE UNO', numero_de_identificacion: 11111111 }, apoderados: aps, deed_number: deed, cuit_empresa: '30000000007', razon_social: 'EMPRESA PRUEBA SA',
+    fecha_emision: fecha, power_attorney_type: 'Poder Especial Bancario', estructuras_de_firma: ests, power_attorney_scope: { new: true, revoke: false, complementary: false } } });
+const estOcr = (tipo, estructura, ks, lim) => ({ facultades: Object.fromEntries(ks.map(k => [k, true])), limitaciones: lim || null, tipo_de_firma: tipo, firma_conjunta: tipo === 'CONJUNTA', firma_individual: tipo === 'INDIVIDUAL', estructura_de_firma: estructura, limite_de_operacion: null });
+const apOcr = (g, n, id) => ({ grupo: g, nombre_completo: n, numero_de_identificacion: id });
+const generarOcr = poderes => {
+  const r = M.complifDeEmpresa(poderes, '30000000007', 'EMPRESA PRUEBA SA');
+  const jsons = r.poderes.map(p => M.jsonPoder(p, null, { todosApoderados: true }));
+  return M.jsonBastanteoV1(M.jsonBastanteoUnico(jsons, { cuit: '30000000007', cliente: 'EMPRESA PRUEBA SA' }), null, { fuente: 'complif', jsons });
+};
+test('quien cambió de letra en un poder posterior no hereda la firma individual del poder viejo, y su combinación con otro grupo no se pierde', () => {
+  const F = ['firmar_cheques', 'extraer_fondos'];
+  const viejo = poderOcr('v', '2025-01-01T10:00:00+00:00', '10', '2025-01-01', [apOcr('A', 'Xavier XXXX', 20000001), apOcr('A', 'Yolanda YYYY', 20000002)],
+    [estOcr('INDIVIDUAL', 'Grupo A - firma individual', F, 'Cada apoderado del Grupo A podrá firmar individualmente'), estOcr('CONJUNTA', 'Dos del Grupo A conjuntamente', F)]);
+  const nuevo = poderOcr('n', '2026-01-01T10:00:00+00:00', '20', '2026-01-01', [apOcr('A', 'Yolanda YYYY', 20000002), apOcr('B', 'Xavier XXXX', 20000001)], [estOcr('CONJUNTA', 'Uno del Grupo A con uno del Grupo B', F)]);
+  const j = generarOcr([viejo, nuevo]);
+  const m = M.modeloBastanteo(j);
+  const filas = M.vistaAgrupada(m);
+  const indiv = filas.find(f => f.condicion === 'Una firma del grupo A');
+  assert.ok(indiv, 'queda la individual del A');
+  assert.deepEqual(indiv.firmantes.flatMap(x => x.nombres), ['YYYY, Yolanda'], 'solo Yolanda; Xavier (ahora B) no');
+  assert.ok(!filas.some(f => f.condicion === 'Una firma del grupo B'), 'no hay individual del B');
+  assert.ok(filas.some(f => f.condicion.startsWith('Una firma de cada grupo: A y B')), 'A+B sigue');
+  assert.equal(m.errores.filter(e => e.nivel === 'error').length, 0);
+});
+test('firma individual que solo habilita cobrar, percibir o depositar no es una regla en un poder con firma conjunta (aunque no diga "solo" ni "únicamente")', () => {
+  const j = generarOcr([poderOcr('p', '2025-06-26T10:00:00+00:00', '579', '2025-06-26', [apOcr('A', 'Uno APELLIDOA', 20000001), apOcr('A', 'Dos APELLIDOA', 20000002), apOcr('B', 'Tres APELLIDOB', 20000003)],
+    [estOcr('CONJUNTA', 'Un Mandatario A con Apoderado B conjuntamente', ['firmar_cheques', 'extraer_fondos']),
+     estOcr('INDIVIDUAL', 'Mandatarios A o Apoderados B individualmente (Apartado 2 - Cobrar y Percibir)', ['cobrar_cheques', 'percibir_importes_de_creditos']),
+     estOcr('INDIVIDUAL', 'Individual: cualquiera', ['endosar_cheques', 'depositar_echeqs', 'solicitar_saldo_de_cuentas'], 'Solo endosar cheques para depósito')])]);
+  assert.ok(!j.reglasFirma.some(r => r.tipo === 'Individual' || (r.tipo === 'ConjuntaIndistinta' && r.quorum === 1)), JSON.stringify(j.reglasFirma.map(r => r.tipo + r.grupos)));
+  assert.ok(j.reglasFirma.some(r => r.tipo === 'Conjunta' && r.grupos.join() === 'A,B'));
+  // En cambio, una individual con facultades de disposición sí es regla.
+  const k = generarOcr([poderOcr('q', '2025-06-26T10:00:00+00:00', '1', '2025-06-26', [apOcr('A', 'Uno APELLIDOA', 20000001), apOcr('B', 'Tres APELLIDOB', 20000003)],
+    [estOcr('CONJUNTA', 'Un Mandatario A con Apoderado B conjuntamente', ['firmar_cheques']), estOcr('INDIVIDUAL', 'Grupo A individual', ['firmar_cheques', 'extraer_fondos'])])]);
+  assert.ok(k.reglasFirma.some(r => r.tipo === 'ConjuntaIndistinta' && r.quorum === 1 && r.grupos.join() === 'A'));
+});
