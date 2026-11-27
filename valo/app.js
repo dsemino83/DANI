@@ -1205,6 +1205,16 @@
           `<td class="num">${f.saldoApi != null ? fmtMonto(f.saldoApi) : ''}</td><td class="num">${f.diferencia != null && f.diferencia !== 0 ? fmtMonto(f.diferencia) : ''}</td><td>${esc(f.vencimiento || '')}</td>` +
           `<td><span class="chip ${cl}">${tx}</span><div class="sub" style="margin:2px 0 0">${esc(f.detalle)}</div></td></tr>`; }).join('') + '</tbody></table></div>';
   }
+  $('btnVerifFilas').addEventListener('click', () => {
+    const filas = verifFilas.filter(f => numCampo(f.cliente) != null).map(f => ({ cliente: numCampo(f.cliente), banco: f.banco || '', saldo: numCampo(f.saldo), numeroOp: numCampo(f.numeroOp) }));
+    if (!filas.length) { informar('Verificar en la API', 'Armá la tabla o agregá al menos una fila con el cliente (MIS).'); return; }
+    descargar('NoCobis_verificar_' + new Date().toISOString().slice(0, 10).replace(/-/g, '') + '.json', JSON.stringify({ tipo: 'VALO NO COBIS VERIFICAR', generado: new Date().toISOString(), filas }, null, 1), true);
+  });
+  $('btnVerifScript').addEventListener('click', () => {
+    const nombre = descargas ? 'verificar-api-nocobis.ps1.txt' : 'verificar-api-nocobis.ps1';
+    if (descargas) toast('Se descarga como .txt: renombralo a verificar-api-nocobis.ps1');
+    descargar(nombre, '\ufeff' + M.scriptPowerShellVerificarNoCobis(), true);
+  });
   $('btnVerifConsultar').addEventListener('click', async () => {
     const filas = verifFilas.filter(f => numCampo(f.cliente) != null).map(f => ({ cliente: numCampo(f.cliente), banco: f.banco, saldo: numCampo(f.saldo), numeroOp: numCampo(f.numeroOp) }));
     if (!filas.length) { informar('Verificar en la API', 'Armá la tabla o agregá al menos una fila con el cliente (MIS).'); return; }

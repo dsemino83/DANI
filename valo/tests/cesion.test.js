@@ -241,3 +241,11 @@ test('verificación NO COBIS: operación vigente y saldo cargado contra lo que i
   assert.equal(r[6].operacion, 8);
   assert.ok(r[2].detalle.includes('18987'), r[2].detalle);
 });
+
+test('script de verificación NO COBIS: solo consulta y lee las filas de la página', () => {
+  const ps = M.scriptPowerShellVerificarNoCobis();
+  assert.ok(ps.includes('/v1/nocobis/operacion?cliente=') && ps.includes("'VALO NO COBIS VERIFICAR'") && ps.includes('NoCobis_resultado_*.csv'));
+  assert.ok(!/Method Post -Uri \(\$BaseUrl/.test(ps) && !ps.includes('/v1/nocobis/ingreso') && !ps.includes('/v1/nocobis/cancelar'), 'no ingresa ni cancela');
+  assert.equal((ps.match(/\{/g) || []).length, (ps.match(/\}/g) || []).length, 'llaves balanceadas');
+  assert.equal((ps.match(/\(/g) || []).length, (ps.match(/\)/g) || []).length, 'paréntesis balanceados');
+});

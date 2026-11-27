@@ -4651,6 +4651,154 @@
     });
   }
 
+  // Script de PowerShell que VERIFICA en la API (solo consulta, GET /v1/nocobis/operacion) que el N° de operación esté vigente y que el saldo de capital
+  // sea el cargado. Lee las filas que baja la página (NoCobis_verificar*.json) o, si no hay, el lote NoCobis*.json y el último NoCobis_resultado_*.csv.
+  function scriptPowerShellVerificarNoCobis(cfg = {}) {
+    const base = cfg.baseUrl || 'http://gateway-api-microservicios-core-test.apps.closdesa.bvsa.local/riesgos';
+    const token = cfg.tokenUrl || 'https://ssohomo.valo.ar/auth/realms/COBIS-TEST/protocol/openid-connect/token';
+    const clientId = cfg.clientId || 'apiriesgos';
+    const tipo = cfg.tipoCredito || NO_COBIS.tipoCredito;
+    return `# VALO - EPORTFOLIO · Verificación de operaciones NO COBIS en la API (Orquestador de Riesgos)
+# SOLO CONSULTA: no ingresa ni cancela nada. Controla que el N° de operación esté vigente y que su saldo de capital sea el cargado.
+# Uso (PowerShell, desde una PC de la red de VALO):   powershell -ExecutionPolicy Bypass -File verificar-api-nocobis.ps1
+#   -Archivo <ruta>    NoCobis_verificar*.json (botón "Descargar filas para el script" de la página) o un lote NoCobis*.json.
+#                      Por defecto el más nuevo de esta carpeta o de Descargas.
+#   -Resultado <ruta>  NoCobis_resultado_*.csv del envío (aporta los N° de operación cuando el archivo es un lote). Por defecto el más nuevo.
+#   -TipoCredito X     tipo de crédito para las filas sin N° de operación (por defecto ${tipo}).
+#   -OlvidarClave      borra la clave guardada y la vuelve a pedir.
+# Usa la misma clave guardada que nocobis-api.ps1 (nocobis-credencial.txt en esta carpeta). Deja NoCobis_verificacion_<fecha>.csv.
+param(
+  [string]$Archivo = '',
+  [string]$Resultado = '',
+  [string]$TipoCredito = '${tipo}',
+  [switch]$OlvidarClave,
+  [switch]$SinPausa,
+  [string]$BaseUrl = '${base}',
+  [string]$TokenUrl = '${token}',
+  [string]$ClientId = '${clientId}'
+)
+$ErrorActionPreference = 'Stop'
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+try { $px = [Net.WebRequest]::DefaultWebProxy; if ($px) { $px.Credentials = [Net.CredentialCache]::DefaultNetworkCredentials } } catch {}
+try { [Net.Http.HttpClient]::DefaultProxy.Credentials = [Net.CredentialCache]::DefaultNetworkCredentials } catch {}
+$Carpeta = if ($PSScriptRoot) { $PSScriptRoot } else { (Get-Location).Path }
+$Dirs = @($Carpeta, (Join-Path $HOME 'Downloads'))
+function Numero($v) { if ($v -eq $null) { return $null }; $t = ([string]$v).Trim(); if ($t -eq '') { return $null }; $d = 0.0; if ([double]::TryParse($t, [Globalization.NumberStyles]::Float, [Globalization.CultureInfo]::InvariantCulture, [ref]$d)) { return $d } else { return $null } }
+
+try {
+  # --- filas a verificar: cliente, banco, saldo cargado, N° de operación (opcional)
+  if (-not $Archivo) {
+    $v = @(Get-ChildItem -Path $Dirs -Filter 'NoCobis_verificar*.json' -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending)
+    $l = @(Get-ChildItem -Path $Dirs -Filter 'NoCobis*.json' -ErrorAction SilentlyContinue | Where-Object { $_.Name -notlike 'NoCobis_verificar*' } | Sort-Object LastWriteTime -Descending)
+    if ($v.Count) { $Archivo = $v[0].FullName } elseif ($l.Count) { $Archivo = $l[0].FullName } else { throw 'No encontré NoCobis_verificar*.json ni un lote NoCobis*.json. Descargalo desde la página o indicá -Archivo.' }
+  }
+  $J = [IO.File]::ReadAllText($Archivo, [Text.Encoding]::UTF8) | ConvertFrom-Json
+  $Filas = @()
+  if ($J.tipo -eq 'VALO NO COBIS VERIFICAR') {
+    foreach ($f in @($J.filas)) { $Filas += [pscustomobject]@{ cliente = [long]$f.cliente; banco = [string]$f.banco; saldo = (Numero $f.saldo); numeroOp = (Numero $f.numeroOp) } }
+  } elseif ($J.tipo -eq 'VALO NO COBIS') {
+    if (-not $Resultado) { $r = @(Get-ChildItem -Path $Dirs -Filter 'NoCobis_resultado_*.csv' -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending); if ($r.Count) { $Resultado = $r[0].FullName } }
+    $nums = @{}
+    if ($Resultado -and (Test-Path $Resultado)) { foreach ($x in @(Import-Csv -Path $Resultado -Delimiter ';')) { if ($x.operacion) { $nums[[string]$x.cliente] = $x.operacion } } ; Write-Host "Resultado: $Resultado" }
+    foreach ($o in @($J.operaciones)) { $Filas += [pscustomobject]@{ cliente = [long]$o.cliente; banco = [string]$o.banco; saldo = (Numero $o.saldoCapital); numeroOp = (Numero ($nums[[string]$o.cliente])) } }
+  } else { throw "El archivo $Archivo no es de la página (ni verificación ni lote NO COBIS)." }
+  Write-Host "Archivo: $Archivo"
+  Write-Host ("{0} filas a verificar" -f $Filas.Count)
+
+  # --- credencial y token (OAuth2 client credentials)
+  $ArchivoClave = Join-Path $Carpeta 'nocobis-credencial.txt'
+  if ($OlvidarClave -and (Test-Path $ArchivoClave)) { Remove-Item $ArchivoClave }
+  if (Test-Path $ArchivoClave) { $Seguro = Get-Content $ArchivoClave | ConvertTo-SecureString }
+  else { $Seguro = Read-Host "client_secret de '$ClientId' (se guarda cifrado en $ArchivoClave)" -AsSecureString; $Seguro | ConvertFrom-SecureString | Set-Content $ArchivoClave }
+  $Secreto = (New-Object System.Net.NetworkCredential('', $Seguro)).Password
+  $script:Token = $null; $script:Vence = [DateTime]::MinValue
+  function Detalle-Error($e) {
+    $cod = 0; $txt = $e.Exception.Message
+    if ($e.Exception.Response) { try { $cod = [int]$e.Exception.Response.StatusCode } catch {} }
+    if ($e.ErrorDetails -and $e.ErrorDetails.Message) { $txt = $e.ErrorDetails.Message }
+    if ($cod -eq 407) { $txt = 'el proxy de internet de la red pide autenticación y no aceptó el usuario de Windows' }
+    elseif ($txt -match '<html') { $txt = $txt -replace '<[^>]+>', ' ' }
+    if ($txt.Length -gt 300) { $txt = $txt.Substring(0, 300) + '...' }
+    return @{ codigo = $cod; texto = (($txt -replace '\\s+', ' ').Trim()) }
+  }
+  function Obtener-Token([switch]$Forzar) {
+    if (-not $Forzar -and $script:Token -and (Get-Date) -lt $script:Vence) { return $script:Token }
+    try { $r = Invoke-RestMethod -Method Post -Uri $TokenUrl -Body @{ client_id = $ClientId; client_secret = $Secreto; grant_type = 'client_credentials' } -ContentType 'application/x-www-form-urlencoded' }
+    catch { $d = Detalle-Error $_; throw ("No se pudo obtener el token (HTTP {0}: {1}). Si la clave es incorrecta, ejecutá con -OlvidarClave." -f $d.codigo, $d.texto) }
+    $script:Token = $r.access_token
+    $script:Vence = (Get-Date).AddSeconds([Math]::Max(30, [int]$r.expires_in - 30))
+    return $script:Token
+  }
+  # Operaciones vigentes de un cliente. 404 = sin operaciones. Ante 401 renueva el token y reintenta una vez.
+  function Operaciones-Cliente([long]$Cliente) {
+    for ($i = 0; $i -lt 2; $i++) {
+      try {
+        $r = Invoke-RestMethod -Method Get -Uri ($BaseUrl + '/v1/nocobis/operacion?cliente=' + $Cliente) -Headers @{ Authorization = 'Bearer ' + (Obtener-Token -Forzar:($i -gt 0)) }
+        return @{ http = 200; ops = @($r); error = '' }
+      } catch {
+        $d = Detalle-Error $_
+        if ($d.codigo -eq 401 -and $i -eq 0) { continue }
+        if ($d.codigo -eq 404) { return @{ http = 404; ops = @(); error = '' } }
+        return @{ http = $d.codigo; ops = @(); error = ('HTTP {0}: {1}' -f $d.codigo, $d.texto) }
+      }
+    }
+  }
+
+  # --- consulta (una vez por cliente) y comparación
+  $Cache = @{}
+  $Sal = @()
+  $n = 0
+  foreach ($f in $Filas) {
+    $n++
+    $k = [string]$f.cliente
+    if (-not $Cache.ContainsKey($k)) { $Cache[$k] = Operaciones-Cliente $f.cliente }
+    $c = $Cache[$k]
+    $estado = ''; $detalle = ''; $op = $null; $saldoApi = $null; $dif = $null; $venc = ''
+    if ($c.error) { $estado = 'ERROR API'; $detalle = $c.error }
+    else {
+      $ops = @($c.ops | Where-Object { $_ -ne $null })
+      if ($f.numeroOp -ne $null) {
+        $cand = @($ops | Where-Object { [double]$_.numeroOperacion -eq $f.numeroOp })
+        if (-not $cand.Count) { $estado = 'NO VIGENTE'; $detalle = if ($ops.Count) { 'La operación ' + $f.numeroOp + ' no figura entre las vigentes (vigentes: ' + (($ops | ForEach-Object { $_.numeroOperacion }) -join ', ') + ').' } else { 'El cliente no tiene operaciones vigentes.' } }
+      } else {
+        $cand = @($ops | Where-Object { ([string]$_.tipoCredito).Trim() -eq $TipoCredito })
+        if (-not $cand.Count) {
+          if ($f.saldo -ne $null -and $f.saldo -eq 0) { $estado = 'OK'; $detalle = 'Saldo cargado en 0 y sin operación vigente de ese tipo: coincide.' }
+          else { $estado = 'SIN VIGENTES'; $detalle = if ($ops.Count) { 'No hay operaciones vigentes de tipo ' + $TipoCredito + ' (hay ' + $ops.Count + ' de otros tipos).' } else { 'El cliente no tiene operaciones vigentes.' } }
+        }
+      }
+      if (-not $estado) {
+        $sel = $null
+        foreach ($o in $cand) { if ($f.saldo -ne $null -and [Math]::Abs([double]$o.saldoCapital - $f.saldo) -lt 0.005) { $sel = $o; break } }
+        $ok = ($sel -ne $null)
+        if (-not $sel) { $sel = $cand[0] }
+        $op = $sel.numeroOperacion; $saldoApi = [double]$sel.saldoCapital; $venc = [string]$sel.fechaVencimiento
+        if ($f.saldo -eq $null) { $estado = 'VIGENTE'; $detalle = 'Vigente (no se cargó saldo para comparar).' }
+        else {
+          $dif = [Math]::Round($saldoApi - $f.saldo, 2)
+          if ($ok) { $estado = 'OK'; $detalle = 'Vigente y con el mismo saldo.' }
+          else { $estado = 'SALDO DISTINTO'; $detalle = if ($cand.Count -gt 1) { 'Hay ' + $cand.Count + ' operaciones vigentes y ninguna tiene el saldo cargado.' } else { 'Vigente, pero el saldo de capital es distinto del cargado.' } }
+        }
+      }
+    }
+    $color = switch ($estado) { 'OK' { 'Green' } 'VIGENTE' { 'Green' } 'SALDO DISTINTO' { 'Yellow' } default { 'Red' } }
+    Write-Host ('{0,4}/{1} MIS {2,-6} {3,-34} op {4,-8} cargado {5,18:N2}  API {6,18:N2}  {7}' -f $n, $Filas.Count, $f.cliente, ([string]$f.banco).PadRight(34).Substring(0, 34), $op, $f.saldo, $saldoApi, $estado) -ForegroundColor $color
+    $Sal += [pscustomobject][ordered]@{ cliente = $f.cliente; banco = $f.banco; operacionEsperada = $f.numeroOp; operacion = $op; saldoCargado = $f.saldo; saldoApi = $saldoApi; diferencia = $dif; vencimiento = $venc; estado = $estado; detalle = $detalle }
+  }
+  $Bien = @($Sal | Where-Object { $_.estado -eq 'OK' -or $_.estado -eq 'VIGENTE' }).Count
+  Write-Host ''
+  Write-Host ('{0} de {1} coinciden (vigentes y con el saldo cargado).' -f $Bien, $Sal.Count) -ForegroundColor $(if ($Bien -eq $Sal.Count) { 'Green' } else { 'Yellow' })
+  $Salida = Join-Path $Carpeta ('NoCobis_verificacion_' + (Get-Date -Format 'yyyyMMdd_HHmm') + '.csv')
+  $Sal | Export-Csv -Path $Salida -NoTypeInformation -Delimiter ';' -Encoding UTF8
+  Write-Host "Detalle en $Salida"
+} catch {
+  Write-Host ''
+  Write-Host ('[ERROR] ' + $_.Exception.Message) -ForegroundColor Red
+}
+if (-not $SinPausa) { Write-Host ''; Read-Host 'Enter para cerrar' | Out-Null }
+`;
+  }
+
   // Script de PowerShell que envía el lote a la API desde una PC de la red de VALO.
   // El client_secret NO va en la página ni en el script: se pide la primera vez y queda cifrado en esa PC (DPAPI).
   function scriptPowerShellNoCobis(cfg = {}) {
@@ -6537,7 +6685,7 @@ try {
     PROVINCIAS, FIJOS, COLS_REPORTE, FORMATOS, COLUMNAS_MONTO, CAMPOS_INTERFAZ,
     leerTxtMeli, bancoMeliDeTxt, bancosParaMeli,
     sqlExtraccionCartera, bookmarkletCartera, scriptPowerShellCartera, comandoTareaCartera, IMPORTES_CARTERA,
-    NO_COBIS, ultimoDiaHabil, fechasNoCobis, FCIC_MELI_INICIAL, FERIADOS_AR, diaHabilAnterior, fechasFcicMeli, leerReporteCupones, armarNoCobisFcic, lineaNoCobis, txtNoCobis, loteApiNoCobis, scriptPowerShellNoCobis, scriptPowerShellProbarNoCobis, scriptPowerShellAgenteNoCobis, cmdEnvioNoCobis,
+    NO_COBIS, ultimoDiaHabil, fechasNoCobis, FCIC_MELI_INICIAL, FERIADOS_AR, diaHabilAnterior, fechasFcicMeli, leerReporteCupones, armarNoCobisFcic, lineaNoCobis, txtNoCobis, loteApiNoCobis, scriptPowerShellNoCobis, scriptPowerShellProbarNoCobis, scriptPowerShellVerificarNoCobis, scriptPowerShellAgenteNoCobis, cmdEnvioNoCobis,
     leerCartera, BASTANTEO_CATALOGO, BASTANTEO_CLAVES, BASTANTEO_EXTRA, leerPoderesOcr, leerAutoridadesOcr, COMPLIF_TIPOS, poderDesdeComplif, actaDesdeComplif, complifDeEmpresa, controlResumen, claveCriterio, usoDelResumen, aplicarRevocatorias, claveRevocatoria, poderesFirmantesD, presidentesDeActas, gruposDelUso, usoCompleto, tokensDe, combosDeClausula, poderDelPresidente, leerClienteBastanteo, cuitPorDni, cuitValido, cuilDeDorsoDni, formatoCuit, firmanteDe, firmantesSinPoder, datosOnboarding, textoOnboarding, jsonPoder, jsonBastanteoUnico, jsonBastanteoV1, optimizarReglas, montoDeTexto, tcDePlanilla, modeloBastanteo, analizarBastanteo, vistaAgrupada, chatContextBastanteo, condicionDeFirma, compararBastanteos, compararConExcel, equivalenciaDeLetras, renombrarGrupos, ORIGEN_ERROR_EXCEL, firmasMinimasDe, TIPOS_DE_ERROR_BASTANTEO, validarJsonBastanteo, separarNombre, leerInventarioGarantias, leerUsoAcuerdos, leerCadeval, CADEVAL_CUENTAS, armarInventariosCadeval, esEntidadNoFinanciera, leerCuentasPowerBI, clienteDeCuenta, leerPadronDesdeLineasPdf, INVENTARIOS_CONTABLES, INVENTARIO_DENOMINACION, INVENTARIO_FIRMAS, fechaReporteIso, fechaInventarioDesdeReporte, leerPadronDesdeInventarios, leerBaseEntes, unirPadron, armarInventariosContables, leerCom3500, leerTcApiBcra, elegirTipoCambio, numeroEnLetras, daxCarteraPowerBI, daxDiagnosticoPowerBI, daxSaldoDeuda, armarSaldoDeuda, daxSaldoDeudaDetalle, armarDeudaDetalle, leerFilasPowerBI, sugerirColumnaCartera, columnasNumericasCartera, agruparCartera, valoresDistintos, sqlCartera,
     leerCsv, encabezadosEjemplo, leerDefinicionInterfaz, sugerirColumna, detectarHojaInterfaz,
     normalizar, provinciaPorNombre, crearBuscadorBancoPorNombre, round2, aNumero, aFechaSerial, aCodigoBanco,
