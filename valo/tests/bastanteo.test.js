@@ -917,3 +917,31 @@ test('"Grupo de Apoderados B con cualquiera del Grupo A" es A+B (no A+A) y "que 
   // El rótulo con sustantivo intercalado también vale en otros textos.
   assert.deepEqual(M.letrasDe ? M.letrasDe('Clase de los Firmantes C con Grupo de Apoderados D') : ['C', 'D'], ['C', 'D']);
 });
+
+// Redacciones reales de poderes (nombres de empresas omitidos): cada descripción de uso de firma tiene que dar sus combinaciones.
+test('combinaciones de firma: redacciones con "Grupo de Apoderados", "Mandatario A" y "uno de B o de C junto con uno de A"', () => {
+  const casos = [
+    ['Un Mandatario A con Apoderado B conjuntamente (Sección B - bancarias)', ['A+B']],
+    ['Dos Mandatarios A conjuntamente (Sección A)', ['A+A']],
+    ['Grupo de Apoderados B con cualquiera del Grupo A', ['A+B']],
+    ['Grupo de Apoderados A (conjunta e ilimitada)', ['A+A']],
+    ['Un apoderado Grupo B o Grupo C + un apoderado Grupo A, o dos apoderados Grupo A conjuntamente', ['A+A', 'A+B', 'A+C']],
+    ['Uno del Grupo B o uno del Grupo C junto con uno del Grupo A, o dos del Grupo A conjuntamente', ['A+A', 'A+B', 'A+C']],
+    ['Un Apoderado Clase A o B con un Apoderado Clase C conjuntamente', ['A+C', 'B+C']],
+    ['Uno del Grupo B + uno del Grupo C, o uno del Grupo B + uno del Grupo A', ['A+B', 'B+C']],
+    ['Grupo B con integrante de Grupo C o Grupo B conjuntamente', ['B+B', 'B+C']],
+    ['Un Apoderado Grupo 2 con un Apoderado Grupo 1 conjuntamente', ['1+2']],
+    ['Dos Grupo A + una Grupo B (sin límite)', ['A+A+B']],
+    ['Un integrante del grupo A con al menos dos integrantes del grupo B', ['A+B+B']],
+  ];
+  casos.forEach(([d, esperado], i) => {
+    const doc = { type: 'Poder Complejo', status: 'APPROVED', id_document: 'f' + i, created_at: '2026-11-04T19:59:59+00:00', relations: [{ name: 'PRUEBA SA', type: 'people' }],
+      ocr_data_responses: { otorgante: { nombre_completo: 'OTORGANTE UNO', numero_de_identificacion: 11111111 },
+        apoderados: ['A', 'B', 'C', '1', '2'].map((g, k) => ({ grupo: 'Grupo ' + g, nombre_completo: 'Persona ' + g, numero_de_identificacion: 20000001 + k })),
+        deed_number: '1', cuit_empresa: '30000000007', razon_social: 'PRUEBA SA', fecha_emision: '2026-02-26', power_attorney_type: 'Poder Especial Bancario',
+        estructuras_de_firma: [{ facultades: { firmar_cheques: true }, limitaciones: null, tipo_de_firma: 'CONJUNTA', firma_conjunta: true, firma_individual: false, estructura_de_firma: d, limite_de_operacion: null }],
+        power_attorney_scope: { new: true, revoke: false, complementary: false } } };
+    const got = M.poderDesdeComplif(doc).usos.flatMap(u => u.combinaciones).sort();
+    assert.deepEqual(got, esperado.slice().sort(), d);
+  });
+});

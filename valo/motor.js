@@ -1659,6 +1659,7 @@
       `${b}(?<comodin>(?:${cis(['cualquier', 'cualquiera'])}\\s+(?:${cis(['de los', 'del'])}\\s+)?)?(?:${cis(['otro', 'otros'])}\\s+)?${etq}(?:\\s+${cis(['distinto', 'distintos', 'diferente'])})?)(?!\\s+(?:${ci('tipo')}\\s+)?${RE_GX})(?=[\\s,;.)]|$)`,
       `${b}${etq}\\s+(?:${ci('tipo')}\\s+)?(?<g>${RE_GX})(?<lista>(?:\\s*${sepLista}\\s*(?:${etq}\\s+)?${RE_GX}${noCant})*)`, // Grupo X (o lista "B o C", "A y B", "I/II")
       `${b}(?<ng>${RE_NUM})\\s+(?:${RE_SUST}\\s+)*(?<gn>${RE_GX})(?=\\s|$|[,;)+.])`, // dos del A / 2 Firma A
+      `${b}(?<sg>${cis(['apoderado', 'apoderada', 'apoderados', 'apoderadas', 'mandatario', 'mandataria', 'mandatarios', 'mandatarias', 'firmante', 'firmantes'])}\\s+(?<sgl>${RE_GX}))(?=[\\s,;.)+]|$)`, // "Apoderado B", "Mandatario A" (sin cantidad ni "Grupo")
       `${b}(?<n>${RE_NUM})${f}`,
       `${b}(?<j>${cis(['junto con', 'conjuntamente con', 'con', 'más', 'mas'])})${f}|(?<mas>\\+)`,
       `${b}(?<o>${cis(['o bien', 'o', 'u', 'ó'])}|${ci('y')}\\s*\\/\\s*${ci('o')})${f}|(?<barra>\\/)`,
@@ -1680,6 +1681,7 @@
         for (const x of (g.lista || '').matchAll(new RegExp(`(${sepLista})\\s*(${etq}\\s+)?(${RE_GX})${noCant}`, 'g')))
           out.push(/^[yYeE]$/.test(x[1]) ? { t: 'J' } : x[2] ? { t: 'O' } : { t: 'A' }, { t: 'G', v: x[3] });
       } else if (g.ng != null) out.push({ t: 'N', v: numDe(g.ng) }, { t: 'G', v: g.gn });
+      else if (g.sg != null) out.push({ t: 'G', v: g.sgl });
       else if (g.n != null) out.push({ t: 'N', v: numDe(g.n) });
       else if (g.j != null || g.mas != null || g.y != null) out.push({ t: 'J' });
       else if (g.o != null || g.barra != null) out.push({ t: 'O' });
@@ -1732,7 +1734,7 @@
       if (t.t === 'A') { if (ult) ult.alterna = true; return; }
       if (t.t === 'G') {
         if (ult && !union && ult.gs.includes(t.v) && pend == null) return;            // "Grupo A (2 de A)"
-        if (ult && !union && pend == null && ult.alterna) { ult.gs.push(t.v); ult.alterna = false; return; }
+        if (ult && !union && (pend == null || pend === ult.n) && ult.alterna) { ult.gs.push(t.v); ult.alterna = false; pend = null; return; }
         if (ult && !union && ult.gs.includes(t.v) && pend != null) { ult.n = pend; pend = null; return; }
         // Sin "con" y con un grupo ya nombrado: es la misma regla dicha de nuevo ("Grupo A (…) + Grupo B (…) - uno de A
         // con uno de B"): otra alternativa.
@@ -1742,14 +1744,16 @@
       if (t.t === 'O' || t.t === 'C') {
         const sig = siguiente(i);
         if (!sig || !alt.length) return;
-        if (sig.t === 'N') { cerrar(); return; }
+        // "Uno del Grupo B o uno del Grupo C junto con uno del Grupo A": un integrante solo ("uno") no es una combinación; la "o" lo une
+        // con el siguiente grupo como alternativa del mismo integrante (B o C) y la unión viene después.
+        if (sig.t === 'N') { if (t.t === 'O' && alt.length === 1 && alt[0].n === 1 && ult && !union && hayUnionAntesDeOtra(i)) { ult.alterna = true; return; } cerrar(); return; }
         if (sig.t === 'J' && t.t === 'O') {
           // "Grupo A con Grupo B o con Grupo C": otra alternativa con los mismos integrantes salvo el último.
           const base = alt.length > 1 ? alt.slice(0, -1).map(x => Object.assign({}, x)) : [{ gs: alt[0].gs.slice(), n: 1 }];
           cerrar(); alt = base; ult = alt[alt.length - 1]; return;
         }
         if (sig.t === 'G') {
-          if (t.t === 'O' && hayUnionAntesDeOtra(i)) { cerrar(); return; }
+          if (t.t === 'O' && hayUnionAntesDeOtra(i) && !(alt.length === 1 && alt[0].n === 1 && ult && !union)) { cerrar(); return; }
           if (ult) ult.alterna = true;
         }
       }
@@ -1855,6 +1859,10 @@
       for (const m of d.matchAll(new RegExp(`;|,?\\s+(?:y\\s*\\/\\s*o|o|u|ó)\\s+${RE_INICIO}|,\\s+(?:y\\s*\\/\\s*o|o|u|ó)\\s+${RE_LETRA}`, 'gi'))) {
         const antes = d.slice(0, m.index);
         if ((antes.match(/\(/g) || []).length > (antes.match(/\)/g) || []).length) continue;
+        // "Uno del Grupo B o uno del Grupo C junto con uno del Grupo A": el primer "uno" solo no es una combinación; la "o" ofrece otro grupo
+        // para el mismo integrante y la unión (con / junto con / +) viene después. No se corta ahí.
+        const previa = d.slice(desde, m.index), resto = d.slice(m.index + m[0].length), UNO = /^\s*(?:un|uno|una|1)\b/i, UNION = /\b(?:con|junto|conjuntamente)\b|\+/i;
+        if (/^\s*(?:y\s*\/\s*o|o|u|ó)\b/i.test(m[0].replace(/^[,\s]+/, '')) && UNO.test(previa) && !UNION.test(previa) && UNO.test(resto) && UNION.test(resto.split(/;|,?\s+(?:y\s*\/\s*o|o|u|ó)\s+/i)[0])) continue;
         clausulas.push(d.slice(desde, m.index)); desde = m.index + m[0].length;
       }
       clausulas.push(d.slice(desde));
