@@ -2950,7 +2950,7 @@
 
   async function prepararBastanteo() {
     // Primero las excepciones (puede tardar): el estado del bastanteo se lee después, ya actualizado.
-    await cargarExcepcionesBast(); await cargarCriteriosCtrl();
+    await cargarExcepcionesBast(); await cargarCriteriosCtrl(); await cargarAjustesCompartidos();
     // Se toman todos los poderes del PDF (sin filtrar por la empresa de la planilla).
     let todos = bast.poderesTodos || [];
     bast.avisoPresidente = '';
@@ -3308,6 +3308,24 @@
     const c = bast.cliente || {}, cuit = String(c.cuit || '').replace(/\D/g, '');
     return `valo.ajustes.${cuit || 'n_' + String(c.cliente || '').toLowerCase().replace(/[^a-z0-9]+/g, '_').slice(0, 60)}`;
   };
+  // Los ajustes se comparten entre usuarios (base, maestros/bastanteoAjustes) y se copian al navegador como respaldo.
+  // Al abrir un cliente se leen de la base y se unen con los que hubiera en este navegador.
+  const clavePlana = () => claveAjustes().replace(/^valo\.ajustes\./, '');
+  async function cargarAjustesCompartidos() {
+    if (!bast.cliente || !(bast.cliente.cuit || bast.cliente.cliente)) return;
+    const k = claveAjustes();
+    if (bast.ajustesCompClave === k) return;
+    bast.ajustesCompClave = k;
+    if (!almacen || typeof almacen.ajustesBastanteo !== 'function') return;
+    let comp;
+    try { comp = await almacen.ajustesBastanteo(clavePlana()); } catch (e) { return; }
+    const union = comp.filter(a => M.validarAjuste(a).ok);
+    ajustesGuardados().forEach(a => { if (!union.some(b => JSON.stringify(a) === JSON.stringify(b))) union.push(a); });
+    bast.ajustes = union; bast.ajustesClave = k;
+    try { localStorage.setItem(k, JSON.stringify(union)); } catch (e) { /* sin almacenamiento */ }
+    // Lo que solo estaba en este navegador se comparte con los demás.
+    if (union.length !== comp.length) { try { await almacen.guardarAjustesBastanteo(clavePlana(), union); } catch (e) { /* queda local */ } }
+  }
   function ajustesGuardados() {
     if (!bast.cliente || !(bast.cliente.cuit || bast.cliente.cliente)) return [];
     if (bast.ajustesClave !== claveAjustes()) {
@@ -3319,7 +3337,11 @@
     }
     return bast.ajustes || [];
   }
-  function guardarAjustes(l) { bast.ajustes = l; bast.ajustesClave = claveAjustes(); try { localStorage.setItem(bast.ajustesClave, JSON.stringify(l)); } catch (e) { /* sin almacenamiento: vale esta sesión */ } }
+  function guardarAjustes(l) {
+    bast.ajustes = l; bast.ajustesClave = claveAjustes();
+    try { localStorage.setItem(bast.ajustesClave, JSON.stringify(l)); } catch (e) { /* sin almacenamiento: vale esta sesión */ }
+    if (almacen && typeof almacen.guardarAjustesBastanteo === 'function') almacen.guardarAjustesBastanteo(clavePlana(), l).catch(() => toast('El ajuste quedó solo en este navegador (no se pudo compartir)'));
+  }
   // El límite individual de la planilla se corrige sobre los datos leídos del Excel; el valor original se guarda para poder deshacer.
   function sincronizarPlanilla() {
     const cli = bast.cliente;
@@ -3927,7 +3949,7 @@
   });
   $('btnBastLimpiar').addEventListener('click', () => {
     $('cmpEstado').innerHTML = ''; $('cmpCuit').value = ''; $('cmpNombre').value = ''; cmp.crudo = null;
-    Object.assign(bast, { adjChat: [], propuestas: [], ajustesClave: null, ajustes: [], limOrig: null, pdf: null, xls: null, poderes: [], poderesTodos: [], poderPresidente: null, avisoPresidente: '', actas: [], otrosPoderes: [], edPorPoder: {}, cliente: null, ediciones: [], cuitsBase: {}, fuenteCuit: {} });
+    Object.assign(bast, { adjChat: [], propuestas: [], ajustesClave: null, ajustesCompClave: null, ajustes: [], limOrig: null, pdf: null, xls: null, poderes: [], poderesTodos: [], poderPresidente: null, avisoPresidente: '', actas: [], otrosPoderes: [], edPorPoder: {}, cliente: null, ediciones: [], cuitsBase: {}, fuenteCuit: {} });
     $('bastPdfNombre').textContent = 'Arrastrá el PDF o hacé clic';
     $('bastXlsNombre').textContent = 'Arrastrá el Excel o hacé clic';
     $('bastUnicoJson').classList.add('oculto');

@@ -63,6 +63,8 @@
       async guardarCorreccionBastanteo(c) { datos.bastCorrecciones = (datos.bastCorrecciones || []).concat([Object.assign({ id: nuevoId(), creado: new Date().toISOString() }, clonar(c))]).slice(-200); cambiar(); },
       async correccionesBastanteo(cuit) { return clonar((datos.bastCorrecciones || []).filter(c => !cuit || c.cuit === cuit)).reverse(); },
       async excepcionesBastanteo() { return clonar(datos.bastExcepciones || {}); },
+      async ajustesBastanteo(clave) { return clonar((datos.bastAjustes || {})[clave] || []); },
+      async guardarAjustesBastanteo(clave, lista) { datos.bastAjustes = Object.assign({}, datos.bastAjustes, { [clave]: clonar(lista) }); cambiar(); },
       async criteriosControl() { return clonar(datos.ctrlCriterios || []); },
       async guardarCriterioControl(c) { const id = nuevoId(); datos.ctrlCriterios = (datos.ctrlCriterios || []).concat([Object.assign({ id, creado: new Date().toISOString() }, clonar(c))]).slice(-500); cambiar(); return id; },
       async quitarCriterioControl(id) { datos.ctrlCriterios = (datos.ctrlCriterios || []).filter(c => c.id !== id); cambiar(); },
@@ -296,6 +298,18 @@
       },
       async guardarExcepcionesBastanteo(porCuit) {
         await escribir(() => db.doc('maestros/bastanteoExcepciones').set({ porCuit: clonar(porCuit), actualizado: new Date().toISOString(), actualizadoPor: usuarioId }));
+      },
+      // Ajustes del bastanteo (chat) por empresa, compartidos por todos los usuarios: { clave: [ajustes] }.
+      async ajustesBastanteo(clave) {
+        const s = await db.doc('maestros/bastanteoAjustes').get();
+        const m = s.exists && s.data().porClave ? s.data().porClave : {};
+        return clonar(Array.isArray(m[clave]) ? m[clave] : []);
+      },
+      async guardarAjustesBastanteo(clave, lista) {
+        const s = await db.doc('maestros/bastanteoAjustes').get();
+        const m = s.exists && s.data().porClave ? clonar(s.data().porClave) : {};
+        if (lista.length) m[clave] = clonar(lista); else delete m[clave];
+        await escribir(() => db.doc('maestros/bastanteoAjustes').set({ porClave: m, actualizado: new Date().toISOString(), actualizadoPor: usuarioId }));
       },
       async guardarPadronInventario(p) {
         await escribir(() => db.doc('maestros/inventarioPadron').set({ padron: clonar(p), actualizado: new Date().toISOString(), actualizadoPor: usuarioId }));
