@@ -895,3 +895,25 @@ test('vista agrupada: "dos de varios grupos" nombra las combinaciones, también 
   assert.equal(filas.length, 1);
   assert.equal(filas[0].condicion, '2 firmas entre los grupos A, C y D (cualquier combinación: A+A, A+C, A+D, C+C, C+D, D+D)');
 });
+
+test('"Grupo de Apoderados B con cualquiera del Grupo A" es A+B (no A+A) y "que exceda USD 500.000" queda sin tope', () => {
+  const ap = (g, n, id) => ({ grupo: 'Grupo ' + g, nombre_completo: n, numero_de_identificacion: id });
+  const fac = { firmar_cheques: true, extraer_fondos: true };
+  const est = (estructura, limitaciones) => ({ facultades: fac, limitaciones, tipo_de_firma: 'CONJUNTA', firma_conjunta: true, firma_individual: false, estructura_de_firma: estructura, limite_de_operacion: null });
+  const doc = { type: 'Poder Complejo', status: 'APPROVED', id_document: 'x1', created_at: '2026-11-04T19:59:59+00:00', relations: [{ name: 'EMPRESA DE PRUEBA SA', type: 'people' }],
+    ocr_data_responses: { otorgante: { nombre_completo: 'OTORGANTE UNO', numero_de_identificacion: 11111111 },
+      apoderados: [ap('A', 'Uno APELLIDOA', 20000001), ap('A', 'Dos APELLIDOA', 20000002), ap('B', 'Tres APELLIDOB', 20000003)],
+      deed_number: '101', cuit_empresa: '30000000007', razon_social: 'EMPRESA DE PRUEBA SA', fecha_emision: '2026-02-26', power_attorney_type: 'Poder Especial Bancario',
+      estructuras_de_firma: [est('Grupo de Apoderados A (conjunta e ilimitada)', 'El Grupo de Apoderados A podrá ejercer las facultades de manera conjunta e ilimitada.'),
+        est('Grupo de Apoderados B con cualquiera del Grupo A', 'El Grupo de Apoderados B, ante cualquier acto de disposición o cualquier operación que exceda el monto de USD 500.000, deberá actuar necesaria y conjuntamente con cualquiera de los integrantes del Grupo de Apoderados A.')],
+      power_attorney_scope: { new: true, revoke: false, complementary: false } } };
+  const r = M.complifDeEmpresa([doc], '30000000007', 'EMPRESA DE PRUEBA SA');
+  assert.deepEqual(r.poderes[0].usos.map(u => u.combinaciones), [['A+A'], ['A+B']]);
+  const jsons = r.poderes.map(p => M.jsonPoder(p, null, { todosApoderados: true }));
+  const j = M.jsonBastanteoV1(M.jsonBastanteoUnico(jsons, { cuit: '30000000007', cliente: 'EMPRESA DE PRUEBA SA' }), null, { fuente: 'complif', jsons });
+  const ab = j.reglasFirma.find(x => x.tipo === 'Conjunta' && x.grupos.join() === 'A,B');
+  assert.ok(ab && ab.monto == null, 'A+B sin tope');
+  assert.ok(j.reglasFirma.some(x => x.tipo === 'ConjuntaIndistinta' && x.grupos.join() === 'A' && x.quorum === 2));
+  // El rótulo con sustantivo intercalado también vale en otros textos.
+  assert.deepEqual(M.letrasDe ? M.letrasDe('Clase de los Firmantes C con Grupo de Apoderados D') : ['C', 'D'], ['C', 'D']);
+});

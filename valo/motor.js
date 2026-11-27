@@ -1605,7 +1605,10 @@
   const RE_ETIQUETA = '(?:[Gg]rupos?|GRUPOS?|[Cc]ategor[ií]as?|CATEGOR[IÍ]AS?|[Cc]lases?|CLASES?)';
   const RE_SEP = '(?:,|\\b[oOyYuU]\\b|\\b[yY]\\s*\\/\\s*[oO]\\b|\\/|-)';
   const RE_CUANTO = '(?:[Uu]n[oa]?|U[Nn][OoAa]?|[Oo]tr[oa]|O[Tt][Rr][OoAa]|[Dd]os|DOS|[Tt]res|TRES|[Cc]uatro|CUATRO|[Aa]mbos|AMBOS)';
+  // "Grupo de Apoderados B", "Clase de los Firmantes A": es el Grupo B / la Clase A (el texto del poder intercala el sustantivo).
+  const grupoDeApoderados = t => String(t == null ? '' : t).replace(/\b([Gg]rupos?|GRUPOS?|[Cc]lases?|CLASES?|[Cc]ategor[ií]as?|CATEGOR[IÍ]AS?)\s+(?:de|DE)\s+(?:(?:los|LOS)\s+)?(?:[Aa]poderad[oa]s?|APODERAD[OA]S?|[Ff]irmantes?|FIRMANTES?|[Mm]andatari[oa]s?|MANDATARI[OA]S?)\s+(?=[A-Z0-9])/g, '$1 ');
   function letrasDe(texto) {
+    texto = grupoDeApoderados(texto);
     // "Categoría B o C", "Grupos A, B y C", "Grupo A / Grupo B", "GRUPO A Y GRUPO B".
     const re = new RegExp(`\\b${RE_ETIQUETA}\\s+([A-Z0-9]{1,2})\\b((?:\\s*${RE_SEP}\\s*(?:${RE_ETIQUETA}\\s+)?[A-Z0-9]\\b(?!\\.))*)`, 'g');
     const sig = new RegExp(`${RE_SEP}\\s*(?:${RE_ETIQUETA}\\s+)?([A-Z0-9])\\b`, 'g');
@@ -1646,6 +1649,7 @@
   const RE_SUST = cis(['apoderados', 'apoderado', 'apoderadas', 'apoderada', 'firmas', 'firma', 'integrantes', 'integrante', 'miembros', 'miembro', 'mandatarios', 'mandatario', 'del', 'de', 'los', 'las', 'la', 'el']);
   const numDe = t => NUM[t.toLowerCase()] || Number(t);
   function tokensDe(s, sueltas = false) {
+    s = grupoDeApoderados(s);
     const etq = RE_ETIQUETA, b = '(?<![\\wÁÉÍÓÚáéíóúÑñ])', f = '(?![\\wÁÉÍÓÚáéíóúÑñ])';
     // Un elemento de lista no es una cantidad ("Grupo 1 y 1 del Grupo 2").
     const noCant = `(?!\\s+${RE_SUST}${f})`;
