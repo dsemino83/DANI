@@ -1189,7 +1189,7 @@
       .sort((a, b) => String(b.creado || b.fecha || '').localeCompare(String(a.creado || a.fecha || '')));
     const opPorCliente = new Map();
     if (envios[0]) envios[0].resultados.forEach(r => { if (r.operacion) opPorCliente.set(String(r.cliente), r.operacion); });
-    const base = lote ? lote.operaciones.filter(o => o.saldoCapital > 0).map(o => ({ cliente: String(o.cliente), banco: o.banco, saldo: o.saldoCapital })) : [];
+    const base = lote ? lote.operaciones.map(o => ({ cliente: String(o.cliente), banco: o.banco, saldo: o.saldoCapital })) : [];
     verifFilas = base.map(f => Object.assign(f, { numeroOp: opPorCliente.get(f.cliente) || '' }));
     if (!lote && envios[0]) verifFilas = envios[0].resultados.filter(r => r.operacion).map(r => ({ cliente: String(r.cliente), banco: r.banco || '', numeroOp: r.operacion, saldo: r.saldoCapital != null ? r.saldoCapital : '' }));
     pintarVerifTabla();

@@ -4636,6 +4636,7 @@
         if (!candidatas.length) { fila.estado = 'no_vigente'; fila.detalle = ops.length ? `La operación ${nOp} no figura entre las vigentes del cliente (vigentes: ${ops.map(o => o.numeroOperacion).join(', ')}).` : `El cliente no tiene operaciones vigentes: la ${nOp} no está vigente.`; return fila; }
       } else {
         candidatas = ops.filter(o => String(o.tipoCredito || '').trim() === tipo);
+        if (!candidatas.length && saldo === 0) { fila.estado = 'ok'; fila.detalle = 'Saldo cargado en 0 y sin operación vigente de ese tipo: coincide.'; return fila; }
         if (!candidatas.length) { fila.estado = 'sin_vigentes'; fila.detalle = ops.length ? `No hay operaciones vigentes de tipo ${tipo} (hay ${ops.length} de otros tipos).` : 'El cliente no tiene operaciones vigentes.'; return fila; }
       }
       // Si hay varias candidatas se prefiere la que coincide en saldo.

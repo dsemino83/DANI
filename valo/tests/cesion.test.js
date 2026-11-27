@@ -234,6 +234,9 @@ test('verificación NO COBIS: operación vigente y saldo cargado contra lo que i
   ], consultas, 'CCASR');
   assert.deepEqual(r.map(x => x.estado), ['ok', 'saldo_distinto', 'no_vigente', 'ok', 'sin_vigentes', 'error', 'ok', 'sin_consulta']);
   assert.equal(r[1].diferencia, 0.5);
+  // saldo cargado en 0: sin operación vigente coincide; con una operación de saldo > 0 no
+  const z = M.compararOperacionesApi([{ cliente: 729, saldo: 0 }, { cliente: 728, saldo: 0 }], consultas, 'CCASR');
+  assert.deepEqual(z.map(x => x.estado), ['ok', 'saldo_distinto']);
   assert.equal(r[3].operacion, 18987);
   assert.equal(r[6].operacion, 8);
   assert.ok(r[2].detalle.includes('18987'), r[2].detalle);
