@@ -5103,29 +5103,37 @@
     try { await elegirCarpetaFcic(); } catch (err) { if (err.name !== 'AbortError') informar('No se pudo elegir la carpeta', esc(err.message || err)); }
     mostrarCarpetaFcic();
   });
+  // Espera como máximo `ms` por una operación de la carpeta de red (si el servidor no responde, el navegador puede quedar colgado sin avisar).
+  const conLimite = (prom, ms, que) => Promise.race([prom, new Promise((_, mal) => setTimeout(() => mal(Object.assign(new Error(`${que} no respondió en ${Math.round(ms / 1000)} segundos`), { name: 'TimeoutRed' })), ms))]);
   $('btnFcicExcelRed').addEventListener('click', async () => {
-    toast('Guardando en la carpeta de red…');
+    const paso = t => { $('fcicEstado').innerHTML = aviso('warn', esc(t)); };   // el estado queda a la vista hasta que termine (el aviso emergente dura 3 segundos)
+    paso('Guardando en la carpeta de red… preparando el Excel.');
     let libro, nombre, contenido, bajar;
     try {
       libro = fcicLibro();
-      if (!libro) return informar('No hay datos para guardar', 'Armá el TXT NO COBIS primero.');
+      if (!libro) { $('fcicEstado').innerHTML = ''; return informar('No hay datos para guardar', 'Armá el TXT NO COBIS primero.'); }
       nombre = libro.nombre;
       contenido = new Blob([XLSX.write(libro.wb, { bookType: 'xlsx', type: 'array' })], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
       bajar = () => descargarLibro(libro.nombre, libro.wb);
-    } catch (e) { return informar('No se pudo armar el Excel', `<b>${esc(e.name || 'Error')}</b>: ${esc(e.message || e)}`); }
+    } catch (e) { $('fcicEstado').innerHTML = ''; return informar('No se pudo armar el Excel', `<b>${esc(e.name || 'Error')}</b>: ${esc(e.message || e)}`); }
+    // Salida sin guardar en la red: el archivo se descarga igual y se explica el motivo (antes algunas salidas eran silenciosas).
+    const sinRed = (titulo, motivo) => { bajar(); $('fcicEstado').innerHTML = aviso('warn', `<b>No se guardó en ${esc(CARPETA_FCIC)}.</b> ${motivo} Se descargó <b>${esc(nombre)}</b>: copialo a la carpeta de red.`); toast(titulo); };
     if (!window.showDirectoryPicker) {
       bajar();
+      $('fcicEstado').innerHTML = '';
       return informar('No se pudo guardar en la carpeta de red', `Este navegador no permite que la página escriba en carpetas. Se descargó <b>${esc(nombre)}</b>: copialo a ${esc(CARPETA_FCIC)}, o abrí la página en Edge / Chrome (desde el sitio, no dentro de claude.ai).`);
     }
     try {
       // Primero la carpeta (el permiso necesita el clic), después la descarga.
       let h = await carpetaGuardada('fcicComercial');
+      if (h) paso(`Guardando en la carpeta de red… verificando el permiso sobre "${h.name}".`);
       if (h && (await h.queryPermission({ mode: 'readwrite' })) !== 'granted' && (await h.requestPermission({ mode: 'readwrite' })) !== 'granted') h = null;
-      if (!h) h = await elegirCarpetaFcic();
-      if (!h) return;
+      if (!h) { paso('Elegí la carpeta de red en la ventana que se abre…'); h = await elegirCarpetaFcic(); }
+      if (!h) return sinRed('No se eligió la carpeta', 'No elegiste la carpeta de red (o no confirmaste el nombre).');
+      paso(`Guardando en "${h.name}"… (si la red no responde, esto se corta solo a los 25 segundos)`);
       let existe = false;
-      try { await h.getFileHandle(nombre); existe = true; } catch (e) { /* no existe */ }
-      if (existe && !confirm(`Ya hay un ${nombre} en ${h.name}. ¿Reemplazarlo?`)) return;
+      try { await conLimite(h.getFileHandle(nombre), 25000, `La carpeta "${h.name}"`); existe = true; } catch (e) { if (e.name === 'TimeoutRed') throw e; /* no existe */ }
+      if (existe && !confirm(`Ya hay un ${nombre} en ${h.name}. ¿Reemplazarlo?`)) return sinRed('No se reemplazó', `Ya había un ${esc(nombre)} y elegiste no reemplazarlo.`);
       // El navegador escribe en un temporal (.crswap) y lo renombra; en carpetas de red eso puede fallar
       // (InvalidStateError) si el archivo ya existe o quedó bloqueado: se borra y se vuelve a intentar una vez.
       const escribir = async () => {
@@ -5134,23 +5142,27 @@
         try { await w.write(contenido); await w.close(); }
         catch (e) { try { await w.abort(); } catch (x) { /* ya cerrado */ } throw e; }
       };
-      try { await escribir(); }
+      try { await conLimite(escribir(), 25000, `La carpeta "${h.name}"`); }
       catch (e) {
         if (e.name !== 'InvalidStateError' && e.name !== 'NoModificationAllowedError') throw e;
         try { await h.removeEntry(nombre); } catch (x) { /* no estaba o no se puede borrar */ }
         try { await h.removeEntry(nombre + '.crswap'); } catch (x) { /* sin temporal */ }
-        await escribir();
+        await conLimite(escribir(), 25000, `La carpeta "${h.name}"`);
       }
       toast(`Guardado en ${h.name}\\${nombre}`);
       $('fcicEstado').innerHTML = aviso('ok', `Excel guardado en <b>${esc(CARPETA_FCIC)}\\${esc(nombre)}</b> (carpeta elegida: ${esc(h.name)}) y descargado.`);
       mostrarCarpetaFcic();
       bajar();
     } catch (e) {
-      if (e.name === 'AbortError') return;
+      $('fcicEstado').innerHTML = '';
+      if (e.name === 'AbortError') return sinRed('Selección cancelada', 'Cerraste la ventana de selección de carpeta sin elegir ninguna.');
       bajar();
-      const causa = e.name === 'InvalidStateError' || e.name === 'NoModificationAllowedError'
-        ? 'La carpeta no deja que el navegador termine de grabar el archivo: Edge/Chrome escriben primero un temporal (<i>.crswap</i>) y después lo renombran, y en esa carpeta compartida no se puede renombrar o borrar (permiso de <b>Modificar</b>), o el archivo está abierto / bloqueado. Pedí a sistemas permiso de Modificar sobre la carpeta, o cerrá el archivo si está abierto.'
-        : e.name === 'NotAllowedError' ? 'El navegador no dio permiso de escritura sobre la carpeta (tocá Permitir cuando lo pida).' : `Revisá que tengas acceso de escritura a ${esc(CARPETA_FCIC)}.`;
+      const causa = e.name === 'TimeoutRed' ? `${esc(e.message)}: el servidor no contestó (red o VPN caída, o la carpeta ya no está disponible). Probá abrir ${esc(CARPETA_FCIC)} en el Explorador; si abre, tocá <b>cambiar</b> y elegí la carpeta de nuevo.`
+        : e.name === 'InvalidStateError' || e.name === 'NoModificationAllowedError'
+        ? 'La carpeta no deja que el navegador termine de grabar el archivo: Edge/Chrome escriben primero un temporal (<i>.crswap</i>) y después lo renombran, y en esa carpeta compartida no se puede renombrar o borrar (permiso de <b>Modificar</b>), o el archivo está abierto.'
+        : e.name === 'NotAllowedError' ? 'El navegador no dio permiso de escritura sobre la carpeta (tocá Permitir cuando lo pida).'
+        : e.name === 'SecurityError' ? 'El navegador no permite elegir esa carpeta (Chrome bloquea carpetas del sistema o con ciertos archivos). Elegí la carpeta <b>comercial</b> o una subcarpeta propia.'
+        : `Revisá que tengas acceso de escritura a ${esc(CARPETA_FCIC)}.`;
       informar('No se pudo guardar en la carpeta de red', `<b>${esc(e.name || 'Error')}</b>: ${esc(e.message || e)}<br><br>${causa}<br><br>Se descargó <b>${esc(nombre)}</b> igual: copialo a ${esc(CARPETA_FCIC)}.`);
     }
   });
