@@ -4643,6 +4643,13 @@
       const ok = candidatas.find(o => saldo != null && num(o.saldoCapital) != null && Math.abs(num(o.saldoCapital) - saldo) < tolerancia);
       const op = ok || candidatas[0];
       fila.operacion = op.numeroOperacion; fila.saldoApi = num(op.saldoCapital); fila.vencimiento = op.fechaVencimiento || ''; fila.tipoCredito = op.tipoCredito || '';
+      // Con N° de operación también se controla el producto: tiene que ser del tipo de crédito del lote.
+      if (nOp != null && String(op.tipoCredito || '').trim() !== tipo.trim()) {
+        fila.diferencia = saldo == null || fila.saldoApi == null ? null : Math.round((fila.saldoApi - saldo) * 100) / 100;
+        fila.estado = 'producto_distinto';
+        fila.detalle = `La operación ${nOp} está vigente pero es de tipo ${op.tipoCredito || '(sin tipo)'} y no ${tipo}.` + (saldo != null && fila.diferencia !== 0 ? ' El saldo tampoco coincide.' : '');
+        return fila;
+      }
       if (saldo == null) { fila.estado = 'vigente'; fila.detalle = 'Vigente (no se cargó saldo para comparar).'; return fila; }
       fila.diferencia = Math.round((fila.saldoApi - saldo) * 100) / 100;
       if (ok) { fila.estado = 'ok'; fila.detalle = candidatas.length > 1 && nOp == null ? `Vigente y con el mismo saldo (hay ${candidatas.length} operaciones de ese tipo).` : 'Vigente y con el mismo saldo.'; }

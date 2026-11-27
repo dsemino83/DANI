@@ -240,6 +240,10 @@ test('verificación NO COBIS: operación vigente y saldo cargado contra lo que i
   assert.equal(r[3].operacion, 18987);
   assert.equal(r[6].operacion, 8);
   assert.ok(r[2].detalle.includes('18987'), r[2].detalle);
+  // con N° de operación también se controla el producto
+  const pd = M.compararOperacionesApi([{ cliente: 728, saldo: 5, numeroOp: 100 }, { cliente: 728, saldo: 500000, numeroOp: 18987 }], consultas, 'CCASR');
+  assert.deepEqual(pd.map(x => x.estado), ['producto_distinto', 'ok']);
+  assert.ok(pd[0].detalle.includes('OTRO') && pd[0].detalle.includes('CCASR'), pd[0].detalle);
 });
 
 test('archivo .cmd de verificación NO COBIS: solo consulta, trae las filas y deja el resultado en la página', () => {

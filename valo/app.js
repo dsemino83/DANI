@@ -1195,13 +1195,13 @@
     pintarVerifTabla();
     toast(verifFilas.length ? `${verifFilas.length} filas armadas` : 'No hay lote cargado ni envíos con número de operación: agregá filas a mano.');
   });
-  const ESTADO_VERIF = { ok: ['ok', 'OK'], vigente: ['ok', 'Vigente'], saldo_distinto: ['warn', 'Saldo distinto'], no_vigente: ['bad', 'No vigente'], sin_vigentes: ['bad', 'Sin operación vigente'], error: ['bad', 'Error de la API'], sin_consulta: ['gris', 'Sin consultar'] };
+  const ESTADO_VERIF = { ok: ['ok', 'OK'], vigente: ['ok', 'Vigente'], saldo_distinto: ['warn', 'Saldo distinto'], no_vigente: ['bad', 'No vigente'], sin_vigentes: ['bad', 'Sin operación vigente'], error: ['bad', 'Error de la API'], sin_consulta: ['gris', 'Sin consultar'], producto_distinto: ['bad', 'Producto distinto'] };
   function pintarVerifResultado(filas, errorGeneral) {
     const cuenta = k => filas.filter(f => f.estado === k).length, ok = cuenta('ok') + cuenta('vigente');
     const html = (errorGeneral ? aviso('warn', esc(errorGeneral)) : '') + aviso(ok === filas.length ? 'ok' : 'warn', `<b>${ok} de ${filas.length}</b> coinciden (vigentes y con el saldo cargado).` + (filas.length - ok ? ` Revisá las ${filas.length - ok} restantes.` : ''));
-    $('verifResultado').innerHTML = html + '<div class="tabla-caja"><table><thead><tr><th>Cliente (MIS)</th><th>Banco</th><th>Operación</th><th class="num">Saldo cargado</th><th class="num">Saldo en la API</th><th class="num">Diferencia</th><th>Vencimiento</th><th>Estado</th></tr></thead><tbody>' +
+    $('verifResultado').innerHTML = html + '<div class="tabla-caja"><table><thead><tr><th>Cliente (MIS)</th><th>Banco</th><th>Operación</th><th>Producto</th><th class="num">Saldo cargado</th><th class="num">Saldo en la API</th><th class="num">Diferencia</th><th>Vencimiento</th><th>Estado</th></tr></thead><tbody>' +
       filas.map(f => { const [cl, tx] = ESTADO_VERIF[f.estado] || ['gris', f.estado];
-        return `<tr><td>${esc(f.cliente)}</td><td>${esc(f.banco)}</td><td><b>${esc(f.operacion != null ? f.operacion : (f.numeroOp != null ? f.numeroOp : ''))}</b></td><td class="num">${f.saldoCargado != null ? fmtMonto(f.saldoCargado) : ''}</td>` +
+        return `<tr><td>${esc(f.cliente)}</td><td>${esc(f.banco)}</td><td><b>${esc(f.operacion != null ? f.operacion : (f.numeroOp != null ? f.numeroOp : ''))}</b></td><td>${esc(f.tipoCredito || '')}</td><td class="num">${f.saldoCargado != null ? fmtMonto(f.saldoCargado) : ''}</td>` +
           `<td class="num">${f.saldoApi != null ? fmtMonto(f.saldoApi) : ''}</td><td class="num">${f.diferencia != null && f.diferencia !== 0 ? fmtMonto(f.diferencia) : ''}</td><td>${esc(f.vencimiento || '')}</td>` +
           `<td><span class="chip ${cl}">${tx}</span><div class="sub" style="margin:2px 0 0">${esc(f.detalle)}</div></td></tr>`; }).join('') + '</tbody></table></div>';
   }
