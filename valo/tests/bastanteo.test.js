@@ -162,7 +162,7 @@ test('comparación: diferencias clasificadas (pertenencia, agrupamiento, regla, 
 });
 
 // ---------------------------------------------------------------- reglas ya corregidas antes (no romperlas)
-test('optimización: A+A, B+B y A+B con el mismo monto → dos cualesquiera de A y/o B; tope y sin tope separados', () => {
+test('optimización: A+A, B+B y A+B con el mismo monto y las mismas facultades → dos cualesquiera de A y/o B; con facultades distintas cada combinación queda aparte', () => {
   const ap = [persona(1, 'A'), persona(2, 'A'), persona(3, 'B'), persona(4, 'B')];
   const j = armar([poder(ap, [
     uso('CONJUNTA', ['A+A'], ['firmar_cheques'], { limitaciones: 'Operaciones que excedan U$S 500.000' }),
@@ -170,7 +170,9 @@ test('optimización: A+A, B+B y A+B con el mismo monto → dos cualesquiera de A
     uso('CONJUNTA', ['B+B'], ['cobrar_plazo_fijo'], { limitaciones: 'Operaciones que excedan U$S 500.000' }),
     uso('CONJUNTA', ['A+A', 'A+B', 'B+B'], ['firmar_cheques'], { limitaciones: 'En operaciones que no excedan U$S 500.000 o su equivalente en pesos' }) ])]);
   const sig = j.reglasFirma.map(r => `${r.tipo} q${r.quorum} ${r.grupos.join('')} ${r.moneda || '-'}`).sort();
-  assert.deepEqual(sig, ['ConjuntaIndistinta q2 AB -', 'ConjuntaIndistinta q2 AB USD']);
+  // Con tope: las tres combinaciones tienen las mismas facultades → una sola regla. Sin tope: A+A (firmar cheques) y A+B / B+B (cobrar plazo fijo)
+  // tienen facultades distintas → no se juntan (la unión le daría a cada una facultades que el poder le da a otra).
+  assert.deepEqual(sig, ['Conjunta q1 AB -', 'ConjuntaIndistinta q2 A -', 'ConjuntaIndistinta q2 AB USD', 'ConjuntaIndistinta q2 B -']);
   assert.equal(M.modeloBastanteo(j).errores.filter(e => e.nivel === 'error').length, 0);
 });
 
@@ -1002,4 +1004,18 @@ test('ajustes: una regla con firma que ya no existe se rechaza; no se cae a "reg
   // Sin firma (ajustes viejos) se sigue buscando por la referencia.
   const s = M.aplicarAjustes(j, [{ op: 'regla_quitar', referencia, motivo: 'sin firma' }]);
   assert.equal(s.aplicados.length, 1);
+});
+
+test('optimización: dos cualesquiera de varios grupos con facultades distintas por combinación no se unifican (Ledesma: C+C no hereda lo de A+A)', () => {
+  const ap = [persona(1, 'A'), persona(2, 'A'), persona(3, 'C'), persona(4, 'C'), persona(5, 'D'), persona(6, 'D')];
+  const j = armar([poder(ap, [
+    uso('CONJUNTA', ['A+A', 'A+C', 'C+C'], ['firmar_cheques']),
+    uso('CONJUNTA', ['A+A', 'A+C'], ['firmar_pagares']),
+    uso('CONJUNTA', ['A+A', 'A+C', 'A+D', 'C+C', 'C+D', 'D+D'], ['transferencias_a_cuentas_de_terceros'])])]);
+  const circ = r => r.circuitos.join();
+  const porCombo = {};
+  j.reglasFirma.forEach(r => (r.tipo === 'ConjuntaIndistinta' && r.quorum === 2 ? r.grupos.map(g => g + g) : [r.grupos.join('')]).forEach(c => (porCombo[c] = porCombo[c] || new Set()).add(circ(r))));
+  assert.ok(![...(porCombo.CC || [])].some(c => c.includes('LYP_FIRMAR_PAGARES')), 'C+C no tiene pagarés: el poder solo se los da a A+A y A+C');
+  assert.ok([...(porCombo.AA || [])].some(c => c.includes('LYP_FIRMAR_PAGARES')), 'A+A sí');
+  assert.ok(![...(porCombo.DD || [])].some(c => c.includes('ECHEQ_FIRMAR')), 'D+D no firma cheques');
 });

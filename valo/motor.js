@@ -3536,9 +3536,12 @@
         const cruces = gs.flatMap((a, i) => gs.slice(i + 1).map(b => rs.find(r => r.tipo === 'Conjunta' && r.quorum === 1 && r.grupos.join(',') === [a, b].join(',') && !quitar.has(r))));
         if (cruces.every(Boolean)) {
           const todas = dobles.concat(cruces);
-          todas.forEach(r => quitar.add(r));
           const circuitos = [...new Set(todas.flatMap(r => r.circuitos))].sort();
           const distintos = todas.some(r => r.circuitos.join() !== circuitos.join());
+          // Solo se juntan si todas tienen exactamente las mismas facultades: si no, la regla unificada le daría a cada combinación facultades que el
+          // poder le da a otra (p. ej. a C+C las de una estructura donde C+C no figura). Cada combinación queda con su regla y sus facultades.
+          if (distintos) return;
+          todas.forEach(r => quitar.add(r));
           nuevas.push(copiaRegla(dobles[0], { grupos: gs, quorum: 2, circuitos, descripcion: `Firma conjunta: dos cualesquiera de ${gs.join(' y/o ')}` }, ...todas));
           notas.push(`${gs.map(g => g + '+' + g).join(', ')} y ${cruces.map(r => r.grupos.join('+')).join(', ')}${dobles[0].monto ? ` (hasta ${dobles[0].moneda} ${dobles[0].monto})` : ' (sin tope)'}: una sola regla ConjuntaIndistinta [${gs.join(', ')}] quorum 2` +
             (distintos ? ` con los circuitos de todas (${circuitos.length}); antes cada combinación tenía los suyos.` : '.'));
