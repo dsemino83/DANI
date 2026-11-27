@@ -3935,7 +3935,11 @@
     if (regla.tipo === 'Individual') return `Firma individual${nombres.length ? ' de ' + nombres.join(', ') : ''}`;
     if (regla.tipo === 'ConjuntaIndistinta') {
       if (regla.quorum === 1) return grupos.length > 1 ? `Una firma de cualquiera de los grupos ${lista(grupos)}` : `Una firma del grupo ${grupos[0]}`;
-      return grupos.length > 1 ? `${regla.quorum} firmas entre los grupos ${lista(grupos)} (cualquier combinación)` : `${regla.quorum} firmas del grupo ${grupos[0]}`;
+      // Se nombran las combinaciones (A+A, A+C…): "cualquier combinación" sola no deja ver que la firma de dos del mismo grupo está incluida.
+      const combos = firmasMinimasDe('ConjuntaIndistinta', regla.quorum, grupos);
+      const detalle = combos && combos.length <= 21 ? combos.map(c => c.join('+')).join(', ') : '';
+      return grupos.length > 1 ? `${regla.quorum} firmas entre los grupos ${lista(grupos)} (cualquier combinación${detalle ? ': ' + detalle : ''})`
+        : `${regla.quorum} firmas del grupo ${grupos[0]}${detalle ? ` (${detalle})` : ''}`;
     }
     if (regla.tipo === 'Conjunta') return `${regla.quorum === 1 ? 'Una firma' : regla.quorum + ' firmas'} de cada grupo: ${lista(grupos)}`;
     return `${regla.tipo} (quorum ${regla.quorum})`;

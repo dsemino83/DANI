@@ -122,7 +122,7 @@ test('vista agrupada: una fila por agrupamiento + regla; distintas facultades no
   const f = filas.find(x => x.reglas.length === 2);
   assert.deepEqual(f.reglas.sort(), ['r1', 'r2']);
   assert.deepEqual(f.facultades, ['Transferencias entre cuentas de la empresa']);
-  assert.equal(f.condicion, '2 firmas del grupo A');
+  assert.equal(f.condicion, '2 firmas del grupo A (A+A)');
   assert.equal(f.firmantes[0].nombres.length, 2);
 });
 
@@ -886,4 +886,12 @@ test('ajustes: una regla D+E propuesta por Claude se aplica como uso de firma de
   // El control del resumen ve el uso agregado: el apoderado del grupo E ya figura en una regla.
   const unico = M.jsonBastanteoUnico([M.jsonPoder(Object.assign({}, p, { usos: M.usosConManuales(p.usos, extras) }), null, { todosApoderados: true })], { cuit: '30000000007', cliente: 'EMPRESA DE PRUEBA SA' });
   assert.ok(unico.estructuras_de_firma.some(e => (e.combinaciones || []).includes('D+E')), 'el JSON único del poder tiene la combinación D+E');
+});
+
+test('vista agrupada: "dos de varios grupos" nombra las combinaciones, también la de dos del mismo grupo (A+A)', () => {
+  const ap = [persona(1, 'A'), persona(2, 'A'), persona(3, 'C'), persona(4, 'D')];
+  const j = armar([poder(ap, [uso('CONJUNTA', ['A+A', 'A+C', 'A+D', 'C+C', 'C+D', 'D+D'], ['firmar_cheques'])])]);
+  const filas = M.vistaAgrupada(M.modeloBastanteo(j));
+  assert.equal(filas.length, 1);
+  assert.equal(filas[0].condicion, '2 firmas entre los grupos A, C y D (cualquier combinación: A+A, A+C, A+D, C+C, C+D, D+D)');
 });
