@@ -143,3 +143,10 @@ Cartera → Resultado → **Envío directo a la API (Power Automate)**:
   Si se filtran, regenerar la clave en el flujo (variable `ClaveCompartida`) y en la página.
 - El envío directo aparece en el **sitio propio** y en el archivo local; en la página de claude.ai no (claude.ai bloquea
   llamadas a otros servidores y su base la puede leer cualquiera con el link).
+
+## Acción "consultar" (verificar vigencia y saldo)
+
+El flujo acepta `accion: "consultar"` con `clientes: [{ "cliente": 728 }]` (la página manda de a 15). Para cada cliente llama a `GET /v1/nocobis/operacion?cliente=`
+(acción `Operaciones` del conector) y responde `{ ok, consultas: [{ cliente, http, operaciones: [...], error }] }`; un 404 se informa como cliente sin operaciones.
+La comparación (operación vigente y saldo de capital cargado) la hace la página (`compararOperacionesApi` en `motor.js`). Solo consulta: no ingresa ni cancela nada.
+

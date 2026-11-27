@@ -4614,6 +4614,42 @@
     };
   }
 
+  // Verificación contra la API NO COBIS (GET /v1/nocobis/operacion?cliente=): ¿la operación que me pasaron está vigente y su saldo de capital
+  // es el que cargué? esperados: [{ cliente, banco, saldo, numeroOp }]; consultas: [{ cliente, http, operaciones: [...], error }] (una por cliente).
+  // Con número de operación se busca esa operación entre las vigentes del cliente; sin número se toman las del tipo de crédito del lote.
+  function compararOperacionesApi(esperados, consultas, tipoCredito, tolerancia = 0.005) {
+    const porCliente = new Map();
+    (consultas || []).forEach(c => { if (c && c.cliente != null) porCliente.set(String(c.cliente).trim(), c); });
+    const num = v => (v === '' || v == null || !isFinite(Number(v)) ? null : Number(v));
+    const tipo = String(tipoCredito || NO_COBIS.tipoCredito);
+    return (esperados || []).map(e => {
+      const cliente = String(e.cliente == null ? '' : e.cliente).trim(), saldo = num(e.saldo), nOp = num(e.numeroOp);
+      const fila = { cliente, banco: e.banco || '', numeroOp: nOp, saldoCargado: saldo, estado: '', detalle: '', operacion: null, saldoApi: null, diferencia: null, otras: [] };
+      const c = porCliente.get(cliente);
+      if (!c) { fila.estado = 'sin_consulta'; fila.detalle = 'No se consultó este cliente.'; return fila; }
+      if (c.error || (c.http != null && Number(c.http) !== 200 && Number(c.http) !== 404)) { fila.estado = 'error'; fila.detalle = String(c.error || ('HTTP ' + c.http)); return fila; }
+      const ops = Array.isArray(c.operaciones) ? c.operaciones : [];
+      fila.otras = ops.map(o => ({ numeroOperacion: o.numeroOperacion, tipoCredito: o.tipoCredito, saldoCapital: num(o.saldoCapital), fechaVencimiento: o.fechaVencimiento || '' }));
+      let candidatas;
+      if (nOp != null) {
+        candidatas = ops.filter(o => Number(o.numeroOperacion) === nOp);
+        if (!candidatas.length) { fila.estado = 'no_vigente'; fila.detalle = ops.length ? `La operación ${nOp} no figura entre las vigentes del cliente (vigentes: ${ops.map(o => o.numeroOperacion).join(', ')}).` : `El cliente no tiene operaciones vigentes: la ${nOp} no está vigente.`; return fila; }
+      } else {
+        candidatas = ops.filter(o => String(o.tipoCredito || '').trim() === tipo);
+        if (!candidatas.length) { fila.estado = 'sin_vigentes'; fila.detalle = ops.length ? `No hay operaciones vigentes de tipo ${tipo} (hay ${ops.length} de otros tipos).` : 'El cliente no tiene operaciones vigentes.'; return fila; }
+      }
+      // Si hay varias candidatas se prefiere la que coincide en saldo.
+      const ok = candidatas.find(o => saldo != null && num(o.saldoCapital) != null && Math.abs(num(o.saldoCapital) - saldo) < tolerancia);
+      const op = ok || candidatas[0];
+      fila.operacion = op.numeroOperacion; fila.saldoApi = num(op.saldoCapital); fila.vencimiento = op.fechaVencimiento || ''; fila.tipoCredito = op.tipoCredito || '';
+      if (saldo == null) { fila.estado = 'vigente'; fila.detalle = 'Vigente (no se cargó saldo para comparar).'; return fila; }
+      fila.diferencia = Math.round((fila.saldoApi - saldo) * 100) / 100;
+      if (ok) { fila.estado = 'ok'; fila.detalle = candidatas.length > 1 && nOp == null ? `Vigente y con el mismo saldo (hay ${candidatas.length} operaciones de ese tipo).` : 'Vigente y con el mismo saldo.'; }
+      else { fila.estado = 'saldo_distinto'; fila.detalle = candidatas.length > 1 ? `Hay ${candidatas.length} operaciones vigentes y ninguna tiene el saldo cargado.` : 'Vigente, pero el saldo de capital es distinto del cargado.'; }
+      return fila;
+    });
+  }
+
   // Script de PowerShell que envía el lote a la API desde una PC de la red de VALO.
   // El client_secret NO va en la página ni en el script: se pide la primera vez y queda cifrado en esa PC (DPAPI).
   function scriptPowerShellNoCobis(cfg = {}) {
@@ -6510,6 +6546,7 @@ try {
     generarCuotas, generarCreditos, txtCuotas, txtCreditos, nombreArchivo,
     calcularSecuenciaLote, validarFormulario,
     usoManual, usosConManuales, fusionarHojas, columnaMontoGetnet, sumaCentavos, armarEncargoBastanteo, acotarAdjuntos, extraerAjustes, validarAjuste, describirAjuste, aplicarAjustes, firmaDeRegla, OPS_AJUSTE, clienteConEquivalencias, aplicarAjustesControl, aplicarAjustesControlResumen, usoAgregarDeRegla, usosDeAjustes, tnaATea, teaATna, PADRONES, indexarPadronAlicuotas, buscarEnPadron, alicuotaPercepcionIIBB,
+    compararOperacionesApi,
     MENU_FUNCIONES, MENU_SECTORES, MENU_ASIGNACIONES, menuConfig, menuSectoresDe, menuFuncionesDe, menuPuedeAbrir, menuRuta, menuResolverRuta, menuSectorParaVista,
     leerArchivosCesion, datosCartaDesdeLote, datosCartaDesdeReporte, emisoresDeReporte, precioCesionNeto, cartaCesion, textoCartaCesion, docxSimple, fechaEnLetras, crc32,
   };

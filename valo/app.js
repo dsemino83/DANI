@@ -1167,6 +1167,65 @@
       toast('Conexión guardada para todos los usuarios');
     } catch (e) { informar('No se pudo guardar', esc(e.message || e)); }
   });
+  // --- Verificar en la API (por el flujo de Power Automate, acción "consultar"): vigencia del N° de operación y saldo cargado.
+  let verifFilas = [];
+  const numCampo = t => { const v = String(t == null ? '' : t).trim().replace(/\./g, '').replace(',', '.'); return v === '' || !isFinite(Number(v)) ? null : Number(v); };
+  function pintarVerifTabla() {
+    if (!verifFilas.length) { $('verifTabla').innerHTML = '<p class="sub">Todavía no hay filas: tocá "Armar desde el lote y el último envío" (con la cartera cargada) o "Agregar fila".</p>'; return; }
+    $('verifTabla').innerHTML = '<table><thead><tr><th>Cliente (MIS)</th><th>Banco</th><th>N° de operación</th><th class="num">Saldo cargado</th><th></th></tr></thead><tbody>' + verifFilas.map((f, i) =>
+      `<tr><td><input data-vf="cliente" data-i="${i}" value="${esc(f.cliente)}" inputmode="numeric" style="max-width:90px"></td><td>${esc(f.banco || '')}</td>` +
+      `<td><input data-vf="numeroOp" data-i="${i}" value="${esc(f.numeroOp)}" inputmode="numeric" placeholder="opcional" style="max-width:130px"></td>` +
+      `<td class="num"><input data-vf="saldo" data-i="${i}" value="${esc(f.saldo === '' || f.saldo == null ? '' : fmtMonto(f.saldo))}" inputmode="decimal" style="max-width:150px;text-align:right"></td>` +
+      `<td><button class="btn chico" type="button" data-vf-quitar="${i}">Quitar</button></td></tr>`).join('') + '</tbody></table>';
+  }
+  $('verifTabla').addEventListener('input', e => { const c = e.target.closest('[data-vf]'); if (c) verifFilas[Number(c.dataset.i)][c.dataset.vf] = c.value; });
+  $('verifTabla').addEventListener('click', e => { const q = e.target.closest('[data-vf-quitar]'); if (q) { verifFilas.splice(Number(q.dataset.vfQuitar), 1); pintarVerifTabla(); } });
+  $('btnVerifAgregar').addEventListener('click', () => { verifFilas.push({ cliente: '', banco: '', numeroOp: '', saldo: '' }); pintarVerifTabla(); });
+  $('btnVerifArmar').addEventListener('click', () => {
+    let lote = null;
+    try { const t = infoNoCobis(); if (t && t.filas.length) lote = M.loteApiNoCobis(t); } catch (e) { /* sin cartera cargada */ }
+    // Números de operación del envío más reciente que los tenga (por cliente).
+    const envios = (datos().envios || []).filter(x => Array.isArray(x.resultados) && x.resultados.some(r => r.operacion))
+      .sort((a, b) => String(b.creado || b.fecha || '').localeCompare(String(a.creado || a.fecha || '')));
+    const opPorCliente = new Map();
+    if (envios[0]) envios[0].resultados.forEach(r => { if (r.operacion) opPorCliente.set(String(r.cliente), r.operacion); });
+    const base = lote ? lote.operaciones.filter(o => o.saldoCapital > 0).map(o => ({ cliente: String(o.cliente), banco: o.banco, saldo: o.saldoCapital })) : [];
+    verifFilas = base.map(f => Object.assign(f, { numeroOp: opPorCliente.get(f.cliente) || '' }));
+    if (!lote && envios[0]) verifFilas = envios[0].resultados.filter(r => r.operacion).map(r => ({ cliente: String(r.cliente), banco: r.banco || '', numeroOp: r.operacion, saldo: r.saldoCapital != null ? r.saldoCapital : '' }));
+    pintarVerifTabla();
+    toast(verifFilas.length ? `${verifFilas.length} filas armadas` : 'No hay lote cargado ni envíos con número de operación: agregá filas a mano.');
+  });
+  const ESTADO_VERIF = { ok: ['ok', 'OK'], vigente: ['ok', 'Vigente'], saldo_distinto: ['warn', 'Saldo distinto'], no_vigente: ['bad', 'No vigente'], sin_vigentes: ['bad', 'Sin operación vigente'], error: ['bad', 'Error de la API'], sin_consulta: ['gris', 'Sin consultar'] };
+  function pintarVerifResultado(filas) {
+    const cuenta = k => filas.filter(f => f.estado === k).length, ok = cuenta('ok') + cuenta('vigente');
+    const html = aviso(ok === filas.length ? 'ok' : 'warn', `<b>${ok} de ${filas.length}</b> coinciden (vigentes y con el saldo cargado).` + (filas.length - ok ? ` Revisá las ${filas.length - ok} restantes.` : ''));
+    $('verifResultado').innerHTML = html + '<div class="tabla-caja"><table><thead><tr><th>Cliente (MIS)</th><th>Banco</th><th>Operación</th><th class="num">Saldo cargado</th><th class="num">Saldo en la API</th><th class="num">Diferencia</th><th>Vencimiento</th><th>Estado</th></tr></thead><tbody>' +
+      filas.map(f => { const [cl, tx] = ESTADO_VERIF[f.estado] || ['gris', f.estado];
+        return `<tr><td>${esc(f.cliente)}</td><td>${esc(f.banco)}</td><td><b>${esc(f.operacion != null ? f.operacion : (f.numeroOp != null ? f.numeroOp : ''))}</b></td><td class="num">${f.saldoCargado != null ? fmtMonto(f.saldoCargado) : ''}</td>` +
+          `<td class="num">${f.saldoApi != null ? fmtMonto(f.saldoApi) : ''}</td><td class="num">${f.diferencia != null && f.diferencia !== 0 ? fmtMonto(f.diferencia) : ''}</td><td>${esc(f.vencimiento || '')}</td>` +
+          `<td><span class="chip ${cl}">${tx}</span><div class="sub" style="margin:2px 0 0">${esc(f.detalle)}</div></td></tr>`; }).join('') + '</tbody></table></div>';
+  }
+  $('btnVerifConsultar').addEventListener('click', async () => {
+    const filas = verifFilas.filter(f => numCampo(f.cliente) != null).map(f => ({ cliente: numCampo(f.cliente), banco: f.banco, saldo: numCampo(f.saldo), numeroOp: numCampo(f.numeroOp) }));
+    if (!filas.length) { informar('Verificar en la API', 'Armá la tabla o agregá al menos una fila con el cliente (MIS).'); return; }
+    const b = $('btnVerifConsultar');
+    b.disabled = true;
+    const clientes = [...new Set(filas.map(f => f.cliente))];
+    const consultas = [];
+    try {
+      // De a 15 clientes por llamada: el flujo tiene que responder en menos de 2 minutos.
+      for (let i = 0; i < clientes.length; i += 15) {
+        $('verifResultado').innerHTML = `<p class="sub">Consultando la API… ${Math.min(i + 15, clientes.length)} de ${clientes.length} clientes</p>`;
+        const cx = datos().nocobisFlujo || {};
+        const j = await llamarFlujo({ accion: 'consultar', clientes: clientes.slice(i, i + 15).map(c => ({ cliente: c })) }, cx.url && cx.clave ? { url: cx.url, clave: cx.clave } : undefined);
+        if (j.ok === false) throw new Error(j.mensaje || 'El flujo informó un error.');
+        consultas.push(...(Array.isArray(j.consultas) ? j.consultas : []));
+      }
+      pintarVerifResultado(M.compararOperacionesApi(filas, consultas, M.NO_COBIS.tipoCredito));
+    } catch (e) { $('verifResultado').innerHTML = aviso('bad', esc(e.message || e) + (/accion|Acción no válida/i.test(String(e.message)) ? ' · Importá la versión nueva del flujo (acción "consultar").' : '')); }
+    b.disabled = false;
+  });
+  pintarVerifTabla();
   $('btnFlujoProbar').addEventListener('click', async () => {
     const b = $('btnFlujoProbar');
     b.disabled = true;
@@ -5598,6 +5657,7 @@
     if (compartido && !descargas && !almacen.descargaLibre) $('errorBase').innerHTML = aviso('warn', 'Tu usuario no puede descargar archivos desde esta página (claude.ai las permite solo a los miembros de la organización dueña). Cuando descargues, se te va a ofrecer copiar el contenido para pegarlo en el Bloc de notas o en Excel.');
     let primera = true;
     $('cajaFlujo').classList.toggle('oculto', !flujoDisponible());
+    $('cardVerifApi').classList.toggle('oculto', !flujoDisponible());
     $('cajaPbi').classList.toggle('oculto', !flujoDisponible());
     $('cajaCola').classList.toggle('oculto', almacen.proveedor !== 'supabase');
     $('detPA').open = almacen.modo === 'local';

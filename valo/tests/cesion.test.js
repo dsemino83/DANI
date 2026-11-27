@@ -214,3 +214,27 @@ test('carta Getnet: tasa con TEA, fecha corta, CBU y firmantes del modelo final'
   assert.ok(t.includes('29,50 % TNA (33,84 % TEA)') && t.includes('Fecha de Cesión — 22/10/2026') && t.includes('CBU 0720000720000003779868'), t);
   assert.ok(t.includes('Total'), t);
 });
+
+test('verificación NO COBIS: operación vigente y saldo cargado contra lo que informa la API', () => {
+  const consultas = [
+    { cliente: 728, http: 200, operaciones: [{ numeroOperacion: 18987, tipoCredito: 'CCASR', saldoCapital: 500000, fechaVencimiento: '30/11/2026' }, { numeroOperacion: 100, tipoCredito: 'OTRO', saldoCapital: 5 }] },
+    { cliente: 729, http: 404, operaciones: [] },
+    { cliente: 730, http: 500, error: 'boom' },
+    { cliente: 731, http: 200, operaciones: [{ numeroOperacion: 7, tipoCredito: 'CCASR', saldoCapital: 100 }, { numeroOperacion: 8, tipoCredito: 'CCASR', saldoCapital: 250.5 }] },
+  ];
+  const r = M.compararOperacionesApi([
+    { cliente: 728, saldo: 500000, numeroOp: 18987 },   // ok con número
+    { cliente: 728, saldo: 499999.5, numeroOp: 18987 }, // saldo distinto
+    { cliente: 728, saldo: 500000, numeroOp: 555 },     // no vigente
+    { cliente: 728, saldo: 500000 },                    // sin número: toma las del tipo CCASR
+    { cliente: 729, saldo: 10 },                        // 404: sin operaciones
+    { cliente: 730, saldo: 10 },                        // error de la API
+    { cliente: 731, saldo: 250.5 },                     // varias: la que coincide
+    { cliente: 999, saldo: 1 },                         // no consultado
+  ], consultas, 'CCASR');
+  assert.deepEqual(r.map(x => x.estado), ['ok', 'saldo_distinto', 'no_vigente', 'ok', 'sin_vigentes', 'error', 'ok', 'sin_consulta']);
+  assert.equal(r[1].diferencia, 0.5);
+  assert.equal(r[3].operacion, 18987);
+  assert.equal(r[6].operacion, 8);
+  assert.ok(r[2].detalle.includes('18987'), r[2].detalle);
+});
