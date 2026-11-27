@@ -117,7 +117,7 @@
     const holder = 'pestana-' + nuevoId();
     const usuarioId = user ? await user.id() : null;
     const puede = user ? await user.can('data.write') : null;
-    const datos = { clientes: [], bancos: [], bancosMeli: [], lotes: [], carteraCfg: null, nocobisFlujo: null, chequesCfg: null, fcicMeliCfg: null, envios: [], agenteNoCobis: null, padronInventario: null, carteraHist: [] };
+    const datos = { clientes: [], bancos: [], bancosMeli: [], lotes: [], carteraCfg: null, nocobisFlujo: null, chequesCfg: null, fcicMeliCfg: null, envios: [], agenteNoCobis: null, padronInventario: null, carteraHist: [], menuSectores: null };
     const listo = { clientes: false, bancos: false, lotes: false, bancosMeli: false };
     const api = {
       modo: 'compartido',
@@ -147,6 +147,11 @@
     // Configuración de la pestaña Cartera (columnas, estados pagos, etc.), la misma para todos.
     db.doc('maestros/carteraConfig').onSnapshot(s => {
       datos.carteraCfg = s.exists && s.data().cfg && typeof s.data().cfg === 'object' ? clonar(s.data().cfg) : null;
+      emitirSiListo();
+    }, alError);
+    // Menú por sectores: asignaciones sector↔función y sectores por usuario (opcional; sin documento rige la configuración de fábrica del motor).
+    db.doc('maestros/menuSectores').onSnapshot(s => {
+      datos.menuSectores = s.exists && s.data().cfg && typeof s.data().cfg === 'object' ? clonar(s.data().cfg) : null;
       emitirSiListo();
     }, alError);
     // Padrón de los inventarios de garantías (CUIT por ente, fecha de cada garantía), el mismo para todos.

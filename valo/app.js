@@ -136,20 +136,108 @@
 
   const quien = id => (id && nombresUsuarios[id]) || '';
 
-  // ------------------------------------------------------------- pestañas
+  // ------------------------------------------------------------- menú por sectores
+  // La pantalla principal son tarjetas de sector (ACTIVAS, SAC, FIDEICOMISOS). Cada sector muestra solo las funcionalidades que tiene
+  // asignadas (registro central en motor.js: MENU_FUNCIONES / MENU_SECTORES / MENU_ASIGNACIONES) y las pantallas siguen siendo las de siempre.
+  // Ruta en el hash: #/<sector> y #/<sector>/<funcion>; una ruta no autorizada o no asignada vuelve al inicio.
+  const ICONOS = {
+    maletin: '<rect x="3" y="7" width="18" height="13" rx="2"/><path d="M9 7V5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2M3 13h18"/>',
+    escudo: '<path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/><path d="M9 12l2 2 4-4"/>',
+    banco: '<path d="M3 10l9-6 9 6M5 10v8M9 10v8M15 10v8M19 10v8M3 20h18"/>',
+    lote: '<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M12 17v-6M9.5 13.5L12 11l2.5 2.5"/>',
+    clientes: '<circle cx="9" cy="8" r="3"/><path d="M3 20c0-3 3-5 6-5s6 2 6 5"/><circle cx="17" cy="9" r="2.5"/><path d="M16 14.5c3 .3 5 2 5 5"/>',
+    edificio: '<path d="M5 21V5a1 1 0 0 1 1-1h8a1 1 0 0 1 1 1v16M15 9h4a1 1 0 0 1 1 1v11M3 21h18M9 8h2M9 12h2M9 16h2"/>',
+    base: '<ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v14c0 1.7 3.6 3 8 3s8-1.3 8-3V5M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/>',
+    reloj: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+    carpeta: '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
+    dolar: '<path d="M12 3v18M16 7.5C15 6.5 13.7 6 12 6c-2.4 0-4 1.2-4 3s1.6 2.5 4 3 4 1.2 4 3-1.6 3-4 3c-1.8 0-3.2-.5-4.2-1.5"/>',
+    cheque: '<rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h6M6 14h3M15 14h3"/>',
+    cajas: '<path d="M21 8l-9-5-9 5 9 5z"/><path d="M3 8v8l9 5 9-5V8M12 13v8"/>',
+    poder: '<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M9 15l2 2 4-4"/>',
+    cambio: '<path d="M7 7h13M16 3l4 4-4 4M17 17H4M8 13l-4 4 4 4"/>',
+  };
+  const ICONO_FUNCION = { carga_lote: 'lote', clientes: 'clientes', bancos: 'banco', bancos_meli: 'edificio', padrones: 'base', historial: 'reloj', cartera: 'carpeta',
+    saldo_deuda: 'dolar', descuento_cheques: 'cheque', inventarios: 'cajas', bastanteo: 'poder', nocobis_meli: 'cambio' };
+  const svgIcono = k => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONOS[k] || ICONOS.lote}</svg>`;
+  const menuEmail = () => (almacen && almacen.email) || '';
+  const menuCfg = () => (almacen && almacen.datos && almacen.datos.menuSectores) || null;
+  let menuCtx = { sector: null, funcion: null }, menuListo = false;
 
-  function irA(vista) {
-    document.querySelectorAll('nav button').forEach(b => b.setAttribute('aria-selected', String(b.dataset.vista === vista)));
+  function mostrarVista(vista) {
     document.querySelectorAll('section.vista').forEach(s => s.classList.toggle('activa', s.id === 'vista-' + vista));
-    const mas = $('navMas');
-    if (mas) { const enMas = [...mas.options].some(o => o.value && o.value === vista); mas.value = enMas ? vista : ''; mas.classList.toggle('activa', enMas); }
     if (vista === 'cartera') alAbrirCartera();
     if (vista === 'deuda') alAbrirDeuda();
     if (vista === 'fcic') alAbrirFcic();
+    window.scrollTo(0, 0);
   }
-  document.querySelectorAll('nav button').forEach(b => b.addEventListener('click', () => irA(b.dataset.vista)));
-  $('navMas').addEventListener('change', e => { if (e.target.value) irA(e.target.value); });
+  function menuSector(id) { return M.menuSectoresDe(menuEmail(), menuCfg()).find(s => s.id === id) || null; }
+  function renderInicio() {
+    const sectores = M.menuSectoresDe(menuEmail(), menuCfg());
+    $('portalSectores').innerHTML = sectores.length ? sectores.map(s => {
+      const n = M.menuFuncionesDe(s.id, menuCfg()).length;
+      return `<button type="button" class="tarjeta-sector" data-sector="${esc(s.id)}" data-menu-sector="${esc(s.id)}" aria-label="${esc(s.nombre)}: ${n} módulo${n === 1 ? '' : 's'}">
+        ${svgIcono(s.icono)}<span class="tit">${esc(s.nombre)}</span><span class="cant">${n} módulo${n === 1 ? '' : 's'}</span><span class="desc">${esc(s.descripcion || '')}</span></button>`;
+    }).join('') : '<div class="portal-vacio">Tu usuario no tiene sectores habilitados. Pedile acceso al administrador.</div>';
+  }
+  function renderSector(id) {
+    const s = menuSector(id);
+    $('sectorTitulo').textContent = s ? 'Gestión de ' + s.nombre.charAt(0) + s.nombre.slice(1).toLowerCase() : '';
+    const fns = s ? M.menuFuncionesDe(id, menuCfg()) : [];
+    $('portalFunciones').innerHTML = fns.length ? fns.map(f => `<button type="button" class="tarjeta-funcion" data-sector="${esc(id)}" data-menu-fn="${esc(f.id)}">
+        ${svgIcono(ICONO_FUNCION[f.id])}<span class="tit">${esc(f.nombre)}</span><span class="desc">${esc(f.descripcion || '')}</span><span class="flecha" aria-hidden="true">↗</span></button>`).join('')
+      : '<div class="portal-vacio">Este sector todavía no tiene funcionalidades asignadas.</div>';
+  }
+  function pintarRuta() {
+    const nav = $('navSector');
+    if (!menuCtx.sector) { nav.classList.add('oculto'); nav.innerHTML = ''; return; }
+    const s = menuSector(menuCtx.sector), f = menuCtx.funcion ? M.MENU_FUNCIONES[menuCtx.funcion] : null;
+    nav.setAttribute('data-sector', menuCtx.sector);
+    nav.innerHTML = `<button type="button" data-menu="inicio">← Volver a sectores</button>`
+      + `<button type="button" class="sector-chip" data-menu="sector" title="Funcionalidades de ${esc(s ? s.nombre : '')}">${s ? svgIcono(s.icono).replace('<svg ', '<svg width="14" height="14" ') : ''}${esc(s ? s.nombre : '')}</button>`
+      + (f ? `<span class="migas">› <b>${esc(f.nombre)}</b></span>` : '');
+    nav.classList.remove('oculto');
+  }
+  // Navegación = cambiar el hash; el manejador aplica la ruta (así el botón Atrás y el enlace directo funcionan igual).
+  function irRuta(h) { if (location.hash === h) aplicarRuta(h); else location.hash = h; }
+  function aplicarRuta(hash) {
+    if (!menuListo) return;
+    const r = (!hash || hash === '#' || hash === '#/') ? { sector: null, funcion: null } : M.menuResolverRuta(hash, menuEmail(), menuCfg());
+    if (!r) {   // ruta inválida, de otro sector o sin autorización: nunca se abre
+      toast('Esa pantalla no está habilitada para tu usuario en ese sector.');
+      history.replaceState(null, '', location.pathname + location.search + '#/');
+      return aplicarRuta('#/');
+    }
+    menuCtx = r;
+    if (!r.sector) { renderInicio(); mostrarVista('inicio'); }
+    else if (!r.funcion) { renderSector(r.sector); mostrarVista('sector'); }
+    else mostrarVista(M.MENU_FUNCIONES[r.funcion].vista);
+    pintarRuta();
+  }
+  // Compatibilidad con los enlaces internos (data-ir="clientes"): se abre esa pantalla dentro del sector actual si la tiene asignada,
+  // y si no en el primer sector autorizado que sí la tiene.
+  function irA(vista) {
+    if (vista === 'inicio') return irRuta('#/');
+    const r = M.menuSectorParaVista(vista, menuCtx.sector, menuEmail(), menuCfg());
+    if (!r) { toast('Esa pantalla no está habilitada para tu usuario.'); return; }
+    irRuta(M.menuRuta(r.sector, r.funcion));
+  }
+  function menuIniciar() {
+    menuListo = true;
+    window.addEventListener('hashchange', () => aplicarRuta(location.hash));
+    aplicarRuta(location.hash);
+  }
+  // Si cambia la configuración (o los permisos) con la página abierta: se revalida el lugar actual.
+  function menuRefrescar() {
+    if (!menuListo) return;
+    const actual = menuCtx.sector ? M.menuRuta(menuCtx.sector, menuCtx.funcion) : '#/';
+    if (actual !== '#/' && !M.menuResolverRuta(actual, menuEmail(), menuCfg())) return irRuta('#/');
+    renderInicio(); if (menuCtx.sector && !menuCtx.funcion) renderSector(menuCtx.sector);
+  }
   document.addEventListener('click', e => {
+    const m = e.target.closest('[data-menu]'), sc = e.target.closest('[data-menu-sector]'), fn = e.target.closest('[data-menu-fn]');
+    if (sc) irRuta(M.menuRuta(sc.dataset.menuSector));
+    else if (fn) irRuta(M.menuRuta(fn.dataset.sector, fn.dataset.menuFn));
+    else if (m) irRuta(m.dataset.menu === 'inicio' ? '#/' : M.menuRuta(menuCtx.sector));
     const b = e.target.closest('[data-ir]');
     if (b) irA(b.dataset.ir);
   });
@@ -5522,7 +5610,9 @@
       renderCola();
       if (primera) { primera = false; $('cargandoBase').classList.add('oculto'); $('contenido').classList.remove('oculto'); }
       refrescar();
+      menuRefrescar();
     });
+    menuIniciar();
     if (!compartido) {
       if (flujoDisponible()) { cargarFlujo(); cargarPbi(); }
       $('cargandoBase').classList.add('oculto');

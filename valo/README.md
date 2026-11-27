@@ -147,3 +147,12 @@ Después de modificar el código, regenerar el archivo único con `python3 const
 - `motor.js` – cálculo de Cuotas/Créditos y formato de los CSV (sin dependencias del navegador).
 - `bancos-iniciales.js` – carga masiva inicial de Bancos.
 - `bancos-meli-iniciales.js` – carga inicial de Bancos MELI (Banco_meli.xlsx).
+
+## Menú principal por sectores
+
+La página abre en tres tarjetas (ACTIVAS, SAC, FIDEICOMISOS, con los colores del logo: Pantone 186 C y Cool Gray 10). Cada sector lista solo
+las funcionalidades que tiene asignadas; las pantallas son las de siempre. El registro está en `motor.js` (`MENU_FUNCIONES`, `MENU_SECTORES`,
+`MENU_ASIGNACIONES`): ids estables, nombre visible aparte y una lista explícita de pares `{sector, funcion}` (cada par es independiente).
+Rutas: `#/<sector>` y `#/<sector>/<funcion>`; una ruta no asignada o no autorizada vuelve al inicio. Se puede reemplazar la configuración
+desde la base con el documento `maestros/menuSectores` = `{ cfg: { asignaciones: [{sector, funcion}], usuarios: { "correo": { sectores: ["sac"] } } } }`
+(sin documento rige la de fábrica; la lista de sectores por usuario solo restringe, nunca amplía). Pruebas: `valo/tests/menu.test.js`.

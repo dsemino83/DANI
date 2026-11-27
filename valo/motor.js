@@ -6412,6 +6412,90 @@ try {
     if (!mensaje) mensaje = aceptado ? 'Aceptado' : j.etapa === 'login' ? 'No se pudo ingresar al banco (login)' : j.mensaje || `No aceptado${j.estadoHttp ? ' (HTTP ' + j.estadoHttp + ')' : ''}`;
     return { aceptado, mensaje, historico: j.historico !== false, fecha: j.fecha || '' };
   }
+  // ------------------------------------------------- Menú principal por sectores
+  // Registro central y determinista. Tres piezas independientes:
+  //   1) FUNCIONES: id funcional estable -> pantalla existente (vista) y nombre visible. El nombre NO es identificador.
+  //   2) SECTORES: id estable + nombre visible.
+  //   3) ASIGNACIONES: lista explícita de pares { sector, funcion }. Cada par es independiente de los demás: que una función
+  //      esté en ACTIVAS no la pone en FIDEICOMISOS ni al revés. Se puede reemplazar desde la base (maestros/menuSectores).
+  const MENU_FUNCIONES = Object.freeze({
+    carga_lote: { vista: 'lote', nombre: 'Carga de lote', descripcion: 'Procesar el archivo del cliente y generar Cuotas, Créditos y la carta de cesión' },
+    clientes: { vista: 'clientes', nombre: 'Clientes', descripcion: 'Alta y configuración de clientes e interfaces' },
+    bancos: { vista: 'bancos', nombre: 'Bancos', descripcion: 'Tabla de bancos y códigos de crédito' },
+    bancos_meli: { vista: 'bancosmeli', nombre: 'Bancos MELI', descripcion: 'Equivalencias de bancos para los TXT de MELI' },
+    padrones: { vista: 'padrones', nombre: 'Padrones', descripcion: 'Padrones de consulta (IIBB) compartidos' },
+    historial: { vista: 'historial', nombre: 'Historial', descripcion: 'Lotes generados y envíos realizados' },
+    cartera: { vista: 'cartera', nombre: 'Cartera', descripcion: 'Cartera, TXT NO COBIS y envíos a la API' },
+    saldo_deuda: { vista: 'deuda', nombre: 'Saldo de deuda', descripcion: 'Control del saldo de deuda' },
+    descuento_cheques: { vista: 'cheques', nombre: 'Descuento de cheques', descripcion: 'Descuento de cheques y e-cheqs' },
+    inventarios: { vista: 'inventario', nombre: 'Inventarios', descripcion: 'Inventarios de garantías, cartera e intereses' },
+    bastanteo: { vista: 'bastanteo', nombre: 'Bastanteo', descripcion: 'Poderes, firmantes y control de resúmenes' },
+    nocobis_meli: { vista: 'fcic', nombre: 'NO COBIS MELI', descripcion: 'Operaciones NO COBIS FCIC MELI' },
+  });
+  const MENU_SECTORES = Object.freeze([
+    Object.freeze({ id: 'activas', nombre: 'ACTIVAS', icono: 'maletin', descripcion: 'Operatoria de activas' }),
+    Object.freeze({ id: 'sac', nombre: 'SAC', icono: 'escudo', descripcion: 'Servicios de apoyo y control' }),
+    Object.freeze({ id: 'fideicomisos', nombre: 'FIDEICOMISOS', icono: 'banco', descripcion: 'Operatoria de fideicomisos' }),
+  ]);
+  const par = (sector, funcion) => Object.freeze({ sector, funcion });
+  const MENU_ASIGNACIONES = Object.freeze([
+    par('activas', 'carga_lote'), par('activas', 'clientes'), par('activas', 'bancos'), par('activas', 'bancos_meli'), par('activas', 'padrones'),
+    par('activas', 'historial'), par('activas', 'cartera'), par('activas', 'saldo_deuda'), par('activas', 'descuento_cheques'), par('activas', 'inventarios'),
+    par('sac', 'bastanteo'),
+    par('fideicomisos', 'nocobis_meli'), par('fideicomisos', 'carga_lote'), par('fideicomisos', 'clientes'), par('fideicomisos', 'historial'),
+  ]);
+  // Configuración efectiva: la guardada en la base (si es válida) o la de fábrica. config = { asignaciones: [{sector, funcion}], usuarios: { email: { sectores: [ids] } } }
+  function menuConfig(config) {
+    const base = { sectores: MENU_SECTORES, funciones: MENU_FUNCIONES, asignaciones: MENU_ASIGNACIONES, usuarios: {} };
+    if (!config || typeof config !== 'object') return base;
+    const sectIds = new Set(MENU_SECTORES.map(x => x.id));
+    if (Array.isArray(config.asignaciones)) {
+      const vistas = config.asignaciones.filter(a => a && sectIds.has(a.sector) && Object.prototype.hasOwnProperty.call(MENU_FUNCIONES, a.funcion)).map(a => par(a.sector, a.funcion));
+      base.asignaciones = vistas;
+    }
+    if (config.usuarios && typeof config.usuarios === 'object') base.usuarios = config.usuarios;
+    return base;
+  }
+  // Sectores que ve el usuario. Sin restricción cargada para su correo, ve todos; con restricción, solo los listados (nunca más).
+  function menuSectoresDe(email, config) {
+    const c = menuConfig(config), e = String(email || '').trim().toLowerCase();
+    const r = Object.keys(c.usuarios).find(k => String(k).trim().toLowerCase() === e);
+    const permitidos = r && c.usuarios[r] && Array.isArray(c.usuarios[r].sectores) ? new Set(c.usuarios[r].sectores) : null;
+    return c.sectores.filter(sec => !permitidos || permitidos.has(sec.id));
+  }
+  // Funciones asignadas a UN sector (solo sus pares, sin inferencias), en el orden de la configuración, sin repetidos.
+  function menuFuncionesDe(sectorId, config) {
+    const c = menuConfig(config), vistos = new Set(), res = [];
+    c.asignaciones.forEach(a => {
+      if (a.sector !== sectorId || vistos.has(a.funcion)) return;
+      vistos.add(a.funcion);
+      res.push(Object.assign({ id: a.funcion }, c.funciones[a.funcion]));
+    });
+    return res;
+  }
+  // ¿Puede este usuario abrir esa función dentro de ese sector? Debe estar el sector autorizado Y la función asignada a ESE sector.
+  function menuPuedeAbrir(email, sectorId, funcionId, config) {
+    return menuSectoresDe(email, config).some(s => s.id === sectorId) && menuFuncionesDe(sectorId, config).some(f => f.id === funcionId);
+  }
+  // Ruta (hash) <-> { sector, funcion }. '#/activas' (lista del sector) o '#/activas/carga_lote'. Devuelve null si no es válida o no está autorizada.
+  const menuRuta = (sectorId, funcionId) => '#/' + sectorId + (funcionId ? '/' + funcionId : '');
+  function menuResolverRuta(hash, email, config) {
+    const m = String(hash || '').match(/^#\/([a-z_]+)(?:\/([a-z_]+))?$/);
+    if (!m) return null;
+    if (!menuSectoresDe(email, config).some(s => s.id === m[1])) return null;
+    if (!m[2]) return { sector: m[1], funcion: null };
+    return menuPuedeAbrir(email, m[1], m[2], config) ? { sector: m[1], funcion: m[2] } : null;
+  }
+  // Pantalla (vista) existente -> sector donde abrirla: se prefiere el sector actual si la tiene asignada; si no, el primero autorizado que la tiene.
+  function menuSectorParaVista(vista, sectorActual, email, config) {
+    const fid = Object.keys(MENU_FUNCIONES).find(k => MENU_FUNCIONES[k].vista === vista);
+    if (!fid) return null;
+    const autorizados = menuSectoresDe(email, config).map(s => s.id);
+    const candidatos = autorizados.filter(id => menuFuncionesDe(id, config).some(f => f.id === fid));
+    if (!candidatos.length) return null;
+    return { sector: candidatos.includes(sectorActual) ? sectorActual : candidatos[0], funcion: fid };
+  }
+
   const api = { revocacionDe, normalizarEcheq, echeqsDeRespuesta, leerClientesCobis, lineaCobisEcheq, interfazCobisEcheq, resultadoAceptacion, fechaEcheq, razonDelArchivo, razonPorCuit,
     PROVINCIAS, FIJOS, COLS_REPORTE, FORMATOS, COLUMNAS_MONTO, CAMPOS_INTERFAZ,
     leerTxtMeli, bancoMeliDeTxt, bancosParaMeli,
@@ -6426,6 +6510,7 @@ try {
     generarCuotas, generarCreditos, txtCuotas, txtCreditos, nombreArchivo,
     calcularSecuenciaLote, validarFormulario,
     usoManual, usosConManuales, fusionarHojas, columnaMontoGetnet, sumaCentavos, armarEncargoBastanteo, acotarAdjuntos, extraerAjustes, validarAjuste, describirAjuste, aplicarAjustes, firmaDeRegla, OPS_AJUSTE, clienteConEquivalencias, aplicarAjustesControl, aplicarAjustesControlResumen, usoAgregarDeRegla, usosDeAjustes, tnaATea, teaATna, PADRONES, indexarPadronAlicuotas, buscarEnPadron, alicuotaPercepcionIIBB,
+    MENU_FUNCIONES, MENU_SECTORES, MENU_ASIGNACIONES, menuConfig, menuSectoresDe, menuFuncionesDe, menuPuedeAbrir, menuRuta, menuResolverRuta, menuSectorParaVista,
     leerArchivosCesion, datosCartaDesdeLote, datosCartaDesdeReporte, emisoresDeReporte, precioCesionNeto, cartaCesion, textoCartaCesion, docxSimple, fechaEnLetras, crc32,
   };
   root.ValoMotor = api;
