@@ -984,3 +984,22 @@ test('firma individual que solo habilita cobrar, percibir o depositar no es una 
     [estOcr('CONJUNTA', 'Un Mandatario A con Apoderado B conjuntamente', ['firmar_cheques']), estOcr('INDIVIDUAL', 'Grupo A individual', ['firmar_cheques', 'extraer_fondos'])])]);
   assert.ok(k.reglasFirma.some(r => r.tipo === 'ConjuntaIndistinta' && r.quorum === 1 && r.grupos.join() === 'A'));
 });
+
+test('ajustes: una regla con firma que ya no existe se rechaza; no se cae a "regla-1", que ahora puede ser otra regla', () => {
+  const F = ['firmar_cheques', 'extraer_fondos'];
+  const j = generarOcr([poderOcr('p', '2025-06-26T10:00:00+00:00', '337', '2025-06-26', [apOcr('A', 'Uno APELLIDOA', 20000001), apOcr('A', 'Dos APELLIDOA', 20000002), apOcr('B', 'Tres APELLIDOB', 20000003)],
+    [estOcr('CONJUNTA', 'Un Mandatario A con Apoderado B conjuntamente', F), estOcr('CONJUNTA', 'Dos del Grupo A conjuntamente', F)])]);
+  const antes = j.reglasFirma.map(r => r.tipo + r.grupos.join()).sort();
+  assert.ok(antes.length >= 2);
+  const referencia = j.reglasFirma[0].referencia;
+  const r = M.aplicarAjustes(j, [
+    { op: 'regla_quitar', referencia, firma: 'ConjuntaIndistinta|1|A,B,C,D,E||', motivo: 'la individual de antes, que ya no se genera' },
+    { op: 'regla_editar', referencia, firma: 'ConjuntaIndistinta|1|A,B,C,D,E||', cambios: { grupos: ['B', 'C', 'D', 'E'] }, motivo: 'idem' },
+  ]);
+  assert.equal(r.rechazados.length, 2);
+  assert.equal(r.aplicados.length, 0);
+  assert.deepEqual((r.json || j).reglasFirma.map(x => x.tipo + x.grupos.join()).sort(), antes, 'las reglas quedan como estaban');
+  // Sin firma (ajustes viejos) se sigue buscando por la referencia.
+  const s = M.aplicarAjustes(j, [{ op: 'regla_quitar', referencia, motivo: 'sin firma' }]);
+  assert.equal(s.aplicados.length, 1);
+});

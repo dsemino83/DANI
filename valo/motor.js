@@ -6214,7 +6214,9 @@ try {
       a = v.ajuste;
       const rs = json.reglasFirma || [];
       if (a.op === 'regla_editar' || a.op === 'regla_quitar') {
-        const r = (a.firma && rs.find(x => firmaDeRegla(x) === a.firma)) || rs.find(x => x.referencia === a.referencia);
+        // Con firma, la regla se busca SOLO por su firma: si ya no existe (el bastanteo cambió) se rechaza. Caer a "regla-1" sin más apuntaría a otra
+        // regla (los números cambian cuando el generador agrega o saca reglas) y la editaría o la sacaría por error.
+        const r = a.firma ? rs.find(x => firmaDeRegla(x) === a.firma) : rs.find(x => x.referencia === a.referencia);
         if (!r) return rechazo(a, 'la regla ya no existe (el bastanteo cambió)');
         if (a.op === 'regla_quitar') { json.reglasFirma = rs.filter(x => x !== r); return aplicados.push(a); }
         const c = a.cambios;
